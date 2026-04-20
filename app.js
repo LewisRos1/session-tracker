@@ -16,6 +16,7 @@ import {
   deleteTrial,
   updateFedcComment,
   getTodayUnfinishedStudentIds,
+  getRecentSessionsForStudent,
   sanitizeKey,
   getTodayString
 } from "./firebase-service.js";
@@ -122,10 +123,91 @@ function renderStudentButtons(unfinishedIds) {
   container.querySelectorAll(".student-btn").forEach(btn => {
     btn.addEventListener("click", () => {
       const student = CONFIG.STUDENTS.find(s => s.id === btn.dataset.id);
-      if (student) openSession(student);
+      if (student) showSessionPicker(student);
     });
   });
 }
+
+// ─── SESSION PICKER ──────────────────────────────────────────
+
+async function showSessionPicker(student) {
+  $("session-picker-title").textContent = student.name;
+  $("session-picker-list").innerHTML =
+    `<div class="session-picker-loading">Loading sessions…</div>`;
+  $("session-picker-modal").classList.remove("hidden");
+
+  let sessions = [];
+  try {
+    sessions = await getRecentSessionsForStudent(student.id);
+  } catch (_) {}
+
+  const today      = getTodayString();
+  const todaySess  = sessions.find(s => s.date === today);
+  const pastSess   = sessions.filter(s => s.date !== today); // already newest-first
+
+  let html = "";
+
+  // Today row
+  if (todaySess) {
+    const badge      = todaySess.finished ? "Finished" : "In progress";
+    const badgeClass = todaySess.finished ? "badge-finished" : "badge-inprogress";
+    html += `<div class="session-list-item session-list-today"
+      data-session-id="${todaySess.id}">
+      <div class="session-list-meta">
+        <div class="session-list-label">
+          Session ${todaySess.sessionNumber} of ${todaySess.month.split(" ")[0]}
+        </div>
+        <div class="session-list-date">Today · ${formatDate(today)}</div>
+      </div>
+      <span class="session-list-badge ${badgeClass}">${badge}</span>
+    </div>`;
+  } else {
+    html += `<div class="session-list-item session-list-today"
+      data-new-session="true">
+      <div class="session-list-meta">
+        <div class="session-list-label">Start Today's Session</div>
+        <div class="session-list-date">${formatDate(today)}</div>
+      </div>
+      <span class="session-list-badge badge-new">New</span>
+    </div>`;
+  }
+
+  // Past sessions
+  for (const s of pastSess) {
+    const badge      = s.finished ? "Finished" : "Unfinished";
+    const badgeClass = s.finished ? "badge-finished" : "badge-inprogress";
+    html += `<div class="session-list-item"
+      data-session-id="${s.id}">
+      <div class="session-list-meta">
+        <div class="session-list-label">
+          Session ${s.sessionNumber} of ${s.month.split(" ")[0]}
+        </div>
+        <div class="session-list-date">${formatDate(s.date)}</div>
+      </div>
+      <span class="session-list-badge ${badgeClass}">${badge}</span>
+    </div>`;
+  }
+
+  $("session-picker-list").innerHTML = html;
+
+  $("session-picker-list").querySelectorAll(".session-list-item").forEach(item => {
+    item.addEventListener("click", () => {
+      closeSessionPicker();
+      if (item.dataset.newSession) {
+        openSession(student, null);       // create today's session
+      } else {
+        openSession(student, item.dataset.sessionId); // open existing
+      }
+    });
+  });
+}
+
+function closeSessionPicker() {
+  $("session-picker-modal").classList.add("hidden");
+}
+
+$("session-picker-close").addEventListener("click",    closeSessionPicker);
+$("session-picker-backdrop").addEventListener("click", closeSessionPicker);
 
 function renderExportButtons() {
   const container = $("export-buttons");
@@ -153,7 +235,9 @@ function renderExportButtons() {
 // SESSION SCREEN — OPEN / NAVIGATION
 // ============================================================
 
-async function openSession(student) {
+// existingSessionId: pass a Firestore doc ID to open a past session,
+// or null to create/open today's session.
+async function openSession(student, existingSessionId = null) {
   state.currentStudent     = student;
   state.selectedTargetName = student.targets[0]?.name || null;
   state.sessionData        = null;
@@ -164,14 +248,16 @@ async function openSession(student) {
 
   showScreen("screen-session");
   $("session-student-name").textContent = student.name;
-  $("session-date").textContent = formatDate(getTodayString());
+  $("session-date").textContent = "";
   $("session-meta").textContent = "";
   $("target-content").innerHTML = `<div class="loading">Loading…</div>`;
 
   if (state.fbUnsubscribe) { state.fbUnsubscribe(); state.fbUnsubscribe = null; }
 
   try {
-    const sessionId = await getOrCreateTodaySession(student.id);
+    const sessionId = existingSessionId
+      ? existingSessionId
+      : await getOrCreateTodaySession(student.id);
     state.currentSessionId = sessionId;
 
     state.fbUnsubscribe = listenToSession(sessionId, data => {
@@ -211,6 +297,7 @@ function updateSessionHeader() {
   const d = state.sessionData;
   if (!d) return;
   $("session-meta").textContent = `Session ${d.sessionNumber} of ${d.month.split(" ")[0]}`;
+  $("session-date").textContent = formatDate(d.date);
   const finishBtn = $("btn-finish-session");
   if (d.finished) {
     finishBtn.textContent = "Session Finished";

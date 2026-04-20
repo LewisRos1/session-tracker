@@ -117,6 +117,22 @@
     </div>
   </div>
 
+  <!-- ══════════════════════════════════════════════════════
+       SESSION PICKER MODAL
+       ══════════════════════════════════════════════════════ -->
+  <div id="session-picker-modal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-backdrop" id="session-picker-backdrop"></div>
+    <div class="modal-sheet">
+      <div class="modal-header">
+        <span class="modal-title" id="session-picker-title">Sessions</span>
+        <button class="modal-close" id="session-picker-close" aria-label="Close">✕</button>
+      </div>
+      <div id="session-picker-list" class="session-picker-list">
+        <!-- populated by JS -->
+      </div>
+    </div>
+  </div>
+
   <!-- Main app (ES module) -->
   <script type="module" src="app.js"></script>
 </body>

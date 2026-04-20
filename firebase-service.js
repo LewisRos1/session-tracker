@@ -17,6 +17,7 @@ import {
   query,
   where,
   orderBy,
+  limit as firestoreLimit,
   onSnapshot,
   deleteField,
   serverTimestamp
@@ -193,6 +194,17 @@ export async function updateFedcComment(sessionId, targetName, text) {
 }
 
 // ─── EXPORT DATA ─────────────────────────────────────────────
+
+/** Fetch recent sessions for a student, newest-first (for session picker). */
+export async function getRecentSessionsForStudent(studentId, maxCount = 60) {
+  const snap = await getDocs(
+    query(collection(db, "sessions"),
+      where("studentId", "==", studentId),
+      orderBy("date", "desc"),
+      firestoreLimit(maxCount))
+  );
+  return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+}
 
 /** Fetch all sessions for a student, sorted oldest-first. */
 export async function getAllSessionsForStudent(studentId) {
