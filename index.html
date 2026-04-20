@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>Therapy Tracker</title>
+  <meta name="description" content="Therapy session scoring and tracking" />
+
+  <!-- PWA / iOS -->
+  <link rel="manifest" href="manifest.json" />
+  <meta name="theme-color" content="#6366f1" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="Therapy Tracker" />
+  <link rel="apple-touch-icon" href="icon-192.png" />
+
+  <link rel="stylesheet" href="styles.css" />
+
+  <!-- SheetJS (Excel export) -->
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+</head>
+<body>
+
+  <!-- ══════════════════════════════════════════════════════
+       PIN SCREEN
+       ══════════════════════════════════════════════════════ -->
+  <div id="screen-pin" class="screen active">
+    <div class="pin-container">
+      <div class="pin-logo">🧩</div>
+      <h1 class="pin-title">Therapy Tracker</h1>
+      <p class="pin-subtitle">Enter PIN to continue</p>
+      <input
+        id="pin-input"
+        class="pin-input"
+        type="password"
+        maxlength="10"
+        placeholder="PIN"
+        autocomplete="off"
+        autocorrect="off"
+        autocapitalize="characters"
+        spellcheck="false"
+      />
+      <div id="pin-error" class="pin-error hidden">Incorrect PIN. Try again.</div>
+      <button id="pin-submit" class="btn-unlock">Unlock</button>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════
+       HOME SCREEN
+       ══════════════════════════════════════════════════════ -->
+  <div id="screen-home" class="screen hidden">
+    <header class="app-header">
+      <h1>Therapy Tracker</h1>
+    </header>
+    <main class="home-main">
+      <section>
+        <h2 class="section-title">Students</h2>
+        <div class="student-buttons" id="student-buttons">
+          <!-- populated by JS -->
+        </div>
+      </section>
+      <section>
+        <h2 class="section-title">Export Data</h2>
+        <div class="export-buttons" id="export-buttons">
+          <!-- populated by JS -->
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════
+       SESSION SCREEN
+       ══════════════════════════════════════════════════════ -->
+  <div id="screen-session" class="screen hidden">
+    <header class="session-header">
+      <button class="btn-back" id="btn-back" aria-label="Back to home">←</button>
+      <div class="session-info">
+        <span class="session-student-name" id="session-student-name"></span>
+        <span class="session-meta"         id="session-meta"></span>
+      </div>
+      <span class="session-date" id="session-date"></span>
+    </header>
+
+    <div class="session-body">
+      <div class="target-selector">
+        <label for="target-select" class="target-label">Target</label>
+        <select id="target-select" class="target-dropdown">
+          <option value="">— select —</option>
+        </select>
+      </div>
+
+      <div id="target-content" class="target-content">
+        <!-- populated by JS -->
+      </div>
+    </div>
+
+    <footer class="session-footer" id="session-footer">
+      <button class="btn-finish" id="btn-finish-session">Finish Session</button>
+    </footer>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════
+       SCORE PICKER MODAL (bottom sheet)
+       ══════════════════════════════════════════════════════ -->
+  <div id="score-modal" class="modal hidden" role="dialog" aria-modal="true"
+       aria-label="Select score">
+    <div class="modal-backdrop" id="score-modal-backdrop"></div>
+    <div class="modal-sheet">
+      <div class="modal-header">
+        <span class="modal-title">Select Score</span>
+        <button class="modal-close" id="score-modal-close" aria-label="Close">✕</button>
+      </div>
+      <div class="score-buttons" id="score-buttons">
+        <!-- populated by JS -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Main app (ES module) -->
+  <script type="module" src="app.js"></script>
+</body>
+</html>
