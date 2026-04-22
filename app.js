@@ -157,14 +157,12 @@ function showStudentChoice(student) {
         <span class="choice-icon">▶</span>
         <div class="choice-text">
           <div class="choice-label">Today's Session</div>
-          <div class="choice-sub">Open or start today's session</div>
         </div>
       </button>
       <button class="choice-btn choice-other">
         <span class="choice-icon">🗂</span>
         <div class="choice-text">
-          <div class="choice-label">Edit Other Sessions</div>
-          <div class="choice-sub">Browse past sessions by month</div>
+          <div class="choice-label">Edit Past Sessions</div>
         </div>
       </button>
     </div>`;

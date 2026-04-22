@@ -205,11 +205,12 @@ export async function updateFedcComment(sessionId, targetName, text) {
 export async function getRecentSessionsForStudent(studentId, maxCount = 60) {
   const snap = await getDocs(
     query(collection(db, "sessions"),
-      where("studentId", "==", studentId),
-      orderBy("date", "desc"),
-      firestoreLimit(maxCount))
+      where("studentId", "==", studentId))
   );
-  return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  return snap.docs
+    .map(d => ({ id: d.id, ...d.data() }))
+    .sort((a, b) => b.date.localeCompare(a.date))
+    .slice(0, maxCount);
 }
 
 /** Fetch all sessions for a student, sorted oldest-first. */
