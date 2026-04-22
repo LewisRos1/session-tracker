@@ -397,6 +397,7 @@ function renderFedcTarget(target) {
     <span class="fedc-subtitle">${escHtml(target.fullName || "")}</span>
   </div>`;
 
+  const letters = "abcdefghij";
   let lastGroup = null;
   target.predefinedActivities.forEach((pa, idx) => {
     if (pa.group && pa.group !== lastGroup) {
@@ -416,19 +417,39 @@ function renderFedcTarget(target) {
         <span class="field-value-fixed">${escHtml(pa.name)}</span>
       </div>`;
 
-    for (const rem of remarks) {
-      html += renderRemarkFields(rem, target);
+    // Reference notes (a, b, c… sub-items)
+    if (pa.note && pa.note.length > 0) {
+      const noteHtml = pa.note.map((line, i) =>
+        `${letters[i]}) ${escHtml(line)}`
+      ).join("<br>");
+      html += `<div class="activity-note">${noteHtml}</div>`;
     }
 
-    if (isPending) {
-      html += renderPendingRemarkFields(pendingKey, actId, pa.name, idx, target);
+    if (pa.predefinedRemarks) {
+      // Predefined remarks mode (e.g. Self Management)
+      for (const predRemName of pa.predefinedRemarks) {
+        const rem = actId ? findRemarkByText(actId, predRemName) : null;
+        if (rem) {
+          html += renderPredefinedRemarkFields(rem, target);
+        } else {
+          html += renderGhostRemarkFields(predRemName, actId, pa, idx, target);
+        }
+      }
     } else {
-      html += `<button class="btn-add-remark"
-        data-pending-key="${escHtml(pendingKey)}"
-        data-act-id="${actId || ""}"
-        data-pa-name="${escHtml(pa.name)}"
-        data-pa-order="${idx}"
-        data-target="${escHtml(target.name)}">+ Add Remark</button>`;
+      // Normal mode: show existing remarks + add remark button
+      for (const rem of remarks) {
+        html += renderRemarkFields(rem, target);
+      }
+      if (isPending) {
+        html += renderPendingRemarkFields(pendingKey, actId, pa.name, idx, target);
+      } else {
+        html += `<button class="btn-add-remark"
+          data-pending-key="${escHtml(pendingKey)}"
+          data-act-id="${actId || ""}"
+          data-pa-name="${escHtml(pa.name)}"
+          data-pa-order="${idx}"
+          data-target="${escHtml(target.name)}">+ Add Remark</button>`;
+      }
     }
 
     html += `</div>`;
@@ -558,6 +579,51 @@ function renderPendingRemarkFields(pendingKey, actId, paName, paOrder, target) {
     </div>`;
 }
 
+// Predefined remark that already exists in Firebase (fixed label, no edit)
+function renderPredefinedRemarkFields(rem, target) {
+  const trials = rem.trials || [];
+  const trialsHtml = trials.map((score, idx) =>
+    `<span class="trial-badge">${score}<button class="btn-trial-delete"
+      data-rem-id="${rem.id}" data-idx="${idx}">×</button></span>`
+  ).join("");
+  return `
+    <div class="entry-divider"></div>
+    <div class="entry-field">
+      <span class="field-label">Remark</span>
+      <span class="field-value-fixed">${escHtml(rem.text || "")}</span>
+    </div>
+    <div class="entry-field">
+      <span class="field-label">Trials</span>
+      <div class="trials-content">
+        ${trialsHtml}
+        <button class="btn-add-trial btn-primary-sm"
+          data-rem-id="${rem.id}"
+          data-target="${escHtml(target.name)}">+ Trial</button>
+      </div>
+    </div>`;
+}
+
+// Predefined remark slot not yet in Firebase — ghost state
+function renderGhostRemarkFields(predRemName, actId, pa, paIdx, target) {
+  return `
+    <div class="entry-divider"></div>
+    <div class="entry-field">
+      <span class="field-label">Remark</span>
+      <span class="field-value-fixed predef-ghost">${escHtml(predRemName)}</span>
+    </div>
+    <div class="entry-field">
+      <span class="field-label">Trials</span>
+      <div class="trials-content">
+        <button class="btn-primary-sm btn-init-predef-remark"
+          data-rem-name="${escHtml(predRemName)}"
+          data-act-id="${actId || ""}"
+          data-pa-name="${escHtml(pa.name)}"
+          data-pa-order="${paIdx}"
+          data-target="${escHtml(target.name)}">+ Trial</button>
+      </div>
+    </div>`;
+}
+
 // ─── ATTACH LISTENERS ────────────────────────────────────────
 
 function attachTargetListeners(target) {
@@ -663,6 +729,18 @@ function attachTargetListeners(target) {
     });
   });
 
+  // ── Init predefined remark + open score picker ────────────
+  c.querySelectorAll(".btn-init-predef-remark").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const tgt = state.currentStudent.targets.find(t => t.name === btn.dataset.target);
+      if (!tgt) return;
+      const paOrder = btn.dataset.paOrder !== "" ? Number(btn.dataset.paOrder) : 0;
+      const actId = await ensureFedcActivity(tgt.name, btn.dataset.paName, paOrder);
+      const remId = await ensurePredefinedRemark(actId, btn.dataset.remName);
+      openScorePicker(remId, tgt.maxPoints || 3);
+    });
+  });
+
   // ── Add trial ─────────────────────────────────────────────
   c.querySelectorAll(".btn-add-trial").forEach(btn => {
     btn.addEventListener("click", () => {
@@ -733,6 +811,19 @@ async function ensureFedcActivity(targetName, activityName, order) {
   const existing = findActivityByName(targetName, activityName);
   if (existing) return existing.id;
   return await addActivity(state.currentSessionId, targetName, activityName, order, true);
+}
+
+async function ensurePredefinedRemark(actId, remarkText) {
+  const existing = findRemarkByText(actId, remarkText);
+  if (existing) return existing.id;
+  return await addRemark(state.currentSessionId, actId, remarkText);
+}
+
+function findRemarkByText(actId, text) {
+  const found = Object.entries(state.sessionData?.remarks || {}).find(
+    ([, r]) => r.activityId === actId && r.text === text
+  );
+  return found ? { id: found[0], ...found[1] } : null;
 }
 
 // ─── SCORE PICKER MODAL ──────────────────────────────────────
