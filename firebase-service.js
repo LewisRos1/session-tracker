@@ -163,6 +163,12 @@ export async function updateRemarkText(sessionId, remId, text) {
   });
 }
 
+export async function updateActivityName(sessionId, actId, name) {
+  await updateDoc(doc(db, "sessions", sessionId), {
+    [`activities.${actId}.activityName`]: name
+  });
+}
+
 export async function deleteRemark(sessionId, remId) {
   await updateDoc(doc(db, "sessions", sessionId), {
     [`remarks.${remId}`]: deleteField()

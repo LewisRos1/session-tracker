@@ -437,157 +437,91 @@ html, body {
 
 .fedc-comment-input:focus { border-color: var(--primary); }
 
-/* ============================================================
-   ACTIVITY BLOCK
-   ============================================================ */
-.activity-block {
+
+/* ─── ENTRY BLOCK (activity + remarks) ───────────────────── */
+.entry-block {
   background: var(--white);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
-  overflow: hidden;
+  padding: .75rem .85rem;
+  display: flex;
+  flex-direction: column;
+  gap: .55rem;
 }
 
-.activity-name-row {
+.entry-field {
   display: flex;
   align-items: flex-start;
-  justify-content: space-between;
-  padding: .8rem 1rem;
-  background: #f3f4f6;
-  border-bottom: 1px solid var(--border);
   gap: .5rem;
 }
 
-.activity-name {
-  font-size: .97rem;
-  font-weight: 600;
-  color: var(--text);
-  line-height: 1.4;
-  flex: 1;
-}
-
-.activity-actions {
-  display: flex;
-  gap: .3rem;
+.field-label {
+  font-size: .75rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  min-width: 52px;
+  padding-top: .6rem;
   flex-shrink: 0;
 }
 
-/* ─── ADD ACTIVITY ───────────────────────────────────────── */
-.btn-add-activity {
-  align-self: flex-start;
-  padding: .7rem 1.1rem;
-  background: var(--white);
-  border: 2px dashed var(--primary);
-  border-radius: var(--radius-sm);
-  font-size: .95rem;
-  font-weight: 600;
-  color: var(--primary);
-  cursor: pointer;
-  min-height: var(--tap-min);
-  width: 100%;
-  transition: background .15s;
-}
-
-.btn-add-activity:hover { background: var(--primary-light); }
-
-.add-activity-row {
-  display: flex;
-  gap: .5rem;
-  align-items: center;
-}
-
-.new-activity-input {
+/* editable input / textarea */
+.field-input {
   flex: 1;
-  padding: .7rem .85rem;
-  border: 2px solid var(--primary);
-  border-radius: var(--radius-sm);
-  font-size: .95rem;
-  outline: none;
-  min-height: var(--tap-min);
-}
-
-/* ─── REMARKS ────────────────────────────────────────────── */
-.remarks-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-}
-
-.remark-item {
-  padding: .7rem 1rem;
-  border-bottom: 1px solid var(--border);
-  display: flex;
-  flex-direction: column;
-  gap: .5rem;
-}
-
-.remark-item:last-child { border-bottom: none; }
-
-.remark-text-row {
-  display: flex;
-  align-items: flex-start;
-  gap: .4rem;
-  flex-wrap: wrap;
-}
-
-.remark-text {
-  flex: 1;
-  font-size: .93rem;
-  color: var(--text);
-  line-height: 1.5;
-  min-width: 0;
-  word-break: break-word;
-}
-
-.remark-textarea {
-  width: 100%;
-  padding: .6rem .75rem;
-  border: 2px solid var(--primary);
-  border-radius: var(--radius-sm);
+  padding: .5rem .65rem;
+  border: 1.5px solid var(--border);
+  border-radius: 6px;
   font-size: .93rem;
   font-family: var(--font);
-  resize: vertical;
-  outline: none;
-  line-height: 1.5;
   color: var(--text);
+  background: var(--bg);
+  outline: none;
+  resize: vertical;
+  line-height: 1.45;
+  transition: border-color .15s, background .15s;
 }
 
-.pending-remark-row {
-  padding: .7rem 1rem;
-  border-bottom: 1px solid var(--border);
-  display: flex;
-  flex-direction: column;
-  gap: .5rem;
+.field-input:focus {
+  border-color: var(--primary);
+  background: var(--white);
 }
 
-.pending-remark-actions {
-  display: flex;
-  gap: .5rem;
+/* fixed (non-editable) activity name for FEDC */
+.field-value-fixed {
+  flex: 1;
+  padding: .5rem 0;
+  font-size: .93rem;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.4;
 }
 
-/* ─── TRIALS ─────────────────────────────────────────────── */
-.trials-row {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: .4rem;
+.entry-divider {
+  height: 1px;
+  background: var(--border);
+  margin: .1rem -.85rem;
 }
 
-.trials-chips {
+/* Trials row */
+.trials-content {
+  flex: 1;
   display: flex;
   flex-wrap: wrap;
   gap: .35rem;
-  flex: 1;
+  align-items: center;
+  padding-top: .25rem;
 }
 
 .trial-badge {
   display: inline-flex;
   align-items: center;
-  gap: .15rem;
+  gap: .1rem;
   background: var(--primary-light);
   color: var(--primary-dark);
   border-radius: 20px;
-  padding: .2rem .55rem .2rem .65rem;
+  padding: .2rem .5rem .2rem .65rem;
   font-size: .9rem;
   font-weight: 700;
   white-space: nowrap;
@@ -600,32 +534,45 @@ html, body {
   cursor: pointer;
   font-size: .85rem;
   line-height: 1;
-  padding: 0 .1rem;
+  padding: 0 .15rem;
   opacity: .7;
-  border-radius: 50%;
   min-width: 18px;
 }
 
 .btn-trial-delete:hover { opacity: 1; color: var(--danger); }
 
-/* ─── ADD REMARK BUTTON ──────────────────────────────────── */
-.btn-add-remark {
-  display: block;
+/* ─── ADD ACTIVITY / REMARK BUTTONS ─────────────────────── */
+.btn-add-activity {
   width: 100%;
-  padding: .65rem 1rem;
-  background: none;
-  border: none;
-  border-top: 1px solid var(--border);
-  font-size: .9rem;
+  padding: .7rem 1rem;
+  background: var(--white);
+  border: 2px dashed var(--primary);
+  border-radius: var(--radius-sm);
+  font-size: .93rem;
   font-weight: 600;
   color: var(--primary);
   cursor: pointer;
-  text-align: left;
-  min-height: 44px;
+  min-height: var(--tap-min);
   transition: background .15s;
+  text-align: left;
 }
 
-.btn-add-remark:hover { background: var(--primary-light); }
+.btn-add-activity:hover { background: var(--primary-light); }
+
+.btn-add-remark {
+  align-self: flex-start;
+  padding: .35rem .1rem;
+  background: none;
+  border: none;
+  font-size: .88rem;
+  font-weight: 600;
+  color: var(--primary);
+  cursor: pointer;
+  min-height: 36px;
+  transition: opacity .12s;
+}
+
+.btn-add-remark:hover { opacity: .75; }
 
 /* ─── GENERIC BUTTONS ────────────────────────────────────── */
 .btn-primary-sm {

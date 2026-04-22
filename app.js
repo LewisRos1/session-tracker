@@ -9,6 +9,7 @@ import {
   finishSession,
   addActivity,
   deleteActivity,
+  updateActivityName,
   addRemark,
   updateRemarkText,
   deleteRemark,
@@ -32,20 +33,14 @@ const state = {
   fbUnsubscribe:      null,
   renderPending:      false,
   scorePicker:        { open: false, remId: null },
-
-  // pendingNewRemark: { pendingKey, actId, paName, paOrder } | null
-  //   pendingKey = paName for FEDC, actId for regular
-  //   actId      = Firebase actId (may be null for FEDC with no record yet)
-  pendingNewRemark:   null,
-  pendingNewActivity: null,   // { targetName } | null
-  editingRemark:      null    // { remId } | null
+  pendingNewRemark:   null,   // { pendingKey, actId, paName, paOrder } | null
+  pendingNewActivity: null    // { targetName } | null
 };
 
 const $ = id => document.getElementById(id);
 
 // ─── INIT ────────────────────────────────────────────────────
 document.addEventListener("DOMContentLoaded", () => {
-  // Deferred render when any text input loses focus
   document.addEventListener("focusout", () => {
     if (state.renderPending) {
       state.renderPending = false;
@@ -54,7 +49,6 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   if (sessionStorage.getItem("auth") === "1") {
-    state.authenticated = true;
     showHome();
   } else {
     initPin();
@@ -128,87 +122,6 @@ function renderStudentButtons(unfinishedIds) {
   });
 }
 
-// ─── SESSION PICKER ──────────────────────────────────────────
-
-async function showSessionPicker(student) {
-  $("session-picker-title").textContent = student.name;
-  $("session-picker-list").innerHTML =
-    `<div class="session-picker-loading">Loading sessions…</div>`;
-  $("session-picker-modal").classList.remove("hidden");
-
-  let sessions = [];
-  try {
-    sessions = await getRecentSessionsForStudent(student.id);
-  } catch (_) {}
-
-  const today      = getTodayString();
-  const todaySess  = sessions.find(s => s.date === today);
-  const pastSess   = sessions.filter(s => s.date !== today); // already newest-first
-
-  let html = "";
-
-  // Today row
-  if (todaySess) {
-    const badge      = todaySess.finished ? "Finished" : "In progress";
-    const badgeClass = todaySess.finished ? "badge-finished" : "badge-inprogress";
-    html += `<div class="session-list-item session-list-today"
-      data-session-id="${todaySess.id}">
-      <div class="session-list-meta">
-        <div class="session-list-label">
-          Session ${todaySess.sessionNumber} of ${todaySess.month.split(" ")[0]}
-        </div>
-        <div class="session-list-date">Today · ${formatDate(today)}</div>
-      </div>
-      <span class="session-list-badge ${badgeClass}">${badge}</span>
-    </div>`;
-  } else {
-    html += `<div class="session-list-item session-list-today"
-      data-new-session="true">
-      <div class="session-list-meta">
-        <div class="session-list-label">Start Today's Session</div>
-        <div class="session-list-date">${formatDate(today)}</div>
-      </div>
-      <span class="session-list-badge badge-new">New</span>
-    </div>`;
-  }
-
-  // Past sessions
-  for (const s of pastSess) {
-    const badge      = s.finished ? "Finished" : "Unfinished";
-    const badgeClass = s.finished ? "badge-finished" : "badge-inprogress";
-    html += `<div class="session-list-item"
-      data-session-id="${s.id}">
-      <div class="session-list-meta">
-        <div class="session-list-label">
-          Session ${s.sessionNumber} of ${s.month.split(" ")[0]}
-        </div>
-        <div class="session-list-date">${formatDate(s.date)}</div>
-      </div>
-      <span class="session-list-badge ${badgeClass}">${badge}</span>
-    </div>`;
-  }
-
-  $("session-picker-list").innerHTML = html;
-
-  $("session-picker-list").querySelectorAll(".session-list-item").forEach(item => {
-    item.addEventListener("click", () => {
-      closeSessionPicker();
-      if (item.dataset.newSession) {
-        openSession(student, null);       // create today's session
-      } else {
-        openSession(student, item.dataset.sessionId); // open existing
-      }
-    });
-  });
-}
-
-function closeSessionPicker() {
-  $("session-picker-modal").classList.add("hidden");
-}
-
-$("session-picker-close").addEventListener("click",    closeSessionPicker);
-$("session-picker-backdrop").addEventListener("click", closeSessionPicker);
-
 function renderExportButtons() {
   const container = $("export-buttons");
   container.innerHTML = CONFIG.STUDENTS.map(s => `
@@ -232,18 +145,84 @@ function renderExportButtons() {
 }
 
 // ============================================================
-// SESSION SCREEN — OPEN / NAVIGATION
+// SESSION PICKER
 // ============================================================
 
-// existingSessionId: pass a Firestore doc ID to open a past session,
-// or null to create/open today's session.
+async function showSessionPicker(student) {
+  $("session-picker-title").textContent = student.name;
+  $("session-picker-list").innerHTML =
+    `<div class="session-picker-loading">Loading sessions…</div>`;
+  $("session-picker-modal").classList.remove("hidden");
+
+  let sessions = [];
+  try { sessions = await getRecentSessionsForStudent(student.id); } catch (_) {}
+
+  const today     = getTodayString();
+  const todaySess = sessions.find(s => s.date === today);
+  const pastSess  = sessions.filter(s => s.date !== today);
+
+  let html = "";
+
+  if (todaySess) {
+    const badge      = todaySess.finished ? "Finished" : "In progress";
+    const badgeClass = todaySess.finished ? "badge-finished" : "badge-inprogress";
+    html += `<div class="session-list-item session-list-today" data-session-id="${todaySess.id}">
+      <div class="session-list-meta">
+        <div class="session-list-label">Session ${todaySess.sessionNumber} of ${todaySess.month.split(" ")[0]}</div>
+        <div class="session-list-date">Today · ${formatDate(today)}</div>
+      </div>
+      <span class="session-list-badge ${badgeClass}">${badge}</span>
+    </div>`;
+  } else {
+    html += `<div class="session-list-item session-list-today" data-new-session="true">
+      <div class="session-list-meta">
+        <div class="session-list-label">Start Today's Session</div>
+        <div class="session-list-date">${formatDate(today)}</div>
+      </div>
+      <span class="session-list-badge badge-new">New</span>
+    </div>`;
+  }
+
+  for (const s of pastSess) {
+    const badge      = s.finished ? "Finished" : "Unfinished";
+    const badgeClass = s.finished ? "badge-finished" : "badge-inprogress";
+    html += `<div class="session-list-item" data-session-id="${s.id}">
+      <div class="session-list-meta">
+        <div class="session-list-label">Session ${s.sessionNumber} of ${s.month.split(" ")[0]}</div>
+        <div class="session-list-date">${formatDate(s.date)}</div>
+      </div>
+      <span class="session-list-badge ${badgeClass}">${badge}</span>
+    </div>`;
+  }
+
+  $("session-picker-list").innerHTML = html;
+  $("session-picker-list").querySelectorAll(".session-list-item").forEach(item => {
+    item.addEventListener("click", () => {
+      closeSessionPicker();
+      item.dataset.newSession
+        ? openSession(student, null)
+        : openSession(student, item.dataset.sessionId);
+    });
+  });
+}
+
+function closeSessionPicker() {
+  $("session-picker-modal").classList.add("hidden");
+}
+
+$("session-picker-close").addEventListener("click",    closeSessionPicker);
+$("session-picker-backdrop").addEventListener("click", closeSessionPicker);
+
+// ============================================================
+// SESSION SCREEN
+// ============================================================
+
 async function openSession(student, existingSessionId = null) {
   state.currentStudent     = student;
   state.selectedTargetName = student.targets[0]?.name || null;
   state.sessionData        = null;
   state.pendingNewActivity = null;
   state.pendingNewRemark   = null;
-  state.editingRemark      = null;
   state.renderPending      = false;
 
   showScreen("screen-session");
@@ -286,12 +265,9 @@ function leaveSession() {
   state.currentStudent     = null;
   state.pendingNewActivity = null;
   state.pendingNewRemark   = null;
-  state.editingRemark      = null;
   state.renderPending      = false;
   showHome();
 }
-
-// ─── SESSION HEADER ──────────────────────────────────────────
 
 function updateSessionHeader() {
   const d = state.sessionData;
@@ -310,26 +286,20 @@ function updateSessionHeader() {
   }
 }
 
-// ─── TARGET DROPDOWN ─────────────────────────────────────────
-// Called once per openSession; uses onchange to avoid listener accumulation.
 function populateTargetDropdown(targets) {
   const sel = $("target-select");
   sel.innerHTML = targets.map(t =>
     `<option value="${escHtml(t.name)}">${escHtml(t.name)}</option>`
   ).join("");
-  sel.value = state.selectedTargetName || targets[0]?.name || "";
-
-  // Replace (not add) listener
+  sel.value    = state.selectedTargetName || targets[0]?.name || "";
   sel.onchange = () => {
     state.selectedTargetName = sel.value;
     state.pendingNewActivity = null;
     state.pendingNewRemark   = null;
-    state.editingRemark      = null;
     renderTargetContent();
   };
 }
 
-// ─── BACK & FINISH BUTTONS (attached once on module load) ────
 $("btn-back").addEventListener("click", leaveSession);
 $("btn-finish-session").addEventListener("click", async () => {
   if (!state.currentSessionId) return;
@@ -343,14 +313,12 @@ $("btn-finish-session").addEventListener("click", async () => {
 
 function renderTargetContent() {
   if (!state.sessionData || !state.selectedTargetName) return;
-
   const target = state.currentStudent.targets.find(
     t => t.name === state.selectedTargetName
   );
   if (!target) return;
 
   updateSessionHeader();
-
   const container = $("target-content");
   container.innerHTML = target.predefinedActivities
     ? renderFedcTarget(target)
@@ -368,42 +336,52 @@ function renderFedcTarget(target) {
   </div>`;
 
   let lastGroup = null;
-
   target.predefinedActivities.forEach((pa, idx) => {
     if (pa.group && pa.group !== lastGroup) {
       lastGroup = pa.group;
       html += `<div class="activity-group-heading">${escHtml(pa.group)}</div>`;
     }
 
-    // pendingKey for FEDC = predefined activity name
-    const pendingKey  = pa.name;
-    const actData     = findActivityByName(target.name, pa.name);
-    const actId       = actData ? actData.id : null;
-    const isPending   = state.pendingNewRemark?.pendingKey === pendingKey;
+    const pendingKey = pa.name;
+    const actData    = findActivityByName(target.name, pa.name);
+    const actId      = actData ? actData.id : null;
+    const remarks    = actId ? getRemarksForActivity(actId) : [];
+    const isPending  = state.pendingNewRemark?.pendingKey === pendingKey;
 
-    html += `<div class="activity-block fedc-activity">
-      <div class="activity-name-row">
-        <span class="activity-name">${escHtml(pa.name)}</span>
-      </div>
-      ${renderRemarksList(actId, pendingKey, target)}
-      ${!isPending ? `<button class="btn-add-remark"
+    html += `<div class="entry-block">
+      <div class="entry-field">
+        <span class="field-label">Activity</span>
+        <span class="field-value-fixed">${escHtml(pa.name)}</span>
+      </div>`;
+
+    for (const rem of remarks) {
+      html += renderRemarkFields(rem, target);
+    }
+
+    if (isPending) {
+      html += renderPendingRemarkFields(pendingKey, actId, pa.name, idx, target);
+    } else {
+      html += `<button class="btn-add-remark"
         data-pending-key="${escHtml(pendingKey)}"
         data-act-id="${actId || ""}"
         data-pa-name="${escHtml(pa.name)}"
         data-pa-order="${idx}"
-        data-target="${escHtml(target.name)}">+ Add Remark</button>` : ""}
-    </div>`;
+        data-target="${escHtml(target.name)}">+ Add Remark</button>`;
+    }
+
+    html += `</div>`;
   });
 
-  // FEDC free-text Comment field
   if (target.hasComment) {
-    const commentKey  = sanitizeKey(target.name);
-    const commentText = (state.sessionData.fedcComments || {})[commentKey] || "";
-    html += `<div class="fedc-comment-block">
-      <label class="fedc-comment-label">Comment (no scoring)</label>
-      <textarea class="fedc-comment-input"
-        data-target="${escHtml(target.name)}"
-        placeholder="Free-text comment…">${escHtml(commentText)}</textarea>
+    const commentText = (state.sessionData.fedcComments || {})[sanitizeKey(target.name)] || "";
+    html += `<div class="entry-block">
+      <div class="entry-field">
+        <span class="field-label">Comment</span>
+        <textarea class="field-input fedc-comment-input"
+          data-target="${escHtml(target.name)}"
+          placeholder="Free-text comment (no scoring)…"
+          rows="3">${escHtml(commentText)}</textarea>
+      </div>
     </div>`;
   }
 
@@ -416,125 +394,157 @@ function renderRegularTarget(target) {
   const activities = getActivitiesForTarget(target.name);
   let html = "";
 
-  if (state.pendingNewActivity?.targetName === target.name) {
-    html += `<div class="add-activity-row">
-      <input id="new-activity-input" class="new-activity-input"
-        type="text" placeholder="Activity name…" maxlength="200" />
-      <button class="btn-confirm-activity" id="btn-confirm-activity">Add</button>
-      <button class="btn-cancel-plain" id="btn-cancel-new-activity">Cancel</button>
-    </div>`;
-  } else {
-    html += `<button class="btn-add-activity" data-target="${escHtml(target.name)}">
-      + Add Activity</button>`;
-  }
-
   for (const act of activities) {
-    const pendingKey = act.id;   // pendingKey for regular = actId
+    const pendingKey = act.id;
     const isPending  = state.pendingNewRemark?.pendingKey === pendingKey;
+    const remarks    = getRemarksForActivity(act.id);
 
-    html += `<div class="activity-block" data-act-id="${act.id}">
-      <div class="activity-name-row">
-        <span class="activity-name">${escHtml(act.activityName)}</span>
-        <div class="activity-actions">
-          <button class="btn-icon btn-delete-activity"
-            data-act-id="${act.id}" title="Delete activity">🗑</button>
-        </div>
-      </div>
-      ${renderRemarksList(act.id, pendingKey, target)}
-      ${!isPending ? `<button class="btn-add-remark"
+    html += `<div class="entry-block" data-act-id="${act.id}">
+      <div class="entry-field">
+        <span class="field-label">Activity</span>
+        <input class="field-input activity-name-input"
+          type="text"
+          value="${escHtml(act.activityName)}"
+          data-act-id="${act.id}"
+          data-original="${escHtml(act.activityName)}" />
+        <button class="btn-icon btn-delete-activity"
+          data-act-id="${act.id}" title="Delete activity">🗑</button>
+      </div>`;
+
+    for (const rem of remarks) {
+      html += renderRemarkFields(rem, target);
+    }
+
+    if (isPending) {
+      html += renderPendingRemarkFields(pendingKey, act.id, null, null, target);
+    } else {
+      html += `<button class="btn-add-remark"
         data-pending-key="${escHtml(pendingKey)}"
         data-act-id="${act.id}"
-        data-target="${escHtml(target.name)}">+ Add Remark</button>` : ""}
+        data-target="${escHtml(target.name)}">+ Add Remark</button>`;
+    }
+
+    html += `</div>`;
+  }
+
+  // Pending new activity block
+  if (state.pendingNewActivity?.targetName === target.name) {
+    html += `<div class="entry-block">
+      <div class="entry-field">
+        <span class="field-label">Activity</span>
+        <input id="new-activity-input" class="field-input"
+          type="text" placeholder="Type activity name…" maxlength="200" />
+        <button class="btn-icon btn-cancel-new-activity" title="Cancel">✕</button>
+      </div>
     </div>`;
   }
 
+  html += `<button class="btn-add-activity"
+    data-target="${escHtml(target.name)}">+ Add Activity</button>`;
+
   return html;
 }
 
-// ─── REMARKS LIST ────────────────────────────────────────────
+// ─── REMARK FIELDS ───────────────────────────────────────────
 
-// actId    = Firebase actId (null if FEDC activity not yet in Firebase)
-// pendingKey = key to match pending remark input (paName for FEDC, actId for regular)
-function renderRemarksList(actId, pendingKey, target) {
-  const remarks = actId ? getRemarksForActivity(actId) : [];
-
-  let html = `<div class="remarks-list">`;
-  for (const rem of remarks) {
-    html += renderRemarkItem(rem, actId, target);
-  }
-  html += renderPendingInput(pendingKey, actId, target);
-  html += `</div>`;
-  return html;
-}
-
-function renderPendingInput(pendingKey, actId, target) {
-  if (state.pendingNewRemark?.pendingKey !== pendingKey) return "";
-  const p = state.pendingNewRemark;
-  return `<div class="pending-remark-row">
-    <textarea id="new-remark-textarea" class="remark-textarea"
-      placeholder="Type remark…" rows="2"></textarea>
-    <div class="pending-remark-actions">
-      <button class="btn-save-remark btn-primary-sm"
-        data-act-id="${actId || ""}"
-        data-pa-name="${escHtml(p.paName || "")}"
-        data-pa-order="${p.paOrder ?? ""}"
-        data-target="${escHtml(target.name)}">Save</button>
-      <button class="btn-cancel-plain btn-cancel-remark">Cancel</button>
-    </div>
-  </div>`;
-}
-
-function renderRemarkItem(rem, actId, target) {
-  const isEditing = state.editingRemark?.remId === rem.id;
-  const trials    = rem.trials || [];
-
-  const textHtml = isEditing
-    ? `<textarea class="remark-textarea remark-edit-textarea"
-        data-rem-id="${rem.id}" rows="2">${escHtml(rem.text || "")}</textarea>
-       <div class="pending-remark-actions">
-         <button class="btn-save-edit btn-primary-sm" data-rem-id="${rem.id}">Save</button>
-         <button class="btn-cancel-plain btn-cancel-edit" data-rem-id="${rem.id}">Cancel</button>
-       </div>`
-    : `<span class="remark-text">${escHtml(rem.text || "(empty)")}</span>
-       <button class="btn-icon btn-edit-remark" data-rem-id="${rem.id}" title="Edit">✏</button>
-       <button class="btn-icon btn-delete-remark" data-rem-id="${rem.id}" title="Delete">🗑</button>`;
-
+function renderRemarkFields(rem, target) {
+  const trials = rem.trials || [];
   const trialsHtml = trials.map((score, idx) =>
     `<span class="trial-badge">${score}<button class="btn-trial-delete"
-      data-rem-id="${rem.id}" data-idx="${idx}" title="Remove">×</button></span>`
+      data-rem-id="${rem.id}" data-idx="${idx}">×</button></span>`
   ).join("");
 
-  return `<div class="remark-item" data-rem-id="${rem.id}">
-    <div class="remark-text-row">${textHtml}</div>
-    <div class="trials-row">
-      <div class="trials-chips">${trialsHtml}</div>
-      <button class="btn-add-trial btn-primary-sm"
+  return `
+    <div class="entry-divider"></div>
+    <div class="entry-field">
+      <span class="field-label">Remark</span>
+      <textarea class="field-input remark-text-input"
         data-rem-id="${rem.id}"
-        data-target="${escHtml(target.name)}">+ Trial</button>
+        data-original="${escHtml(rem.text || "")}"
+        rows="2">${escHtml(rem.text || "")}</textarea>
+      <button class="btn-icon btn-delete-remark"
+        data-rem-id="${rem.id}" title="Delete remark">🗑</button>
     </div>
-  </div>`;
+    <div class="entry-field">
+      <span class="field-label">Trials</span>
+      <div class="trials-content">
+        ${trialsHtml}
+        <button class="btn-add-trial btn-primary-sm"
+          data-rem-id="${rem.id}"
+          data-target="${escHtml(target.name)}">+ Trial</button>
+      </div>
+    </div>`;
 }
 
-// ─── ATTACH LISTENERS AFTER RENDER ───────────────────────────
+function renderPendingRemarkFields(pendingKey, actId, paName, paOrder, target) {
+  const p = state.pendingNewRemark;
+  return `
+    <div class="entry-divider"></div>
+    <div class="entry-field">
+      <span class="field-label">Remark</span>
+      <textarea id="new-remark-textarea" class="field-input"
+        placeholder="Type remark…" rows="2"></textarea>
+      <button class="btn-icon btn-cancel-remark" title="Cancel">✕</button>
+    </div>
+    <div class="entry-field">
+      <span class="field-label"></span>
+      <button class="btn-save-remark btn-primary-sm"
+        data-act-id="${actId || ""}"
+        data-pa-name="${escHtml(paName || "")}"
+        data-pa-order="${paOrder !== null && paOrder !== undefined ? paOrder : ""}"
+        data-target="${escHtml(target.name)}">Save Remark</button>
+    </div>`;
+}
+
+// ─── ATTACH LISTENERS ────────────────────────────────────────
 
 function attachTargetListeners(target) {
   const c = $("target-content");
 
-  // ── Add Activity (regular targets) ───────────────────────
+  // ── Activity name: auto-save on blur ─────────────────────
+  c.querySelectorAll(".activity-name-input").forEach(input => {
+    input.addEventListener("blur", async () => {
+      const newName = input.value.trim();
+      const original = input.dataset.original;
+      if (!newName) { input.value = original; return; }
+      if (newName !== original) {
+        input.dataset.original = newName;
+        await updateActivityName(state.currentSessionId, input.dataset.actId, newName);
+      }
+    });
+  });
+
+  // ── New activity input ───────────────────────────────────
   c.querySelector(".btn-add-activity")?.addEventListener("click", () => {
     state.pendingNewActivity = { targetName: target.name };
     state.pendingNewRemark   = null;
     renderTargetContent();
     setTimeout(() => $("new-activity-input")?.focus(), 50);
   });
-  $("btn-confirm-activity")?.addEventListener("click", () => confirmNewActivity(target));
+
   $("new-activity-input")?.addEventListener("keydown", e => {
-    if (e.key === "Enter")  confirmNewActivity(target);
+    if (e.key === "Enter") confirmNewActivity(target);
     if (e.key === "Escape") cancelPendingActivity();
   });
-  $("btn-cancel-new-activity")?.addEventListener("click", cancelPendingActivity);
 
-  // ── Delete Activity ───────────────────────────────────────
+  $("new-activity-input")?.addEventListener("blur", e => {
+    // Small delay so cancel button click can fire first
+    setTimeout(() => {
+      const input = $("new-activity-input");
+      if (!input) return; // already removed by cancel
+      const name = input.value.trim();
+      state.pendingNewActivity = null;
+      if (name) {
+        addActivity(state.currentSessionId, target.name, name, Date.now(), false);
+      } else {
+        renderTargetContent();
+      }
+    }, 150);
+  });
+
+  c.querySelector(".btn-cancel-new-activity")?.addEventListener("click", cancelPendingActivity);
+
+  // ── Delete activity ───────────────────────────────────────
   c.querySelectorAll(".btn-delete-activity").forEach(btn => {
     btn.addEventListener("click", async () => {
       if (!confirm("Delete this activity and all its remarks?")) return;
@@ -543,13 +553,25 @@ function attachTargetListeners(target) {
     });
   });
 
-  // ── Add Remark ────────────────────────────────────────────
+  // ── Remark text: auto-save on blur ───────────────────────
+  c.querySelectorAll(".remark-text-input").forEach(ta => {
+    ta.addEventListener("blur", async () => {
+      const newText  = ta.value.trim();
+      const original = ta.dataset.original;
+      if (newText !== original) {
+        ta.dataset.original = newText;
+        await updateRemarkText(state.currentSessionId, ta.dataset.remId, newText);
+      }
+    });
+  });
+
+  // ── Add remark ────────────────────────────────────────────
   c.querySelectorAll(".btn-add-remark").forEach(btn => {
     btn.addEventListener("click", () => {
       state.pendingNewRemark = {
         pendingKey: btn.dataset.pendingKey,
-        actId:      btn.dataset.actId || null,
-        paName:     btn.dataset.paName || null,
+        actId:      btn.dataset.actId   || null,
+        paName:     btn.dataset.paName  || null,
         paOrder:    btn.dataset.paOrder !== undefined ? Number(btn.dataset.paOrder) : null
       };
       state.pendingNewActivity = null;
@@ -558,12 +580,12 @@ function attachTargetListeners(target) {
     });
   });
 
-  // ── Save New Remark ───────────────────────────────────────
+  // ── Save new remark ───────────────────────────────────────
   c.querySelectorAll(".btn-save-remark").forEach(btn => {
     btn.addEventListener("click", () => saveNewRemark(btn, target));
   });
 
-  // ── Cancel New Remark ─────────────────────────────────────
+  // ── Cancel new remark ─────────────────────────────────────
   c.querySelectorAll(".btn-cancel-remark").forEach(btn => {
     btn.addEventListener("click", () => {
       state.pendingNewRemark = null;
@@ -571,39 +593,7 @@ function attachTargetListeners(target) {
     });
   });
 
-  // ── Edit Remark ───────────────────────────────────────────
-  c.querySelectorAll(".btn-edit-remark").forEach(btn => {
-    btn.addEventListener("click", () => {
-      state.editingRemark    = { remId: btn.dataset.remId };
-      state.pendingNewRemark = null;
-      renderTargetContent();
-      setTimeout(() => {
-        const ta = c.querySelector(`.remark-edit-textarea[data-rem-id="${btn.dataset.remId}"]`);
-        if (ta) { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
-      }, 50);
-    });
-  });
-
-  // ── Save Edited Remark ────────────────────────────────────
-  c.querySelectorAll(".btn-save-edit").forEach(btn => {
-    btn.addEventListener("click", async () => {
-      const remId = btn.dataset.remId;
-      const ta    = c.querySelector(`.remark-edit-textarea[data-rem-id="${remId}"]`);
-      if (!ta) return;
-      await updateRemarkText(state.currentSessionId, remId, ta.value.trim());
-      state.editingRemark = null;
-    });
-  });
-
-  // ── Cancel Edit ───────────────────────────────────────────
-  c.querySelectorAll(".btn-cancel-edit").forEach(btn => {
-    btn.addEventListener("click", () => {
-      state.editingRemark = null;
-      renderTargetContent();
-    });
-  });
-
-  // ── Delete Remark ─────────────────────────────────────────
+  // ── Delete remark ─────────────────────────────────────────
   c.querySelectorAll(".btn-delete-remark").forEach(btn => {
     btn.addEventListener("click", async () => {
       if (!confirm("Delete this remark and its trials?")) return;
@@ -611,7 +601,7 @@ function attachTargetListeners(target) {
     });
   });
 
-  // ── Add Trial ─────────────────────────────────────────────
+  // ── Add trial ─────────────────────────────────────────────
   c.querySelectorAll(".btn-add-trial").forEach(btn => {
     btn.addEventListener("click", () => {
       const tgt = state.currentStudent.targets.find(t => t.name === btn.dataset.target);
@@ -619,7 +609,7 @@ function attachTargetListeners(target) {
     });
   });
 
-  // ── Delete Trial ──────────────────────────────────────────
+  // ── Delete trial ──────────────────────────────────────────
   c.querySelectorAll(".btn-trial-delete").forEach(btn => {
     btn.addEventListener("click", async e => {
       e.stopPropagation();
@@ -630,7 +620,7 @@ function attachTargetListeners(target) {
     });
   });
 
-  // ── FEDC Comment (debounced auto-save) ────────────────────
+  // ── FEDC comment auto-save ────────────────────────────────
   c.querySelectorAll(".fedc-comment-input").forEach(ta => {
     let timer;
     ta.addEventListener("input", () => {
@@ -660,14 +650,14 @@ function cancelPendingActivity() {
 async function saveNewRemark(btn, target) {
   const ta = $("new-remark-textarea");
   if (!ta) return;
-  const text = ta.value.trim();
+  const text   = ta.value.trim();
   if (!text) { ta.focus(); return; }
 
   const paName  = btn.dataset.paName  || null;
-  const paOrder = btn.dataset.paOrder !== undefined ? Number(btn.dataset.paOrder) : null;
+  const paOrder = btn.dataset.paOrder !== undefined && btn.dataset.paOrder !== ""
+    ? Number(btn.dataset.paOrder) : null;
   let   actId   = btn.dataset.actId   || null;
 
-  // For FEDC: ensure the activity record exists in Firebase before adding remark
   if (paName) {
     actId = await ensureFedcActivity(target.name, paName, paOrder ?? 0);
   }
@@ -677,7 +667,6 @@ async function saveNewRemark(btn, target) {
   await addRemark(state.currentSessionId, actId, text);
 }
 
-// Guarantee a Firebase activity record exists for a predefined FEDC activity.
 async function ensureFedcActivity(targetName, activityName, order) {
   const existing = findActivityByName(targetName, activityName);
   if (existing) return existing.id;
@@ -699,11 +688,10 @@ function openScorePicker(remId, maxPoints) {
 
   $("score-buttons").querySelectorAll(".score-btn").forEach(btn => {
     btn.addEventListener("click", async () => {
-      const score = Number(btn.dataset.score);
-      const rem   = state.sessionData?.remarks?.[remId];
+      const rem = state.sessionData?.remarks?.[remId];
       if (!rem) return;
       closeScorePicker();
-      await addTrial(state.currentSessionId, remId, score, rem.trials || []);
+      await addTrial(state.currentSessionId, remId, Number(btn.dataset.score), rem.trials || []);
     });
   });
 
