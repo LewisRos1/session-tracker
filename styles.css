@@ -834,32 +834,45 @@ html, body {
   padding: .6rem .25rem .2rem;
 }
 
-.month-group { margin-bottom: .35rem; }
+.month-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: .6rem;
+  padding: .25rem 0;
+}
 
-.month-accordion-btn {
+.month-grid-btn {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  justify-content: space-between;
-  width: 100%;
-  background: var(--bg-card);
+  justify-content: center;
+  gap: .1rem;
+  padding: .9rem .4rem;
   border: 1.5px solid var(--border);
-  border-radius: 10px;
-  padding: .85rem 1rem;
+  border-radius: 12px;
+  background: var(--bg-card);
   cursor: pointer;
-  font-size: 1rem;
-  font-weight: 600;
-  color: var(--text-main);
   transition: background .15s, border-color .15s;
 }
-.month-accordion-btn.open,
-.month-accordion-btn:hover { background: #f0f4ff; border-color: var(--primary); }
-.month-accordion-label { flex: 1; text-align: left; }
-.month-accordion-arrow { color: var(--primary); font-size: .9rem; margin-left: .5rem; }
-
-.month-accordion-sessions {
-  padding: .3rem 0 .1rem .5rem;
+.month-grid-btn:hover, .month-grid-btn:active {
+  background: #f0f4ff;
+  border-color: var(--primary);
 }
-.month-accordion-sessions.hidden { display: none; }
+.mgb-month { font-size: 1rem; font-weight: 700; color: var(--text-main); }
+.mgb-year  { font-size: .72rem; color: var(--text-muted); }
+
+.btn-picker-back {
+  display: inline-flex;
+  align-items: center;
+  gap: .3rem;
+  background: none;
+  border: none;
+  color: var(--primary);
+  font-size: .95rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0 0 .85rem 0;
+}
 
 .btn-session-nav {
   background: rgba(255,255,255,.2);

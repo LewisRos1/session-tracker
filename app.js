@@ -179,7 +179,7 @@ function showStudentChoice(student) {
   });
 }
 
-// Show grouped month accordion → tap month to reveal its sessions
+// Page 1: month grid
 async function showSessionPicker(student) {
   $("session-picker-title").textContent = student.name;
   $("session-picker-list").innerHTML =
@@ -202,56 +202,60 @@ async function showSessionPicker(student) {
     return;
   }
 
-  // Build accordion — first month starts open
-  let html = "";
-  let firstMonth = true;
-  for (const [month, monthSessions] of byMonth) {
-    const isOpen = firstMonth;
-    firstMonth = false;
-    html += `<div class="month-group">
-      <button class="month-accordion-btn${isOpen ? " open" : ""}" data-month="${escHtml(month)}">
-        <span class="month-accordion-label">${escHtml(month)}</span>
-        <span class="month-accordion-arrow">${isOpen ? "▾" : "▸"}</span>
-      </button>
-      <div class="month-accordion-sessions${isOpen ? "" : " hidden"}">`;
-    for (const s of monthSessions) {
-      const isToday    = s.date === today;
-      const badge      = isToday ? (s.finished ? "Finished" : "In Progress")
-                                 : (s.finished ? "Finished" : "Unfinished");
-      const badgeClass = s.finished ? "badge-finished" : "badge-inprogress";
-      const dateLabel  = isToday ? `Today · ${formatDate(s.date)}` : formatDate(s.date);
-      html += `<div class="session-list-item" data-session-id="${s.id}">
-        <div class="session-list-meta">
-          <div class="session-list-label">Session ${s.sessionNumber}</div>
-          <div class="session-list-date">${dateLabel}</div>
-        </div>
-        <span class="session-list-badge ${badgeClass}">${badge}</span>
-      </div>`;
-    }
-    html += `</div></div>`;
+  renderMonthGrid(student, byMonth, today);
+}
+
+function renderMonthGrid(student, byMonth, today) {
+  $("session-picker-title").textContent = student.name;
+
+  let html = `<div class="month-grid">`;
+  for (const month of byMonth.keys()) {
+    const [name, year] = month.split(" ");
+    const abbr = name.slice(0, 3);
+    html += `<button class="month-grid-btn" data-month="${escHtml(month)}">
+      <span class="mgb-month">${escHtml(abbr)}</span>
+      <span class="mgb-year">${escHtml(year)}</span>
+    </button>`;
   }
+  html += `</div>`;
 
   const list = $("session-picker-list");
   list.innerHTML = html;
 
-  // Accordion toggle
-  list.querySelectorAll(".month-accordion-btn").forEach(btn => {
+  list.querySelectorAll(".month-grid-btn").forEach(btn => {
     btn.addEventListener("click", () => {
-      const sessions = btn.nextElementSibling;
-      const isOpen   = !sessions.classList.contains("hidden");
-      // Close all
-      list.querySelectorAll(".month-accordion-sessions").forEach(el => el.classList.add("hidden"));
-      list.querySelectorAll(".month-accordion-btn").forEach(b => {
-        b.classList.remove("open");
-        b.querySelector(".month-accordion-arrow").textContent = "▸";
-      });
-      // Open clicked (unless it was already open)
-      if (!isOpen) {
-        sessions.classList.remove("hidden");
-        btn.classList.add("open");
-        btn.querySelector(".month-accordion-arrow").textContent = "▾";
-      }
+      const month = btn.dataset.month;
+      renderSessionsForMonth(student, month, byMonth.get(month), byMonth, today);
     });
+  });
+}
+
+// Page 2: sessions for chosen month
+function renderSessionsForMonth(student, month, monthSessions, byMonth, today) {
+  $("session-picker-title").textContent = month;
+
+  const list = $("session-picker-list");
+  let html = `<button class="btn-picker-back">← Back</button>`;
+
+  for (const s of monthSessions) {
+    const isToday    = s.date === today;
+    const badge      = isToday ? (s.finished ? "Finished" : "In Progress")
+                               : (s.finished ? "Finished" : "Unfinished");
+    const badgeClass = s.finished ? "badge-finished" : "badge-inprogress";
+    const dateLabel  = isToday ? `Today · ${formatDate(s.date)}` : formatDate(s.date);
+    html += `<div class="session-list-item" data-session-id="${s.id}">
+      <div class="session-list-meta">
+        <div class="session-list-label">Session ${s.sessionNumber}</div>
+        <div class="session-list-date">${dateLabel}</div>
+      </div>
+      <span class="session-list-badge ${badgeClass}">${badge}</span>
+    </div>`;
+  }
+
+  list.innerHTML = html;
+
+  list.querySelector(".btn-picker-back").addEventListener("click", () => {
+    renderMonthGrid(student, byMonth, today);
   });
 
   list.querySelectorAll(".session-list-item").forEach(item => {
