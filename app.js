@@ -179,12 +179,11 @@ function showStudentChoice(student) {
   });
 }
 
-// Show grouped month → session list (for past session navigation)
+// Show grouped month accordion → tap month to reveal its sessions
 async function showSessionPicker(student) {
   $("session-picker-title").textContent = student.name;
   $("session-picker-list").innerHTML =
     `<div class="session-picker-loading">Loading sessions…</div>`;
-  // keep modal open (already open or opened by nav button)
   $("session-picker-modal").classList.remove("hidden");
 
   let sessions = [];
@@ -197,16 +196,27 @@ async function showSessionPicker(student) {
     byMonth.get(s.month).push(s);
   }
 
-  let html = "";
   if (byMonth.size === 0) {
-    html = `<div class="session-picker-loading">No past sessions found.</div>`;
+    $("session-picker-list").innerHTML =
+      `<div class="session-picker-loading">No sessions found.</div>`;
+    return;
   }
 
+  // Build accordion — first month starts open
+  let html = "";
+  let firstMonth = true;
   for (const [month, monthSessions] of byMonth) {
-    html += `<div class="session-month-label">${escHtml(month)}</div>`;
+    const isOpen = firstMonth;
+    firstMonth = false;
+    html += `<div class="month-group">
+      <button class="month-accordion-btn${isOpen ? " open" : ""}" data-month="${escHtml(month)}">
+        <span class="month-accordion-label">${escHtml(month)}</span>
+        <span class="month-accordion-arrow">${isOpen ? "▾" : "▸"}</span>
+      </button>
+      <div class="month-accordion-sessions${isOpen ? "" : " hidden"}">`;
     for (const s of monthSessions) {
       const isToday    = s.date === today;
-      const badge      = isToday ? (s.finished ? "Finished" : "In progress")
+      const badge      = isToday ? (s.finished ? "Finished" : "In Progress")
                                  : (s.finished ? "Finished" : "Unfinished");
       const badgeClass = s.finished ? "badge-finished" : "badge-inprogress";
       const dateLabel  = isToday ? `Today · ${formatDate(s.date)}` : formatDate(s.date);
@@ -218,10 +228,33 @@ async function showSessionPicker(student) {
         <span class="session-list-badge ${badgeClass}">${badge}</span>
       </div>`;
     }
+    html += `</div></div>`;
   }
 
-  $("session-picker-list").innerHTML = html;
-  $("session-picker-list").querySelectorAll(".session-list-item").forEach(item => {
+  const list = $("session-picker-list");
+  list.innerHTML = html;
+
+  // Accordion toggle
+  list.querySelectorAll(".month-accordion-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const sessions = btn.nextElementSibling;
+      const isOpen   = !sessions.classList.contains("hidden");
+      // Close all
+      list.querySelectorAll(".month-accordion-sessions").forEach(el => el.classList.add("hidden"));
+      list.querySelectorAll(".month-accordion-btn").forEach(b => {
+        b.classList.remove("open");
+        b.querySelector(".month-accordion-arrow").textContent = "▸";
+      });
+      // Open clicked (unless it was already open)
+      if (!isOpen) {
+        sessions.classList.remove("hidden");
+        btn.classList.add("open");
+        btn.querySelector(".month-accordion-arrow").textContent = "▾";
+      }
+    });
+  });
+
+  list.querySelectorAll(".session-list-item").forEach(item => {
     item.addEventListener("click", () => {
       closeSessionPicker();
       openSession(student, item.dataset.sessionId);

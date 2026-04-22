@@ -3,7 +3,7 @@
 // Firebase SDK handles Firestore data offline independently.
 // ============================================================
 
-const CACHE_NAME = "therapy-tracker-v1";
+const CACHE_NAME = "therapy-tracker-v3";
 
 // App shell files to pre-cache
 const SHELL_URLS = [
@@ -37,24 +37,21 @@ self.addEventListener("activate", event => {
   self.clients.claim();
 });
 
-// Fetch: cache-first for local shell; network-only for external (Firebase/CDN)
+// Fetch: network-first for local shell (always get latest); offline falls back to cache
 self.addEventListener("fetch", event => {
   const url = new URL(event.request.url);
 
-  // External requests (Firebase, CDN) — always network
+  // External requests (Firebase, CDN) — always network, don't intercept
   if (url.origin !== self.location.origin) return;
 
-  // Local — cache first, fall back to network
+  // Local — try network first, cache the response, fall back to cache if offline
   event.respondWith(
-    caches.match(event.request).then(cached => {
-      if (cached) return cached;
-      return fetch(event.request).then(resp => {
-        if (resp && resp.status === 200) {
-          const clone = resp.clone();
-          caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
-        }
-        return resp;
-      });
-    })
+    fetch(event.request).then(resp => {
+      if (resp && resp.status === 200) {
+        const clone = resp.clone();
+        caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
+      }
+      return resp;
+    }).catch(() => caches.match(event.request))
   );
 });
