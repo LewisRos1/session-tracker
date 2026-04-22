@@ -800,6 +800,31 @@ html, body {
   font-size: .9rem;
 }
 
+.choice-list {
+  display: flex;
+  flex-direction: column;
+  gap: .75rem;
+  padding: .5rem 0 .25rem;
+}
+
+.choice-btn {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  width: 100%;
+  background: var(--bg-card);
+  border: 1.5px solid var(--border);
+  border-radius: 12px;
+  padding: 1rem 1.1rem;
+  cursor: pointer;
+  text-align: left;
+  transition: background .15s, border-color .15s;
+}
+.choice-btn:hover  { background: #f0f4ff; border-color: var(--primary); }
+.choice-icon       { font-size: 1.4rem; flex-shrink: 0; }
+.choice-label      { font-size: 1rem; font-weight: 600; color: var(--text-main); }
+.choice-sub        { font-size: .82rem; color: var(--text-muted); margin-top: .15rem; }
+
 .session-month-label {
   font-size: .78rem;
   font-weight: 700;

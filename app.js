@@ -117,7 +117,7 @@ function renderStudentButtons(unfinishedIds) {
   container.querySelectorAll(".student-btn").forEach(btn => {
     btn.addEventListener("click", () => {
       const student = CONFIG.STUDENTS.find(s => s.id === btn.dataset.id);
-      if (student) showSessionPicker(student);
+      if (student) showStudentChoice(student);
     });
   });
 }
@@ -148,43 +148,60 @@ function renderExportButtons() {
 // SESSION PICKER
 // ============================================================
 
+// Show two-choice sheet: Today's Session | Edit Other Sessions
+function showStudentChoice(student) {
+  $("session-picker-title").textContent = student.name;
+  $("session-picker-list").innerHTML = `
+    <div class="choice-list">
+      <button class="choice-btn choice-today">
+        <span class="choice-icon">▶</span>
+        <div class="choice-text">
+          <div class="choice-label">Today's Session</div>
+          <div class="choice-sub">Open or start today's session</div>
+        </div>
+      </button>
+      <button class="choice-btn choice-other">
+        <span class="choice-icon">🗂</span>
+        <div class="choice-text">
+          <div class="choice-label">Edit Other Sessions</div>
+          <div class="choice-sub">Browse past sessions by month</div>
+        </div>
+      </button>
+    </div>`;
+  $("session-picker-modal").classList.remove("hidden");
+
+  $("session-picker-list").querySelector(".choice-today").addEventListener("click", () => {
+    closeSessionPicker();
+    openSession(student, null);
+  });
+  $("session-picker-list").querySelector(".choice-other").addEventListener("click", () => {
+    showSessionPicker(student);
+  });
+}
+
+// Show grouped month → session list (for past session navigation)
 async function showSessionPicker(student) {
   $("session-picker-title").textContent = student.name;
   $("session-picker-list").innerHTML =
     `<div class="session-picker-loading">Loading sessions…</div>`;
+  // keep modal open (already open or opened by nav button)
   $("session-picker-modal").classList.remove("hidden");
 
   let sessions = [];
   try { sessions = await getRecentSessionsForStudent(student.id); } catch (_) {}
 
   const today = getTodayString();
-
-  // Group by month (sessions are newest-first from Firestore)
   const byMonth = new Map();
   for (const s of sessions) {
     if (!byMonth.has(s.month)) byMonth.set(s.month, []);
     byMonth.get(s.month).push(s);
   }
 
-  // Determine current month label for today
-  const todayMonthSessions = [...byMonth.values()].flat().filter(s => s.date === today);
-  const todayMonth = todayMonthSessions.length > 0 ? todayMonthSessions[0].month : null;
-
   let html = "";
-
-  // If no session today, show "Start Today's Session" at the top
-  const hasTodaySession = sessions.some(s => s.date === today);
-  if (!hasTodaySession) {
-    html += `<div class="session-list-item session-list-today" data-new-session="true">
-      <div class="session-list-meta">
-        <div class="session-list-label">Start Today's Session</div>
-        <div class="session-list-date">${formatDate(today)}</div>
-      </div>
-      <span class="session-list-badge badge-new">New</span>
-    </div>`;
+  if (byMonth.size === 0) {
+    html = `<div class="session-picker-loading">No past sessions found.</div>`;
   }
 
-  // Render grouped by month
   for (const [month, monthSessions] of byMonth) {
     html += `<div class="session-month-label">${escHtml(month)}</div>`;
     for (const s of monthSessions) {
@@ -193,7 +210,7 @@ async function showSessionPicker(student) {
                                  : (s.finished ? "Finished" : "Unfinished");
       const badgeClass = s.finished ? "badge-finished" : "badge-inprogress";
       const dateLabel  = isToday ? `Today · ${formatDate(s.date)}` : formatDate(s.date);
-      html += `<div class="session-list-item${isToday ? " session-list-today" : ""}" data-session-id="${s.id}">
+      html += `<div class="session-list-item" data-session-id="${s.id}">
         <div class="session-list-meta">
           <div class="session-list-label">Session ${s.sessionNumber}</div>
           <div class="session-list-date">${dateLabel}</div>
@@ -207,9 +224,7 @@ async function showSessionPicker(student) {
   $("session-picker-list").querySelectorAll(".session-list-item").forEach(item => {
     item.addEventListener("click", () => {
       closeSessionPicker();
-      item.dataset.newSession
-        ? openSession(student, null)
-        : openSession(student, item.dataset.sessionId);
+      openSession(student, item.dataset.sessionId);
     });
   });
 }
@@ -235,7 +250,6 @@ async function openSession(student, existingSessionId = null) {
 
   showScreen("screen-session");
   $("session-student-name").textContent = student.name;
-  $("session-date").textContent = "";
   $("session-meta").textContent = "";
   $("target-content").innerHTML = `<div class="loading">Loading…</div>`;
 
@@ -280,8 +294,8 @@ function leaveSession() {
 function updateSessionHeader() {
   const d = state.sessionData;
   if (!d) return;
-  $("session-meta").textContent = `Session ${d.sessionNumber} of ${d.month.split(" ")[0]}`;
-  $("session-date").textContent = formatDate(d.date);
+  $("session-meta").textContent =
+    `Session ${d.sessionNumber} of ${d.month.split(" ")[0]} · ${formatDate(d.date)}`;
   const finishBtn = $("btn-finish-session");
   if (d.finished) {
     finishBtn.textContent = "Session Finished";
@@ -310,7 +324,7 @@ function populateTargetDropdown(targets) {
 
 $("btn-back").addEventListener("click", leaveSession);
 $("btn-session-nav").addEventListener("click", () => {
-  if (state.currentStudent) showSessionPicker(state.currentStudent);
+  if (state.currentStudent) showStudentChoice(state.currentStudent);
 });
 $("btn-finish-session").addEventListener("click", async () => {
   if (!state.currentSessionId) return;
