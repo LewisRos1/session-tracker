@@ -245,7 +245,7 @@ function renderSessionsForMonth(student, month, monthSessions, byMonth, today) {
     const dateLabel  = isToday ? `Today · ${formatDate(s.date)}` : formatDate(s.date);
     html += `<div class="session-list-item" data-session-id="${s.id}">
       <div class="session-list-meta">
-        <div class="session-list-label">Session ${s.sessionNumber}</div>
+        <div class="session-list-label">Session ${s.sessionNumber} of ${s.month.split(" ")[0]}</div>
         <div class="session-list-date">${dateLabel}</div>
       </div>
       <span class="session-list-badge ${badgeClass}">${badge}</span>
