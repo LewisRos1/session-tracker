@@ -157,23 +157,24 @@ async function showSessionPicker(student) {
   let sessions = [];
   try { sessions = await getRecentSessionsForStudent(student.id); } catch (_) {}
 
-  const today     = getTodayString();
-  const todaySess = sessions.find(s => s.date === today);
-  const pastSess  = sessions.filter(s => s.date !== today);
+  const today = getTodayString();
+
+  // Group by month (sessions are newest-first from Firestore)
+  const byMonth = new Map();
+  for (const s of sessions) {
+    if (!byMonth.has(s.month)) byMonth.set(s.month, []);
+    byMonth.get(s.month).push(s);
+  }
+
+  // Determine current month label for today
+  const todayMonthSessions = [...byMonth.values()].flat().filter(s => s.date === today);
+  const todayMonth = todayMonthSessions.length > 0 ? todayMonthSessions[0].month : null;
 
   let html = "";
 
-  if (todaySess) {
-    const badge      = todaySess.finished ? "Finished" : "In progress";
-    const badgeClass = todaySess.finished ? "badge-finished" : "badge-inprogress";
-    html += `<div class="session-list-item session-list-today" data-session-id="${todaySess.id}">
-      <div class="session-list-meta">
-        <div class="session-list-label">Session ${todaySess.sessionNumber} of ${todaySess.month.split(" ")[0]}</div>
-        <div class="session-list-date">Today · ${formatDate(today)}</div>
-      </div>
-      <span class="session-list-badge ${badgeClass}">${badge}</span>
-    </div>`;
-  } else {
+  // If no session today, show "Start Today's Session" at the top
+  const hasTodaySession = sessions.some(s => s.date === today);
+  if (!hasTodaySession) {
     html += `<div class="session-list-item session-list-today" data-new-session="true">
       <div class="session-list-meta">
         <div class="session-list-label">Start Today's Session</div>
@@ -183,16 +184,23 @@ async function showSessionPicker(student) {
     </div>`;
   }
 
-  for (const s of pastSess) {
-    const badge      = s.finished ? "Finished" : "Unfinished";
-    const badgeClass = s.finished ? "badge-finished" : "badge-inprogress";
-    html += `<div class="session-list-item" data-session-id="${s.id}">
-      <div class="session-list-meta">
-        <div class="session-list-label">Session ${s.sessionNumber} of ${s.month.split(" ")[0]}</div>
-        <div class="session-list-date">${formatDate(s.date)}</div>
-      </div>
-      <span class="session-list-badge ${badgeClass}">${badge}</span>
-    </div>`;
+  // Render grouped by month
+  for (const [month, monthSessions] of byMonth) {
+    html += `<div class="session-month-label">${escHtml(month)}</div>`;
+    for (const s of monthSessions) {
+      const isToday    = s.date === today;
+      const badge      = isToday ? (s.finished ? "Finished" : "In progress")
+                                 : (s.finished ? "Finished" : "Unfinished");
+      const badgeClass = s.finished ? "badge-finished" : "badge-inprogress";
+      const dateLabel  = isToday ? `Today · ${formatDate(s.date)}` : formatDate(s.date);
+      html += `<div class="session-list-item${isToday ? " session-list-today" : ""}" data-session-id="${s.id}">
+        <div class="session-list-meta">
+          <div class="session-list-label">Session ${s.sessionNumber}</div>
+          <div class="session-list-date">${dateLabel}</div>
+        </div>
+        <span class="session-list-badge ${badgeClass}">${badge}</span>
+      </div>`;
+    }
   }
 
   $("session-picker-list").innerHTML = html;
@@ -301,6 +309,9 @@ function populateTargetDropdown(targets) {
 }
 
 $("btn-back").addEventListener("click", leaveSession);
+$("btn-session-nav").addEventListener("click", () => {
+  if (state.currentStudent) showSessionPicker(state.currentStudent);
+});
 $("btn-finish-session").addEventListener("click", async () => {
   if (!state.currentSessionId) return;
   if (!confirm("Mark this session as finished?")) return;
