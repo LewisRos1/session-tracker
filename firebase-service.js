@@ -149,10 +149,12 @@ export async function deleteActivity(sessionId, actId, remarkIds) {
 
 // ─── REMARK OPERATIONS ───────────────────────────────────────
 
-export async function addRemark(sessionId, actId, text) {
+export async function addRemark(sessionId, actId, text, predefinedKey = null) {
   const remId = generateId("r");
+  const data = { activityId: actId, text, trials: [], order: Date.now() };
+  if (predefinedKey !== null) data.predefinedKey = predefinedKey;
   await updateDoc(doc(db, "sessions", sessionId), {
-    [`remarks.${remId}`]: { activityId: actId, text, trials: [], order: Date.now() }
+    [`remarks.${remId}`]: data
   });
   return remId;
 }

@@ -428,9 +428,9 @@ function renderFedcTarget(target) {
     if (pa.predefinedRemarks) {
       // Predefined remarks mode (e.g. Self Management)
       for (const predRemName of pa.predefinedRemarks) {
-        const rem = actId ? findRemarkByText(actId, predRemName) : null;
+        const rem = actId ? findRemarkByPredefinedKey(actId, predRemName) : null;
         if (rem) {
-          html += renderPredefinedRemarkFields(rem, target);
+          html += renderPredefinedRemarkFields(rem, predRemName, target);
         } else {
           html += renderGhostRemarkFields(predRemName, actId, pa, idx, target);
         }
@@ -532,7 +532,7 @@ function renderRegularTarget(target) {
 
 function renderRemarkFields(rem, target) {
   const trials = rem.trials || [];
-  const trialsHtml = trials.map((score, idx) =>
+  const badgesHtml = trials.map((score, idx) =>
     `<span class="trial-badge">${score}<button class="btn-trial-delete"
       data-rem-id="${rem.id}" data-idx="${idx}">×</button></span>`
   ).join("");
@@ -550,8 +550,8 @@ function renderRemarkFields(rem, target) {
     </div>
     <div class="entry-field">
       <span class="field-label">Trials</span>
-      <div class="trials-content">
-        ${trialsHtml}
+      <div class="trials-row">
+        <div class="trials-badges">${badgesHtml}</div>
         <button class="btn-add-trial btn-primary-sm"
           data-rem-id="${rem.id}"
           data-target="${escHtml(target.name)}">+ Trial</button>
@@ -579,23 +579,28 @@ function renderPendingRemarkFields(pendingKey, actId, paName, paOrder, target) {
     </div>`;
 }
 
-// Predefined remark that already exists in Firebase (fixed label, no edit)
-function renderPredefinedRemarkFields(rem, target) {
+// Predefined remark that exists in Firebase — label as field-label, editable text input
+function renderPredefinedRemarkFields(rem, predRemName, target) {
   const trials = rem.trials || [];
-  const trialsHtml = trials.map((score, idx) =>
+  const badgesHtml = trials.map((score, idx) =>
     `<span class="trial-badge">${score}<button class="btn-trial-delete"
       data-rem-id="${rem.id}" data-idx="${idx}">×</button></span>`
   ).join("");
   return `
     <div class="entry-divider"></div>
     <div class="entry-field">
-      <span class="field-label">Remark</span>
-      <span class="field-value-fixed">${escHtml(rem.text || "")}</span>
+      <span class="field-label">${escHtml(predRemName)}</span>
+      <input class="field-input predef-remark-input-live"
+        type="text"
+        value="${escHtml(rem.text || "")}"
+        data-rem-id="${rem.id}"
+        data-original="${escHtml(rem.text || "")}"
+        placeholder="e.g. 80%" />
     </div>
     <div class="entry-field">
       <span class="field-label">Trials</span>
-      <div class="trials-content">
-        ${trialsHtml}
+      <div class="trials-row">
+        <div class="trials-badges">${badgesHtml}</div>
         <button class="btn-add-trial btn-primary-sm"
           data-rem-id="${rem.id}"
           data-target="${escHtml(target.name)}">+ Trial</button>
@@ -603,17 +608,25 @@ function renderPredefinedRemarkFields(rem, target) {
     </div>`;
 }
 
-// Predefined remark slot not yet in Firebase — ghost state
+// Predefined remark not yet in Firebase — label + empty text input
 function renderGhostRemarkFields(predRemName, actId, pa, paIdx, target) {
   return `
     <div class="entry-divider"></div>
     <div class="entry-field">
-      <span class="field-label">Remark</span>
-      <span class="field-value-fixed predef-ghost">${escHtml(predRemName)}</span>
+      <span class="field-label">${escHtml(predRemName)}</span>
+      <input class="field-input predef-remark-input"
+        type="text"
+        placeholder="e.g. 80%"
+        data-rem-name="${escHtml(predRemName)}"
+        data-act-id="${actId || ""}"
+        data-pa-name="${escHtml(pa.name)}"
+        data-pa-order="${paIdx}"
+        data-target="${escHtml(target.name)}" />
     </div>
     <div class="entry-field">
       <span class="field-label">Trials</span>
-      <div class="trials-content">
+      <div class="trials-row">
+        <div class="trials-badges"></div>
         <button class="btn-primary-sm btn-init-predef-remark"
           data-rem-name="${escHtml(predRemName)}"
           data-act-id="${actId || ""}"
@@ -729,6 +742,30 @@ function attachTargetListeners(target) {
     });
   });
 
+  // ── Ghost predefined remark input: save text on blur ──────
+  c.querySelectorAll(".predef-remark-input").forEach(input => {
+    input.addEventListener("blur", async () => {
+      const text = input.value.trim();
+      if (!text) return;
+      const paOrder = input.dataset.paOrder !== "" ? Number(input.dataset.paOrder) : 0;
+      const actId = await ensureFedcActivity(input.dataset.target, input.dataset.paName, paOrder);
+      const remId = await ensurePredefinedRemark(actId, input.dataset.remName, text);
+      await updateRemarkText(state.currentSessionId, remId, text);
+    });
+  });
+
+  // ── Live predefined remark input: auto-save on blur ────────
+  c.querySelectorAll(".predef-remark-input-live").forEach(input => {
+    input.addEventListener("blur", async () => {
+      const text = input.value.trim();
+      const original = input.dataset.original;
+      if (text !== original) {
+        input.dataset.original = text;
+        await updateRemarkText(state.currentSessionId, input.dataset.remId, text);
+      }
+    });
+  });
+
   // ── Init predefined remark + open score picker ────────────
   c.querySelectorAll(".btn-init-predef-remark").forEach(btn => {
     btn.addEventListener("click", async () => {
@@ -736,7 +773,13 @@ function attachTargetListeners(target) {
       if (!tgt) return;
       const paOrder = btn.dataset.paOrder !== "" ? Number(btn.dataset.paOrder) : 0;
       const actId = await ensureFedcActivity(tgt.name, btn.dataset.paName, paOrder);
-      const remId = await ensurePredefinedRemark(actId, btn.dataset.remName);
+      // Capture any text the boss already typed in the ghost input
+      const ghostInput = [...c.querySelectorAll(".predef-remark-input")].find(
+        inp => inp.dataset.remName === btn.dataset.remName
+      );
+      const initialText = ghostInput?.value.trim() || "";
+      const remId = await ensurePredefinedRemark(actId, btn.dataset.remName, initialText);
+      if (initialText) await updateRemarkText(state.currentSessionId, remId, initialText);
       openScorePicker(remId, tgt.maxPoints || 3);
     });
   });
@@ -813,15 +856,15 @@ async function ensureFedcActivity(targetName, activityName, order) {
   return await addActivity(state.currentSessionId, targetName, activityName, order, true);
 }
 
-async function ensurePredefinedRemark(actId, remarkText) {
-  const existing = findRemarkByText(actId, remarkText);
+async function ensurePredefinedRemark(actId, remarkName, initialText = "") {
+  const existing = findRemarkByPredefinedKey(actId, remarkName);
   if (existing) return existing.id;
-  return await addRemark(state.currentSessionId, actId, remarkText);
+  return await addRemark(state.currentSessionId, actId, initialText, remarkName);
 }
 
-function findRemarkByText(actId, text) {
+function findRemarkByPredefinedKey(actId, key) {
   const found = Object.entries(state.sessionData?.remarks || {}).find(
-    ([, r]) => r.activityId === actId && r.text === text
+    ([, r]) => r.activityId === actId && r.predefinedKey === key
   );
   return found ? { id: found[0], ...found[1] } : null;
 }

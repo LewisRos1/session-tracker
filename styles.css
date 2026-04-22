@@ -505,13 +505,20 @@ html, body {
 }
 
 /* Trials row */
-.trials-content {
+.trials-row {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: .35rem;
+  padding-top: .25rem;
+}
+
+.trials-badges {
   flex: 1;
   display: flex;
   flex-wrap: wrap;
   gap: .35rem;
   align-items: center;
-  padding-top: .25rem;
 }
 
 .trial-badge {
@@ -541,7 +548,7 @@ html, body {
 
 .btn-trial-delete:hover { opacity: 1; color: var(--danger); }
 
-.btn-add-trial { margin-left: auto; flex-shrink: 0; }
+.btn-add-trial { flex-shrink: 0; }
 
 /* ─── ADD ACTIVITY / REMARK BUTTONS ─────────────────────── */
 .btn-add-activity {
@@ -881,10 +888,6 @@ html, body {
   padding: .25rem .25rem .1rem 0;
 }
 
-.predef-ghost {
-  color: var(--text-muted);
-  font-style: italic;
-}
 
 .btn-session-nav {
   background: rgba(255,255,255,.2);
