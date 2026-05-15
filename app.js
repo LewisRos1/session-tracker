@@ -449,9 +449,18 @@ function renderFedcTarget(target) {
   const letters = "abcdefghij";
   let lastGroup = null;
   target.predefinedActivities.forEach((pa, idx) => {
+    // New format: explicit heading row
+    if (pa.isHeading) {
+      html += `<div class="activity-group-heading">${escHtml(pa.name)}</div>`;
+      return;
+    }
+
+    // Old format: group field per activity (backward compat)
     if (pa.group && pa.group !== lastGroup) {
       lastGroup = pa.group;
       html += `<div class="activity-group-heading">${escHtml(pa.group)}</div>`;
+    } else if (!pa.group) {
+      lastGroup = null;
     }
 
     const pendingKey = pa.name;
@@ -1021,11 +1030,37 @@ function renderStudentManageContent(student) {
   });
 }
 
+// Converts old group-field format to heading-row format in place.
+// Called once when the manage modal opens; saved on next boss action.
+function normalizeActivitiesFormat(acts) {
+  const hasOldFormat = acts.some(a => !a.isHeading && a.group);
+  if (!hasOldFormat) return acts;
+
+  const result = [];
+  let lastGroup = null;
+  for (const a of acts) {
+    if (a.isHeading) { result.push(a); continue; }
+    const g = a.group || "";
+    if (g && g !== lastGroup) {
+      result.push({ id: cfgId("h"), isHeading: true, name: g, order: 0 });
+      lastGroup = g;
+    } else if (!g) {
+      lastGroup = null;
+    }
+    const { group, ...rest } = a;
+    result.push(rest);
+  }
+  result.forEach((item, i) => item.order = i);
+  return result;
+}
+
 // ── Target management content ─────────────────────────────────
 
 function renderTargetManageContent(student, target) {
   $("manage-modal-title").textContent = target.name;
-  const acts  = target.predefinedActivities || [];
+  // Migrate old group-field format to heading-row format (saved on next boss action)
+  target.predefinedActivities = normalizeActivitiesFormat(target.predefinedActivities || []);
+  const acts  = target.predefinedActivities;
   const notes = target.notes || [];
 
   let html = `
@@ -1045,19 +1080,26 @@ function renderTargetManageContent(student, target) {
     <div class="admin-list" id="mn-act-list">`;
 
   acts.forEach((a, idx) => {
-    html += `<div class="admin-list-item admin-act-item">
-      <div class="admin-act-fields">
+    if (a.isHeading) {
+      html += `<div class="admin-list-item mn-heading-item">
+        <input class="admin-input mn-heading-input" id="mn-act-name-${idx}" data-idx="${idx}"
+          value="${escHtml(a.name)}" placeholder="Section heading name" />
+        <button class="btn-adm-del mn-del-act" data-idx="${idx}">🗑</button>
+      </div>`;
+    } else {
+      html += `<div class="admin-list-item">
         <input class="admin-input" id="mn-act-name-${idx}" data-idx="${idx}"
-          value="${escHtml(a.name)}" placeholder="Activity name" />
-        <input class="admin-input admin-group-input" id="mn-act-group-${idx}" data-idx="${idx}"
-          value="${escHtml(a.group || "")}" placeholder="Group heading (optional)" />
-      </div>
-      <button class="btn-adm-del mn-del-act" data-idx="${idx}">🗑</button>
-    </div>`;
+          value="${escHtml(a.name)}" placeholder="Activity name" style="flex:1" />
+        <button class="btn-adm-del mn-del-act" data-idx="${idx}">🗑</button>
+      </div>`;
+    }
   });
 
   html += `</div>
-    <button class="btn-admin-add" id="btn-mn-add-act">+ Add Activity</button>
+    <div style="display:flex;gap:.5rem;margin-top:.25rem">
+      <button class="btn-admin-add" id="btn-mn-add-act" style="flex:1">+ Add Activity</button>
+      <button class="btn-admin-add" id="btn-mn-add-heading" style="flex:1">+ Add Section Heading</button>
+    </div>
 
     <div class="admin-section-title" style="margin-top:1.25rem">Reference Notes</div>
     <div class="admin-list" id="mn-notes-list">`;
@@ -1107,16 +1149,13 @@ function renderTargetManageContent(student, target) {
       const v = $(`mn-act-name-${idx}`).value.trim();
       if (v) { a.name = v; await saveTarget(); }
     });
-    $(`mn-act-group-${idx}`)?.addEventListener("blur", async () => {
-      a.group = $(`mn-act-group-${idx}`).value.trim();
-      await saveTarget();
-    });
   });
 
   $("manage-modal-body").querySelectorAll(".mn-del-act").forEach(btn => {
     btn.addEventListener("click", async () => {
       const idx = Number(btn.dataset.idx);
-      if (!confirm(`Delete activity "${acts[idx]?.name}"?`)) return;
+      const label = acts[idx]?.isHeading ? "section heading" : "activity";
+      if (!confirm(`Delete this ${label}?`)) return;
       acts.splice(idx, 1);
       acts.forEach((a, i) => a.order = i);
       target.predefinedActivities = acts;
@@ -1126,7 +1165,14 @@ function renderTargetManageContent(student, target) {
   });
 
   $("btn-mn-add-act").addEventListener("click", async () => {
-    acts.push({ id: cfgId("a"), name: "New Activity", group: "", order: acts.length });
+    acts.push({ id: cfgId("a"), name: "New Activity", order: acts.length });
+    target.predefinedActivities = acts;
+    await saveTarget();
+    renderTargetManageContent(student, target);
+  });
+
+  $("btn-mn-add-heading").addEventListener("click", async () => {
+    acts.push({ id: cfgId("h"), isHeading: true, name: "Section Heading", order: acts.length });
     target.predefinedActivities = acts;
     await saveTarget();
     renderTargetManageContent(student, target);
