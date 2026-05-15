@@ -25,6 +25,8 @@ import {
 } from "./firebase-service.js";
 import { exportStudentData } from "./export.js";
 
+const APP_VERSION = "v19";
+
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
   authenticated:      false,
@@ -35,6 +37,8 @@ const state = {
   selectedTargetName: null,
   fbUnsubscribe:      null,
   renderPending:      false,
+  flashActive:        false,
+  _flashTimer:        null,
   scorePicker:        { open: false, remId: null },
   pendingNewRemark:   null,
   pendingNewActivity: null
@@ -113,6 +117,8 @@ function initPin() {
 
 async function showHome() {
   showScreen("screen-home");
+  const verEl = document.getElementById("app-version");
+  if (verEl) verEl.textContent = APP_VERSION;
   renderStudentButtons(new Set());
   renderExportButtons();
   try {
@@ -333,7 +339,7 @@ async function openSession(student, existingSessionId = null) {
       state.sessionData = data;
       const active = document.activeElement;
       const busy   = active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA");
-      if (busy) {
+      if (busy || state.flashActive) {
         state.renderPending = true;
       } else {
         renderTargetContent();
@@ -1374,9 +1380,18 @@ function renderTargetManageContent(student, target) {
 function flashSaved(inputEl) {
   if (!inputEl) return;
   inputEl.classList.remove("input-saved");
-  void inputEl.offsetWidth; // restart animation if already running
+  void inputEl.offsetWidth;
   inputEl.classList.add("input-saved");
-  setTimeout(() => inputEl.classList.remove("input-saved"), 1400);
+  state.flashActive = true;
+  clearTimeout(state._flashTimer);
+  state._flashTimer = setTimeout(() => {
+    inputEl.classList.remove("input-saved");
+    state.flashActive = false;
+    if (state.renderPending) {
+      state.renderPending = false;
+      renderTargetContent();
+    }
+  }, 1400);
 }
 
 // ─── SCREEN MANAGEMENT ───────────────────────────────────────

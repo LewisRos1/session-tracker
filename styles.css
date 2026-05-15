@@ -167,6 +167,13 @@ html, body {
   font-weight: 700;
 }
 
+.app-version {
+  font-size: .72rem;
+  font-weight: 500;
+  opacity: .65;
+  letter-spacing: .03em;
+}
+
 .home-main {
   flex: 1;
   overflow-y: auto;
