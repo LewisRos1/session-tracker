@@ -1304,10 +1304,11 @@ textarea.admin-input { resize: vertical; min-height: 60px; line-height: 1.45; }
 
 /* ─── Saved flash (green border glow on input/textarea) ───── */
 @keyframes saved-flash {
-  0%   { border-color: var(--success); box-shadow: 0 0 0 3px rgba(34,197,94,.2); }
-  60%  { border-color: var(--success); box-shadow: 0 0 0 3px rgba(34,197,94,.2); }
-  100% { border-color: var(--border);  box-shadow: none; }
+  0%   { border-color: #22c55e; box-shadow: 0 0 0 3px rgba(34,197,94,.25); }
+  55%  { border-color: #22c55e; box-shadow: 0 0 0 3px rgba(34,197,94,.25); }
+  100% { border-color: var(--border); box-shadow: none; }
 }
 .input-saved {
-  animation: saved-flash 1.4s ease;
+  animation: saved-flash 1.6s ease-out;
+  transition: none !important;
 }
