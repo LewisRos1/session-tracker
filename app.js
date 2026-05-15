@@ -15,7 +15,6 @@ import {
   deleteRemark,
   addTrial,
   deleteTrial,
-  updateFedcComment,
   getTodayUnfinishedStudentIds,
   getRecentSessionsForStudent,
   loadStudentsConfig,
@@ -128,42 +127,19 @@ async function reloadStudents() {
 
 function renderStudentButtons(unfinishedIds) {
   const container = $("student-buttons");
-  let html = state.students.map(s => `
-    <div class="student-btn-wrap">
-      <button class="student-btn" data-id="${s.id}">
-        <span class="student-btn-name">${escHtml(s.name)}</span>
-        ${unfinishedIds.has(s.id)
-          ? `<span class="session-indicator" title="Unfinished session today"></span>`
-          : ""}
-      </button>
-      <button class="student-edit-btn" data-id="${s.id}" title="Edit student">✏</button>
-    </div>
+  container.innerHTML = state.students.map(s => `
+    <button class="student-btn" data-id="${s.id}">
+      <span class="student-btn-name">${escHtml(s.name)}</span>
+      ${unfinishedIds.has(s.id)
+        ? `<span class="session-indicator" title="Unfinished session today"></span>`
+        : ""}
+    </button>
   `).join("");
-  html += `<button class="btn-admin-add" id="btn-home-add-student">+ Add Student</button>`;
-  container.innerHTML = html;
-
   container.querySelectorAll(".student-btn").forEach(btn => {
     btn.addEventListener("click", () => {
       const student = state.students.find(s => s.id === btn.dataset.id);
       if (student) showStudentChoice(student);
     });
-  });
-
-  container.querySelectorAll(".student-edit-btn").forEach(btn => {
-    btn.addEventListener("click", () => {
-      const student = state.students.find(s => s.id === btn.dataset.id);
-      if (student) openManageModal(student, null);
-    });
-  });
-
-  $("btn-home-add-student").addEventListener("click", async () => {
-    const name = prompt("New student name:");
-    if (!name?.trim()) return;
-    const s = { id: cfgId("s"), name: name.trim(), order: state.students.length, targets: [] };
-    await saveStudent(s);
-    state.students.push(s);
-    renderStudentButtons(new Set());
-    renderExportButtons();
   });
 }
 
@@ -195,7 +171,7 @@ function renderExportButtons() {
 // SESSION PICKER
 // ============================================================
 
-// Show two-choice sheet: Today's Session | Edit Other Sessions
+// Show three-choice sheet: Today's Session | Edit Past Sessions | Manage Student
 function showStudentChoice(student) {
   $("session-picker-title").textContent = student.name;
   $("session-picker-list").innerHTML = `
@@ -212,6 +188,12 @@ function showStudentChoice(student) {
           <div class="choice-label">Edit Past Sessions</div>
         </div>
       </button>
+      <button class="choice-btn choice-manage">
+        <span class="choice-icon">✏</span>
+        <div class="choice-text">
+          <div class="choice-label">Manage Student</div>
+        </div>
+      </button>
     </div>`;
   $("session-picker-modal").classList.remove("hidden");
 
@@ -221,6 +203,10 @@ function showStudentChoice(student) {
   });
   $("session-picker-list").querySelector(".choice-other").addEventListener("click", () => {
     showSessionPicker(student);
+  });
+  $("session-picker-list").querySelector(".choice-manage").addEventListener("click", () => {
+    closeSessionPicker();
+    openManageModal(student, null);
   });
 }
 
@@ -394,9 +380,31 @@ function populateTargetDropdown(targets) {
   const sel = $("target-select");
   sel.innerHTML = targets.map(t =>
     `<option value="${escHtml(t.name)}">${escHtml(t.name)}</option>`
-  ).join("");
-  sel.value    = state.selectedTargetName || targets[0]?.name || "";
-  sel.onchange = () => {
+  ).join("") + `<option value="__add_target__">+ Add Target…</option>`;
+
+  sel.value = state.selectedTargetName || targets[0]?.name || "";
+
+  sel.onchange = async () => {
+    if (sel.value === "__add_target__") {
+      sel.value = state.selectedTargetName || targets[0]?.name || "";
+      if (!confirm("Add a new target to this student?")) return;
+      const name = prompt("Target name:");
+      if (!name?.trim()) return;
+      const t = {
+        id: cfgId("t"), name: name.trim(),
+        maxPoints: 3, hasComment: false, fullName: "",
+        order: state.currentStudent.targets.length,
+        predefinedActivities: [], notes: []
+      };
+      state.currentStudent.targets.push(t);
+      const si = state.students.findIndex(s => s.id === state.currentStudent.id);
+      if (si >= 0) state.students[si] = state.currentStudent;
+      await saveStudent(state.currentStudent);
+      state.selectedTargetName = t.name;
+      populateTargetDropdown(state.currentStudent.targets);
+      renderTargetContent();
+      return;
+    }
     state.selectedTargetName = sel.value;
     state.pendingNewActivity = null;
     state.pendingNewRemark   = null;
@@ -405,9 +413,6 @@ function populateTargetDropdown(targets) {
 }
 
 $("btn-back").addEventListener("click", leaveSession);
-$("btn-session-nav").addEventListener("click", () => {
-  if (state.currentStudent) showStudentChoice(state.currentStudent);
-});
 $("btn-finish-session").addEventListener("click", async () => {
   if (!state.currentSessionId) return;
   if (!confirm("Mark this session as finished?")) return;
@@ -439,7 +444,6 @@ function renderTargetContent() {
 function renderFedcTarget(target) {
   let html = `<div class="fedc-header">
     <span class="fedc-title">${escHtml(target.name)}</span>
-    <span class="fedc-subtitle">${escHtml(target.fullName || "")}</span>
   </div>`;
 
   const letters = "abcdefghij";
@@ -507,19 +511,6 @@ function renderFedcTarget(target) {
       if (n.text) html += `<div class="target-note-item">📌 ${escHtml(n.text)}</div>`;
     }
     html += `</div>`;
-  }
-
-  if (target.hasComment) {
-    const commentText = (state.sessionData.fedcComments || {})[sanitizeKey(target.name)] || "";
-    html += `<div class="entry-block">
-      <div class="entry-field">
-        <span class="field-label">Comment</span>
-        <textarea class="field-input fedc-comment-input"
-          data-target="${escHtml(target.name)}"
-          placeholder="Free-text comment (no scoring)…"
-          rows="3">${escHtml(commentText)}</textarea>
-      </div>
-    </div>`;
   }
 
   return html;
@@ -865,15 +856,6 @@ function attachTargetListeners(target) {
     });
   });
 
-  // ── FEDC comment auto-save ────────────────────────────────
-  c.querySelectorAll(".fedc-comment-input").forEach(ta => {
-    let timer;
-    ta.addEventListener("input", () => {
-      clearTimeout(timer);
-      timer = setTimeout(() =>
-        updateFedcComment(state.currentSessionId, ta.dataset.target, ta.value), 800);
-    });
-  });
 }
 
 // ─── ACTION HELPERS ──────────────────────────────────────────
@@ -1009,7 +991,7 @@ $("btn-manage-targets").addEventListener("click", () => {
 
 function renderStudentManageContent(student) {
   $("manage-modal-title").textContent = student.name;
-  let html = `
+  const html = `
     <div class="admin-section">
       <label class="admin-label">Student Name</label>
       <div style="display:flex;gap:.5rem;align-items:center">
@@ -1017,24 +999,7 @@ function renderStudentManageContent(student) {
         <button class="btn-primary-sm" id="btn-mn-rename">Save</button>
       </div>
     </div>
-    <div class="admin-section-title">Targets</div>
-    <div class="admin-list">`;
-
-  for (const t of student.targets) {
-    html += `<div class="admin-list-item">
-      <span class="admin-item-name">${escHtml(t.name)}
-        <span class="admin-item-sub">(${t.maxPoints}pt)</span>
-      </span>
-      <div class="admin-item-actions">
-        <button class="btn-adm-edit mn-edit-target" data-id="${t.id}">Edit</button>
-        <button class="btn-adm-del  mn-del-target"  data-id="${t.id}">🗑</button>
-      </div>
-    </div>`;
-  }
-
-  html += `</div>
-    <button class="btn-admin-add" id="btn-mn-add-target">+ Add Target</button>
-    <div style="margin-top:1.75rem;padding-bottom:.5rem">
+    <div style="margin-top:1.5rem;padding-bottom:.5rem">
       <button class="btn-adm-danger" id="btn-mn-del-student">Delete Student</button>
     </div>`;
 
@@ -1046,37 +1011,6 @@ function renderStudentManageContent(student) {
     student.name = v;
     await saveStudent(student);
     $("manage-modal-title").textContent = v;
-  });
-
-  $("manage-modal-body").querySelectorAll(".mn-edit-target").forEach(btn => {
-    btn.addEventListener("click", () => {
-      const t = student.targets.find(t => t.id === btn.dataset.id);
-      if (t) renderTargetManageContent(student, t);
-    });
-  });
-
-  $("manage-modal-body").querySelectorAll(".mn-del-target").forEach(btn => {
-    btn.addEventListener("click", async () => {
-      const t = student.targets.find(t => t.id === btn.dataset.id);
-      if (!confirm(`Delete target "${t?.name}"? Session data is kept.`)) return;
-      student.targets = student.targets.filter(t => t.id !== btn.dataset.id);
-      student.targets.forEach((t, i) => t.order = i);
-      await saveStudent(student);
-      renderStudentManageContent(student);
-    });
-  });
-
-  $("btn-mn-add-target").addEventListener("click", async () => {
-    const name = prompt("Target name:");
-    if (!name?.trim()) return;
-    const t = {
-      id: cfgId("t"), name: name.trim(),
-      maxPoints: 3, hasComment: false, fullName: "",
-      order: student.targets.length, predefinedActivities: [], notes: []
-    };
-    student.targets.push(t);
-    await saveStudent(student);
-    renderTargetManageContent(student, t);
   });
 
   $("btn-mn-del-student").addEventListener("click", async () => {
@@ -1095,15 +1029,9 @@ function renderTargetManageContent(student, target) {
   const notes = target.notes || [];
 
   let html = `
-    <button class="btn-picker-back" id="btn-mn-back">← ${escHtml(student.name)}</button>
     <div class="admin-section">
       <label class="admin-label">Target Name</label>
       <input class="admin-input" id="mn-t-name" value="${escHtml(target.name)}" />
-    </div>
-    <div class="admin-section">
-      <label class="admin-label">Subtitle <span style="font-weight:400;font-size:.8rem">(optional)</span></label>
-      <input class="admin-input" id="mn-t-fullname" value="${escHtml(target.fullName || "")}"
-        placeholder="e.g. Stage 1 — Shared Attention…" />
     </div>
     <div class="admin-section admin-row">
       <label class="admin-label">Max Points</label>
@@ -1111,19 +1039,9 @@ function renderTargetManageContent(student, target) {
         <button class="admin-pts-btn ${target.maxPoints !== 4 ? "active" : ""}" data-pts="3">3</button>
         <button class="admin-pts-btn ${target.maxPoints === 4 ? "active" : ""}" data-pts="4">4</button>
       </div>
-      <label class="admin-label-inline">
-        <input type="checkbox" id="mn-t-comment" ${target.hasComment ? "checked" : ""} />
-        Comment field
-      </label>
     </div>
 
-    <div class="admin-section-title">
-      Activities
-      <span style="font-weight:400;font-size:.8rem;text-transform:none;letter-spacing:0">
-        — pre-populated each session (leave empty to add manually)
-      </span>
-    </div>
-    <p class="admin-hint">Group heading is optional (e.g. "Eating Etiquette").</p>
+    <div class="admin-section-title">Predefined Activities</div>
     <div class="admin-list" id="mn-act-list">`;
 
   acts.forEach((a, idx) => {
@@ -1141,8 +1059,7 @@ function renderTargetManageContent(student, target) {
   html += `</div>
     <button class="btn-admin-add" id="btn-mn-add-act">+ Add Activity</button>
 
-    <div class="admin-section-title" style="margin-top:1.75rem">Reference Notes</div>
-    <p class="admin-hint">Read-only reminders shown in session as 📌. No scoring.</p>
+    <div class="admin-section-title" style="margin-top:1.25rem">Reference Notes</div>
     <div class="admin-list" id="mn-notes-list">`;
 
   notes.forEach((n, idx) => {
@@ -1168,18 +1085,11 @@ function renderTargetManageContent(student, target) {
     await saveStudent(student);
   };
 
-  $("btn-mn-back").addEventListener("click", () => renderStudentManageContent(student));
-
   $("mn-t-name").addEventListener("blur", async () => {
     const v = $("mn-t-name").value.trim();
     if (!v || v === target.name) return;
     target.name = v;
     $("manage-modal-title").textContent = v;
-    await saveTarget();
-  });
-
-  $("mn-t-fullname").addEventListener("blur", async () => {
-    target.fullName = $("mn-t-fullname").value.trim();
     await saveTarget();
   });
 
@@ -1190,11 +1100,6 @@ function renderTargetManageContent(student, target) {
         b.classList.toggle("active", b.dataset.pts === btn.dataset.pts));
       await saveTarget();
     });
-  });
-
-  $("mn-t-comment").addEventListener("change", async () => {
-    target.hasComment = $("mn-t-comment").checked;
-    await saveTarget();
   });
 
   acts.forEach((a, idx) => {

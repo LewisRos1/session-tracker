@@ -1248,19 +1248,18 @@ textarea.admin-input { resize: vertical; min-height: 60px; line-height: 1.45; }
   color: var(--primary-dark);
 }
 
-/* ─── Session screen manage-targets button ───────────────── */
+/* ─── Session screen Activities/Notes button ─────────────── */
 .btn-manage-targets {
   background: none;
   border: 1.5px solid var(--border);
   border-radius: var(--radius-sm);
   color: var(--text-muted);
-  font-size: 1rem;
+  font-size: .78rem;
+  font-weight: 600;
   cursor: pointer;
-  min-width: 40px;
+  padding: 0 .6rem;
   min-height: 40px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  white-space: nowrap;
   flex-shrink: 0;
   transition: border-color .15s, background .15s, color .15s;
 }
