@@ -796,7 +796,7 @@ function attachTargetListeners(target) {
     });
   });
 
-  // ── Remark text: auto-save on blur ───────────────────────
+  // ── Remark text: Enter saves, Shift+Enter = new line, blur saves ──
   c.querySelectorAll(".remark-text-input").forEach(ta => {
     ta.addEventListener("blur", async () => {
       const newText  = ta.value.trim();
@@ -806,6 +806,9 @@ function attachTargetListeners(target) {
         flashSaved(ta);
         await updateRemarkText(state.currentSessionId, ta.dataset.remId, newText);
       }
+    });
+    ta.addEventListener("keydown", e => {
+      if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); ta.blur(); }
     });
   });
 
@@ -824,13 +827,19 @@ function attachTargetListeners(target) {
     });
   });
 
-  // ── Save new remark via Enter (Shift+Enter = new line) ───
-  $("new-remark-textarea")?.addEventListener("keydown", e => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      saveNewRemark(target);
-    }
-  });
+  // ── New remark: Enter saves, Shift+Enter = new line, blur also saves ──
+  const newRemTa = $("new-remark-textarea");
+  if (newRemTa) {
+    newRemTa.addEventListener("keydown", e => {
+      if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); saveNewRemark(target); }
+    });
+    newRemTa.addEventListener("blur", () => {
+      setTimeout(() => {
+        if (!state.pendingNewRemark) return; // already saved by Enter
+        saveNewRemark(target);
+      }, 150);
+    });
+  }
 
   // ── Cancel new remark ─────────────────────────────────────
   c.querySelectorAll(".btn-cancel-remark").forEach(btn => {
@@ -923,9 +932,9 @@ async function confirmNewActivity(target) {
   const name = input.value.trim();
   if (!name) { input.focus(); return; }
   state.pendingNewActivity = null;
-  input.value = "";      // prevent blur handler from re-saving
-  input.blur();          // dismiss on-screen keyboard on iPad / iPhone
-  renderTargetContent(); // remove input from DOM so Firebase re-render isn't blocked
+  flashSaved(input);
+  input.value = "";  // blur handler sees empty → calls renderTargetContent at +150ms
+  input.blur();      // dismiss keyboard; flash shows for ~150ms then input removed
   await addActivity(state.currentSessionId, target.name, name, Date.now(), false);
 }
 
@@ -936,21 +945,20 @@ function cancelPendingActivity() {
 
 async function saveNewRemark(target) {
   const ta = $("new-remark-textarea");
-  if (!ta) return;
-  const text  = ta.value;
-  const p     = state.pendingNewRemark;
-  if (!p) return;
+  if (!ta || !state.pendingNewRemark) return;
 
+  const text    = ta.value;
+  const p       = state.pendingNewRemark;
   const paName  = p.paName || null;
   const paOrder = p.paOrder ?? 0;
   let   actId   = p.actId  || null;
 
-  if (paName) {
-    actId = await ensureFedcActivity(target.name, paName, paOrder);
-  }
+  state.pendingNewRemark = null; // prevent blur-handler double-save
+  flashSaved(ta);
+  ta.blur(); // clear focus so Firebase snapshot can trigger re-render
 
+  if (paName) actId = await ensureFedcActivity(target.name, paName, paOrder);
   if (!actId) return;
-  state.pendingNewRemark = null;
   await addRemark(state.currentSessionId, actId, text);
 }
 
