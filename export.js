@@ -3,16 +3,14 @@
 // One .xlsx per student: a Summary sheet + one sheet per target.
 // ============================================================
 
-import { CONFIG } from "./config.js";
 import { getAllSessionsForStudent, sanitizeKey } from "./firebase-service.js";
 
 // ─── PUBLIC ENTRY POINT ──────────────────────────────────────
 
-export async function exportStudentData(studentId) {
-  const student = CONFIG.STUDENTS.find(s => s.id === studentId);
+export async function exportStudentData(student) {
   if (!student) return;
 
-  const sessions = await getAllSessionsForStudent(studentId);
+  const sessions = await getAllSessionsForStudent(student.id);
   if (sessions.length === 0) {
     alert("No session data found for " + student.name);
     return;

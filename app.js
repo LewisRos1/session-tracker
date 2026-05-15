@@ -18,6 +18,9 @@ import {
   updateFedcComment,
   getTodayUnfinishedStudentIds,
   getRecentSessionsForStudent,
+  loadStudentsConfig,
+  saveStudent,
+  deleteStudentConfig,
   sanitizeKey,
   getTodayString
 } from "./firebase-service.js";
@@ -26,6 +29,7 @@ import { exportStudentData } from "./export.js";
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
   authenticated:      false,
+  students:           [],     // loaded from Firebase
   currentStudent:     null,
   currentSessionId:   null,
   sessionData:        null,
@@ -33,20 +37,32 @@ const state = {
   fbUnsubscribe:      null,
   renderPending:      false,
   scorePicker:        { open: false, remId: null },
-  pendingNewRemark:   null,   // { pendingKey, actId, paName, paOrder } | null
-  pendingNewActivity: null    // { targetName } | null
+  pendingNewRemark:   null,
+  pendingNewActivity: null
 };
 
 const $ = id => document.getElementById(id);
 
 // ─── INIT ────────────────────────────────────────────────────
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", async () => {
   document.addEventListener("focusout", () => {
     if (state.renderPending) {
       state.renderPending = false;
       renderTargetContent();
     }
   });
+
+  // Load student config from Firebase (seeds from INITIAL_STUDENTS if empty)
+  try {
+    let students = await loadStudentsConfig();
+    if (students.length === 0) {
+      for (const s of CONFIG.INITIAL_STUDENTS) await saveStudent(s);
+      students = CONFIG.INITIAL_STUDENTS;
+    }
+    state.students = students;
+  } catch (_) {
+    state.students = CONFIG.INITIAL_STUDENTS;
+  }
 
   if (sessionStorage.getItem("auth") === "1") {
     showHome();
@@ -106,9 +122,13 @@ async function showHome() {
   } catch (_) {}
 }
 
+async function reloadStudents() {
+  try { state.students = await loadStudentsConfig(); } catch (_) {}
+}
+
 function renderStudentButtons(unfinishedIds) {
   const container = $("student-buttons");
-  container.innerHTML = CONFIG.STUDENTS.map(s => `
+  container.innerHTML = state.students.map(s => `
     <button class="student-btn" data-id="${s.id}">
       <span class="student-btn-name">${escHtml(s.name)}</span>
       ${unfinishedIds.has(s.id)
@@ -118,7 +138,7 @@ function renderStudentButtons(unfinishedIds) {
   `).join("");
   container.querySelectorAll(".student-btn").forEach(btn => {
     btn.addEventListener("click", () => {
-      const student = CONFIG.STUDENTS.find(s => s.id === btn.dataset.id);
+      const student = state.students.find(s => s.id === btn.dataset.id);
       if (student) showStudentChoice(student);
     });
   });
@@ -126,16 +146,18 @@ function renderStudentButtons(unfinishedIds) {
 
 function renderExportButtons() {
   const container = $("export-buttons");
-  container.innerHTML = CONFIG.STUDENTS.map(s => `
+  container.innerHTML = state.students.map(s => `
     <button class="export-btn" data-id="${s.id}">Export ${escHtml(s.name)}</button>
   `).join("");
   container.querySelectorAll(".export-btn").forEach(btn => {
     btn.addEventListener("click", async () => {
+      const student = state.students.find(s => s.id === btn.dataset.id);
+      if (!student) return;
       const orig = btn.textContent;
       btn.disabled = true;
       btn.textContent = "Generating…";
       try {
-        await exportStudentData(btn.dataset.id);
+        await exportStudentData(student);
       } catch (err) {
         alert("Export failed: " + err.message);
       } finally {
@@ -382,7 +404,7 @@ function renderTargetContent() {
 
   updateSessionHeader();
   const container = $("target-content");
-  container.innerHTML = target.predefinedActivities
+  container.innerHTML = target.predefinedActivities?.length > 0
     ? renderFedcTarget(target)
     : renderRegularTarget(target);
 
@@ -455,6 +477,15 @@ function renderFedcTarget(target) {
     html += `</div>`;
   });
 
+  // Target-level reference notes
+  if (target.notes?.length > 0) {
+    html += `<div class="target-notes">`;
+    for (const n of target.notes) {
+      if (n.text) html += `<div class="target-note-item">📌 ${escHtml(n.text)}</div>`;
+    }
+    html += `</div>`;
+  }
+
   if (target.hasComment) {
     const commentText = (state.sessionData.fedcComments || {})[sanitizeKey(target.name)] || "";
     html += `<div class="entry-block">
@@ -476,6 +507,14 @@ function renderFedcTarget(target) {
 function renderRegularTarget(target) {
   const activities = getActivitiesForTarget(target.name);
   let html = "";
+
+  if (target.notes?.length > 0) {
+    html += `<div class="target-notes">`;
+    for (const n of target.notes) {
+      if (n.text) html += `<div class="target-note-item">📌 ${escHtml(n.text)}</div>`;
+    }
+    html += `</div>`;
+  }
 
   for (const act of activities) {
     const pendingKey = act.id;
@@ -834,7 +873,6 @@ async function saveNewRemark(btn, target) {
   const ta = $("new-remark-textarea");
   if (!ta) return;
   const text   = ta.value.trim();
-  if (!text) { ta.focus(); return; }
 
   const paName  = btn.dataset.paName  || null;
   const paOrder = btn.dataset.paOrder !== undefined && btn.dataset.paOrder !== ""
@@ -901,6 +939,372 @@ function closeScorePicker() {
 
 $("score-modal-close").addEventListener("click",    closeScorePicker);
 $("score-modal-backdrop").addEventListener("click", closeScorePicker);
+
+// ============================================================
+// ADMIN SCREENS
+// ============================================================
+
+const adminNav = [];
+
+function cfgId(prefix) {
+  return prefix + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+}
+
+// ── Admin PIN modal ───────────────────────────────────────────
+
+$("btn-open-admin").addEventListener("click", () => {
+  $("admin-pin-input").value = "";
+  $("admin-pin-error").classList.add("hidden");
+  $("admin-pin-modal").classList.remove("hidden");
+  setTimeout(() => $("admin-pin-input").focus(), 100);
+});
+
+const closeAdminPin = () => $("admin-pin-modal").classList.add("hidden");
+$("admin-pin-close").addEventListener("click",    closeAdminPin);
+$("admin-pin-backdrop").addEventListener("click", closeAdminPin);
+
+const checkAdminPin = () => {
+  if ($("admin-pin-input").value.trim().toUpperCase() === CONFIG.ADMIN_PIN) {
+    closeAdminPin();
+    enterAdmin();
+  } else {
+    $("admin-pin-error").classList.remove("hidden");
+    $("admin-pin-input").value = "";
+    $("admin-pin-input").focus();
+  }
+};
+$("admin-pin-submit").addEventListener("click", checkAdminPin);
+$("admin-pin-input").addEventListener("keydown", e => { if (e.key === "Enter") checkAdminPin(); });
+
+// ── Navigation ────────────────────────────────────────────────
+
+async function enterAdmin() {
+  await reloadStudents();
+  adminNav.length = 0;
+  pushAdminView("home");
+}
+
+function pushAdminView(view, data = {}) {
+  adminNav.push({ view, data });
+  renderAdminView();
+}
+
+function popAdminView() {
+  adminNav.pop();
+  if (adminNav.length === 0) showHome();
+  else renderAdminView();
+}
+
+function renderAdminView() {
+  const cur = adminNav[adminNav.length - 1];
+  if (!cur) return;
+  showScreen("screen-admin");
+  switch (cur.view) {
+    case "home":    renderAdminHome();                          break;
+    case "student": renderAdminStudent(cur.data.student);      break;
+    case "target":  renderAdminTarget(cur.data.student, cur.data.target); break;
+  }
+}
+
+$("admin-btn-back").addEventListener("click", popAdminView);
+
+// ── Home: student list ────────────────────────────────────────
+
+function renderAdminHome() {
+  $("admin-title").textContent = "Manage Students";
+  const students = state.students;
+  let html = `<div class="admin-list">`;
+  students.forEach((s, idx) => {
+    html += `<div class="admin-list-item">
+      <span class="admin-item-name">${escHtml(s.name)}</span>
+      <div class="admin-item-actions">
+        <button class="btn-adm-ord" data-dir="up"   data-idx="${idx}" ${idx === 0 ? "disabled" : ""}>↑</button>
+        <button class="btn-adm-ord" data-dir="down" data-idx="${idx}" ${idx === students.length - 1 ? "disabled" : ""}>↓</button>
+        <button class="btn-adm-edit" data-id="${s.id}">Edit</button>
+        <button class="btn-adm-del"  data-id="${s.id}">🗑</button>
+      </div>
+    </div>`;
+  });
+  html += `</div><button class="btn-admin-add" id="btn-add-student">+ Add Student</button>`;
+  $("admin-main").innerHTML = html;
+
+  $("admin-main").querySelectorAll(".btn-adm-edit").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const s = state.students.find(s => s.id === btn.dataset.id);
+      if (s) pushAdminView("student", { student: s });
+    });
+  });
+
+  $("admin-main").querySelectorAll(".btn-adm-ord").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const idx = Number(btn.dataset.idx);
+      const arr = [...state.students];
+      const swap = btn.dataset.dir === "up" ? idx - 1 : idx + 1;
+      if (swap < 0 || swap >= arr.length) return;
+      [arr[idx], arr[swap]] = [arr[swap], arr[idx]];
+      arr.forEach((s, i) => s.order = i);
+      for (const s of arr) await saveStudent(s);
+      state.students = arr;
+      renderAdminHome();
+    });
+  });
+
+  $("admin-main").querySelectorAll(".btn-adm-del").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const s = state.students.find(s => s.id === btn.dataset.id);
+      if (!confirm(`Delete "${s?.name}"? Session data is kept in Firebase.`)) return;
+      await deleteStudentConfig(btn.dataset.id);
+      state.students = state.students.filter(s => s.id !== btn.dataset.id);
+      renderAdminHome();
+    });
+  });
+
+  $("btn-add-student")?.addEventListener("click", async () => {
+    const name = prompt("New student name:");
+    if (!name?.trim()) return;
+    const s = { id: cfgId("s"), name: name.trim(), order: state.students.length, targets: [] };
+    await saveStudent(s);
+    state.students.push(s);
+    pushAdminView("student", { student: s });
+  });
+}
+
+// ── Student: target list ──────────────────────────────────────
+
+function renderAdminStudent(student) {
+  $("admin-title").textContent = student.name;
+  let html = `
+    <div class="admin-section">
+      <label class="admin-label">Student Name</label>
+      <input class="admin-input" id="s-name-input" value="${escHtml(student.name)}" />
+    </div>
+    <div class="admin-section-title">Targets</div>
+    <div class="admin-list">`;
+  student.targets.forEach((t, idx) => {
+    html += `<div class="admin-list-item">
+      <span class="admin-item-name">${escHtml(t.name)} <span class="admin-item-sub">(${t.maxPoints}pt)</span></span>
+      <div class="admin-item-actions">
+        <button class="btn-adm-ord" data-dir="up"   data-idx="${idx}" ${idx === 0 ? "disabled" : ""}>↑</button>
+        <button class="btn-adm-ord" data-dir="down" data-idx="${idx}" ${idx === student.targets.length - 1 ? "disabled" : ""}>↓</button>
+        <button class="btn-adm-edit" data-idx="${idx}">Edit</button>
+        <button class="btn-adm-del"  data-idx="${idx}">🗑</button>
+      </div>
+    </div>`;
+  });
+  html += `</div><button class="btn-admin-add" id="btn-add-target">+ Add Target</button>`;
+  $("admin-main").innerHTML = html;
+
+  $("s-name-input")?.addEventListener("blur", async () => {
+    const v = $("s-name-input").value.trim();
+    if (!v || v === student.name) return;
+    student.name = v;
+    await saveStudent(student);
+    const i = state.students.findIndex(s => s.id === student.id);
+    if (i >= 0) state.students[i] = student;
+    $("admin-title").textContent = v;
+  });
+
+  $("admin-main").querySelectorAll(".btn-adm-edit").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const t = student.targets[Number(btn.dataset.idx)];
+      if (t) pushAdminView("target", { student, target: t });
+    });
+  });
+
+  $("admin-main").querySelectorAll(".btn-adm-ord").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const idx = Number(btn.dataset.idx);
+      const swap = btn.dataset.dir === "up" ? idx - 1 : idx + 1;
+      if (swap < 0 || swap >= student.targets.length) return;
+      [student.targets[idx], student.targets[swap]] = [student.targets[swap], student.targets[idx]];
+      student.targets.forEach((t, i) => t.order = i);
+      await saveStudent(student);
+      renderAdminStudent(student);
+    });
+  });
+
+  $("admin-main").querySelectorAll(".btn-adm-del").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const idx = Number(btn.dataset.idx);
+      if (!confirm(`Delete target "${student.targets[idx]?.name}"?`)) return;
+      student.targets.splice(idx, 1);
+      student.targets.forEach((t, i) => t.order = i);
+      await saveStudent(student);
+      renderAdminStudent(student);
+    });
+  });
+
+  $("btn-add-target")?.addEventListener("click", async () => {
+    const name = prompt("Target name:");
+    if (!name?.trim()) return;
+    const pts = prompt("Max points (3 or 4):", "3");
+    const t = {
+      id: cfgId("t"), name: name.trim(),
+      maxPoints: Number(pts) === 4 ? 4 : 3,
+      hasComment: false, fullName: "", order: student.targets.length,
+      predefinedActivities: [], notes: []
+    };
+    student.targets.push(t);
+    await saveStudent(student);
+    pushAdminView("target", { student, target: t });
+  });
+}
+
+// ── Target: activities + notes ────────────────────────────────
+
+function renderAdminTarget(student, target) {
+  $("admin-title").textContent = target.name;
+  const acts  = target.predefinedActivities || [];
+  const notes = target.notes || [];
+
+  let html = `
+    <div class="admin-section">
+      <label class="admin-label">Target Name</label>
+      <input class="admin-input" id="t-name-input" value="${escHtml(target.name)}" />
+    </div>
+    <div class="admin-section">
+      <label class="admin-label">Subtitle (optional, shown below target name)</label>
+      <input class="admin-input" id="t-fullname-input" value="${escHtml(target.fullName || "")}" placeholder="e.g. Stage 1 — Shared Attention…" />
+    </div>
+    <div class="admin-section admin-row">
+      <label class="admin-label">Max Points</label>
+      <div class="admin-pts-group">
+        <button class="admin-pts-btn ${target.maxPoints !== 4 ? "active" : ""}" data-pts="3">3</button>
+        <button class="admin-pts-btn ${target.maxPoints === 4 ? "active" : ""}" data-pts="4">4</button>
+      </div>
+      <label class="admin-label admin-label-inline">
+        <input type="checkbox" id="t-comment-check" ${target.hasComment ? "checked" : ""} />
+        Free-text Comment field
+      </label>
+    </div>
+
+    <div class="admin-section-title">Predefined Activities</div>
+    <p class="admin-hint">Group heading is optional — use it to group related activities (e.g. "Eating Etiquette").</p>
+    <div class="admin-list" id="act-list">`;
+
+  acts.forEach((a, idx) => {
+    html += `<div class="admin-list-item admin-act-item">
+      <div class="admin-act-fields">
+        <input class="admin-input" id="act-name-${idx}" data-idx="${idx}" value="${escHtml(a.name)}" placeholder="Activity name" />
+        <input class="admin-input admin-group-input" id="act-group-${idx}" data-idx="${idx}" value="${escHtml(a.group || "")}" placeholder="Group heading (optional)" />
+      </div>
+      <div class="admin-item-actions">
+        <button class="btn-adm-ord" data-dir="up"   data-idx="${idx}" ${idx === 0 ? "disabled" : ""}>↑</button>
+        <button class="btn-adm-ord" data-dir="down" data-idx="${idx}" ${idx === acts.length - 1 ? "disabled" : ""}>↓</button>
+        <button class="btn-adm-del" data-idx="${idx}">🗑</button>
+      </div>
+    </div>`;
+  });
+
+  html += `</div>
+    <button class="btn-admin-add" id="btn-add-act">+ Add Activity</button>
+
+    <div class="admin-section-title" style="margin-top:1.75rem">Reference Notes</div>
+    <p class="admin-hint">Shown in the session screen as read-only reminders. No scoring.</p>
+    <div class="admin-list" id="notes-list">`;
+
+  notes.forEach((n, idx) => {
+    html += `<div class="admin-list-item admin-note-item">
+      <textarea class="admin-input admin-note-text" data-idx="${idx}" rows="2">${escHtml(n.text)}</textarea>
+      <button class="btn-adm-del" data-idx="${idx}">🗑</button>
+    </div>`;
+  });
+
+  html += `</div>
+    <button class="btn-admin-add" id="btn-add-note">+ Add Note</button>
+    <div style="margin-top:2rem; padding-bottom:2rem">
+      <button class="btn-adm-danger" id="btn-del-target">Delete This Target</button>
+    </div>`;
+
+  $("admin-main").innerHTML = html;
+
+  const saveTarget = async () => {
+    const i = student.targets.findIndex(t => t.id === target.id);
+    if (i >= 0) student.targets[i] = target;
+    await saveStudent(student);
+  };
+
+  $("t-name-input")?.addEventListener("blur", async () => {
+    const v = $("t-name-input").value.trim();
+    if (!v || v === target.name) return;
+    target.name = v; $("admin-title").textContent = v; await saveTarget();
+  });
+  $("t-fullname-input")?.addEventListener("blur", async () => {
+    target.fullName = $("t-fullname-input").value.trim(); await saveTarget();
+  });
+
+  $("admin-main").querySelectorAll(".admin-pts-btn").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      target.maxPoints = Number(btn.dataset.pts);
+      $("admin-main").querySelectorAll(".admin-pts-btn").forEach(b =>
+        b.classList.toggle("active", b.dataset.pts === btn.dataset.pts));
+      await saveTarget();
+    });
+  });
+  $("t-comment-check")?.addEventListener("change", async () => {
+    target.hasComment = $("t-comment-check").checked; await saveTarget();
+  });
+
+  // Activity name / group blur-save
+  acts.forEach((a, idx) => {
+    $(`act-name-${idx}`)?.addEventListener("blur", async () => {
+      const v = $(`act-name-${idx}`).value.trim();
+      if (v) { a.name = v; await saveTarget(); }
+    });
+    $(`act-group-${idx}`)?.addEventListener("blur", async () => {
+      a.group = $(`act-group-${idx}`).value.trim(); await saveTarget();
+    });
+  });
+
+  // Reorder / delete activities
+  $("admin-main").querySelectorAll("#act-list .btn-adm-ord").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const idx = Number(btn.dataset.idx);
+      const swap = btn.dataset.dir === "up" ? idx - 1 : idx + 1;
+      if (swap < 0 || swap >= acts.length) return;
+      [acts[idx], acts[swap]] = [acts[swap], acts[idx]];
+      acts.forEach((a, i) => a.order = i);
+      await saveTarget(); renderAdminTarget(student, target);
+    });
+  });
+  $("admin-main").querySelectorAll("#act-list .btn-adm-del").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const idx = Number(btn.dataset.idx);
+      if (!confirm(`Delete activity "${acts[idx]?.name}"?`)) return;
+      acts.splice(idx, 1); acts.forEach((a, i) => a.order = i);
+      await saveTarget(); renderAdminTarget(student, target);
+    });
+  });
+  $("btn-add-act")?.addEventListener("click", async () => {
+    acts.push({ id: cfgId("a"), name: "New Activity", group: "", order: acts.length });
+    await saveTarget(); renderAdminTarget(student, target);
+  });
+
+  // Notes blur-save / delete
+  $("admin-main").querySelectorAll(".admin-note-text").forEach(ta => {
+    ta.addEventListener("blur", async () => {
+      notes[Number(ta.dataset.idx)].text = ta.value; await saveTarget();
+    });
+  });
+  $("admin-main").querySelectorAll("#notes-list .btn-adm-del").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const idx = Number(btn.dataset.idx);
+      if (!confirm("Delete this note?")) return;
+      notes.splice(idx, 1); await saveTarget(); renderAdminTarget(student, target);
+    });
+  });
+  $("btn-add-note")?.addEventListener("click", async () => {
+    notes.push({ id: cfgId("n"), text: "", order: notes.length });
+    await saveTarget(); renderAdminTarget(student, target);
+  });
+
+  $("btn-del-target")?.addEventListener("click", async () => {
+    if (!confirm(`Delete target "${target.name}"?`)) return;
+    const i = student.targets.findIndex(t => t.id === target.id);
+    if (i >= 0) { student.targets.splice(i, 1); student.targets.forEach((t, j) => t.order = j); }
+    await saveStudent(student); popAdminView();
+  });
+}
 
 // ─── SCREEN MANAGEMENT ───────────────────────────────────────
 

@@ -12,7 +12,9 @@ import {
   collection,
   doc,
   addDoc,
+  setDoc,
   updateDoc,
+  deleteDoc,
   getDocs,
   query,
   where,
@@ -199,6 +201,24 @@ export async function updateFedcComment(sessionId, targetName, text) {
   await updateDoc(doc(db, "sessions", sessionId), {
     [`fedcComments.${key}`]: text
   });
+}
+
+// ─── STUDENT CONFIG (admin-managed) ──────────────────────────
+
+/** Load all students from Firestore config collection. */
+export async function loadStudentsConfig() {
+  const snap = await getDocs(collection(db, "students"));
+  return snap.docs.map(d => d.data()).sort((a, b) => (a.order || 0) - (b.order || 0));
+}
+
+/** Save (upsert) a student config document. */
+export async function saveStudent(student) {
+  await setDoc(doc(db, "students", student.id), student);
+}
+
+/** Delete a student config document. */
+export async function deleteStudentConfig(studentId) {
+  await deleteDoc(doc(db, "students", studentId));
 }
 
 // ─── EXPORT DATA ─────────────────────────────────────────────

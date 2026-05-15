@@ -52,6 +52,7 @@
   <div id="screen-home" class="screen hidden">
     <header class="app-header">
       <h1>Therapy Tracker</h1>
+      <button class="btn-admin-gear" id="btn-open-admin" title="Admin">⚙</button>
     </header>
     <main class="home-main">
       <section>
@@ -129,6 +130,39 @@
       </div>
       <div id="session-picker-list" class="session-picker-list">
         <!-- populated by JS -->
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════
+       ADMIN SCREEN
+       ══════════════════════════════════════════════════════ -->
+  <div id="screen-admin" class="screen hidden">
+    <header class="session-header">
+      <button class="btn-back" id="admin-btn-back">←</button>
+      <div class="session-info">
+        <span class="session-student-name" id="admin-title">Admin</span>
+      </div>
+      <div style="width:36px"></div>
+    </header>
+    <main class="admin-main" id="admin-main"></main>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════
+       ADMIN PIN MODAL
+       ══════════════════════════════════════════════════════ -->
+  <div id="admin-pin-modal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-backdrop" id="admin-pin-backdrop"></div>
+    <div class="modal-sheet">
+      <div class="modal-header">
+        <span class="modal-title">Admin Access</span>
+        <button class="modal-close" id="admin-pin-close">✕</button>
+      </div>
+      <div class="admin-pin-body">
+        <input id="admin-pin-input" class="pin-input" type="password"
+          maxlength="10" placeholder="Admin PIN" autocomplete="off" />
+        <div id="admin-pin-error" class="pin-error hidden">Incorrect PIN</div>
+        <button id="admin-pin-submit" class="btn-unlock">Enter</button>
       </div>
     </div>
   </div>
