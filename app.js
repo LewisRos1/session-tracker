@@ -667,22 +667,13 @@ function renderRemarkFields(rem, target) {
 }
 
 function renderPendingRemarkFields(pendingKey, actId, paName, paOrder, target) {
-  const p = state.pendingNewRemark;
   return `
     <div class="entry-divider"></div>
     <div class="entry-field">
       <span class="field-label">Remark</span>
       <textarea id="new-remark-textarea" class="field-input"
-        placeholder="Type remark…" rows="2"></textarea>
+        placeholder="Type remark… (Enter to save, Shift+Enter for new line)" rows="2"></textarea>
       <button class="btn-icon btn-cancel-remark" title="Cancel">✕</button>
-    </div>
-    <div class="entry-field">
-      <span class="field-label"></span>
-      <button class="btn-save-remark btn-primary-sm"
-        data-act-id="${actId || ""}"
-        data-pa-name="${escHtml(paName || "")}"
-        data-pa-order="${paOrder !== null && paOrder !== undefined ? paOrder : ""}"
-        data-target="${escHtml(target.name)}">Save Remark</button>
     </div>`;
 }
 
@@ -757,8 +748,8 @@ function attachTargetListeners(target) {
       if (!newName) { input.value = original; return; }
       if (newName !== original) {
         input.dataset.original = newName;
-        await updateActivityName(state.currentSessionId, input.dataset.actId, newName);
         flashSaved(input);
+        await updateActivityName(state.currentSessionId, input.dataset.actId, newName);
       }
     });
     input.addEventListener("keydown", e => {
@@ -812,8 +803,8 @@ function attachTargetListeners(target) {
       const original = ta.dataset.original;
       if (newText !== original) {
         ta.dataset.original = newText;
-        await updateRemarkText(state.currentSessionId, ta.dataset.remId, newText);
         flashSaved(ta);
+        await updateRemarkText(state.currentSessionId, ta.dataset.remId, newText);
       }
     });
   });
@@ -833,9 +824,12 @@ function attachTargetListeners(target) {
     });
   });
 
-  // ── Save new remark ───────────────────────────────────────
-  c.querySelectorAll(".btn-save-remark").forEach(btn => {
-    btn.addEventListener("click", () => saveNewRemark(btn, target));
+  // ── Save new remark via Enter (Shift+Enter = new line) ───
+  $("new-remark-textarea")?.addEventListener("keydown", e => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      saveNewRemark(target);
+    }
   });
 
   // ── Cancel new remark ─────────────────────────────────────
@@ -873,8 +867,8 @@ function attachTargetListeners(target) {
       const original = input.dataset.original;
       if (text !== original) {
         input.dataset.original = text;
-        await updateRemarkText(state.currentSessionId, input.dataset.remId, text);
         flashSaved(input);
+        await updateRemarkText(state.currentSessionId, input.dataset.remId, text);
       }
     });
     input.addEventListener("keydown", e => {
@@ -940,18 +934,19 @@ function cancelPendingActivity() {
   renderTargetContent();
 }
 
-async function saveNewRemark(btn, target) {
+async function saveNewRemark(target) {
   const ta = $("new-remark-textarea");
   if (!ta) return;
-  const text   = ta.value.trim();
+  const text  = ta.value;
+  const p     = state.pendingNewRemark;
+  if (!p) return;
 
-  const paName  = btn.dataset.paName  || null;
-  const paOrder = btn.dataset.paOrder !== undefined && btn.dataset.paOrder !== ""
-    ? Number(btn.dataset.paOrder) : null;
-  let   actId   = btn.dataset.actId   || null;
+  const paName  = p.paName || null;
+  const paOrder = p.paOrder ?? 0;
+  let   actId   = p.actId  || null;
 
   if (paName) {
-    actId = await ensureFedcActivity(target.name, paName, paOrder ?? 0);
+    actId = await ensureFedcActivity(target.name, paName, paOrder);
   }
 
   if (!actId) return;
