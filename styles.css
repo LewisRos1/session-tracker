@@ -495,7 +495,7 @@ html, body {
 }
 
 .entry-block-predefined {
-  border-left: 3px solid var(--primary);
+  border-left: 5px solid var(--primary);
 }
 
 .entry-divider {
