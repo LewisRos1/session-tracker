@@ -128,19 +128,42 @@ async function reloadStudents() {
 
 function renderStudentButtons(unfinishedIds) {
   const container = $("student-buttons");
-  container.innerHTML = state.students.map(s => `
-    <button class="student-btn" data-id="${s.id}">
-      <span class="student-btn-name">${escHtml(s.name)}</span>
-      ${unfinishedIds.has(s.id)
-        ? `<span class="session-indicator" title="Unfinished session today"></span>`
-        : ""}
-    </button>
+  let html = state.students.map(s => `
+    <div class="student-btn-wrap">
+      <button class="student-btn" data-id="${s.id}">
+        <span class="student-btn-name">${escHtml(s.name)}</span>
+        ${unfinishedIds.has(s.id)
+          ? `<span class="session-indicator" title="Unfinished session today"></span>`
+          : ""}
+      </button>
+      <button class="student-edit-btn" data-id="${s.id}" title="Edit student">✏</button>
+    </div>
   `).join("");
+  html += `<button class="btn-admin-add" id="btn-home-add-student">+ Add Student</button>`;
+  container.innerHTML = html;
+
   container.querySelectorAll(".student-btn").forEach(btn => {
     btn.addEventListener("click", () => {
       const student = state.students.find(s => s.id === btn.dataset.id);
       if (student) showStudentChoice(student);
     });
+  });
+
+  container.querySelectorAll(".student-edit-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const student = state.students.find(s => s.id === btn.dataset.id);
+      if (student) openManageModal(student, null);
+    });
+  });
+
+  $("btn-home-add-student").addEventListener("click", async () => {
+    const name = prompt("New student name:");
+    if (!name?.trim()) return;
+    const s = { id: cfgId("s"), name: name.trim(), order: state.students.length, targets: [] };
+    await saveStudent(s);
+    state.students.push(s);
+    renderStudentButtons(new Set());
+    renderExportButtons();
   });
 }
 
@@ -941,230 +964,146 @@ $("score-modal-close").addEventListener("click",    closeScorePicker);
 $("score-modal-backdrop").addEventListener("click", closeScorePicker);
 
 // ============================================================
-// ADMIN SCREENS
+// MANAGE MODAL (inline student / target config editing)
 // ============================================================
-
-const adminNav = [];
 
 function cfgId(prefix) {
   return prefix + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 }
 
-// ── Admin PIN modal ───────────────────────────────────────────
+// ── Open / close ──────────────────────────────────────────────
 
-$("btn-open-admin").addEventListener("click", () => {
-  $("admin-pin-input").value = "";
-  $("admin-pin-error").classList.add("hidden");
-  $("admin-pin-modal").classList.remove("hidden");
-  setTimeout(() => $("admin-pin-input").focus(), 100);
+function openManageModal(student, targetOrNull) {
+  $("manage-modal").classList.remove("hidden");
+  if (targetOrNull) {
+    renderTargetManageContent(student, targetOrNull);
+  } else {
+    renderStudentManageContent(student);
+  }
+}
+
+function closeManageModal() {
+  $("manage-modal").classList.add("hidden");
+  // Refresh session dropdown / content if a session is active
+  if (state.currentStudent) {
+    populateTargetDropdown(state.currentStudent.targets);
+    if (state.currentSessionId && state.selectedTargetName) renderTargetContent();
+  }
+  renderStudentButtons(new Set());
+  renderExportButtons();
+}
+
+$("manage-modal-close").addEventListener("click",    closeManageModal);
+$("manage-modal-backdrop").addEventListener("click", closeManageModal);
+
+// ── Session-screen ⚙ button ───────────────────────────────────
+
+$("btn-manage-targets").addEventListener("click", () => {
+  const student = state.currentStudent;
+  if (!student) return;
+  const target = student.targets.find(t => t.name === state.selectedTargetName) || null;
+  openManageModal(student, target);
 });
 
-const closeAdminPin = () => $("admin-pin-modal").classList.add("hidden");
-$("admin-pin-close").addEventListener("click",    closeAdminPin);
-$("admin-pin-backdrop").addEventListener("click", closeAdminPin);
+// ── Student management content ────────────────────────────────
 
-const checkAdminPin = () => {
-  if ($("admin-pin-input").value.trim().toUpperCase() === CONFIG.ADMIN_PIN) {
-    closeAdminPin();
-    enterAdmin();
-  } else {
-    $("admin-pin-error").classList.remove("hidden");
-    $("admin-pin-input").value = "";
-    $("admin-pin-input").focus();
-  }
-};
-$("admin-pin-submit").addEventListener("click", checkAdminPin);
-$("admin-pin-input").addEventListener("keydown", e => { if (e.key === "Enter") checkAdminPin(); });
-
-// ── Navigation ────────────────────────────────────────────────
-
-async function enterAdmin() {
-  await reloadStudents();
-  adminNav.length = 0;
-  pushAdminView("home");
-}
-
-function pushAdminView(view, data = {}) {
-  adminNav.push({ view, data });
-  renderAdminView();
-}
-
-function popAdminView() {
-  adminNav.pop();
-  if (adminNav.length === 0) showHome();
-  else renderAdminView();
-}
-
-function renderAdminView() {
-  const cur = adminNav[adminNav.length - 1];
-  if (!cur) return;
-  showScreen("screen-admin");
-  switch (cur.view) {
-    case "home":    renderAdminHome();                          break;
-    case "student": renderAdminStudent(cur.data.student);      break;
-    case "target":  renderAdminTarget(cur.data.student, cur.data.target); break;
-  }
-}
-
-$("admin-btn-back").addEventListener("click", popAdminView);
-
-// ── Home: student list ────────────────────────────────────────
-
-function renderAdminHome() {
-  $("admin-title").textContent = "Manage Students";
-  const students = state.students;
-  let html = `<div class="admin-list">`;
-  students.forEach((s, idx) => {
-    html += `<div class="admin-list-item">
-      <span class="admin-item-name">${escHtml(s.name)}</span>
-      <div class="admin-item-actions">
-        <button class="btn-adm-ord" data-dir="up"   data-idx="${idx}" ${idx === 0 ? "disabled" : ""}>↑</button>
-        <button class="btn-adm-ord" data-dir="down" data-idx="${idx}" ${idx === students.length - 1 ? "disabled" : ""}>↓</button>
-        <button class="btn-adm-edit" data-id="${s.id}">Edit</button>
-        <button class="btn-adm-del"  data-id="${s.id}">🗑</button>
-      </div>
-    </div>`;
-  });
-  html += `</div><button class="btn-admin-add" id="btn-add-student">+ Add Student</button>`;
-  $("admin-main").innerHTML = html;
-
-  $("admin-main").querySelectorAll(".btn-adm-edit").forEach(btn => {
-    btn.addEventListener("click", () => {
-      const s = state.students.find(s => s.id === btn.dataset.id);
-      if (s) pushAdminView("student", { student: s });
-    });
-  });
-
-  $("admin-main").querySelectorAll(".btn-adm-ord").forEach(btn => {
-    btn.addEventListener("click", async () => {
-      const idx = Number(btn.dataset.idx);
-      const arr = [...state.students];
-      const swap = btn.dataset.dir === "up" ? idx - 1 : idx + 1;
-      if (swap < 0 || swap >= arr.length) return;
-      [arr[idx], arr[swap]] = [arr[swap], arr[idx]];
-      arr.forEach((s, i) => s.order = i);
-      for (const s of arr) await saveStudent(s);
-      state.students = arr;
-      renderAdminHome();
-    });
-  });
-
-  $("admin-main").querySelectorAll(".btn-adm-del").forEach(btn => {
-    btn.addEventListener("click", async () => {
-      const s = state.students.find(s => s.id === btn.dataset.id);
-      if (!confirm(`Delete "${s?.name}"? Session data is kept in Firebase.`)) return;
-      await deleteStudentConfig(btn.dataset.id);
-      state.students = state.students.filter(s => s.id !== btn.dataset.id);
-      renderAdminHome();
-    });
-  });
-
-  $("btn-add-student")?.addEventListener("click", async () => {
-    const name = prompt("New student name:");
-    if (!name?.trim()) return;
-    const s = { id: cfgId("s"), name: name.trim(), order: state.students.length, targets: [] };
-    await saveStudent(s);
-    state.students.push(s);
-    pushAdminView("student", { student: s });
-  });
-}
-
-// ── Student: target list ──────────────────────────────────────
-
-function renderAdminStudent(student) {
-  $("admin-title").textContent = student.name;
+function renderStudentManageContent(student) {
+  $("manage-modal-title").textContent = student.name;
   let html = `
     <div class="admin-section">
       <label class="admin-label">Student Name</label>
-      <input class="admin-input" id="s-name-input" value="${escHtml(student.name)}" />
+      <div style="display:flex;gap:.5rem;align-items:center">
+        <input class="admin-input" id="mn-s-name" value="${escHtml(student.name)}" style="flex:1" />
+        <button class="btn-primary-sm" id="btn-mn-rename">Save</button>
+      </div>
     </div>
     <div class="admin-section-title">Targets</div>
     <div class="admin-list">`;
-  student.targets.forEach((t, idx) => {
+
+  for (const t of student.targets) {
     html += `<div class="admin-list-item">
-      <span class="admin-item-name">${escHtml(t.name)} <span class="admin-item-sub">(${t.maxPoints}pt)</span></span>
+      <span class="admin-item-name">${escHtml(t.name)}
+        <span class="admin-item-sub">(${t.maxPoints}pt)</span>
+      </span>
       <div class="admin-item-actions">
-        <button class="btn-adm-ord" data-dir="up"   data-idx="${idx}" ${idx === 0 ? "disabled" : ""}>↑</button>
-        <button class="btn-adm-ord" data-dir="down" data-idx="${idx}" ${idx === student.targets.length - 1 ? "disabled" : ""}>↓</button>
-        <button class="btn-adm-edit" data-idx="${idx}">Edit</button>
-        <button class="btn-adm-del"  data-idx="${idx}">🗑</button>
+        <button class="btn-adm-edit mn-edit-target" data-id="${t.id}">Edit</button>
+        <button class="btn-adm-del  mn-del-target"  data-id="${t.id}">🗑</button>
       </div>
     </div>`;
-  });
-  html += `</div><button class="btn-admin-add" id="btn-add-target">+ Add Target</button>`;
-  $("admin-main").innerHTML = html;
+  }
 
-  $("s-name-input")?.addEventListener("blur", async () => {
-    const v = $("s-name-input").value.trim();
+  html += `</div>
+    <button class="btn-admin-add" id="btn-mn-add-target">+ Add Target</button>
+    <div style="margin-top:1.75rem;padding-bottom:.5rem">
+      <button class="btn-adm-danger" id="btn-mn-del-student">Delete Student</button>
+    </div>`;
+
+  $("manage-modal-body").innerHTML = html;
+
+  $("btn-mn-rename").addEventListener("click", async () => {
+    const v = $("mn-s-name").value.trim();
     if (!v || v === student.name) return;
     student.name = v;
     await saveStudent(student);
-    const i = state.students.findIndex(s => s.id === student.id);
-    if (i >= 0) state.students[i] = student;
-    $("admin-title").textContent = v;
+    $("manage-modal-title").textContent = v;
   });
 
-  $("admin-main").querySelectorAll(".btn-adm-edit").forEach(btn => {
+  $("manage-modal-body").querySelectorAll(".mn-edit-target").forEach(btn => {
     btn.addEventListener("click", () => {
-      const t = student.targets[Number(btn.dataset.idx)];
-      if (t) pushAdminView("target", { student, target: t });
+      const t = student.targets.find(t => t.id === btn.dataset.id);
+      if (t) renderTargetManageContent(student, t);
     });
   });
 
-  $("admin-main").querySelectorAll(".btn-adm-ord").forEach(btn => {
+  $("manage-modal-body").querySelectorAll(".mn-del-target").forEach(btn => {
     btn.addEventListener("click", async () => {
-      const idx = Number(btn.dataset.idx);
-      const swap = btn.dataset.dir === "up" ? idx - 1 : idx + 1;
-      if (swap < 0 || swap >= student.targets.length) return;
-      [student.targets[idx], student.targets[swap]] = [student.targets[swap], student.targets[idx]];
+      const t = student.targets.find(t => t.id === btn.dataset.id);
+      if (!confirm(`Delete target "${t?.name}"? Session data is kept.`)) return;
+      student.targets = student.targets.filter(t => t.id !== btn.dataset.id);
       student.targets.forEach((t, i) => t.order = i);
       await saveStudent(student);
-      renderAdminStudent(student);
+      renderStudentManageContent(student);
     });
   });
 
-  $("admin-main").querySelectorAll(".btn-adm-del").forEach(btn => {
-    btn.addEventListener("click", async () => {
-      const idx = Number(btn.dataset.idx);
-      if (!confirm(`Delete target "${student.targets[idx]?.name}"?`)) return;
-      student.targets.splice(idx, 1);
-      student.targets.forEach((t, i) => t.order = i);
-      await saveStudent(student);
-      renderAdminStudent(student);
-    });
-  });
-
-  $("btn-add-target")?.addEventListener("click", async () => {
+  $("btn-mn-add-target").addEventListener("click", async () => {
     const name = prompt("Target name:");
     if (!name?.trim()) return;
-    const pts = prompt("Max points (3 or 4):", "3");
     const t = {
       id: cfgId("t"), name: name.trim(),
-      maxPoints: Number(pts) === 4 ? 4 : 3,
-      hasComment: false, fullName: "", order: student.targets.length,
-      predefinedActivities: [], notes: []
+      maxPoints: 3, hasComment: false, fullName: "",
+      order: student.targets.length, predefinedActivities: [], notes: []
     };
     student.targets.push(t);
     await saveStudent(student);
-    pushAdminView("target", { student, target: t });
+    renderTargetManageContent(student, t);
+  });
+
+  $("btn-mn-del-student").addEventListener("click", async () => {
+    if (!confirm(`Delete "${student.name}"? Session data is kept in Firebase.`)) return;
+    await deleteStudentConfig(student.id);
+    state.students = state.students.filter(s => s.id !== student.id);
+    closeManageModal();
   });
 }
 
-// ── Target: activities + notes ────────────────────────────────
+// ── Target management content ─────────────────────────────────
 
-function renderAdminTarget(student, target) {
-  $("admin-title").textContent = target.name;
+function renderTargetManageContent(student, target) {
+  $("manage-modal-title").textContent = target.name;
   const acts  = target.predefinedActivities || [];
   const notes = target.notes || [];
 
   let html = `
+    <button class="btn-picker-back" id="btn-mn-back">← ${escHtml(student.name)}</button>
     <div class="admin-section">
       <label class="admin-label">Target Name</label>
-      <input class="admin-input" id="t-name-input" value="${escHtml(target.name)}" />
+      <input class="admin-input" id="mn-t-name" value="${escHtml(target.name)}" />
     </div>
     <div class="admin-section">
-      <label class="admin-label">Subtitle (optional, shown below target name)</label>
-      <input class="admin-input" id="t-fullname-input" value="${escHtml(target.fullName || "")}" placeholder="e.g. Stage 1 — Shared Attention…" />
+      <label class="admin-label">Subtitle <span style="font-weight:400;font-size:.8rem">(optional)</span></label>
+      <input class="admin-input" id="mn-t-fullname" value="${escHtml(target.fullName || "")}"
+        placeholder="e.g. Stage 1 — Shared Attention…" />
     </div>
     <div class="admin-section admin-row">
       <label class="admin-label">Max Points</label>
@@ -1172,137 +1111,156 @@ function renderAdminTarget(student, target) {
         <button class="admin-pts-btn ${target.maxPoints !== 4 ? "active" : ""}" data-pts="3">3</button>
         <button class="admin-pts-btn ${target.maxPoints === 4 ? "active" : ""}" data-pts="4">4</button>
       </div>
-      <label class="admin-label admin-label-inline">
-        <input type="checkbox" id="t-comment-check" ${target.hasComment ? "checked" : ""} />
-        Free-text Comment field
+      <label class="admin-label-inline">
+        <input type="checkbox" id="mn-t-comment" ${target.hasComment ? "checked" : ""} />
+        Comment field
       </label>
     </div>
 
-    <div class="admin-section-title">Predefined Activities</div>
-    <p class="admin-hint">Group heading is optional — use it to group related activities (e.g. "Eating Etiquette").</p>
-    <div class="admin-list" id="act-list">`;
+    <div class="admin-section-title">
+      Activities
+      <span style="font-weight:400;font-size:.8rem;text-transform:none;letter-spacing:0">
+        — pre-populated each session (leave empty to add manually)
+      </span>
+    </div>
+    <p class="admin-hint">Group heading is optional (e.g. "Eating Etiquette").</p>
+    <div class="admin-list" id="mn-act-list">`;
 
   acts.forEach((a, idx) => {
     html += `<div class="admin-list-item admin-act-item">
       <div class="admin-act-fields">
-        <input class="admin-input" id="act-name-${idx}" data-idx="${idx}" value="${escHtml(a.name)}" placeholder="Activity name" />
-        <input class="admin-input admin-group-input" id="act-group-${idx}" data-idx="${idx}" value="${escHtml(a.group || "")}" placeholder="Group heading (optional)" />
+        <input class="admin-input" id="mn-act-name-${idx}" data-idx="${idx}"
+          value="${escHtml(a.name)}" placeholder="Activity name" />
+        <input class="admin-input admin-group-input" id="mn-act-group-${idx}" data-idx="${idx}"
+          value="${escHtml(a.group || "")}" placeholder="Group heading (optional)" />
       </div>
-      <div class="admin-item-actions">
-        <button class="btn-adm-ord" data-dir="up"   data-idx="${idx}" ${idx === 0 ? "disabled" : ""}>↑</button>
-        <button class="btn-adm-ord" data-dir="down" data-idx="${idx}" ${idx === acts.length - 1 ? "disabled" : ""}>↓</button>
-        <button class="btn-adm-del" data-idx="${idx}">🗑</button>
-      </div>
+      <button class="btn-adm-del mn-del-act" data-idx="${idx}">🗑</button>
     </div>`;
   });
 
   html += `</div>
-    <button class="btn-admin-add" id="btn-add-act">+ Add Activity</button>
+    <button class="btn-admin-add" id="btn-mn-add-act">+ Add Activity</button>
 
     <div class="admin-section-title" style="margin-top:1.75rem">Reference Notes</div>
-    <p class="admin-hint">Shown in the session screen as read-only reminders. No scoring.</p>
-    <div class="admin-list" id="notes-list">`;
+    <p class="admin-hint">Read-only reminders shown in session as 📌. No scoring.</p>
+    <div class="admin-list" id="mn-notes-list">`;
 
   notes.forEach((n, idx) => {
     html += `<div class="admin-list-item admin-note-item">
-      <textarea class="admin-input admin-note-text" data-idx="${idx}" rows="2">${escHtml(n.text)}</textarea>
-      <button class="btn-adm-del" data-idx="${idx}">🗑</button>
+      <textarea class="admin-input mn-note-text" data-idx="${idx}" rows="2">${escHtml(n.text)}</textarea>
+      <button class="btn-adm-del mn-del-note" data-idx="${idx}">🗑</button>
     </div>`;
   });
 
   html += `</div>
-    <button class="btn-admin-add" id="btn-add-note">+ Add Note</button>
-    <div style="margin-top:2rem; padding-bottom:2rem">
-      <button class="btn-adm-danger" id="btn-del-target">Delete This Target</button>
+    <button class="btn-admin-add" id="btn-mn-add-note">+ Add Note</button>
+    <div style="margin-top:2rem;padding-bottom:1.5rem">
+      <button class="btn-adm-danger" id="btn-mn-del-target">Delete This Target</button>
     </div>`;
 
-  $("admin-main").innerHTML = html;
+  $("manage-modal-body").innerHTML = html;
 
   const saveTarget = async () => {
     const i = student.targets.findIndex(t => t.id === target.id);
     if (i >= 0) student.targets[i] = target;
+    const si = state.students.findIndex(s => s.id === student.id);
+    if (si >= 0) state.students[si] = student;
     await saveStudent(student);
   };
 
-  $("t-name-input")?.addEventListener("blur", async () => {
-    const v = $("t-name-input").value.trim();
+  $("btn-mn-back").addEventListener("click", () => renderStudentManageContent(student));
+
+  $("mn-t-name").addEventListener("blur", async () => {
+    const v = $("mn-t-name").value.trim();
     if (!v || v === target.name) return;
-    target.name = v; $("admin-title").textContent = v; await saveTarget();
-  });
-  $("t-fullname-input")?.addEventListener("blur", async () => {
-    target.fullName = $("t-fullname-input").value.trim(); await saveTarget();
+    target.name = v;
+    $("manage-modal-title").textContent = v;
+    await saveTarget();
   });
 
-  $("admin-main").querySelectorAll(".admin-pts-btn").forEach(btn => {
+  $("mn-t-fullname").addEventListener("blur", async () => {
+    target.fullName = $("mn-t-fullname").value.trim();
+    await saveTarget();
+  });
+
+  $("manage-modal-body").querySelectorAll(".admin-pts-btn").forEach(btn => {
     btn.addEventListener("click", async () => {
       target.maxPoints = Number(btn.dataset.pts);
-      $("admin-main").querySelectorAll(".admin-pts-btn").forEach(b =>
+      $("manage-modal-body").querySelectorAll(".admin-pts-btn").forEach(b =>
         b.classList.toggle("active", b.dataset.pts === btn.dataset.pts));
       await saveTarget();
     });
   });
-  $("t-comment-check")?.addEventListener("change", async () => {
-    target.hasComment = $("t-comment-check").checked; await saveTarget();
+
+  $("mn-t-comment").addEventListener("change", async () => {
+    target.hasComment = $("mn-t-comment").checked;
+    await saveTarget();
   });
 
-  // Activity name / group blur-save
   acts.forEach((a, idx) => {
-    $(`act-name-${idx}`)?.addEventListener("blur", async () => {
-      const v = $(`act-name-${idx}`).value.trim();
+    $(`mn-act-name-${idx}`)?.addEventListener("blur", async () => {
+      const v = $(`mn-act-name-${idx}`).value.trim();
       if (v) { a.name = v; await saveTarget(); }
     });
-    $(`act-group-${idx}`)?.addEventListener("blur", async () => {
-      a.group = $(`act-group-${idx}`).value.trim(); await saveTarget();
+    $(`mn-act-group-${idx}`)?.addEventListener("blur", async () => {
+      a.group = $(`mn-act-group-${idx}`).value.trim();
+      await saveTarget();
     });
   });
 
-  // Reorder / delete activities
-  $("admin-main").querySelectorAll("#act-list .btn-adm-ord").forEach(btn => {
-    btn.addEventListener("click", async () => {
-      const idx = Number(btn.dataset.idx);
-      const swap = btn.dataset.dir === "up" ? idx - 1 : idx + 1;
-      if (swap < 0 || swap >= acts.length) return;
-      [acts[idx], acts[swap]] = [acts[swap], acts[idx]];
-      acts.forEach((a, i) => a.order = i);
-      await saveTarget(); renderAdminTarget(student, target);
-    });
-  });
-  $("admin-main").querySelectorAll("#act-list .btn-adm-del").forEach(btn => {
+  $("manage-modal-body").querySelectorAll(".mn-del-act").forEach(btn => {
     btn.addEventListener("click", async () => {
       const idx = Number(btn.dataset.idx);
       if (!confirm(`Delete activity "${acts[idx]?.name}"?`)) return;
-      acts.splice(idx, 1); acts.forEach((a, i) => a.order = i);
-      await saveTarget(); renderAdminTarget(student, target);
+      acts.splice(idx, 1);
+      acts.forEach((a, i) => a.order = i);
+      target.predefinedActivities = acts;
+      await saveTarget();
+      renderTargetManageContent(student, target);
     });
-  });
-  $("btn-add-act")?.addEventListener("click", async () => {
-    acts.push({ id: cfgId("a"), name: "New Activity", group: "", order: acts.length });
-    await saveTarget(); renderAdminTarget(student, target);
   });
 
-  // Notes blur-save / delete
-  $("admin-main").querySelectorAll(".admin-note-text").forEach(ta => {
+  $("btn-mn-add-act").addEventListener("click", async () => {
+    acts.push({ id: cfgId("a"), name: "New Activity", group: "", order: acts.length });
+    target.predefinedActivities = acts;
+    await saveTarget();
+    renderTargetManageContent(student, target);
+  });
+
+  $("manage-modal-body").querySelectorAll(".mn-note-text").forEach(ta => {
     ta.addEventListener("blur", async () => {
-      notes[Number(ta.dataset.idx)].text = ta.value; await saveTarget();
+      notes[Number(ta.dataset.idx)].text = ta.value;
+      target.notes = notes;
+      await saveTarget();
     });
   });
-  $("admin-main").querySelectorAll("#notes-list .btn-adm-del").forEach(btn => {
+
+  $("manage-modal-body").querySelectorAll(".mn-del-note").forEach(btn => {
     btn.addEventListener("click", async () => {
       const idx = Number(btn.dataset.idx);
       if (!confirm("Delete this note?")) return;
-      notes.splice(idx, 1); await saveTarget(); renderAdminTarget(student, target);
+      notes.splice(idx, 1);
+      target.notes = notes;
+      await saveTarget();
+      renderTargetManageContent(student, target);
     });
   });
-  $("btn-add-note")?.addEventListener("click", async () => {
+
+  $("btn-mn-add-note").addEventListener("click", async () => {
     notes.push({ id: cfgId("n"), text: "", order: notes.length });
-    await saveTarget(); renderAdminTarget(student, target);
+    target.notes = notes;
+    await saveTarget();
+    renderTargetManageContent(student, target);
   });
 
-  $("btn-del-target")?.addEventListener("click", async () => {
+  $("btn-mn-del-target").addEventListener("click", async () => {
     if (!confirm(`Delete target "${target.name}"?`)) return;
-    const i = student.targets.findIndex(t => t.id === target.id);
-    if (i >= 0) { student.targets.splice(i, 1); student.targets.forEach((t, j) => t.order = j); }
-    await saveStudent(student); popAdminView();
+    student.targets = student.targets.filter(t => t.id !== target.id);
+    student.targets.forEach((t, i) => t.order = i);
+    await saveStudent(student);
+    const si = state.students.findIndex(s => s.id === student.id);
+    if (si >= 0) state.students[si] = student;
+    renderStudentManageContent(student);
   });
 }
 
