@@ -442,9 +442,7 @@ function renderTargetContent() {
 // ─── FEDC TARGET ─────────────────────────────────────────────
 
 function renderFedcTarget(target) {
-  let html = `<div class="fedc-header">
-    <span class="fedc-title">${escHtml(target.name)}</span>
-  </div>`;
+  let html = "";
 
   const letters = "abcdefghij";
   let lastGroup = null;
@@ -469,7 +467,8 @@ function renderFedcTarget(target) {
     const remarks    = actId ? getRemarksForActivity(actId) : [];
     const isPending  = state.pendingNewRemark?.pendingKey === pendingKey;
 
-    html += `<div class="entry-block">
+    // Predefined activities get a blue tint so boss knows they recur every session
+    html += `<div class="entry-block entry-block-predefined">
       <div class="entry-field">
         <span class="field-label">Activity</span>
         <span class="field-value-fixed">${escHtml(pa.name)}</span>
@@ -484,7 +483,6 @@ function renderFedcTarget(target) {
     }
 
     if (pa.predefinedRemarks) {
-      // Predefined remarks mode (e.g. Self Management)
       for (const predRemName of pa.predefinedRemarks) {
         const rem = actId ? findRemarkByPredefinedKey(actId, predRemName) : null;
         if (rem) {
@@ -494,7 +492,6 @@ function renderFedcTarget(target) {
         }
       }
     } else {
-      // Normal mode: show existing remarks + add remark button
       for (const rem of remarks) {
         html += renderRemarkFields(rem, target);
       }
@@ -521,6 +518,54 @@ function renderFedcTarget(target) {
     }
     html += `</div>`;
   }
+
+  // One-off activities added just for this session (white, same as free-form)
+  const manualActivities = getActivitiesForTarget(target.name).filter(a => !a.isPredefined);
+  for (const act of manualActivities) {
+    const pendingKey = act.id;
+    const isPending  = state.pendingNewRemark?.pendingKey === pendingKey;
+    const remarks    = getRemarksForActivity(act.id);
+
+    html += `<div class="entry-block" data-act-id="${act.id}">
+      <div class="entry-field">
+        <span class="field-label">Activity</span>
+        <input class="field-input activity-name-input"
+          type="text"
+          value="${escHtml(act.activityName)}"
+          data-act-id="${act.id}"
+          data-original="${escHtml(act.activityName)}" />
+        <button class="btn-icon btn-delete-activity"
+          data-act-id="${act.id}" title="Delete activity">🗑</button>
+      </div>`;
+
+    for (const rem of remarks) {
+      html += renderRemarkFields(rem, target);
+    }
+    if (isPending) {
+      html += renderPendingRemarkFields(pendingKey, act.id, null, null, target);
+    } else {
+      html += `<button class="btn-add-remark"
+        data-pending-key="${escHtml(pendingKey)}"
+        data-act-id="${act.id}"
+        data-target="${escHtml(target.name)}">+ Add Remark</button>`;
+    }
+    html += `</div>`;
+  }
+
+  // Pending new one-off activity
+  if (state.pendingNewActivity?.targetName === target.name) {
+    html += `<div class="entry-block">
+      <div class="entry-field">
+        <span class="field-label">Activity</span>
+        <input id="new-activity-input" class="field-input"
+          type="text" placeholder="Type activity name…" maxlength="200" />
+        <button class="btn-icon btn-cancel-new-activity" title="Cancel">✕</button>
+      </div>
+    </div>`;
+  }
+
+  html += `<button class="btn-add-activity"
+    data-target="${escHtml(target.name)}">+ Add Activity</button>`;
 
   return html;
 }
