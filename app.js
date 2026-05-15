@@ -758,7 +758,11 @@ function attachTargetListeners(target) {
       if (newName !== original) {
         input.dataset.original = newName;
         await updateActivityName(state.currentSessionId, input.dataset.actId, newName);
+        flashSaved(input);
       }
+    });
+    input.addEventListener("keydown", e => {
+      if (e.key === "Enter") { e.preventDefault(); input.blur(); }
     });
   });
 
@@ -809,6 +813,7 @@ function attachTargetListeners(target) {
       if (newText !== original) {
         ta.dataset.original = newText;
         await updateRemarkText(state.currentSessionId, ta.dataset.remId, newText);
+        flashSaved(ta);
       }
     });
   });
@@ -869,7 +874,11 @@ function attachTargetListeners(target) {
       if (text !== original) {
         input.dataset.original = text;
         await updateRemarkText(state.currentSessionId, input.dataset.remId, text);
+        flashSaved(input);
       }
+    });
+    input.addEventListener("keydown", e => {
+      if (e.key === "Enter") { e.preventDefault(); input.blur(); }
     });
   });
 
