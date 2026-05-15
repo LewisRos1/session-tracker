@@ -981,6 +981,24 @@ html, body {
   box-shadow: var(--shadow);
 }
 
+.drag-handle {
+  cursor: grab;
+  color: #9ca3af;
+  font-size: 1.1rem;
+  line-height: 1;
+  user-select: none;
+  touch-action: none;
+  flex-shrink: 0;
+  padding: 0 .15rem;
+}
+.drag-handle:active { cursor: grabbing; }
+
+.drag-placeholder {
+  background: var(--primary-light);
+  border: 2px dashed var(--primary);
+  border-radius: var(--radius-sm);
+}
+
 .admin-item-name {
   flex: 1;
   font-size: .97rem;

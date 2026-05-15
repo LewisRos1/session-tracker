@@ -920,6 +920,9 @@ async function confirmNewActivity(target) {
   const name = input.value.trim();
   if (!name) { input.focus(); return; }
   state.pendingNewActivity = null;
+  input.value = "";      // prevent blur handler from re-saving
+  input.blur();          // dismiss on-screen keyboard on iPad / iPhone
+  renderTargetContent(); // remove input from DOM so Firebase re-render isn't blocked
   await addActivity(state.currentSessionId, target.name, name, Date.now(), false);
 }
 
@@ -1075,6 +1078,69 @@ function renderStudentManageContent(student) {
   });
 }
 
+// ── Drag-to-reorder for the activity list ─────────────────────
+// Uses Pointer Events so it works on mouse, iPad, and iPhone.
+function initDragSort(listEl, onReorder) {
+  let dragEl = null;
+  let placeholder = null;
+  let offsetY = 0;
+
+  listEl.addEventListener('pointerdown', e => {
+    if (!e.target.closest('.drag-handle')) return;
+    const item = e.target.closest('.admin-list-item');
+    if (!item) return;
+    e.preventDefault();
+
+    const rect = item.getBoundingClientRect();
+    offsetY = e.clientY - rect.top;
+
+    placeholder = document.createElement('div');
+    placeholder.className = 'drag-placeholder';
+    placeholder.style.height = rect.height + 'px';
+    item.after(placeholder);
+
+    dragEl = item;
+    dragEl.style.cssText =
+      `position:fixed;left:${rect.left}px;width:${rect.width}px;` +
+      `top:${rect.top}px;z-index:9999;opacity:.85;` +
+      `box-shadow:0 4px 16px rgba(0,0,0,.2);pointer-events:none;`;
+
+    listEl.setPointerCapture(e.pointerId);
+  });
+
+  listEl.addEventListener('pointermove', e => {
+    if (!dragEl) return;
+    dragEl.style.top = (e.clientY - offsetY) + 'px';
+
+    const items = [...listEl.querySelectorAll('.admin-list-item')].filter(el => el !== dragEl);
+    let inserted = false;
+    for (const item of items) {
+      const { top, height } = item.getBoundingClientRect();
+      if (e.clientY < top + height / 2) {
+        listEl.insertBefore(placeholder, item);
+        inserted = true;
+        break;
+      }
+    }
+    if (!inserted) listEl.appendChild(placeholder);
+  });
+
+  const endDrag = () => {
+    if (!dragEl) return;
+    dragEl.style.cssText = '';
+    if (placeholder?.parentNode) placeholder.parentNode.insertBefore(dragEl, placeholder);
+    placeholder?.remove();
+    const newOrder = [...listEl.querySelectorAll('.admin-list-item')]
+      .map(el => Number(el.dataset.idx));
+    dragEl = null;
+    placeholder = null;
+    onReorder(newOrder);
+  };
+
+  listEl.addEventListener('pointerup',     endDrag);
+  listEl.addEventListener('pointercancel', endDrag);
+}
+
 // Converts old group-field format to heading-row format in place.
 // Called once when the manage modal opens; saved on next boss action.
 function normalizeActivitiesFormat(acts) {
@@ -1126,13 +1192,15 @@ function renderTargetManageContent(student, target) {
 
   acts.forEach((a, idx) => {
     if (a.isHeading) {
-      html += `<div class="admin-list-item mn-heading-item">
+      html += `<div class="admin-list-item mn-heading-item" data-idx="${idx}">
+        <span class="drag-handle">⠿</span>
         <input class="admin-input mn-heading-input" id="mn-act-name-${idx}" data-idx="${idx}"
           value="${escHtml(a.name)}" placeholder="Section heading name" />
         <button class="btn-adm-del mn-del-act" data-idx="${idx}">🗑</button>
       </div>`;
     } else {
-      html += `<div class="admin-list-item">
+      html += `<div class="admin-list-item" data-idx="${idx}">
+        <span class="drag-handle">⠿</span>
         <input class="admin-input" id="mn-act-name-${idx}" data-idx="${idx}"
           value="${escHtml(a.name)}" placeholder="Activity name" style="flex:1" />
         <button class="btn-adm-del mn-del-act" data-idx="${idx}">🗑</button>
@@ -1171,6 +1239,14 @@ function renderTargetManageContent(student, target) {
     if (si >= 0) state.students[si] = student;
     await saveStudent(student);
   };
+
+  initDragSort($("mn-act-list"), async newOrder => {
+    const reordered = newOrder.map(oldIdx => acts[oldIdx]);
+    reordered.forEach((a, i) => a.order = i);
+    target.predefinedActivities = reordered;
+    await saveTarget();
+    renderTargetManageContent(student, target);
+  });
 
   $("mn-t-name").addEventListener("blur", async () => {
     const v = $("mn-t-name").value.trim();
