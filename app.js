@@ -118,7 +118,7 @@ function initPin() {
 async function showHome() {
   showScreen("screen-home");
   const verEl = document.getElementById("app-version");
-  if (verEl) verEl.textContent = APP_VERSION;
+  if (verEl) verEl.textContent = `Made by Lewis · ${APP_VERSION}`;
   renderStudentButtons(new Set());
   renderExportButtons();
   try {
@@ -1391,7 +1391,7 @@ function flashSaved(inputEl) {
       state.renderPending = false;
       renderTargetContent();
     }
-  }, 1400);
+  }, 900);
 }
 
 // ─── SCREEN MANAGEMENT ───────────────────────────────────────
