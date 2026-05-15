@@ -1068,6 +1068,10 @@ function renderStudentManageContent(student) {
     student.name = v;
     await saveStudent(student);
     $("manage-modal-title").textContent = v;
+    flashSaved($("mn-s-name"));
+  });
+  $("mn-s-name").addEventListener("keydown", e => {
+    if (e.key === "Enter") $("btn-mn-rename").click();
   });
 
   $("btn-mn-del-student").addEventListener("click", async () => {
@@ -1254,11 +1258,18 @@ function renderTargetManageContent(student, target) {
     target.name = v;
     $("manage-modal-title").textContent = v;
     await saveTarget();
+    flashSaved($("mn-t-name"));
+  });
+  $("mn-t-name").addEventListener("keydown", e => {
+    if (e.key === "Enter") { e.preventDefault(); $("mn-t-name").blur(); }
   });
 
   $("manage-modal-body").querySelectorAll(".admin-pts-btn").forEach(btn => {
     btn.addEventListener("click", async () => {
-      target.maxPoints = Number(btn.dataset.pts);
+      const newPts = Number(btn.dataset.pts);
+      if (newPts === target.maxPoints) return;
+      if (!confirm(`Change max points to ${newPts}? This will affect how scores are calculated for this target.`)) return;
+      target.maxPoints = newPts;
       $("manage-modal-body").querySelectorAll(".admin-pts-btn").forEach(b =>
         b.classList.toggle("active", b.dataset.pts === btn.dataset.pts));
       await saveTarget();
@@ -1266,9 +1277,16 @@ function renderTargetManageContent(student, target) {
   });
 
   acts.forEach((a, idx) => {
-    $(`mn-act-name-${idx}`)?.addEventListener("blur", async () => {
-      const v = $(`mn-act-name-${idx}`).value.trim();
-      if (v) { a.name = v; await saveTarget(); }
+    const input = $(`mn-act-name-${idx}`);
+    input?.addEventListener("blur", async () => {
+      const v = input.value.trim();
+      if (!v || v === a.name) return;
+      a.name = v;
+      await saveTarget();
+      flashSaved(input);
+    });
+    input?.addEventListener("keydown", e => {
+      if (e.key === "Enter") { e.preventDefault(); input.blur(); }
     });
   });
 
@@ -1301,9 +1319,12 @@ function renderTargetManageContent(student, target) {
 
   $("manage-modal-body").querySelectorAll(".mn-note-text").forEach(ta => {
     ta.addEventListener("blur", async () => {
-      notes[Number(ta.dataset.idx)].text = ta.value;
+      const idx = Number(ta.dataset.idx);
+      if (ta.value === notes[idx].text) return;
+      notes[idx].text = ta.value;
       target.notes = notes;
       await saveTarget();
+      flashSaved(ta);
     });
   });
 
@@ -1334,6 +1355,16 @@ function renderTargetManageContent(student, target) {
     if (si >= 0) state.students[si] = student;
     renderStudentManageContent(student);
   });
+}
+
+// ─── SAVED FLASH ─────────────────────────────────────────────
+
+function flashSaved(inputEl) {
+  if (!inputEl) return;
+  inputEl.classList.remove("input-saved");
+  void inputEl.offsetWidth; // restart animation if already running
+  inputEl.classList.add("input-saved");
+  setTimeout(() => inputEl.classList.remove("input-saved"), 1400);
 }
 
 // ─── SCREEN MANAGEMENT ───────────────────────────────────────
