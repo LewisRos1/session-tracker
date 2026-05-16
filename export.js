@@ -32,9 +32,15 @@ export async function exportStudentData(student) {
     XLSX.utils.book_append_sheet(wb, ws, target.name);
   }
 
-  // Filename: StudentName_YYYY-MM-DD.xlsx
-  const today = new Date().toISOString().slice(0, 10);
-  XLSX.writeFile(wb, `${student.name}_${today}.xlsx`);
+  // Filename: StudentName_DD-Mon-YYYY_HHmm.xlsx
+  const now    = new Date();
+  const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const dd     = String(now.getDate()).padStart(2, "0");
+  const mon    = months[now.getMonth()];
+  const yyyy   = now.getFullYear();
+  const hh     = String(now.getHours()).padStart(2, "0");
+  const mm     = String(now.getMinutes()).padStart(2, "0");
+  XLSX.writeFile(wb, `${student.name}_${dd}-${mon}-${yyyy}_${hh}${mm}.xlsx`);
 }
 
 // ─── SUMMARY SHEET ───────────────────────────────────────────
