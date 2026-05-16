@@ -429,6 +429,18 @@ $("btn-finish-session").addEventListener("click", async () => {
 // TARGET CONTENT RENDERING
 // ============================================================
 
+function calcDaysAverage(target) {
+  const avgs = [];
+  for (const act of getActivitiesForTarget(target.name)) {
+    for (const rem of getRemarksForActivity(act.id)) {
+      const trials = rem.trials || [];
+      if (trials.length === 0) continue;
+      avgs.push(trials.reduce((a, b) => a + b, 0) / (trials.length * (target.maxPoints || 3)) * 100);
+    }
+  }
+  return avgs.length > 0 ? Math.round(avgs.reduce((a, b) => a + b, 0) / avgs.length) : null;
+}
+
 function renderTargetContent() {
   if (!state.sessionData || !state.selectedTargetName) return;
   const target = state.currentStudent.targets.find(
@@ -437,6 +449,11 @@ function renderTargetContent() {
   if (!target) return;
 
   updateSessionHeader();
+
+  const avg = calcDaysAverage(target);
+  const avgEl = $("days-average-value");
+  if (avgEl) avgEl.textContent = avg !== null ? avg + "%" : "—";
+
   const container = $("target-content");
   container.innerHTML = target.predefinedActivities?.length > 0
     ? renderFedcTarget(target)
