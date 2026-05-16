@@ -30,7 +30,7 @@ import {
 } from "./firebase-service.js";
 import { exportStudentData } from "./export.js";
 
-const APP_VERSION = "v48";
+const APP_VERSION = "v49";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -581,11 +581,17 @@ function calcDaysAverage(target) {
 }
 
 function renderTargetContent() {
-  if (!state.sessionData || !state.selectedTargetName) return;
+  if (!state.sessionData) return;
+  updateSessionHeader();
+  if (!state.selectedTargetName) {
+    $("target-content").innerHTML =
+      `<p class="empty-hint" style="padding:2rem;text-align:center">
+        No targets added yet. Use the dropdown above to add one.
+      </p>`;
+    return;
+  }
   const target = getEffectiveTargets().find(t => t.name === state.selectedTargetName);
   if (!target) return;
-
-  updateSessionHeader();
 
   const avg = calcDaysAverage(target);
   const avgEl = $("days-average-value");
@@ -1492,7 +1498,7 @@ function showAddTargetPicker(student) {
   $("manage-modal").classList.remove("hidden");
 
   let html = `<div style="margin-bottom:.75rem">
-    <button class="btn-admin-add" id="btn-add-custom-target">+ Custom Target (blank)</button>
+    <button class="btn-admin-add" id="btn-add-custom-target">+ Custom Target</button>
   </div>`;
 
   if (state.templates.length > 0) {
