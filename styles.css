@@ -1364,16 +1364,17 @@ textarea.admin-input { resize: vertical; min-height: 60px; line-height: 1.45; }
 
 /* ─── Per-section search box ─────────────────────────────── */
 .section-search {
-  width: 100%;
-  padding: .4rem .75rem;
+  flex: 1;
+  min-width: 0;
+  padding: .3rem .6rem;
   border: 1.5px solid var(--border);
   border-radius: var(--radius-sm);
-  font-size: .88rem;
+  font-size: .85rem;
   font-family: var(--font);
   color: var(--text);
   background: var(--white);
   outline: none;
-  margin-bottom: .4rem;
+  margin: 0 .5rem;
   transition: border-color .15s;
   -webkit-appearance: none;
 }
