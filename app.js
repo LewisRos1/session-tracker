@@ -30,7 +30,7 @@ import {
 } from "./firebase-service.js";
 import { exportStudentData } from "./export.js";
 
-const APP_VERSION = "v52";
+const APP_VERSION = "v53";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -547,7 +547,7 @@ function populateTargetDropdown(targets) {
 
   sel.onchange = async () => {
     if (sel.value === "__add_target__") {
-      sel.value = state.selectedTargetName || targets[0]?.name || "__add_target__";
+      sel.value = state.selectedTargetName || targets[0]?.name || "";
       showAddTargetPicker(state.currentStudent);
       return;
     }
