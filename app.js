@@ -30,7 +30,7 @@ import {
 } from "./firebase-service.js";
 import { exportStudentData } from "./export.js";
 
-const APP_VERSION = "v53";
+const APP_VERSION = "v54";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -492,7 +492,7 @@ async function openSession(student, existingSessionId = null) {
       }
       const active = document.activeElement;
       const busy   = active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA");
-      if (busy || state.flashActive) {
+      if (busy) {
         state.renderPending = true;
       } else {
         renderTargetContent();
@@ -2158,22 +2158,7 @@ function showAutosaved() {
 
 // ─── SAVED FLASH ─────────────────────────────────────────────
 
-function flashSaved(inputEl) {
-  if (!inputEl) return;
-  inputEl.classList.remove("input-saved");
-  void inputEl.offsetWidth;
-  inputEl.classList.add("input-saved");
-  state.flashActive = true;
-  clearTimeout(state._flashTimer);
-  state._flashTimer = setTimeout(() => {
-    inputEl.classList.remove("input-saved");
-    state.flashActive = false;
-    if (state.renderPending) {
-      state.renderPending = false;
-      renderTargetContent();
-    }
-  }, 900);
-}
+function flashSaved() {}
 
 // ─── SCREEN MANAGEMENT ───────────────────────────────────────
 
