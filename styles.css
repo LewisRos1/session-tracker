@@ -222,11 +222,10 @@ html, body {
 .student-btn-name { flex: 1; }
 
 .session-indicator {
-  width: 10px; height: 10px;
-  border-radius: 50%;
-  background: var(--success);
+  font-size: .75rem;
+  font-weight: 600;
+  color: var(--success);
   flex-shrink: 0;
-  box-shadow: 0 0 0 3px rgba(34,197,94,.2);
 }
 
 /* ─── EXPORT BUTTONS ─────────────────────────────────────── */

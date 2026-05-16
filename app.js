@@ -28,7 +28,7 @@ import {
 } from "./firebase-service.js";
 import { exportStudentData } from "./export.js";
 
-const APP_VERSION = "v41";
+const APP_VERSION = "v42";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -221,7 +221,7 @@ function renderStudentList(container, students, unfinishedIds, query = "") {
       <button class="roster-item" data-id="${s.id}">
         <span class="roster-item-name">${escHtml(s.name)}</span>
         ${unfinishedIds.has(s.id)
-          ? `<span class="session-indicator" title="Unfinished session today"></span>`
+          ? `<span class="session-indicator">Ongoing Session</span>`
           : ""}
       </button>
     `).join("") +
