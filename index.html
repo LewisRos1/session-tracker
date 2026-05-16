@@ -56,16 +56,29 @@
     </header>
     <main class="home-main">
       <section>
-        <h2 class="section-title">Students</h2>
-        <div class="student-buttons" id="student-buttons">
-          <!-- populated by JS -->
+        <div class="section-header">
+          <h2 class="section-title">Existing Students</h2>
+          <button class="btn-add-section" id="btn-add-existing-student">+ Add</button>
         </div>
+        <div class="student-buttons" id="existing-student-buttons"></div>
+      </section>
+      <section>
+        <div class="section-header">
+          <h2 class="section-title">Student Assessments</h2>
+          <button class="btn-add-section" id="btn-add-assessment-student">+ Add</button>
+        </div>
+        <div class="student-buttons" id="assessment-student-buttons"></div>
+      </section>
+      <section>
+        <div class="section-header">
+          <h2 class="section-title">Templates</h2>
+          <button class="btn-add-section" id="btn-add-template">+ New</button>
+        </div>
+        <div class="student-buttons" id="template-buttons"></div>
       </section>
       <section>
         <h2 class="section-title">Export Data</h2>
-        <div class="export-buttons" id="export-buttons">
-          <!-- populated by JS -->
-        </div>
+        <div class="export-buttons" id="export-buttons"></div>
       </section>
     </main>
   </div>

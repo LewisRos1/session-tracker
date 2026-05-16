@@ -255,3 +255,18 @@ export async function getTodayUnfinishedStudentIds() {
   );
   return new Set(snap.docs.map(d => d.data().studentId));
 }
+
+// ─── TEMPLATE CONFIG ─────────────────────────────────────────
+
+export async function loadTemplates() {
+  const snap = await getDocs(collection(db, "templates"));
+  return snap.docs.map(d => d.data()).sort((a, b) => (a.order || 0) - (b.order || 0));
+}
+
+export async function saveTemplate(template) {
+  await setDoc(doc(db, "templates", template.id), template);
+}
+
+export async function deleteTemplate(templateId) {
+  await deleteDoc(doc(db, "templates", templateId));
+}

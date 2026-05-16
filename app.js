@@ -20,17 +20,21 @@ import {
   loadStudentsConfig,
   saveStudent,
   deleteStudentConfig,
+  loadTemplates,
+  saveTemplate,
+  deleteTemplate,
   sanitizeKey,
   getTodayString
 } from "./firebase-service.js";
 import { exportStudentData } from "./export.js";
 
-const APP_VERSION = "v22";
+const APP_VERSION = "v23";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
   authenticated:      false,
-  students:           [],     // loaded from Firebase
+  students:           [],
+  templates:          [],
   currentStudent:     null,
   currentSessionId:   null,
   sessionData:        null,
@@ -66,6 +70,11 @@ document.addEventListener("DOMContentLoaded", async () => {
   } catch (_) {
     state.students = CONFIG.INITIAL_STUDENTS;
   }
+
+  // Load templates
+  try {
+    state.templates = await loadTemplates();
+  } catch (_) {}
 
   if (sessionStorage.getItem("auth") === "1") {
     showHome();
@@ -119,21 +128,66 @@ async function showHome() {
   showScreen("screen-home");
   const verEl = document.getElementById("app-version");
   if (verEl) verEl.textContent = `Made by Lewis · ${APP_VERSION}`;
-  renderStudentButtons(new Set());
+  renderExistingStudentButtons(new Set());
+  renderAssessmentStudentButtons(new Set());
+  renderTemplateButtons();
   renderExportButtons();
   try {
     const unfinished = await getTodayUnfinishedStudentIds();
-    renderStudentButtons(unfinished);
+    renderExistingStudentButtons(unfinished);
+    renderAssessmentStudentButtons(unfinished);
   } catch (_) {}
 }
 
-async function reloadStudents() {
-  try { state.students = await loadStudentsConfig(); } catch (_) {}
+// ── Add student / template from home screen ───────────────────
+
+$("btn-add-existing-student").addEventListener("click", () => addNewStudent("existing"));
+$("btn-add-assessment-student").addEventListener("click", () => addNewStudent("assessment"));
+$("btn-add-template").addEventListener("click", addNewTemplate);
+
+async function addNewStudent(type) {
+  const label = type === "assessment" ? "Assessment student name:" : "Student name:";
+  const name = prompt(label);
+  if (!name?.trim()) return;
+  const s = {
+    id: cfgId("s"),
+    name: name.trim(),
+    type,
+    order: state.students.length,
+    targets: []
+  };
+  state.students.push(s);
+  await saveStudent(s);
+  if (type === "existing") renderExistingStudentButtons(new Set());
+  else renderAssessmentStudentButtons(new Set());
 }
 
-function renderStudentButtons(unfinishedIds) {
-  const container = $("student-buttons");
-  container.innerHTML = state.students.map(s => `
+async function addNewTemplate() {
+  const name = prompt("Template name:");
+  if (!name?.trim()) return;
+  const t = {
+    id: cfgId("tmpl"),
+    name: name.trim(),
+    order: state.templates.length,
+    predefinedActivities: [],
+    notes: [],
+    maxPoints: 3
+  };
+  state.templates.push(t);
+  await saveTemplate(t);
+  renderTemplateButtons();
+  openManageModal(null, null, t);
+}
+
+// ── Render helpers ────────────────────────────────────────────
+
+function renderStudentList(container, students, unfinishedIds) {
+  if (!container) return;
+  if (students.length === 0) {
+    container.innerHTML = `<p class="empty-hint">None yet.</p>`;
+    return;
+  }
+  container.innerHTML = students.map(s => `
     <button class="student-btn" data-id="${s.id}">
       <span class="student-btn-name">${escHtml(s.name)}</span>
       ${unfinishedIds.has(s.id)
@@ -149,8 +203,40 @@ function renderStudentButtons(unfinishedIds) {
   });
 }
 
+function renderExistingStudentButtons(unfinishedIds) {
+  const students = state.students.filter(s => !s.type || s.type === "existing");
+  renderStudentList($("existing-student-buttons"), students, unfinishedIds);
+}
+
+function renderAssessmentStudentButtons(unfinishedIds) {
+  const students = state.students.filter(s => s.type === "assessment");
+  renderStudentList($("assessment-student-buttons"), students, unfinishedIds);
+}
+
+function renderTemplateButtons() {
+  const container = $("template-buttons");
+  if (!container) return;
+  if (state.templates.length === 0) {
+    container.innerHTML = `<p class="empty-hint">No templates yet. Tap "+ New" to create one.</p>`;
+    return;
+  }
+  container.innerHTML = state.templates.map(t => `
+    <button class="student-btn" data-id="${t.id}">
+      <span class="student-btn-name">${escHtml(t.name)}</span>
+      <span class="template-edit-icon">✏</span>
+    </button>
+  `).join("");
+  container.querySelectorAll(".student-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const tmpl = state.templates.find(t => t.id === btn.dataset.id);
+      if (tmpl) openManageModal(null, null, tmpl);
+    });
+  });
+}
+
 function renderExportButtons() {
   const container = $("export-buttons");
+  if (!container) return;
   container.innerHTML = state.students.map(s => `
     <button class="export-btn" data-id="${s.id}">Export ${escHtml(s.name)}</button>
   `).join("");
@@ -393,22 +479,7 @@ function populateTargetDropdown(targets) {
   sel.onchange = async () => {
     if (sel.value === "__add_target__") {
       sel.value = state.selectedTargetName || targets[0]?.name || "";
-      if (!confirm("Add a new target to this student?")) return;
-      const name = prompt("Target name:");
-      if (!name?.trim()) return;
-      const t = {
-        id: cfgId("t"), name: name.trim(),
-        maxPoints: 3, hasComment: false, fullName: "",
-        order: state.currentStudent.targets.length,
-        predefinedActivities: [], notes: []
-      };
-      state.currentStudent.targets.push(t);
-      const si = state.students.findIndex(s => s.id === state.currentStudent.id);
-      if (si >= 0) state.students[si] = state.currentStudent;
-      await saveStudent(state.currentStudent);
-      state.selectedTargetName = t.name;
-      populateTargetDropdown(state.currentStudent.targets);
-      renderTargetContent();
+      showAddTargetPicker(state.currentStudent);
       return;
     }
     state.selectedTargetName = sel.value;
@@ -492,7 +563,6 @@ function renderFedcTarget(target) {
     const remarks    = actId ? getRemarksForActivity(actId) : [];
     const isPending  = state.pendingNewRemark?.pendingKey === pendingKey;
 
-    // Predefined activities get a blue tint so boss knows they recur every session
     html += `<div class="entry-block entry-block-predefined">
       <div class="entry-field">
         <span class="field-label">Activity</span>
@@ -1040,7 +1110,7 @@ $("score-modal-close").addEventListener("click",    closeScorePicker);
 $("score-modal-backdrop").addEventListener("click", closeScorePicker);
 
 // ============================================================
-// MANAGE MODAL (inline student / target config editing)
+// MANAGE MODAL (inline student / target / template config editing)
 // ============================================================
 
 function cfgId(prefix) {
@@ -1049,9 +1119,11 @@ function cfgId(prefix) {
 
 // ── Open / close ──────────────────────────────────────────────
 
-function openManageModal(student, targetOrNull) {
+function openManageModal(student, targetOrNull, templateOrNull = null) {
   $("manage-modal").classList.remove("hidden");
-  if (targetOrNull) {
+  if (templateOrNull) {
+    renderTemplateManageContent(templateOrNull);
+  } else if (targetOrNull) {
     renderTargetManageContent(student, targetOrNull);
   } else {
     renderStudentManageContent(student);
@@ -1065,7 +1137,10 @@ function closeManageModal() {
     populateTargetDropdown(state.currentStudent.targets);
     if (state.currentSessionId && state.selectedTargetName) renderTargetContent();
   }
-  renderStudentButtons(new Set());
+  // Always refresh all home screen sections
+  renderExistingStudentButtons(new Set());
+  renderAssessmentStudentButtons(new Set());
+  renderTemplateButtons();
   renderExportButtons();
 }
 
@@ -1081,10 +1156,96 @@ $("btn-manage-targets").addEventListener("click", () => {
   openManageModal(student, target);
 });
 
+// ── Add Target picker (replaces confirm/prompt flow) ──────────
+
+function showAddTargetPicker(student) {
+  $("manage-modal-title").textContent = "Add Target";
+  $("manage-modal").classList.remove("hidden");
+
+  let html = `<div style="margin-bottom:.75rem">
+    <button class="btn-admin-add" id="btn-add-custom-target">+ Custom Target (blank)</button>
+  </div>`;
+
+  if (state.templates.length > 0) {
+    html += `<div class="admin-section-title">From Template</div>
+    <div class="admin-list" id="template-picker-list">`;
+    state.templates.forEach(tmpl => {
+      html += `<label class="admin-list-item" style="cursor:pointer;gap:.75rem">
+        <input type="checkbox" class="tmpl-checkbox" data-tmpl-id="${escHtml(tmpl.id)}"
+          style="width:20px;height:20px;flex-shrink:0;cursor:pointer" />
+        <span class="admin-item-name">${escHtml(tmpl.name)}</span>
+      </label>`;
+    });
+    html += `</div>
+    <button class="btn-primary-sm" id="btn-add-from-templates"
+      style="width:100%;margin-top:.5rem;padding:.75rem">
+      Add Selected Templates
+    </button>`;
+  } else {
+    html += `<p style="color:var(--text-muted);font-size:.88rem;margin-top:.5rem">
+      No templates available. Create templates from the home screen.</p>`;
+  }
+
+  $("manage-modal-body").innerHTML = html;
+
+  $("btn-add-custom-target").addEventListener("click", async () => {
+    $("manage-modal").classList.add("hidden");
+    const name = prompt("Target name:");
+    if (!name?.trim()) return;
+    const t = {
+      id: cfgId("t"), name: name.trim(),
+      maxPoints: 3, hasComment: false, fullName: "",
+      order: student.targets.length,
+      predefinedActivities: [], notes: [],
+      templateId: null
+    };
+    student.targets.push(t);
+    const si = state.students.findIndex(s => s.id === student.id);
+    if (si >= 0) state.students[si] = student;
+    await saveStudent(student);
+    state.selectedTargetName = t.name;
+    populateTargetDropdown(student.targets);
+    renderTargetContent();
+  });
+
+  $("btn-add-from-templates")?.addEventListener("click", async () => {
+    const checked = [...$("manage-modal-body").querySelectorAll(".tmpl-checkbox:checked")];
+    if (checked.length === 0) { alert("Select at least one template."); return; }
+
+    for (const cb of checked) {
+      const tmpl = state.templates.find(t => t.id === cb.dataset.tmplId);
+      if (!tmpl) continue;
+      // Skip if this template is already a target for this student
+      if (student.targets.find(t => t.templateId === tmpl.id)) continue;
+      const t = {
+        id: cfgId("t"), name: tmpl.name,
+        maxPoints: tmpl.maxPoints || 3,
+        hasComment: false, fullName: "",
+        order: student.targets.length,
+        predefinedActivities: JSON.parse(JSON.stringify(tmpl.predefinedActivities || [])),
+        notes: JSON.parse(JSON.stringify(tmpl.notes || [])),
+        templateId: tmpl.id
+      };
+      student.targets.push(t);
+    }
+
+    const si = state.students.findIndex(s => s.id === student.id);
+    if (si >= 0) state.students[si] = student;
+    await saveStudent(student);
+
+    $("manage-modal").classList.add("hidden");
+    const lastTarget = student.targets[student.targets.length - 1];
+    if (lastTarget) state.selectedTargetName = lastTarget.name;
+    populateTargetDropdown(student.targets);
+    renderTargetContent();
+  });
+}
+
 // ── Student management content ────────────────────────────────
 
 function renderStudentManageContent(student) {
   $("manage-modal-title").textContent = student.name;
+  const isAssessment = student.type === "assessment";
   const html = `
     <div class="admin-section">
       <label class="admin-label">Student Name</label>
@@ -1093,6 +1254,13 @@ function renderStudentManageContent(student) {
         <button class="btn-primary-sm" id="btn-mn-rename">Save</button>
       </div>
     </div>
+    ${isAssessment ? `
+    <div class="admin-section">
+      <button class="btn-adm-edit" id="btn-mn-move-to-existing"
+        style="width:100%;padding:.75rem;justify-content:center;display:flex">
+        Move to Existing Students
+      </button>
+    </div>` : ""}
     <div style="margin-top:1.5rem;padding-bottom:.5rem">
       <button class="btn-adm-danger" id="btn-mn-del-student">Delete Student</button>
     </div>`;
@@ -1109,6 +1277,13 @@ function renderStudentManageContent(student) {
   });
   $("mn-s-name").addEventListener("keydown", e => {
     if (e.key === "Enter") $("btn-mn-rename").click();
+  });
+
+  $("btn-mn-move-to-existing")?.addEventListener("click", async () => {
+    if (!confirm(`Move "${student.name}" to Existing Students?`)) return;
+    student.type = "existing";
+    await saveStudent(student);
+    closeManageModal();
   });
 
   $("btn-mn-del-student").addEventListener("click", async () => {
@@ -1392,6 +1567,206 @@ function renderTargetManageContent(student, target) {
     if (si >= 0) state.students[si] = student;
     renderStudentManageContent(student);
   });
+}
+
+// ── Template management content ───────────────────────────────
+
+function renderTemplateManageContent(template) {
+  $("manage-modal-title").textContent = template.name;
+  template.predefinedActivities = normalizeActivitiesFormat(template.predefinedActivities || []);
+  const acts  = template.predefinedActivities;
+  const notes = template.notes || [];
+
+  let html = `
+    <div class="admin-section">
+      <label class="admin-label">Template Name</label>
+      <input class="admin-input" id="mn-t-name" value="${escHtml(template.name)}" />
+    </div>
+    <div class="admin-section admin-row">
+      <label class="admin-label">Max Points</label>
+      <div class="admin-pts-group">
+        <button class="admin-pts-btn ${(template.maxPoints || 3) !== 4 ? "active" : ""}" data-pts="3">3</button>
+        <button class="admin-pts-btn ${(template.maxPoints || 3) === 4 ? "active" : ""}" data-pts="4">4</button>
+      </div>
+    </div>
+
+    <div class="admin-section-title">Predefined Activities</div>
+    <div class="admin-list" id="mn-act-list">`;
+
+  acts.forEach((a, idx) => {
+    if (a.isHeading) {
+      html += `<div class="admin-list-item mn-heading-item" data-idx="${idx}">
+        <span class="drag-handle">⠿</span>
+        <input class="admin-input mn-heading-input" id="mn-act-name-${idx}" data-idx="${idx}"
+          value="${escHtml(a.name)}" placeholder="Section heading name" />
+        <button class="btn-adm-del mn-del-act" data-idx="${idx}">🗑</button>
+      </div>`;
+    } else {
+      html += `<div class="admin-list-item" data-idx="${idx}">
+        <span class="drag-handle">⠿</span>
+        <input class="admin-input" id="mn-act-name-${idx}" data-idx="${idx}"
+          value="${escHtml(a.name)}" placeholder="Activity name" style="flex:1" />
+        <button class="btn-adm-del mn-del-act" data-idx="${idx}">🗑</button>
+      </div>`;
+    }
+  });
+
+  html += `</div>
+    <div style="display:flex;gap:.5rem;margin-top:.25rem">
+      <button class="btn-admin-add" id="btn-mn-add-act" style="flex:1">+ Add Activity</button>
+      <button class="btn-admin-add" id="btn-mn-add-heading" style="flex:1">+ Add Section Heading</button>
+    </div>
+
+    <div class="admin-section-title" style="margin-top:1.25rem">Reference Notes</div>
+    <div class="admin-list" id="mn-notes-list">`;
+
+  notes.forEach((n, idx) => {
+    html += `<div class="admin-list-item admin-note-item">
+      <textarea class="admin-input mn-note-text" data-idx="${idx}" rows="2">${escHtml(n.text)}</textarea>
+      <button class="btn-adm-del mn-del-note" data-idx="${idx}">🗑</button>
+    </div>`;
+  });
+
+  html += `</div>
+    <button class="btn-admin-add" id="btn-mn-add-note">+ Add Note</button>
+    <div style="margin-top:2rem;padding-bottom:1.5rem">
+      <button class="btn-adm-danger" id="btn-mn-del-template">Delete Template</button>
+    </div>`;
+
+  $("manage-modal-body").innerHTML = html;
+
+  const saveTemplateFn = async () => {
+    const idx = state.templates.findIndex(t => t.id === template.id);
+    if (idx >= 0) state.templates[idx] = template;
+    await saveTemplate(template);
+    await syncTemplateToStudents(template);
+  };
+
+  initDragSort($("mn-act-list"), async newOrder => {
+    const reordered = newOrder.map(oldIdx => acts[oldIdx]);
+    reordered.forEach((a, i) => a.order = i);
+    template.predefinedActivities = reordered;
+    await saveTemplateFn();
+    renderTemplateManageContent(template);
+  });
+
+  $("mn-t-name").addEventListener("blur", async () => {
+    const v = $("mn-t-name").value.trim();
+    if (!v || v === template.name) return;
+    template.name = v;
+    $("manage-modal-title").textContent = v;
+    await saveTemplateFn();
+    flashSaved($("mn-t-name"));
+  });
+  $("mn-t-name").addEventListener("keydown", e => {
+    if (e.key === "Enter") { e.preventDefault(); $("mn-t-name").blur(); }
+  });
+
+  $("manage-modal-body").querySelectorAll(".admin-pts-btn").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const newPts = Number(btn.dataset.pts);
+      if (newPts === (template.maxPoints || 3)) return;
+      template.maxPoints = newPts;
+      $("manage-modal-body").querySelectorAll(".admin-pts-btn").forEach(b =>
+        b.classList.toggle("active", b.dataset.pts === btn.dataset.pts));
+      await saveTemplateFn();
+    });
+  });
+
+  acts.forEach((a, idx) => {
+    const input = $(`mn-act-name-${idx}`);
+    input?.addEventListener("blur", async () => {
+      const v = input.value.trim();
+      if (!v || v === a.name) return;
+      a.name = v;
+      await saveTemplateFn();
+      flashSaved(input);
+    });
+    input?.addEventListener("keydown", e => {
+      if (e.key === "Enter") { e.preventDefault(); input.blur(); }
+    });
+  });
+
+  $("manage-modal-body").querySelectorAll(".mn-del-act").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const idx = Number(btn.dataset.idx);
+      const label = acts[idx]?.isHeading ? "section heading" : "activity";
+      if (!confirm(`Delete this ${label}?`)) return;
+      acts.splice(idx, 1);
+      acts.forEach((a, i) => a.order = i);
+      template.predefinedActivities = acts;
+      await saveTemplateFn();
+      renderTemplateManageContent(template);
+    });
+  });
+
+  $("btn-mn-add-act").addEventListener("click", async () => {
+    acts.push({ id: cfgId("a"), name: "New Activity", order: acts.length });
+    template.predefinedActivities = acts;
+    await saveTemplateFn();
+    renderTemplateManageContent(template);
+  });
+
+  $("btn-mn-add-heading").addEventListener("click", async () => {
+    acts.push({ id: cfgId("h"), isHeading: true, name: "Section Heading", order: acts.length });
+    template.predefinedActivities = acts;
+    await saveTemplateFn();
+    renderTemplateManageContent(template);
+  });
+
+  $("manage-modal-body").querySelectorAll(".mn-note-text").forEach(ta => {
+    ta.addEventListener("blur", async () => {
+      const idx = Number(ta.dataset.idx);
+      if (ta.value === notes[idx].text) return;
+      notes[idx].text = ta.value;
+      template.notes = notes;
+      await saveTemplateFn();
+      flashSaved(ta);
+    });
+  });
+
+  $("manage-modal-body").querySelectorAll(".mn-del-note").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const idx = Number(btn.dataset.idx);
+      if (!confirm("Delete this note?")) return;
+      notes.splice(idx, 1);
+      template.notes = notes;
+      await saveTemplateFn();
+      renderTemplateManageContent(template);
+    });
+  });
+
+  $("btn-mn-add-note").addEventListener("click", async () => {
+    notes.push({ id: cfgId("n"), text: "", order: notes.length });
+    template.notes = notes;
+    await saveTemplateFn();
+    renderTemplateManageContent(template);
+  });
+
+  $("btn-mn-del-template").addEventListener("click", async () => {
+    if (!confirm(`Delete template "${template.name}"? Students using this template will keep their activities.`)) return;
+    await deleteTemplate(template.id);
+    state.templates = state.templates.filter(t => t.id !== template.id);
+    closeManageModal();
+  });
+}
+
+// ── Sync template changes to all students using it ────────────
+
+async function syncTemplateToStudents(template) {
+  const toSave = [];
+  for (const student of state.students) {
+    let changed = false;
+    for (const target of student.targets) {
+      if (target.templateId !== template.id) continue;
+      target.predefinedActivities = JSON.parse(JSON.stringify(template.predefinedActivities || []));
+      target.notes                = JSON.parse(JSON.stringify(template.notes || []));
+      target.maxPoints            = template.maxPoints || 3;
+      changed = true;
+    }
+    if (changed) toSave.push(student);
+  }
+  for (const student of toSave) await saveStudent(student);
 }
 
 // ─── SAVED FLASH ─────────────────────────────────────────────
