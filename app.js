@@ -25,7 +25,7 @@ import {
 } from "./firebase-service.js";
 import { exportStudentData } from "./export.js";
 
-const APP_VERSION = "v20";
+const APP_VERSION = "v22";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -430,15 +430,17 @@ $("btn-finish-session").addEventListener("click", async () => {
 // ============================================================
 
 function calcDaysAverage(target) {
-  const avgs = [];
+  let totalScore = 0;
+  let totalPossible = 0;
   for (const act of getActivitiesForTarget(target.name)) {
     for (const rem of getRemarksForActivity(act.id)) {
       const trials = rem.trials || [];
       if (trials.length === 0) continue;
-      avgs.push(trials.reduce((a, b) => a + b, 0) / (trials.length * (target.maxPoints || 3)) * 100);
+      totalScore    += trials.reduce((a, b) => a + b, 0);
+      totalPossible += trials.length * (target.maxPoints || 3);
     }
   }
-  return avgs.length > 0 ? Math.round(avgs.reduce((a, b) => a + b, 0) / avgs.length) : null;
+  return totalPossible > 0 ? Math.round(totalScore / totalPossible * 100) : null;
 }
 
 function renderTargetContent() {
