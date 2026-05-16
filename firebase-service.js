@@ -205,6 +205,12 @@ export async function deleteTrial(sessionId, remId, trialIndex, currentTrials) {
   });
 }
 
+export async function setTrials(sessionId, remId, trials) {
+  await updateDoc(doc(db, "sessions", sessionId), {
+    [`remarks.${remId}.trials`]: trials
+  });
+}
+
 // ─── FEDC COMMENT ────────────────────────────────────────────
 
 export async function updateFedcComment(sessionId, targetName, text) {

@@ -23,12 +23,14 @@ import {
   loadTemplates,
   saveTemplate,
   deleteTemplate,
+  updateFedcComment,
+  setTrials,
   sanitizeKey,
   getTodayString
 } from "./firebase-service.js";
 import { exportStudentData } from "./export.js";
 
-const APP_VERSION = "v43";
+const APP_VERSION = "v45";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -49,7 +51,12 @@ const state = {
   _flashTimer:        null,
   scorePicker:        { open: false, remId: null },
   pendingNewRemark:   null,
-  pendingNewActivity: null
+  pendingNewActivity: null,
+  viewStudent:        null,
+  viewSessionId:      null,
+  viewSessionData:    null,
+  fbViewUnsubscribe:  null,
+  viewRenderPending:  false
 };
 
 const $ = id => document.getElementById(id);
@@ -60,6 +67,10 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (state.renderPending) {
       state.renderPending = false;
       renderTargetContent();
+    }
+    if (state.viewRenderPending) {
+      state.viewRenderPending = false;
+      renderSessionView();
     }
   });
 
@@ -319,7 +330,7 @@ function showStudentChoice(student) {
       <button class="choice-btn choice-other">
         <span class="choice-icon">🗂</span>
         <div class="choice-text">
-          <div class="choice-label">Edit Past Sessions</div>
+          <div class="choice-label">View/Edit Past Sessions</div>
         </div>
       </button>
       <button class="choice-btn choice-manage">
@@ -426,7 +437,7 @@ function renderSessionsForMonth(student, month, monthSessions, byMonth, today) {
   list.querySelectorAll(".session-list-item").forEach(item => {
     item.addEventListener("click", () => {
       closeSessionPicker();
-      openSession(student, item.dataset.sessionId);
+      openSessionView(student, item.dataset.sessionId);
     });
   });
 }
@@ -1163,6 +1174,271 @@ $("score-modal-close").addEventListener("click",    closeScorePicker);
 $("score-modal-backdrop").addEventListener("click", closeScorePicker);
 
 // ============================================================
+// SESSION VIEW SCREEN (table-based view/edit for past sessions)
+// ============================================================
+
+function getViewEffectiveTargets() {
+  const d = state.viewSessionData;
+  if (!d) return state.viewStudent?.targets || [];
+  if (d.date === getTodayString()) return state.viewStudent?.targets || [];
+  if (d.targetsSnapshot?.length) return d.targetsSnapshot;
+  return state.viewStudent?.targets || [];
+}
+
+async function openSessionView(student, sessionId) {
+  state.viewStudent        = student;
+  state.viewSessionId      = sessionId;
+  state.viewSessionData    = null;
+  state.viewRenderPending  = false;
+
+  showScreen("screen-session-view");
+  $("view-student-name").textContent = student.name;
+  $("view-session-meta").textContent = "";
+  $("session-view-body").innerHTML = `<div class="loading">Loading…</div>`;
+
+  if (state.fbViewUnsubscribe) { state.fbViewUnsubscribe(); state.fbViewUnsubscribe = null; }
+
+  try {
+    state.fbViewUnsubscribe = listenToSession(sessionId, data => {
+      state.viewSessionData = data;
+      const active = document.activeElement;
+      const busy   = active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA");
+      if (busy) { state.viewRenderPending = true; }
+      else      { renderSessionView(); }
+    });
+  } catch (err) {
+    $("session-view-body").innerHTML =
+      `<div class="error-msg">Could not load session.<br>${escHtml(err.message)}</div>`;
+  }
+}
+
+function leaveSessionView() {
+  if (state.fbViewUnsubscribe) { state.fbViewUnsubscribe(); state.fbViewUnsubscribe = null; }
+  state.viewSessionId     = null;
+  state.viewSessionData   = null;
+  state.viewStudent       = null;
+  state.viewRenderPending = false;
+  showHome();
+}
+
+$("btn-view-back").addEventListener("click", leaveSessionView);
+
+function renderSessionView() {
+  const data    = state.viewSessionData;
+  const student = state.viewStudent;
+  if (!data || !student) return;
+
+  $("view-session-meta").textContent =
+    `Session ${data.sessionNumber} of ${data.month.split(" ")[0]} · ${formatDate(data.date)}`;
+
+  const targets = getViewEffectiveTargets();
+  const sorted  = [...targets].sort((a, b) => a.name.localeCompare(b.name));
+
+  $("session-view-body").innerHTML = sorted.length
+    ? sorted.map(t => buildTargetViewTable(t, data)).join("")
+    : `<p style="color:var(--text-muted);padding:1rem">No targets recorded.</p>`;
+
+  attachViewListeners();
+}
+
+function buildTargetViewTable(target, data) {
+  const dayAvg = calcViewDayAvg(data, target);
+
+  let rows = "";
+  if (target.predefinedActivities?.length > 0) {
+    let no = 0;
+    for (const pa of target.predefinedActivities) {
+      if (pa.isHeading) {
+        rows += `<tr class="view-heading-row"><td colspan="6">${escHtml(pa.name)}</td></tr>`;
+        continue;
+      }
+      no++;
+      const entry = Object.entries(data.activities || {})
+        .find(([, a]) => a.targetName === target.name && a.activityName === pa.name);
+      rows += viewActivityRows(no, pa.name, entry?.[0] || null, data, target);
+    }
+    // manual (non-predefined) activities added during session
+    Object.entries(data.activities || {})
+      .filter(([, a]) => a.targetName === target.name && !a.isPredefined)
+      .sort(([, a], [, b]) => (a.order || 0) - (b.order || 0))
+      .forEach(([actId, act]) => {
+        no++;
+        rows += viewActivityRows(no, act.activityName, actId, data, target);
+      });
+  } else {
+    let no = 0;
+    Object.entries(data.activities || {})
+      .filter(([, a]) => a.targetName === target.name)
+      .sort(([, a], [, b]) => (a.order || 0) - (b.order || 0))
+      .forEach(([actId, act]) => {
+        no++;
+        rows += viewActivityRows(no, act.activityName, actId, data, target);
+      });
+  }
+
+  if (target.hasComment) {
+    const key     = sanitizeKey(target.name);
+    const comment = (data.fedcComments || {})[key] || "";
+    rows += `<tr class="view-comment-row">
+      <td colspan="2" class="view-comment-label">Comment</td>
+      <td colspan="4">
+        <textarea class="view-comment-edit" data-target-key="${escHtml(key)}" rows="3"
+        >${escHtml(comment)}</textarea>
+      </td>
+    </tr>`;
+  }
+
+  if (dayAvg !== null) {
+    rows += `<tr class="view-dayavg-row">
+      <td colspan="5" style="text-align:right">Day's Average</td>
+      <td class="vcol-score">${dayAvg}%</td>
+    </tr>`;
+  }
+
+  return `<div class="target-view-section">
+    <div class="target-view-header">
+      <span class="target-view-name">${escHtml(target.name)}</span>
+      ${dayAvg !== null ? `<span class="target-view-avg">${dayAvg}%</span>` : ""}
+    </div>
+    <div class="view-table-wrapper">
+      <table class="view-table">
+        <thead><tr>
+          <th class="vcol-no">No.</th>
+          <th class="vcol-act">Activity</th>
+          <th class="vcol-rem">Remark</th>
+          <th class="vcol-trials">Trials</th>
+          <th class="vcol-total">Total</th>
+          <th class="vcol-score">% Score</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+  </div>`;
+}
+
+function viewActivityRows(no, actName, actId, data, target) {
+  const remarks = actId ? viewGetRemarks(data, actId) : [];
+  if (remarks.length === 0) {
+    return `<tr>
+      <td class="vcol-no">${no}</td>
+      <td class="vcol-act">${escHtml(actName)}</td>
+      <td class="vcol-rem" colspan="4" style="color:var(--text-muted);font-size:.82rem">—</td>
+    </tr>`;
+  }
+  return remarks.map((rem, ri) => viewRemarkRow(
+    ri === 0 ? no : null,
+    ri === 0 ? actName : null,
+    rem, target
+  )).join("");
+}
+
+function viewRemarkRow(no, actName, rem, target) {
+  const trials  = rem.trials || [];
+  const maxPts  = target.maxPoints || 3;
+  const total   = trials.reduce((a, b) => a + b, 0);
+  const scorePct = trials.length > 0
+    ? Math.round(total / (trials.length * maxPts) * 100) + "%" : "—";
+
+  const trialCells = trials.map((t, ti) => `
+    <span class="trial-cell">
+      <select class="view-trial-select" data-rem-id="${escHtml(rem.id)}" data-trial-idx="${ti}">
+        ${Array.from({ length: maxPts + 1 }, (_, i) => maxPts - i)
+          .map(v => `<option value="${v}"${v === t ? " selected" : ""}>${v}</option>`).join("")}
+      </select>
+      <button class="view-trial-del" data-rem-id="${escHtml(rem.id)}" data-trial-idx="${ti}">×</button>
+    </span>`).join("") +
+    `<button class="view-add-trial" data-rem-id="${escHtml(rem.id)}">+</button>`;
+
+  return `<tr>
+    <td class="vcol-no">${no !== null ? no : ""}</td>
+    <td class="vcol-act">${actName !== null ? escHtml(actName) : ""}</td>
+    <td class="vcol-rem">
+      <textarea class="view-remark-edit" data-rem-id="${escHtml(rem.id)}"
+        rows="2">${escHtml(rem.text || "")}</textarea>
+    </td>
+    <td class="vcol-trials"><div class="trial-cells">${trialCells}</div></td>
+    <td class="vcol-total">${trials.length > 0 ? total : "—"}</td>
+    <td class="vcol-score">${scorePct}</td>
+  </tr>`;
+}
+
+function viewGetRemarks(data, actId) {
+  return Object.entries(data.remarks || {})
+    .filter(([, r]) => r.activityId === actId)
+    .sort(([, a], [, b]) => (a.order || 0) - (b.order || 0))
+    .map(([id, r]) => ({ id, ...r }));
+}
+
+function calcViewDayAvg(data, target) {
+  const avgs = [];
+  Object.entries(data.activities || {})
+    .filter(([, a]) => a.targetName === target.name)
+    .forEach(([actId]) => {
+      viewGetRemarks(data, actId).forEach(rem => {
+        const trials = rem.trials || [];
+        if (!trials.length) return;
+        avgs.push(trials.reduce((a, b) => a + b, 0) / (trials.length * (target.maxPoints || 3)) * 100);
+      });
+    });
+  return avgs.length ? Math.round(avgs.reduce((a, b) => a + b, 0) / avgs.length) : null;
+}
+
+function attachViewListeners() {
+  const body = $("session-view-body");
+
+  body.querySelectorAll(".view-trial-select").forEach(sel => {
+    sel.addEventListener("change", async () => {
+      const rem = state.viewSessionData?.remarks?.[sel.dataset.remId];
+      if (!rem) return;
+      const trials = [...(rem.trials || [])];
+      trials[Number(sel.dataset.trialIdx)] = Number(sel.value);
+      await setTrials(state.viewSessionId, sel.dataset.remId, trials);
+    });
+  });
+
+  body.querySelectorAll(".view-trial-del").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const rem = state.viewSessionData?.remarks?.[btn.dataset.remId];
+      if (!rem) return;
+      const trials = (rem.trials || []).filter((_, i) => i !== Number(btn.dataset.trialIdx));
+      await setTrials(state.viewSessionId, btn.dataset.remId, trials);
+    });
+  });
+
+  body.querySelectorAll(".view-add-trial").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const rem = state.viewSessionData?.remarks?.[btn.dataset.remId];
+      if (!rem) return;
+      const act    = state.viewSessionData?.activities?.[rem.activityId];
+      const target = act
+        ? getViewEffectiveTargets().find(t => t.name === act.targetName)
+        : null;
+      const maxPts = target?.maxPoints || 3;
+      await setTrials(state.viewSessionId, btn.dataset.remId, [...(rem.trials || []), maxPts]);
+    });
+  });
+
+  body.querySelectorAll(".view-remark-edit").forEach(ta => {
+    ta.addEventListener("blur", async () => {
+      const rem = state.viewSessionData?.remarks?.[ta.dataset.remId];
+      if (!rem || ta.value === (rem.text || "")) return;
+      await updateRemarkText(state.viewSessionId, ta.dataset.remId, ta.value);
+    });
+  });
+
+  body.querySelectorAll(".view-comment-edit").forEach(ta => {
+    ta.addEventListener("blur", async () => {
+      const key    = ta.dataset.targetKey;
+      const target = getViewEffectiveTargets().find(t => sanitizeKey(t.name) === key);
+      if (!target) return;
+      const current = (state.viewSessionData?.fedcComments || {})[key] || "";
+      if (ta.value === current) return;
+      await updateFedcComment(state.viewSessionId, target.name, ta.value);
+    });
+  });
+}
+
+// ============================================================
 // MANAGE MODAL (inline student / target / template config editing)
 // ============================================================
 
@@ -1849,6 +2125,7 @@ async function syncTemplateToStudents(template) {
     let changed = false;
     for (const target of student.targets) {
       if (target.templateId !== template.id) continue;
+      target.name                 = template.name;
       target.predefinedActivities = JSON.parse(JSON.stringify(template.predefinedActivities || []));
       target.notes                = JSON.parse(JSON.stringify(template.notes || []));
       target.maxPoints            = template.maxPoints || 3;
