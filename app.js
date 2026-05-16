@@ -28,7 +28,7 @@ import {
 } from "./firebase-service.js";
 import { exportStudentData } from "./export.js";
 
-const APP_VERSION = "v24";
+const APP_VERSION = "v26";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -254,12 +254,10 @@ function renderTemplateButtons() {
       filtered.map(t => `
         <button class="roster-item" data-id="${t.id}">
           <span class="roster-item-name">${escHtml(t.name)}</span>
-          <span class="template-edit-icon">✏</span>
         </button>
       `).join("") +
       `</div>`;
   }
-  html += `<button class="btn-admin-add" id="btn-create-template-main">+ Create Template</button>`;
   container.innerHTML = html;
 
   container.querySelectorAll(".roster-item").forEach(btn => {
@@ -268,7 +266,6 @@ function renderTemplateButtons() {
       if (tmpl) openManageModal(null, null, tmpl);
     });
   });
-  $("btn-create-template-main")?.addEventListener("click", addNewTemplate);
 }
 
 function renderExportButtons() {
@@ -1666,7 +1663,8 @@ function renderTemplateManageContent(template) {
 
   html += `</div>
     <button class="btn-admin-add" id="btn-mn-add-note">+ Add Note</button>
-    <div style="margin-top:2rem;padding-bottom:1.5rem">
+    <div style="margin-top:2rem;padding-bottom:1.5rem;display:flex;gap:.75rem">
+      <button class="btn-adm-success" id="btn-mn-save-template">Save Template</button>
       <button class="btn-adm-danger" id="btn-mn-del-template">Delete Template</button>
     </div>`;
 
@@ -1778,6 +1776,20 @@ function renderTemplateManageContent(template) {
     template.notes = notes;
     await saveTemplateFn();
     renderTemplateManageContent(template);
+  });
+
+  $("btn-mn-save-template").addEventListener("click", async () => {
+    const btn = $("btn-mn-save-template");
+    btn.disabled = true;
+    btn.textContent = "Saving…";
+    await saveTemplateFn();
+    btn.textContent = "✓ Saved!";
+    setTimeout(() => {
+      if ($("btn-mn-save-template")) {
+        btn.disabled = false;
+        btn.textContent = "Save Template";
+      }
+    }, 1500);
   });
 
   $("btn-mn-del-template").addEventListener("click", async () => {
