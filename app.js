@@ -28,7 +28,7 @@ import {
 } from "./firebase-service.js";
 import { exportStudentData } from "./export.js";
 
-const APP_VERSION = "v37";
+const APP_VERSION = "v38";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -442,9 +442,17 @@ $("session-picker-backdrop").addEventListener("click", closeSessionPicker);
 // SESSION SCREEN
 // ============================================================
 
+function getEffectiveTargets() {
+  const d = state.sessionData;
+  if (!d) return state.currentStudent?.targets || [];
+  if (d.date === getTodayString()) return state.currentStudent.targets;
+  if (d.targetsSnapshot?.length) return d.targetsSnapshot;
+  return state.currentStudent.targets;
+}
+
 async function openSession(student, existingSessionId = null) {
   state.currentStudent     = student;
-  state.selectedTargetName = student.targets[0]?.name || null;
+  state.selectedTargetName = null;
   state.sessionData        = null;
   state.pendingNewActivity = null;
   state.pendingNewRemark   = null;
@@ -460,11 +468,17 @@ async function openSession(student, existingSessionId = null) {
   try {
     const sessionId = existingSessionId
       ? existingSessionId
-      : await getOrCreateTodaySession(student.id);
+      : await getOrCreateTodaySession(student.id, student.targets);
     state.currentSessionId = sessionId;
 
     state.fbUnsubscribe = listenToSession(sessionId, data => {
+      const firstLoad = state.sessionData === null;
       state.sessionData = data;
+      if (firstLoad) {
+        const eff = getEffectiveTargets();
+        state.selectedTargetName = eff[0]?.name || null;
+        populateTargetDropdown(eff);
+      }
       const active = document.activeElement;
       const busy   = active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA");
       if (busy || state.flashActive) {
@@ -473,8 +487,6 @@ async function openSession(student, existingSessionId = null) {
         renderTargetContent();
       }
     });
-
-    populateTargetDropdown(student.targets);
 
   } catch (err) {
     $("target-content").innerHTML =
@@ -559,9 +571,7 @@ function calcDaysAverage(target) {
 
 function renderTargetContent() {
   if (!state.sessionData || !state.selectedTargetName) return;
-  const target = state.currentStudent.targets.find(
-    t => t.name === state.selectedTargetName
-  );
+  const target = getEffectiveTargets().find(t => t.name === state.selectedTargetName);
   if (!target) return;
 
   updateSessionHeader();

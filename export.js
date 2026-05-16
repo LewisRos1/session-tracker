@@ -7,6 +7,20 @@ import { getAllSessionsForStudent, sanitizeKey } from "./firebase-service.js";
 
 // ─── PUBLIC ENTRY POINT ──────────────────────────────────────
 
+// Returns all targets ever seen: live config + any historically snapshotted targets.
+// Live config takes precedence (more up-to-date name/config) but historical-only
+// targets (deleted since) are included from snapshots.
+function getAllTargets(student, sessions) {
+  const targetMap = new Map();
+  for (const t of student.targets) targetMap.set(t.name, t);
+  for (const s of sessions) {
+    for (const t of (s.targetsSnapshot || [])) {
+      if (!targetMap.has(t.name)) targetMap.set(t.name, t);
+    }
+  }
+  return [...targetMap.values()];
+}
+
 export async function exportStudentData(student) {
   if (!student) return;
 
@@ -16,16 +30,18 @@ export async function exportStudentData(student) {
     return;
   }
 
+  const allTargets = getAllTargets(student, sessions);
+
   const wb = XLSX.utils.book_new();
 
   // ── Summary sheet (monthly averages grid) ──────────────
-  const summaryRows = buildSummarySheet(student, sessions);
+  const summaryRows = buildSummarySheet(allTargets, sessions);
   const summaryWs   = XLSX.utils.aoa_to_sheet(summaryRows);
   summaryWs["!cols"] = [{ wch: 30 }, ...Array(50).fill({ wch: 12 })];
   XLSX.utils.book_append_sheet(wb, summaryWs, "Summary");
 
   // ── One sheet per target ───────────────────────────────
-  for (const target of student.targets) {
+  for (const target of allTargets) {
     const rows = buildTargetSheet(target, sessions);
     const ws   = XLSX.utils.aoa_to_sheet(rows);
     ws["!cols"] = [{ wch: 45 }, { wch: 52 }, { wch: 22 }, { wch: 10 }];
@@ -50,7 +66,7 @@ export async function exportStudentData(student) {
 //   FEDC 1       |   71%    |   74%    |          |
 //   ...
 
-function buildSummarySheet(student, sessions) {
+function buildSummarySheet(allTargets, sessions) {
   // Collect all months, sorted chronologically
   const monthSet = new Set(sessions.map(s => s.month));
   const months   = [...monthSet].sort((a, b) => {
@@ -65,12 +81,16 @@ function buildSummarySheet(student, sessions) {
   rows.push(["Target", ...months]);
 
   // One row per target
-  for (const target of student.targets) {
+  for (const target of allTargets) {
     const row = [target.name];
     for (const month of months) {
       const monthSessions = sessions.filter(s => s.month === month);
       const dailyAvgs = monthSessions
-        .map(s => calcDailyAverage(s, target))
+        .map(s => {
+          const snap = (s.targetsSnapshot || []).find(t => t.name === target.name);
+          const eff  = snap ? { ...target, maxPoints: snap.maxPoints } : target;
+          return calcDailyAverage(s, eff);
+        })
         .filter(v => v !== null);
       row.push(dailyAvgs.length > 0 ? pct(avg(dailyAvgs)) : "");
     }
@@ -113,7 +133,9 @@ function buildTargetSheet(target, sessions) {
     rows.push([]);
 
     for (const session of monthSessions) {
-      appendSessionRows(rows, session, target);
+      const snap = (session.targetsSnapshot || []).find(t => t.name === target.name);
+      const effectiveTarget = snap ? { ...target, maxPoints: snap.maxPoints } : target;
+      appendSessionRows(rows, session, effectiveTarget);
     }
   }
 

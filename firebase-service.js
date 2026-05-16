@@ -78,7 +78,7 @@ export function sanitizeKey(name) {
  * Returns the session document ID for today for this student.
  * Creates one if it does not exist yet, with correct session number.
  */
-export async function getOrCreateTodaySession(studentId) {
+export async function getOrCreateTodaySession(studentId, targets = []) {
   const today = getTodayString();
   const month = getMonthString(today);
 
@@ -102,6 +102,16 @@ export async function getOrCreateTodaySession(studentId) {
   existingDates.add(today);
   const sessionNumber = [...existingDates].sort().indexOf(today) + 1;
 
+  const targetsSnapshot = targets.map(t => ({
+    id:                  t.id,
+    name:                t.name,
+    maxPoints:           t.maxPoints,
+    predefinedActivities: t.predefinedActivities || [],
+    notes:               t.notes || [],
+    hasComment:          t.hasComment || false,
+    fullName:            t.fullName || ""
+  }));
+
   const ref = await addDoc(collection(db, "sessions"), {
     studentId,
     date: today,
@@ -111,6 +121,7 @@ export async function getOrCreateTodaySession(studentId) {
     activities: {},
     remarks: {},
     fedcComments: {},
+    targetsSnapshot,
     createdAt: serverTimestamp()
   });
   return ref.id;
