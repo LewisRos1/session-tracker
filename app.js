@@ -28,7 +28,7 @@ import {
 } from "./firebase-service.js";
 import { exportStudentData } from "./export.js";
 
-const APP_VERSION = "v26";
+const APP_VERSION = "v27";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -1663,8 +1663,7 @@ function renderTemplateManageContent(template) {
 
   html += `</div>
     <button class="btn-admin-add" id="btn-mn-add-note">+ Add Note</button>
-    <div style="margin-top:2rem;padding-bottom:1.5rem;display:flex;gap:.75rem">
-      <button class="btn-adm-success" id="btn-mn-save-template">Save Template</button>
+    <div style="margin-top:2rem;padding-bottom:1.5rem">
       <button class="btn-adm-danger" id="btn-mn-del-template">Delete Template</button>
     </div>`;
 
@@ -1675,6 +1674,7 @@ function renderTemplateManageContent(template) {
     if (idx >= 0) state.templates[idx] = template;
     await saveTemplate(template);
     await syncTemplateToStudents(template);
+    showAutosaved();
   };
 
   initDragSort($("mn-act-list"), async newOrder => {
@@ -1778,20 +1778,6 @@ function renderTemplateManageContent(template) {
     renderTemplateManageContent(template);
   });
 
-  $("btn-mn-save-template").addEventListener("click", async () => {
-    const btn = $("btn-mn-save-template");
-    btn.disabled = true;
-    btn.textContent = "Saving…";
-    await saveTemplateFn();
-    btn.textContent = "✓ Saved!";
-    setTimeout(() => {
-      if ($("btn-mn-save-template")) {
-        btn.disabled = false;
-        btn.textContent = "Save Template";
-      }
-    }, 1500);
-  });
-
   $("btn-mn-del-template").addEventListener("click", async () => {
     if (!confirm(`Delete template "${template.name}"? Students using this template will keep their activities.`)) return;
     await deleteTemplate(template.id);
@@ -1816,6 +1802,17 @@ async function syncTemplateToStudents(template) {
     if (changed) toSave.push(student);
   }
   for (const student of toSave) await saveStudent(student);
+}
+
+// ─── AUTOSAVED INDICATOR (template modal header) ─────────────
+
+function showAutosaved() {
+  const el = $("manage-autosave-indicator");
+  if (!el) return;
+  el.textContent = "Autosaved";
+  el.classList.add("visible");
+  clearTimeout(el._hideTimer);
+  el._hideTimer = setTimeout(() => el.classList.remove("visible"), 2000);
 }
 
 // ─── SAVED FLASH ─────────────────────────────────────────────
