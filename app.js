@@ -30,7 +30,7 @@ import {
 } from "./firebase-service.js";
 import { exportStudentData } from "./export.js";
 
-const APP_VERSION = "v49";
+const APP_VERSION = "v50";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -540,11 +540,11 @@ function populateTargetDropdown(targets) {
     `<option value="${escHtml(t.name)}">${escHtml(t.name)}</option>`
   ).join("") + `<option value="__add_target__">+ Add Target…</option>`;
 
-  sel.value = state.selectedTargetName || targets[0]?.name || "";
+  sel.value = state.selectedTargetName || targets[0]?.name || "__add_target__";
 
   sel.onchange = async () => {
     if (sel.value === "__add_target__") {
-      sel.value = state.selectedTargetName || targets[0]?.name || "";
+      sel.value = state.selectedTargetName || targets[0]?.name || "__add_target__";
       showAddTargetPicker(state.currentStudent);
       return;
     }
@@ -1498,7 +1498,7 @@ function showAddTargetPicker(student) {
   $("manage-modal").classList.remove("hidden");
 
   let html = `<div style="margin-bottom:.75rem">
-    <button class="btn-admin-add" id="btn-add-custom-target">+ Custom Target</button>
+    <button class="btn-admin-add" id="btn-add-custom-target">+ Custom Individualized Target</button>
   </div>`;
 
   if (state.templates.length > 0) {

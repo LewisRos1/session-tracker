@@ -27,9 +27,5 @@ export const CONFIG = {
   // ─── Seed data ────────────────────────────────────────────
   // Written to Firebase once on first run (when students collection is empty).
   // After that, all edits happen through the Admin screen.
-  INITIAL_STUDENTS: [
-    { id: "liam",       name: "Liam",        order: 0, targets: [] },
-    { id: "leven",      name: "Leven",       order: 1, targets: [] },
-    { id: "zhangqipei", name: "Zhang QiPei", order: 2, targets: [] }
-  ]
+  INITIAL_STUDENTS: []
 };
