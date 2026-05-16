@@ -28,7 +28,7 @@ import {
 } from "./firebase-service.js";
 import { exportStudentData } from "./export.js";
 
-const APP_VERSION = "v36";
+const APP_VERSION = "v37";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -36,7 +36,9 @@ const state = {
   students:           [],
   templates:          [],
   unfinishedIds:      new Set(),
-  searchQuery:        "",
+  searchExisting:     "",
+  searchAssessment:   "",
+  searchTemplate:     "",
   currentStudent:     null,
   currentSessionId:   null,
   sessionData:        null,
@@ -130,10 +132,10 @@ async function showHome() {
   showScreen("screen-home");
   const verEl = document.getElementById("app-version");
   if (verEl) verEl.textContent = `Made by Lewis · ${APP_VERSION}`;
-  // Clear search when returning home
-  state.searchQuery = "";
-  const searchEl = $("home-search");
-  if (searchEl) searchEl.value = "";
+  // Clear section searches when returning home
+  state.searchExisting = ""; state.searchAssessment = ""; state.searchTemplate = "";
+  [$("search-existing"), $("search-assessment"), $("search-template")]
+    .forEach(el => { if (el) el.value = ""; });
   renderExistingStudentButtons(state.unfinishedIds);
   renderAssessmentStudentButtons(state.unfinishedIds);
   renderTemplateButtons();
@@ -152,10 +154,16 @@ $("btn-add-existing-student").addEventListener("click", () => addNewStudent("exi
 $("btn-add-assessment-student").addEventListener("click", () => addNewStudent("assessment"));
 $("btn-add-template").addEventListener("click", addNewTemplate);
 
-$("home-search").addEventListener("input", e => {
-  state.searchQuery = e.target.value;
+$("search-existing").addEventListener("input", e => {
+  state.searchExisting = e.target.value;
   renderExistingStudentButtons(state.unfinishedIds);
+});
+$("search-assessment").addEventListener("input", e => {
+  state.searchAssessment = e.target.value;
   renderAssessmentStudentButtons(state.unfinishedIds);
+});
+$("search-template").addEventListener("input", e => {
+  state.searchTemplate = e.target.value;
   renderTemplateButtons();
 });
 
@@ -195,9 +203,9 @@ async function addNewTemplate() {
 
 // ── Render helpers ────────────────────────────────────────────
 
-function renderStudentList(container, students, unfinishedIds) {
+function renderStudentList(container, students, unfinishedIds, query = "") {
   if (!container) return;
-  const q = state.searchQuery.toLowerCase();
+  const q = query.toLowerCase();
   const filtered = students
     .filter(s => !q || s.name.toLowerCase().includes(q))
     .sort((a, b) => a.name.localeCompare(b.name));
@@ -228,18 +236,18 @@ function renderStudentList(container, students, unfinishedIds) {
 
 function renderExistingStudentButtons(unfinishedIds) {
   const students = state.students.filter(s => !s.type || s.type === "existing");
-  renderStudentList($("existing-student-buttons"), students, unfinishedIds);
+  renderStudentList($("existing-student-buttons"), students, unfinishedIds, state.searchExisting);
 }
 
 function renderAssessmentStudentButtons(unfinishedIds) {
   const students = state.students.filter(s => s.type === "assessment");
-  renderStudentList($("assessment-student-buttons"), students, unfinishedIds);
+  renderStudentList($("assessment-student-buttons"), students, unfinishedIds, state.searchAssessment);
 }
 
 function renderTemplateButtons() {
   const container = $("template-buttons");
   if (!container) return;
-  const q = state.searchQuery.toLowerCase();
+  const q = state.searchTemplate.toLowerCase();
   const filtered = state.templates
     .filter(t => !q || t.name.toLowerCase().includes(q))
     .sort((a, b) => a.name.localeCompare(b.name));
@@ -504,7 +512,8 @@ function updateSessionHeader() {
 
 function populateTargetDropdown(targets) {
   const sel = $("target-select");
-  sel.innerHTML = targets.map(t =>
+  const sorted = [...targets].sort((a, b) => a.name.localeCompare(b.name));
+  sel.innerHTML = sorted.map(t =>
     `<option value="${escHtml(t.name)}">${escHtml(t.name)}</option>`
   ).join("") + `<option value="__add_target__">+ Add Target…</option>`;
 
@@ -1203,7 +1212,8 @@ function showAddTargetPicker(student) {
   if (state.templates.length > 0) {
     html += `<div class="admin-section-title">From Template</div>
     <div class="admin-list" id="template-picker-list">`;
-    state.templates.forEach(tmpl => {
+    const sortedTmpls = [...state.templates].sort((a, b) => a.name.localeCompare(b.name));
+    sortedTmpls.forEach(tmpl => {
       html += `<label class="admin-list-item" style="cursor:pointer;gap:.75rem">
         <input type="checkbox" class="tmpl-checkbox" data-tmpl-id="${escHtml(tmpl.id)}"
           style="width:20px;height:20px;flex-shrink:0;cursor:pointer" />

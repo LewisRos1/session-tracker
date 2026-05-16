@@ -1362,27 +1362,22 @@ textarea.admin-input { resize: vertical; min-height: 60px; line-height: 1.45; }
   max-height: 72vh;
 }
 
-/* ─── Home search box ────────────────────────────────────── */
-.home-search-wrap {
-  padding-bottom: .25rem;
-}
-
-.home-search {
+/* ─── Per-section search box ─────────────────────────────── */
+.section-search {
   width: 100%;
-  padding: .6rem .9rem;
+  padding: .4rem .75rem;
   border: 1.5px solid var(--border);
   border-radius: var(--radius-sm);
-  font-size: .95rem;
+  font-size: .88rem;
   font-family: var(--font);
   color: var(--text);
   background: var(--white);
   outline: none;
-  box-shadow: var(--shadow);
+  margin-bottom: .4rem;
   transition: border-color .15s;
   -webkit-appearance: none;
 }
-
-.home-search:focus { border-color: var(--primary); }
+.section-search:focus { border-color: var(--primary); }
 
 /* ─── Roster list (slim file-explorer style) ─────────────── */
 .roster-list {
@@ -1390,7 +1385,8 @@ textarea.admin-input { resize: vertical; min-height: 60px; line-height: 1.45; }
   border-radius: var(--radius);
   background: var(--white);
   box-shadow: var(--shadow);
-  overflow: hidden;
+  overflow-y: auto;
+  max-height: 225px; /* ~5 items */
   margin-bottom: .5rem;
 }
 
