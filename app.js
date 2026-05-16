@@ -28,7 +28,7 @@ import {
 } from "./firebase-service.js";
 import { exportStudentData } from "./export.js";
 
-const APP_VERSION = "v39";
+const APP_VERSION = "v40";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
