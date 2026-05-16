@@ -28,7 +28,7 @@ import {
 } from "./firebase-service.js";
 import { exportStudentData } from "./export.js";
 
-const APP_VERSION = "v42";
+const APP_VERSION = "v43";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -1300,6 +1300,23 @@ function showAddTargetPicker(student) {
 function renderStudentManageContent(student) {
   $("manage-modal-title").textContent = student.name;
   const isAssessment = student.type === "assessment";
+  const sorted = [...student.targets].sort((a, b) => a.name.localeCompare(b.name));
+
+  const targetsHtml = sorted.length > 0
+    ? `<div class="roster-list" style="margin-bottom:.5rem">` +
+        sorted.map(t => `
+          <div class="roster-item">
+            <span class="roster-item-name">${escHtml(t.name)}</span>
+            <button class="btn-del-target" data-target-id="${escHtml(t.id)}"
+              style="font-size:.8rem;padding:.2rem .55rem;border-radius:6px;
+                     border:1.5px solid var(--danger);color:var(--danger);
+                     background:none;cursor:pointer;flex-shrink:0">
+              Delete
+            </button>
+          </div>`).join("") +
+      `</div>`
+    : `<p style="color:var(--text-muted);font-size:.88rem;margin:.25rem 0 .75rem">No targets yet.</p>`;
+
   const html = `
     <div class="admin-section">
       <label class="admin-label">Student Name</label>
@@ -1307,6 +1324,10 @@ function renderStudentManageContent(student) {
         <input class="admin-input" id="mn-s-name" value="${escHtml(student.name)}" style="flex:1" />
         <button class="btn-primary-sm" id="btn-mn-rename">Save</button>
       </div>
+    </div>
+    <div class="admin-section">
+      <label class="admin-label">Targets</label>
+      ${targetsHtml}
     </div>
     ${isAssessment ? `
     <div class="admin-section">
@@ -1331,6 +1352,20 @@ function renderStudentManageContent(student) {
   });
   $("mn-s-name").addEventListener("keydown", e => {
     if (e.key === "Enter") $("btn-mn-rename").click();
+  });
+
+  $("manage-modal-body").querySelectorAll(".btn-del-target").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const target = student.targets.find(t => t.id === btn.dataset.targetId);
+      if (!target) return;
+      if (!confirm(`Delete target "${target.name}"?`)) return;
+      student.targets = student.targets.filter(t => t.id !== target.id);
+      student.targets.forEach((t, i) => t.order = i);
+      const si = state.students.findIndex(s => s.id === student.id);
+      if (si >= 0) state.students[si] = student;
+      await saveStudent(student);
+      renderStudentManageContent(student);
+    });
   });
 
   $("btn-mn-move-to-existing")?.addEventListener("click", async () => {
