@@ -30,7 +30,7 @@ import {
 } from "./firebase-service.js";
 import { exportStudentData } from "./export.js";
 
-const APP_VERSION = "v50";
+const APP_VERSION = "v51";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -536,11 +536,14 @@ function updateSessionHeader() {
 function populateTargetDropdown(targets) {
   const sel = $("target-select");
   const sorted = [...targets].sort((a, b) => a.name.localeCompare(b.name));
-  sel.innerHTML = sorted.map(t =>
-    `<option value="${escHtml(t.name)}">${escHtml(t.name)}</option>`
-  ).join("") + `<option value="__add_target__">+ Add Target…</option>`;
+  const placeholder = sorted.length === 0
+    ? `<option value="" disabled selected>— no targets yet —</option>` : "";
+  sel.innerHTML = placeholder +
+    sorted.map(t =>
+      `<option value="${escHtml(t.name)}">${escHtml(t.name)}</option>`
+    ).join("") + `<option value="__add_target__">+ Add Target…</option>`;
 
-  sel.value = state.selectedTargetName || targets[0]?.name || "__add_target__";
+  sel.value = state.selectedTargetName || targets[0]?.name || "";
 
   sel.onchange = async () => {
     if (sel.value === "__add_target__") {
