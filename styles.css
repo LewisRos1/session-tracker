@@ -312,18 +312,12 @@ html, body {
 /* ─── TARGET SELECTOR ────────────────────────────────────── */
 .target-selector {
   display: flex;
-  flex-direction: column;
-  gap: .55rem;
+  align-items: center;
+  gap: .6rem;
   padding: .9rem 1rem;
   background: var(--white);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
-}
-
-.target-row {
-  display: flex;
-  align-items: center;
-  gap: .6rem;
 }
 
 .target-label {
@@ -349,24 +343,24 @@ html, body {
 
 .target-dropdown:focus { border-color: var(--primary); }
 
-.days-average-row {
+.days-average-chip {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  justify-content: space-between;
-  padding: .45rem .7rem;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+  line-height: 1.1;
 }
 
 .days-average-label {
-  font-size: .82rem;
+  font-size: .68rem;
   font-weight: 600;
   color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: .04em;
 }
 
 .days-average-value {
-  font-size: 1.05rem;
+  font-size: 1rem;
   font-weight: 700;
   color: var(--primary);
 }
