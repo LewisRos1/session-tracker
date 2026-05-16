@@ -115,11 +115,6 @@ html, body {
   text-align: center;
   letter-spacing: .25em;
   outline: none;
-  transition: border-color .15s;
-}
-
-.pin-input:focus {
-  border-color: var(--primary);
 }
 
 .pin-error {
@@ -340,7 +335,6 @@ html, body {
   cursor: pointer;
 }
 
-.target-dropdown:focus { border-color: var(--primary); }
 
 .days-average-chip {
   display: flex;
@@ -449,10 +443,7 @@ html, body {
   min-height: 80px;
   outline: none;
   color: var(--text);
-  transition: border-color .15s;
 }
-
-.fedc-comment-input:focus { border-color: var(--primary); }
 
 
 /* ─── ENTRY BLOCK (activity + remarks) ───────────────────── */
@@ -497,12 +488,6 @@ html, body {
   outline: none;
   resize: vertical;
   line-height: 1.45;
-  transition: border-color .15s, background .15s;
-}
-
-.field-input:focus {
-  border-color: var(--primary);
-  background: var(--white);
 }
 
 /* fixed (non-editable) activity name for FEDC */
@@ -1106,9 +1091,7 @@ html, body {
   color: var(--text);
   background: var(--bg);
   outline: none;
-  transition: border-color .15s, background .15s;
 }
-.admin-input:focus { border-color: var(--primary); background: var(--white); }
 textarea.admin-input { resize: vertical; min-height: 60px; line-height: 1.45; }
 
 /* ─── Max-points row ─────────────────────────────────────── */
@@ -1374,10 +1357,8 @@ textarea.admin-input { resize: vertical; min-height: 60px; line-height: 1.45; }
   color: var(--text);
   background: var(--white);
   outline: none;
-  transition: border-color .15s;
   -webkit-appearance: none;
 }
-.section-search:focus { border-color: var(--primary); }
 
 /* ─── Roster list (slim file-explorer style) ─────────────── */
 .roster-list {
@@ -1611,10 +1592,4 @@ textarea.admin-input { resize: vertical; min-height: 60px; line-height: 1.45; }
   resize: vertical;
   padding: .2rem .3rem;
   outline: none;
-  transition: border-color .15s, background .15s;
-}
-.view-remark-edit:focus,
-.view-comment-edit:focus {
-  border-color: var(--primary);
-  background: var(--white);
 }
