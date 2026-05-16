@@ -28,13 +28,15 @@ import {
 } from "./firebase-service.js";
 import { exportStudentData } from "./export.js";
 
-const APP_VERSION = "v23";
+const APP_VERSION = "v24";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
   authenticated:      false,
   students:           [],
   templates:          [],
+  unfinishedIds:      new Set(),
+  searchQuery:        "",
   currentStudent:     null,
   currentSessionId:   null,
   sessionData:        null,
@@ -128,12 +130,17 @@ async function showHome() {
   showScreen("screen-home");
   const verEl = document.getElementById("app-version");
   if (verEl) verEl.textContent = `Made by Lewis · ${APP_VERSION}`;
-  renderExistingStudentButtons(new Set());
-  renderAssessmentStudentButtons(new Set());
+  // Clear search when returning home
+  state.searchQuery = "";
+  const searchEl = $("home-search");
+  if (searchEl) searchEl.value = "";
+  renderExistingStudentButtons(state.unfinishedIds);
+  renderAssessmentStudentButtons(state.unfinishedIds);
   renderTemplateButtons();
   renderExportButtons();
   try {
     const unfinished = await getTodayUnfinishedStudentIds();
+    state.unfinishedIds = unfinished;
     renderExistingStudentButtons(unfinished);
     renderAssessmentStudentButtons(unfinished);
   } catch (_) {}
@@ -144,6 +151,13 @@ async function showHome() {
 $("btn-add-existing-student").addEventListener("click", () => addNewStudent("existing"));
 $("btn-add-assessment-student").addEventListener("click", () => addNewStudent("assessment"));
 $("btn-add-template").addEventListener("click", addNewTemplate);
+
+$("home-search").addEventListener("input", e => {
+  state.searchQuery = e.target.value;
+  renderExistingStudentButtons(state.unfinishedIds);
+  renderAssessmentStudentButtons(state.unfinishedIds);
+  renderTemplateButtons();
+});
 
 async function addNewStudent(type) {
   const label = type === "assessment" ? "Assessment student name:" : "Student name:";
@@ -158,8 +172,8 @@ async function addNewStudent(type) {
   };
   state.students.push(s);
   await saveStudent(s);
-  if (type === "existing") renderExistingStudentButtons(new Set());
-  else renderAssessmentStudentButtons(new Set());
+  if (type === "existing") renderExistingStudentButtons(state.unfinishedIds);
+  else renderAssessmentStudentButtons(state.unfinishedIds);
 }
 
 async function addNewTemplate() {
@@ -183,19 +197,28 @@ async function addNewTemplate() {
 
 function renderStudentList(container, students, unfinishedIds) {
   if (!container) return;
-  if (students.length === 0) {
-    container.innerHTML = `<p class="empty-hint">None yet.</p>`;
+  const q = state.searchQuery.toLowerCase();
+  const filtered = students
+    .filter(s => !q || s.name.toLowerCase().includes(q))
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  if (filtered.length === 0) {
+    container.innerHTML = q
+      ? `<p class="empty-hint">No matches.</p>`
+      : `<p class="empty-hint">None yet.</p>`;
     return;
   }
-  container.innerHTML = students.map(s => `
-    <button class="student-btn" data-id="${s.id}">
-      <span class="student-btn-name">${escHtml(s.name)}</span>
-      ${unfinishedIds.has(s.id)
-        ? `<span class="session-indicator" title="Unfinished session today"></span>`
-        : ""}
-    </button>
-  `).join("");
-  container.querySelectorAll(".student-btn").forEach(btn => {
+  container.innerHTML = `<div class="roster-list">` +
+    filtered.map(s => `
+      <button class="roster-item" data-id="${s.id}">
+        <span class="roster-item-name">${escHtml(s.name)}</span>
+        ${unfinishedIds.has(s.id)
+          ? `<span class="session-indicator" title="Unfinished session today"></span>`
+          : ""}
+      </button>
+    `).join("") +
+    `</div>`;
+  container.querySelectorAll(".roster-item").forEach(btn => {
     btn.addEventListener("click", () => {
       const student = state.students.find(s => s.id === btn.dataset.id);
       if (student) showStudentChoice(student);
@@ -216,22 +239,36 @@ function renderAssessmentStudentButtons(unfinishedIds) {
 function renderTemplateButtons() {
   const container = $("template-buttons");
   if (!container) return;
-  if (state.templates.length === 0) {
-    container.innerHTML = `<p class="empty-hint">No templates yet. Tap "+ New" to create one.</p>`;
-    return;
+  const q = state.searchQuery.toLowerCase();
+  const filtered = state.templates
+    .filter(t => !q || t.name.toLowerCase().includes(q))
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  let html = "";
+  if (filtered.length === 0 && !q) {
+    html = `<p class="empty-hint">No templates yet.</p>`;
+  } else if (filtered.length === 0) {
+    html = `<p class="empty-hint">No matches.</p>`;
+  } else {
+    html = `<div class="roster-list">` +
+      filtered.map(t => `
+        <button class="roster-item" data-id="${t.id}">
+          <span class="roster-item-name">${escHtml(t.name)}</span>
+          <span class="template-edit-icon">✏</span>
+        </button>
+      `).join("") +
+      `</div>`;
   }
-  container.innerHTML = state.templates.map(t => `
-    <button class="student-btn" data-id="${t.id}">
-      <span class="student-btn-name">${escHtml(t.name)}</span>
-      <span class="template-edit-icon">✏</span>
-    </button>
-  `).join("");
-  container.querySelectorAll(".student-btn").forEach(btn => {
+  html += `<button class="btn-admin-add" id="btn-create-template-main">+ Create Template</button>`;
+  container.innerHTML = html;
+
+  container.querySelectorAll(".roster-item").forEach(btn => {
     btn.addEventListener("click", () => {
       const tmpl = state.templates.find(t => t.id === btn.dataset.id);
       if (tmpl) openManageModal(null, null, tmpl);
     });
   });
+  $("btn-create-template-main")?.addEventListener("click", addNewTemplate);
 }
 
 function renderExportButtons() {
@@ -1138,8 +1175,8 @@ function closeManageModal() {
     if (state.currentSessionId && state.selectedTargetName) renderTargetContent();
   }
   // Always refresh all home screen sections
-  renderExistingStudentButtons(new Set());
-  renderAssessmentStudentButtons(new Set());
+  renderExistingStudentButtons(state.unfinishedIds);
+  renderAssessmentStudentButtons(state.unfinishedIds);
   renderTemplateButtons();
   renderExportButtons();
 }

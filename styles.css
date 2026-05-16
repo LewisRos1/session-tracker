@@ -952,10 +952,6 @@ html, body {
 ::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 3px; }
 
 /* ─── RESPONSIVE ─────────────────────────────────────────── */
-@media (min-width: 480px) {
-  .student-buttons { flex-direction: row; flex-wrap: wrap; }
-  .student-btn { flex: 1; min-width: 160px; }
-}
 
 @media (min-width: 640px) {
   .score-buttons { display: grid; grid-template-columns: 1fr 1fr; }
@@ -1330,6 +1326,62 @@ textarea.admin-input { resize: vertical; min-height: 60px; line-height: 1.45; }
   overflow-y: auto;
   max-height: 72vh;
 }
+
+/* ─── Home search box ────────────────────────────────────── */
+.home-search-wrap {
+  padding-bottom: .25rem;
+}
+
+.home-search {
+  width: 100%;
+  padding: .6rem .9rem;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: .95rem;
+  font-family: var(--font);
+  color: var(--text);
+  background: var(--white);
+  outline: none;
+  box-shadow: var(--shadow);
+  transition: border-color .15s;
+  -webkit-appearance: none;
+}
+
+.home-search:focus { border-color: var(--primary); }
+
+/* ─── Roster list (slim file-explorer style) ─────────────── */
+.roster-list {
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--white);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  margin-bottom: .5rem;
+}
+
+.roster-item {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: .7rem 1rem;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  background: none;
+  font-size: .97rem;
+  font-weight: 500;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+  gap: .5rem;
+  min-height: 44px;
+  transition: background .12s;
+}
+
+.roster-item:last-child { border-bottom: none; }
+.roster-item:hover  { background: var(--primary-light); }
+.roster-item:active { opacity: .8; }
+
+.roster-item-name { flex: 1; }
 
 /* ─── Section header (title + add button inline) ────────── */
 .section-header {
