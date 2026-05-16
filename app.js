@@ -30,7 +30,7 @@ import {
 } from "./firebase-service.js";
 import { exportStudentData } from "./export.js";
 
-const APP_VERSION = "v51";
+const APP_VERSION = "v52";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -1501,7 +1501,7 @@ function showAddTargetPicker(student) {
   $("manage-modal").classList.remove("hidden");
 
   let html = `<div style="margin-bottom:.75rem">
-    <button class="btn-admin-add" id="btn-add-custom-target">+ Custom Individualized Target</button>
+    <button class="btn-admin-add" id="btn-add-custom-target">+ Custom Student Target</button>
   </div>`;
 
   if (state.templates.length > 0) {
