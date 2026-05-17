@@ -31,7 +31,7 @@ import {
 } from "./firebase-service.js";
 import { exportStudentData } from "./export.js";
 
-const APP_VERSION = "v95";
+const APP_VERSION = "v97";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -363,152 +363,46 @@ function showStudentChoice(student) {
 
   $("session-picker-list").querySelector(".choice-today").addEventListener("click", () => {
     const today = getTodayString();
-    const [ty, tm, td] = today.split("-").map(Number);
-    const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-    const ITEM_H = 44;
-    const START_YEAR = ty - 4;
-    const years = Array.from({ length: 5 }, (_, i) => START_YEAR + i);
+    const yesterday = (() => {
+      const d = new Date(today + "T00:00:00"); d.setDate(d.getDate() - 1);
+      return d.toISOString().slice(0, 10);
+    })();
 
     $("session-picker-list").innerHTML = `
       <div class="session-date-step">
         <p class="session-date-prompt">What date is this session for?</p>
-        <div class="drum-col-labels">
-          <span>Day</span><span>Month</span><span>Year</span>
+        <div class="date-quick-btns">
+          <button class="btn-date-quick" data-date="${today}">Today</button>
+          <button class="btn-date-quick" data-date="${yesterday}">Yesterday</button>
+          <button class="btn-date-other">Pick a date…</button>
         </div>
-        <div class="drum-picker">
-          <div class="drum-selector"></div>
-          <div class="drum-fade drum-fade-top"></div>
-          <div class="drum-fade drum-fade-bot"></div>
-          <div class="drum-col drum-day">
-            <div class="drum-pad"></div>
-            ${Array.from({length:31},(_,i)=>`<div class="drum-item">${i+1}</div>`).join("")}
-            <div class="drum-pad"></div>
-          </div>
-          <div class="drum-divider"></div>
-          <div class="drum-col drum-month">
-            <div class="drum-pad"></div>
-            ${MONTHS.map(m=>`<div class="drum-item">${m}</div>`).join("")}
-            <div class="drum-pad"></div>
-          </div>
-          <div class="drum-divider"></div>
-          <div class="drum-col drum-year">
-            <div class="drum-pad"></div>
-            ${years.map(y=>`<div class="drum-item">${y}</div>`).join("")}
-            <div class="drum-pad"></div>
-          </div>
-        </div>
-        <div class="drum-type-row">
-          <input class="drum-type-in drum-type-day" type="number" min="1" max="31" value="${td}" />
-          <input class="drum-type-in drum-type-mon" type="text" value="${MONTHS[tm-1]}" maxlength="9" />
-          <input class="drum-type-in drum-type-yr"  type="number" min="${START_YEAR}" max="${ty}" value="${ty}" />
-        </div>
-        <div class="drum-indicator"></div>
-        <div class="session-date-actions">
-          <button class="btn-date-back">← Back</button>
+        <div class="date-other-row hidden">
+          <input type="date" class="date-other-input" max="${today}" value="${today}" />
           <button class="btn-date-go">Start Session</button>
         </div>
+        <button class="btn-date-back">← Back</button>
       </div>`;
 
-    const dayCol      = $("session-picker-list").querySelector(".drum-day");
-    const monthCol    = $("session-picker-list").querySelector(".drum-month");
-    const yearCol     = $("session-picker-list").querySelector(".drum-year");
-    const indicator   = $("session-picker-list").querySelector(".drum-indicator");
-
-    // ── Init scroll positions ─────────────────────────────────
-    requestAnimationFrame(() => {
-      dayCol.scrollTop   = (td - 1) * ITEM_H;
-      monthCol.scrollTop = (tm - 1) * ITEM_H;
-      yearCol.scrollTop  = (ty - START_YEAR) * ITEM_H;
-      updateIndicator();
-    });
-
-    // ── Read selected date ────────────────────────────────────
-    function getSelectedDate() {
-      const day   = Math.min(Math.max(Math.round(dayCol.scrollTop   / ITEM_H), 0), 30) + 1;
-      const month = Math.min(Math.max(Math.round(monthCol.scrollTop / ITEM_H), 0), 11) + 1;
-      const year  = START_YEAR + Math.min(Math.max(Math.round(yearCol.scrollTop / ITEM_H), 0), years.length - 1);
-      const maxDay = new Date(year, month, 0).getDate();
-      return `${year}-${String(month).padStart(2,"0")}-${String(Math.min(day,maxDay)).padStart(2,"0")}`;
-    }
-
-    // ── Type-to-jump inputs ───────────────────────────────────
-    const typeDay = $("session-picker-list").querySelector(".drum-type-day");
-    const typeMon = $("session-picker-list").querySelector(".drum-type-mon");
-    const typeYr  = $("session-picker-list").querySelector(".drum-type-yr");
-
-    // ── Live "Today / Yesterday / N days ago" label ───────────
-    function updateIndicator() {
-      const dateStr = getSelectedDate();
-      const [y, m, d] = dateStr.split("-").map(Number);
-      const diff = Math.round((new Date(today+"T00:00:00") - new Date(dateStr+"T00:00:00")) / 86400000);
-      const tag  = diff === 0 ? "Today" : diff === 1 ? "Yesterday" : diff > 0 ? `${diff} days ago` : "Future date ⚠";
-      indicator.textContent = tag;
-      indicator.className   = "drum-indicator" + (diff < 0 ? " drum-indicator-warn" : "");
-      // Sync inputs to match drum (setting .value doesn't fire "input" event — no loop)
-      typeDay.value = d;
-      typeMon.value = MONTHS[m - 1];
-      typeYr.value  = y;
-    }
-    [dayCol, monthCol, yearCol].forEach(col => col.addEventListener("scroll", updateIndicator));
-
-    function jumpFromInput(inp, col, toIdx) {
-      inp.addEventListener("input", () => {
-        const idx = toIdx(inp.value.trim());
-        if (idx !== null) col.scrollTo({ top: idx * ITEM_H, behavior: "smooth" });
-      });
-    }
-    jumpFromInput(typeDay, dayCol, val => {
-      const v = parseInt(val); return (v >= 1 && v <= 31) ? v - 1 : null;
-    });
-    jumpFromInput(typeMon, monthCol, val => {
-      const n = parseInt(val);
-      if (!isNaN(n) && n >= 1 && n <= 12) return n - 1;
-      const idx = MONTHS.findIndex(m => m.toLowerCase() === val.toLowerCase().slice(0, 3));
-      return idx >= 0 ? idx : null;
-    });
-    jumpFromInput(typeYr, yearCol, val => {
-      const v = parseInt(val); return (v >= START_YEAR && v <= ty) ? v - START_YEAR : null;
-    });
-
-    // ── Mouse drag-to-scroll + click-to-select ────────────────
-    const ac = new AbortController();
-    const sig = { signal: ac.signal };
-    [dayCol, monthCol, yearCol].forEach(col => {
-      let startY, startTop, moved;
-      col.addEventListener("mousedown", e => {
-        startY = e.clientY; startTop = col.scrollTop; moved = false;
-        col.style.cursor = "grabbing";
-      });
-      document.addEventListener("mousemove", e => {
-        if (startY === undefined) return;
-        const delta = startY - e.clientY;
-        if (Math.abs(delta) > 4) { moved = true; col.scrollTop = startTop + delta; }
-      }, sig);
-      document.addEventListener("mouseup", () => {
-        col.style.cursor = "";
-        startY = undefined;
-      }, sig);
-      // Click an item to snap to it
-      col.addEventListener("click", e => {
-        if (moved) { moved = false; return; }
-        const item = e.target.closest(".drum-item");
-        if (!item) return;
-        const idx = [...col.querySelectorAll(".drum-item")].indexOf(item);
-        if (idx >= 0) col.scrollTo({ top: idx * ITEM_H, behavior: "smooth" });
+    $("session-picker-list").querySelectorAll(".btn-date-quick").forEach(btn => {
+      btn.addEventListener("click", () => {
+        closeSessionPicker();
+        openSession(student, null, btn.dataset.date);
       });
     });
 
-    // ── Confirm / Back ────────────────────────────────────────
-    const cleanup = () => ac.abort();
-    const doStart = () => {
-      const dateStr = getSelectedDate();
-      if (dateStr > today) { alert("Cannot start a session in the future."); return; }
-      cleanup();
+    $("session-picker-list").querySelector(".btn-date-other").addEventListener("click", () => {
+      $("session-picker-list").querySelector(".date-other-row").classList.remove("hidden");
+      $("session-picker-list").querySelector(".date-other-input").focus();
+    });
+
+    $("session-picker-list").querySelector(".btn-date-go").addEventListener("click", () => {
+      const d = $("session-picker-list").querySelector(".date-other-input").value;
+      if (!d || d > today) { alert("Please pick a valid past date."); return; }
       closeSessionPicker();
-      openSession(student, null, dateStr);
-    };
-    $("session-picker-list").querySelector(".btn-date-back").addEventListener("click", () => { cleanup(); showStudentChoice(student); });
-    $("session-picker-list").querySelector(".btn-date-go").addEventListener("click", doStart);
+      openSession(student, null, d);
+    });
+
+    $("session-picker-list").querySelector(".btn-date-back").addEventListener("click", () => showStudentChoice(student));
   });
   $("session-picker-list").querySelector(".choice-other").addEventListener("click", () => {
     showSessionPicker(student);
