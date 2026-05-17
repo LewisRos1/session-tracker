@@ -145,7 +145,16 @@ export async function getOrCreateSessionForDate(studentId, dateStr, targets = []
   );
   const existingDates = new Set(monthSnap.docs.map(d => d.data().date));
   existingDates.add(dateStr);
-  const sessionNumber = [...existingDates].sort().indexOf(dateStr) + 1;
+  const sortedDates   = [...existingDates].sort();
+  const sessionNumber = sortedDates.indexOf(dateStr) + 1;
+
+  // Renumber any existing sessions whose position shifted
+  for (const d of monthSnap.docs) {
+    const newNum = sortedDates.indexOf(d.data().date) + 1;
+    if (newNum !== d.data().sessionNumber) {
+      updateDoc(doc(db, "sessions", d.id), { sessionNumber: newNum }).catch(() => {});
+    }
+  }
 
   const targetsSnapshot = targets.map(t => ({
     id: t.id, name: t.name, maxPoints: t.maxPoints,

@@ -7,18 +7,8 @@ import { getAllSessionsForStudent, sanitizeKey } from "./firebase-service.js";
 
 // ─── PUBLIC ENTRY POINT ──────────────────────────────────────
 
-// Returns all targets ever seen: live config + any historically snapshotted targets.
-// Live config takes precedence (more up-to-date name/config) but historical-only
-// targets (deleted since) are included from snapshots.
-function getAllTargets(student, sessions) {
-  const targetMap = new Map();
-  for (const t of student.targets) targetMap.set(t.name, t);
-  for (const s of sessions) {
-    for (const t of (s.targetsSnapshot || [])) {
-      if (!targetMap.has(t.name)) targetMap.set(t.name, t);
-    }
-  }
-  return [...targetMap.values()];
+function getAllTargets(student) {
+  return student.targets || [];
 }
 
 export async function exportStudentData(student) {
@@ -30,7 +20,7 @@ export async function exportStudentData(student) {
     return;
   }
 
-  const allTargets = getAllTargets(student, sessions);
+  const allTargets = getAllTargets(student);
 
   const wb = XLSX.utils.book_new();
 
