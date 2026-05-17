@@ -31,7 +31,7 @@ import {
 } from "./firebase-service.js";
 import { exportStudentData } from "./export.js";
 
-const APP_VERSION = "v87";
+const APP_VERSION = "v88";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -367,23 +367,37 @@ function showStudentChoice(student) {
       <div class="session-date-step">
         <p class="session-date-prompt">What date is this session for?</p>
         <input type="date" class="session-date-pick" value="${today}" max="${today}" />
+        <span class="session-date-label"></span>
         <div class="session-date-actions">
           <button class="btn-date-back">← Back</button>
           <button class="btn-date-go">Start Session</button>
         </div>
       </div>`;
-    setTimeout(() => $("session-picker-list").querySelector(".session-date-pick")?.focus(), 50);
+
+    const dateInput = $("session-picker-list").querySelector(".session-date-pick");
+    const dateLabel = $("session-picker-list").querySelector(".session-date-label");
+
+    function updateDateLabel(dateStr) {
+      if (!dateStr) { dateLabel.textContent = ""; return; }
+      const [y, m, d] = dateStr.split("-").map(Number);
+      const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+      const diffDays = Math.round((new Date(today + "T00:00:00") - new Date(dateStr + "T00:00:00")) / 86400000);
+      const indicator = diffDays === 0 ? "Today" : diffDays === 1 ? "Yesterday" : `${diffDays} days ago`;
+      dateLabel.textContent = `${d} ${months[m - 1]} ${y} · ${indicator}`;
+    }
+
+    updateDateLabel(today);
+    dateInput.addEventListener("change", () => updateDateLabel(dateInput.value));
+    setTimeout(() => dateInput.focus(), 50);
 
     const doStart = () => {
-      const d = $("session-picker-list").querySelector(".session-date-pick")?.value || today;
+      const d = dateInput.value || today;
       closeSessionPicker();
       openSession(student, null, d);
     };
     $("session-picker-list").querySelector(".btn-date-back").addEventListener("click", () => showStudentChoice(student));
     $("session-picker-list").querySelector(".btn-date-go").addEventListener("click", doStart);
-    $("session-picker-list").querySelector(".session-date-pick").addEventListener("keydown", e => {
-      if (e.key === "Enter") doStart();
-    });
+    dateInput.addEventListener("keydown", e => { if (e.key === "Enter") doStart(); });
   });
   $("session-picker-list").querySelector(".choice-other").addEventListener("click", () => {
     showSessionPicker(student);

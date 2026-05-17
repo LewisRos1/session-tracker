@@ -324,6 +324,12 @@ html, body {
   color: var(--text);
   margin: 0;
 }
+.session-date-label {
+  font-size: .85rem;
+  color: var(--primary);
+  font-weight: 600;
+}
+
 .session-date-pick {
   padding: .55rem .75rem;
   border: 1.5px solid var(--border);
