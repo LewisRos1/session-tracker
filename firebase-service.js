@@ -127,6 +127,40 @@ export async function getOrCreateTodaySession(studentId, targets = []) {
   return ref.id;
 }
 
+/** Like getOrCreateTodaySession but for any date (used when boss chooses session date upfront). */
+export async function getOrCreateSessionForDate(studentId, dateStr, targets = []) {
+  const month = getMonthString(dateStr);
+
+  const existingSnap = await getDocs(
+    query(collection(db, "sessions"),
+      where("studentId", "==", studentId),
+      where("date",      "==", dateStr))
+  );
+  if (!existingSnap.empty) return existingSnap.docs[0].id;
+
+  const monthSnap = await getDocs(
+    query(collection(db, "sessions"),
+      where("studentId", "==", studentId),
+      where("month",     "==", month))
+  );
+  const existingDates = new Set(monthSnap.docs.map(d => d.data().date));
+  existingDates.add(dateStr);
+  const sessionNumber = [...existingDates].sort().indexOf(dateStr) + 1;
+
+  const targetsSnapshot = targets.map(t => ({
+    id: t.id, name: t.name, maxPoints: t.maxPoints,
+    predefinedActivities: t.predefinedActivities || [],
+    notes: t.notes || [], hasComment: t.hasComment || false, fullName: t.fullName || ""
+  }));
+
+  const ref = await addDoc(collection(db, "sessions"), {
+    studentId, date: dateStr, month, sessionNumber,
+    finished: false, activities: {}, remarks: {}, fedcComments: {},
+    targetsSnapshot, createdAt: serverTimestamp()
+  });
+  return ref.id;
+}
+
 /**
  * Real-time listener for a session document.
  * Returns unsubscribe function.

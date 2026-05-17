@@ -312,35 +312,55 @@ html, body {
   opacity: .88;
 }
 
-.session-meta-row {
+.session-date-step {
+  padding: 1.25rem 1rem 1rem;
   display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+.session-date-prompt {
+  font-size: .95rem;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0;
+}
+.session-date-pick {
+  padding: .55rem .75rem;
+  border: 1.5px solid var(--border);
+  border-radius: 8px;
+  font-size: 1rem;
+  font-family: var(--font);
+  color: var(--text);
+  background: var(--white);
+  width: 100%;
+  box-sizing: border-box;
+}
+.session-date-actions {
+  display: flex;
+  justify-content: space-between;
   align-items: center;
-  gap: .4rem;
 }
-
-.btn-edit-session-date {
-  background: rgba(255,255,255,.15);
+.btn-date-back {
+  background: none;
   border: none;
-  color: rgba(255,255,255,.8);
-  font-size: .7rem;
+  color: var(--text-muted);
+  font-size: .9rem;
   cursor: pointer;
-  padding: .1rem .3rem;
-  border-radius: 4px;
-  line-height: 1.4;
-  flex-shrink: 0;
-}
-.btn-edit-session-date:hover { background: rgba(255,255,255,.28); }
-
-.session-date-input {
-  background: rgba(255,255,255,.15);
-  border: 1.5px solid rgba(255,255,255,.5);
-  color: #fff;
+  padding: .35rem .5rem;
   border-radius: 6px;
-  padding: .15rem .4rem;
-  font-size: .78rem;
-  color-scheme: dark;
 }
-.session-date-input.hidden { display: none; }
+.btn-date-back:hover { background: var(--bg); }
+.btn-date-go {
+  background: var(--primary);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: .5rem 1.1rem;
+  font-size: .95rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.btn-date-go:active { opacity: .85; }
 
 .session-date {
   font-size: .85rem;

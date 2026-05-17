@@ -27,11 +27,11 @@ import {
   setTrials,
   sanitizeKey,
   getTodayString,
-  updateSessionDate
+  getOrCreateSessionForDate
 } from "./firebase-service.js";
 import { exportStudentData } from "./export.js";
 
-const APP_VERSION = "v86";
+const APP_VERSION = "v87";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -343,7 +343,7 @@ function showStudentChoice(student) {
       <button class="choice-btn choice-today">
         <span class="choice-icon">▶</span>
         <div class="choice-text">
-          <div class="choice-label">Today's Session</div>
+          <div class="choice-label">Start Session</div>
         </div>
       </button>
       <button class="choice-btn choice-other">
@@ -362,8 +362,28 @@ function showStudentChoice(student) {
   $("session-picker-modal").classList.remove("hidden");
 
   $("session-picker-list").querySelector(".choice-today").addEventListener("click", () => {
-    closeSessionPicker();
-    openSession(student, null);
+    const today = getTodayString();
+    $("session-picker-list").innerHTML = `
+      <div class="session-date-step">
+        <p class="session-date-prompt">What date is this session for?</p>
+        <input type="date" class="session-date-pick" value="${today}" max="${today}" />
+        <div class="session-date-actions">
+          <button class="btn-date-back">← Back</button>
+          <button class="btn-date-go">Start Session</button>
+        </div>
+      </div>`;
+    setTimeout(() => $("session-picker-list").querySelector(".session-date-pick")?.focus(), 50);
+
+    const doStart = () => {
+      const d = $("session-picker-list").querySelector(".session-date-pick")?.value || today;
+      closeSessionPicker();
+      openSession(student, null, d);
+    };
+    $("session-picker-list").querySelector(".btn-date-back").addEventListener("click", () => showStudentChoice(student));
+    $("session-picker-list").querySelector(".btn-date-go").addEventListener("click", doStart);
+    $("session-picker-list").querySelector(".session-date-pick").addEventListener("keydown", e => {
+      if (e.key === "Enter") doStart();
+    });
   });
   $("session-picker-list").querySelector(".choice-other").addEventListener("click", () => {
     showSessionPicker(student);
@@ -480,7 +500,7 @@ function getEffectiveTargets() {
   return state.currentStudent.targets;
 }
 
-async function openSession(student, existingSessionId = null) {
+async function openSession(student, existingSessionId = null, dateStr = null) {
   state.currentStudent     = student;
   state.selectedTargetName = null;
   state.sessionData        = null;
@@ -498,7 +518,7 @@ async function openSession(student, existingSessionId = null) {
   try {
     const sessionId = existingSessionId
       ? existingSessionId
-      : await getOrCreateTodaySession(student.id, student.targets);
+      : await getOrCreateSessionForDate(student.id, dateStr || getTodayString(), student.targets);
     state.currentSessionId = sessionId;
 
     state.fbUnsubscribe = listenToSession(sessionId, data => {
@@ -552,40 +572,6 @@ function updateSessionHeader() {
   }
 }
 
-// ── Change session date ───────────────────────────────────────
-$("btn-edit-session-date").addEventListener("click", () => {
-  const d = state.sessionData;
-  if (!d) return;
-  const input = $("session-date-input");
-  input.value = d.date;
-  input.max   = getTodayString();
-  $("session-meta").classList.add("hidden");
-  $("btn-edit-session-date").classList.add("hidden");
-  input.classList.remove("hidden");
-  input.focus();
-});
-
-$("session-date-input").addEventListener("change", async () => {
-  const input   = $("session-date-input");
-  const newDate = input.value;
-  cancelSessionDateEdit();
-  if (!newDate || newDate === state.sessionData?.date) return;
-  try {
-    await updateSessionDate(state.currentSessionId, newDate, state.currentStudent.id);
-  } catch (err) {
-    alert(err.message || "Could not change date.");
-  }
-});
-
-$("session-date-input").addEventListener("blur", () => {
-  setTimeout(cancelSessionDateEdit, 200);
-});
-
-function cancelSessionDateEdit() {
-  $("session-date-input").classList.add("hidden");
-  $("session-meta").classList.remove("hidden");
-  $("btn-edit-session-date").classList.remove("hidden");
-}
 
 function populateTargetDropdown(targets) {
   const sel = $("target-select");
