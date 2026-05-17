@@ -30,7 +30,7 @@ import {
 } from "./firebase-service.js";
 import { exportStudentData } from "./export.js";
 
-const APP_VERSION = "v70";
+const APP_VERSION = "v71";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -1355,29 +1355,18 @@ function buildTargetViewTable(target, data) {
 
 function viewActivityRows(no, actName, actId, data, target) {
   const remarks = actId ? viewGetRemarks(data, actId) : [];
-  const remarkRows = remarks.length === 0
-    ? `<tr>
-        <td class="vcol-no">${no}</td>
-        <td class="vcol-act">${escHtml(actName)}</td>
-        <td class="vcol-rem" colspan="4" style="color:var(--text-muted);font-size:.82rem">—</td>
-      </tr>`
-    : remarks.map((rem, ri) => viewRemarkRow(
-        ri === 0 ? no : null,
-        ri === 0 ? actName : null,
-        rem, target
-      )).join("");
-
-  const addRemRow = `<tr class="view-add-remark-row">
-    <td></td><td></td>
-    <td colspan="4">
-      <button class="btn-view-add-remark"
-        data-target-name="${escHtml(target.name)}"
-        data-act-name="${escHtml(actName)}"
-        data-act-id="${escHtml(actId || "")}">+ Add Remark</button>
-    </td>
-  </tr>`;
-
-  return remarkRows + addRemRow;
+  if (remarks.length === 0) {
+    return `<tr>
+      <td class="vcol-no">${no}</td>
+      <td class="vcol-act">${escHtml(actName)}</td>
+      <td class="vcol-rem" colspan="4" style="color:var(--text-muted);font-size:.82rem">—</td>
+    </tr>`;
+  }
+  return remarks.map((rem, ri) => viewRemarkRow(
+    ri === 0 ? no : null,
+    ri === 0 ? actName : null,
+    rem, target
+  )).join("");
 }
 
 function viewRemarkRow(no, actName, rem, target) {
@@ -1471,16 +1460,6 @@ function attachViewListeners() {
       const rem = state.viewSessionData?.remarks?.[ta.dataset.remId];
       if (!rem || ta.value === (rem.text || "")) return;
       await updateRemarkText(state.viewSessionId, ta.dataset.remId, ta.value);
-    });
-  });
-
-  body.querySelectorAll(".btn-view-add-remark").forEach(btn => {
-    btn.addEventListener("click", async () => {
-      let actId = btn.dataset.actId;
-      if (!actId) {
-        actId = await addActivity(state.viewSessionId, btn.dataset.targetName, btn.dataset.actName, Date.now(), true);
-      }
-      await addRemark(state.viewSessionId, actId, "", null);
     });
   });
 
