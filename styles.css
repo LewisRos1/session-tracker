@@ -324,23 +324,89 @@ html, body {
   color: var(--text);
   margin: 0;
 }
-.session-date-label {
-  font-size: .85rem;
-  color: var(--primary);
+.session-date-step {
+  padding: 1.1rem 1rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: .75rem;
+}
+.session-date-prompt {
+  font-size: .95rem;
   font-weight: 600;
+  color: var(--text);
+  margin: 0;
+}
+.drum-col-labels {
+  display: flex;
+  font-size: .7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--text-muted);
+}
+.drum-col-labels span { flex: 1; text-align: center; }
+
+/* ── Drum picker ── */
+.drum-picker {
+  display: flex;
+  align-items: stretch;
+  height: 220px;        /* 5 × 44px */
+  position: relative;
+  border: 1.5px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--white);
+}
+.drum-selector {
+  position: absolute;
+  top: 88px;            /* 2 × 44px */
+  left: 0; right: 0;
+  height: 44px;
+  border-top: 2px solid var(--primary);
+  border-bottom: 2px solid var(--primary);
+  pointer-events: none;
+  z-index: 1;
+}
+.drum-fade {
+  position: absolute;
+  left: 0; right: 0;
+  height: 88px;
+  pointer-events: none;
+  z-index: 2;
+}
+.drum-fade-top {
+  top: 0;
+  background: linear-gradient(to bottom, rgba(255,255,255,.95), rgba(255,255,255,0));
+}
+.drum-fade-bot {
+  bottom: 0;
+  background: linear-gradient(to top, rgba(255,255,255,.95), rgba(255,255,255,0));
+}
+.drum-col {
+  flex: 1;
+  overflow-y: scroll;
+  scroll-snap-type: y mandatory;
+  -webkit-overflow-scrolling: touch;
+}
+.drum-col::-webkit-scrollbar { display: none; }
+.drum-pad  { height: 88px; flex-shrink: 0; }
+.drum-item {
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  scroll-snap-align: center;
+  font-size: 1.05rem;
+  color: var(--text);
+  user-select: none;
+}
+.drum-divider {
+  width: 1px;
+  background: var(--border);
+  flex-shrink: 0;
+  align-self: stretch;
 }
 
-.session-date-pick {
-  padding: .55rem .75rem;
-  border: 1.5px solid var(--border);
-  border-radius: 8px;
-  font-size: 1rem;
-  font-family: var(--font);
-  color: var(--text);
-  background: var(--white);
-  width: 100%;
-  box-sizing: border-box;
-}
 .session-date-actions {
   display: flex;
   justify-content: space-between;

@@ -31,7 +31,7 @@ import {
 } from "./firebase-service.js";
 import { exportStudentData } from "./export.js";
 
-const APP_VERSION = "v88";
+const APP_VERSION = "v89";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -363,41 +363,73 @@ function showStudentChoice(student) {
 
   $("session-picker-list").querySelector(".choice-today").addEventListener("click", () => {
     const today = getTodayString();
+    const [ty, tm, td] = today.split("-").map(Number);
+    const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    const ITEM_H = 44;
+    const START_YEAR = ty - 4;
+    const years = Array.from({ length: 5 }, (_, i) => START_YEAR + i);
+
     $("session-picker-list").innerHTML = `
       <div class="session-date-step">
         <p class="session-date-prompt">What date is this session for?</p>
-        <input type="date" class="session-date-pick" value="${today}" max="${today}" />
-        <span class="session-date-label"></span>
+        <div class="drum-col-labels">
+          <span>Day</span><span>Month</span><span>Year</span>
+        </div>
+        <div class="drum-picker">
+          <div class="drum-selector"></div>
+          <div class="drum-fade drum-fade-top"></div>
+          <div class="drum-fade drum-fade-bot"></div>
+          <div class="drum-col drum-day">
+            <div class="drum-pad"></div>
+            ${Array.from({length:31},(_,i)=>`<div class="drum-item">${i+1}</div>`).join("")}
+            <div class="drum-pad"></div>
+          </div>
+          <div class="drum-divider"></div>
+          <div class="drum-col drum-month">
+            <div class="drum-pad"></div>
+            ${MONTHS.map(m=>`<div class="drum-item">${m}</div>`).join("")}
+            <div class="drum-pad"></div>
+          </div>
+          <div class="drum-divider"></div>
+          <div class="drum-col drum-year">
+            <div class="drum-pad"></div>
+            ${years.map(y=>`<div class="drum-item">${y}</div>`).join("")}
+            <div class="drum-pad"></div>
+          </div>
+        </div>
         <div class="session-date-actions">
           <button class="btn-date-back">← Back</button>
           <button class="btn-date-go">Start Session</button>
         </div>
       </div>`;
 
-    const dateInput = $("session-picker-list").querySelector(".session-date-pick");
-    const dateLabel = $("session-picker-list").querySelector(".session-date-label");
+    const dayCol   = $("session-picker-list").querySelector(".drum-day");
+    const monthCol = $("session-picker-list").querySelector(".drum-month");
+    const yearCol  = $("session-picker-list").querySelector(".drum-year");
 
-    function updateDateLabel(dateStr) {
-      if (!dateStr) { dateLabel.textContent = ""; return; }
-      const [y, m, d] = dateStr.split("-").map(Number);
-      const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-      const diffDays = Math.round((new Date(today + "T00:00:00") - new Date(dateStr + "T00:00:00")) / 86400000);
-      const indicator = diffDays === 0 ? "Today" : diffDays === 1 ? "Yesterday" : `${diffDays} days ago`;
-      dateLabel.textContent = `${d} ${months[m - 1]} ${y} · ${indicator}`;
+    requestAnimationFrame(() => {
+      dayCol.scrollTop   = (td - 1) * ITEM_H;
+      monthCol.scrollTop = (tm - 1) * ITEM_H;
+      yearCol.scrollTop  = (ty - START_YEAR) * ITEM_H;
+    });
+
+    function getSelectedDate() {
+      const day   = Math.min(Math.max(Math.round(dayCol.scrollTop   / ITEM_H), 0), 30) + 1;
+      const month = Math.min(Math.max(Math.round(monthCol.scrollTop / ITEM_H), 0), 11) + 1;
+      const year  = START_YEAR + Math.min(Math.max(Math.round(yearCol.scrollTop / ITEM_H), 0), years.length - 1);
+      const maxDay = new Date(year, month, 0).getDate();
+      const d = String(Math.min(day, maxDay)).padStart(2, "0");
+      return `${year}-${String(month).padStart(2, "0")}-${d}`;
     }
 
-    updateDateLabel(today);
-    dateInput.addEventListener("change", () => updateDateLabel(dateInput.value));
-    setTimeout(() => dateInput.focus(), 50);
-
     const doStart = () => {
-      const d = dateInput.value || today;
+      const dateStr = getSelectedDate();
+      if (dateStr > today) { alert("Cannot start a session in the future."); return; }
       closeSessionPicker();
-      openSession(student, null, d);
+      openSession(student, null, dateStr);
     };
     $("session-picker-list").querySelector(".btn-date-back").addEventListener("click", () => showStudentChoice(student));
     $("session-picker-list").querySelector(".btn-date-go").addEventListener("click", doStart);
-    dateInput.addEventListener("keydown", e => { if (e.key === "Enter") doStart(); });
   });
   $("session-picker-list").querySelector(".choice-other").addEventListener("click", () => {
     showSessionPicker(student);
