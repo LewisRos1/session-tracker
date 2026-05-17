@@ -30,7 +30,7 @@ import {
 } from "./firebase-service.js";
 import { exportStudentData } from "./export.js";
 
-const APP_VERSION = "v73";
+const APP_VERSION = "v74";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -1286,7 +1286,7 @@ function buildTargetViewTable(target, data) {
       no++;
       const entry = Object.entries(data.activities || {})
         .find(([, a]) => a.targetName === target.name && a.activityName === pa.name);
-      rows += viewActivityRows(no, pa.name, entry?.[0] || null, data, target);
+      rows += viewActivityRows(no, pa.name, entry?.[0] || null, data, target, true);
     }
     // manual (non-predefined) activities added during session
     Object.entries(data.activities || {})
@@ -1294,7 +1294,7 @@ function buildTargetViewTable(target, data) {
       .sort(([, a], [, b]) => (a.order || 0) - (b.order || 0))
       .forEach(([actId, act]) => {
         no++;
-        rows += viewActivityRows(no, act.activityName, actId, data, target);
+        rows += viewActivityRows(no, act.activityName, actId, data, target, false);
       });
   } else {
     let no = 0;
@@ -1303,7 +1303,7 @@ function buildTargetViewTable(target, data) {
       .sort(([, a], [, b]) => (a.order || 0) - (b.order || 0))
       .forEach(([actId, act]) => {
         no++;
-        rows += viewActivityRows(no, act.activityName, actId, data, target);
+        rows += viewActivityRows(no, act.activityName, actId, data, target, false);
       });
   }
 
@@ -1354,12 +1354,22 @@ function buildTargetViewTable(target, data) {
   </div>`;
 }
 
-function viewActivityRows(no, actName, actId, data, target) {
+function viewActivityRows(no, actName, actId, data, target, isPredefined = true) {
   const remarks = actId ? viewGetRemarks(data, actId) : [];
+
+  const actCell = isPredefined
+    ? escHtml(actName)
+    : `<div style="display:flex;align-items:center;gap:.3rem">
+        <input class="view-act-edit" type="text" value="${escHtml(actName)}"
+          data-act-id="${escHtml(actId || "")}" data-original="${escHtml(actName)}" />
+        <button class="view-act-del" data-act-id="${escHtml(actId || "")}"
+          data-target-name="${escHtml(target.name)}" title="Delete activity">×</button>
+       </div>`;
+
   if (remarks.length === 0) {
     return `<tr>
       <td class="vcol-no">${no}</td>
-      <td class="vcol-act">${escHtml(actName)}</td>
+      <td class="vcol-act">${actCell}</td>
       <td class="vcol-rem">
         <textarea class="view-remark-edit view-remark-new"
           data-act-id="${escHtml(actId || "")}"
@@ -1381,7 +1391,7 @@ function viewActivityRows(no, actName, actId, data, target) {
   }
   return remarks.map((rem, ri) => viewRemarkRow(
     ri === 0 ? no : null,
-    ri === 0 ? actName : null,
+    ri === 0 ? actCell : null,
     rem, target
   )).join("");
 }
@@ -1407,7 +1417,7 @@ function viewRemarkRow(no, actName, rem, target) {
 
   return `<tr>
     <td class="vcol-no">${no !== null ? no : ""}</td>
-    <td class="vcol-act">${actName !== null ? escHtml(actName) : ""}</td>
+    <td class="vcol-act">${actName !== null ? actName : ""}</td>
     <td class="vcol-rem">
       <textarea class="view-remark-edit" data-rem-id="${escHtml(rem.id)}"
         rows="2">${escHtml(rem.text || "")}</textarea>
@@ -1541,6 +1551,29 @@ function attachViewListeners() {
       if (!actId) actId = await addActivity(state.viewSessionId, btn.dataset.targetName, btn.dataset.actName, Date.now(), true);
       const remId = await addRemark(state.viewSessionId, actId, "", null);
       await setTrials(state.viewSessionId, remId, [-1]);
+    });
+  });
+
+  body.querySelectorAll(".view-act-edit").forEach(input => {
+    input.addEventListener("blur", async () => {
+      const newName = input.value.trim();
+      if (!newName || newName === input.dataset.original) return;
+      if (!input.dataset.actId) return;
+      input.dataset.original = newName;
+      await updateActivityName(state.viewSessionId, input.dataset.actId, newName);
+    });
+    input.addEventListener("keydown", e => {
+      if (e.key === "Enter") { e.preventDefault(); input.blur(); }
+    });
+  });
+
+  body.querySelectorAll(".view-act-del").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      if (!confirm("Delete this activity and all its remarks?")) return;
+      const actId = btn.dataset.actId;
+      if (!actId) return;
+      const remIds = viewGetRemarks(state.viewSessionData, actId).map(r => r.id);
+      await deleteActivity(state.viewSessionId, actId, remIds);
     });
   });
 

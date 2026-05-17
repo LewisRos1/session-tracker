@@ -1639,6 +1639,29 @@ textarea.admin-input { resize: vertical; min-height: 60px; line-height: 1.45; }
 .btn-view-add-activity:hover,
 .btn-view-add-remark:hover { text-decoration: underline; }
 
+.view-act-edit {
+  flex: 1;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  font-size: .85rem;
+  font-family: var(--font);
+  padding: .2rem .3rem;
+  background: transparent;
+  color: var(--text);
+  min-width: 0;
+}
+.view-act-edit:focus { border-color: var(--border); outline: none; background: #fff; }
+.view-act-del {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: .85rem;
+  padding: 0;
+  flex-shrink: 0;
+}
+.view-act-del:hover { color: var(--danger); }
+
 .view-rem-del {
   background: none;
   border: none;
