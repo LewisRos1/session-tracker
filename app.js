@@ -30,7 +30,7 @@ import {
 } from "./firebase-service.js";
 import { exportStudentData } from "./export.js";
 
-const APP_VERSION = "v71";
+const APP_VERSION = "v72";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -1310,6 +1310,7 @@ function buildTargetViewTable(target, data) {
   rows += `<tr class="view-add-activity-row">
     <td colspan="6">
       <button class="btn-view-add-activity" data-target-name="${escHtml(target.name)}">+ Add Activity</button>
+      <button class="btn-view-add-remark" data-target-name="${escHtml(target.name)}">+ Add Remark</button>
     </td>
   </tr>`;
 
@@ -1359,7 +1360,23 @@ function viewActivityRows(no, actName, actId, data, target) {
     return `<tr>
       <td class="vcol-no">${no}</td>
       <td class="vcol-act">${escHtml(actName)}</td>
-      <td class="vcol-rem" colspan="4" style="color:var(--text-muted);font-size:.82rem">—</td>
+      <td class="vcol-rem">
+        <textarea class="view-remark-edit view-remark-new"
+          data-act-id="${escHtml(actId || "")}"
+          data-act-name="${escHtml(actName)}"
+          data-target-name="${escHtml(target.name)}"
+          rows="2"></textarea>
+      </td>
+      <td class="vcol-trials">
+        <div class="trial-cells">
+          <button class="view-add-trial view-add-trial-new"
+            data-act-id="${escHtml(actId || "")}"
+            data-act-name="${escHtml(actName)}"
+            data-target-name="${escHtml(target.name)}">+</button>
+        </div>
+      </td>
+      <td class="vcol-total"></td>
+      <td class="vcol-score"></td>
     </tr>`;
   }
   return remarks.map((rem, ri) => viewRemarkRow(
@@ -1374,7 +1391,7 @@ function viewRemarkRow(no, actName, rem, target) {
   const maxPts  = target.maxPoints || 3;
   const total   = trials.reduce((a, b) => a + b, 0);
   const scorePct = trials.length > 0
-    ? Math.round(total / (trials.length * maxPts) * 100) + "%" : "—";
+    ? Math.round(total / (trials.length * maxPts) * 100) + "%" : "";
 
   const trialCells = trials.map((t, ti) => `
     <span class="trial-cell">
@@ -1394,7 +1411,7 @@ function viewRemarkRow(no, actName, rem, target) {
         rows="2">${escHtml(rem.text || "")}</textarea>
     </td>
     <td class="vcol-trials"><div class="trial-cells">${trialCells}</div></td>
-    <td class="vcol-total">${trials.length > 0 ? total : "—"}</td>
+    <td class="vcol-total">${trials.length > 0 ? total : ""}</td>
     <td class="vcol-score">${scorePct}</td>
   </tr>`;
 }
@@ -1468,6 +1485,55 @@ function attachViewListeners() {
       const name = prompt("Activity name:");
       if (!name?.trim()) return;
       await addActivity(state.viewSessionId, btn.dataset.targetName, name.trim(), Date.now(), false);
+    });
+  });
+
+  body.querySelectorAll(".btn-view-add-remark").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const targetName = btn.dataset.targetName;
+      const target = getViewEffectiveTargets().find(t => t.name === targetName);
+      const data = state.viewSessionData;
+      const actList = [];
+      if (target?.predefinedActivities?.length > 0) {
+        target.predefinedActivities.filter(pa => !pa.isHeading).forEach(pa => {
+          const entry = Object.entries(data.activities || {}).find(([, a]) => a.targetName === targetName && a.activityName === pa.name);
+          actList.push({ name: pa.name, actId: entry?.[0] || null, isPredefined: true });
+        });
+      }
+      Object.entries(data.activities || {})
+        .filter(([, a]) => a.targetName === targetName && !a.isPredefined)
+        .forEach(([actId, act]) => actList.push({ name: act.activityName, actId, isPredefined: false }));
+      if (actList.length === 0) { alert("Add an activity first."); return; }
+      const listStr = actList.map((a, i) => `${i + 1}. ${a.name}`).join("\n");
+      const input = prompt(`Add remark to which activity?\n\n${listStr}\n\nEnter number:`);
+      if (!input) return;
+      const idx = parseInt(input) - 1;
+      if (isNaN(idx) || idx < 0 || idx >= actList.length) return;
+      const chosen = actList[idx];
+      let actId = chosen.actId;
+      if (!actId) actId = await addActivity(state.viewSessionId, targetName, chosen.name, Date.now(), chosen.isPredefined);
+      await addRemark(state.viewSessionId, actId, "", null);
+    });
+  });
+
+  body.querySelectorAll(".view-remark-new").forEach(ta => {
+    ta.addEventListener("blur", async () => {
+      const text = ta.value.trim();
+      if (!text) return;
+      let actId = ta.dataset.actId;
+      if (!actId) actId = await addActivity(state.viewSessionId, ta.dataset.targetName, ta.dataset.actName, Date.now(), true);
+      await addRemark(state.viewSessionId, actId, text, null);
+    });
+  });
+
+  body.querySelectorAll(".view-add-trial-new").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const target = getViewEffectiveTargets().find(t => t.name === btn.dataset.targetName);
+      const maxPts = target?.maxPoints || 3;
+      let actId = btn.dataset.actId;
+      if (!actId) actId = await addActivity(state.viewSessionId, btn.dataset.targetName, btn.dataset.actName, Date.now(), true);
+      const remId = await addRemark(state.viewSessionId, actId, "", null);
+      await setTrials(state.viewSessionId, remId, [maxPts]);
     });
   });
 
