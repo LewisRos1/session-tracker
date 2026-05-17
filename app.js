@@ -33,7 +33,7 @@ import {
 } from "./firebase-service.js";
 import { exportStudentData } from "./export.js";
 
-const APP_VERSION = "v107";
+const APP_VERSION = "v108";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -350,15 +350,21 @@ function showStudentChoice(student) {
     const today = getTodayString();
     const yesterday = (() => {
       const d = new Date(today + "T00:00:00"); d.setDate(d.getDate() - 1);
-      return d.toISOString().slice(0, 10);
+      const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, "0"), day = String(d.getDate()).padStart(2, "0");
+      return `${y}-${m}-${day}`;
     })();
+    const fmtShort = dateStr => {
+      const [, m, d] = dateStr.split("-").map(Number);
+      const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+      return `${d} ${months[m - 1]}`;
+    };
 
     $("session-picker-list").innerHTML = `
       <div class="session-date-step">
         <p class="session-date-prompt">What date is this session for?</p>
         <div class="date-quick-btns">
-          <button class="btn-date-quick" data-date="${yesterday}">Yesterday (${formatDate(yesterday)})</button>
-          <button class="btn-date-quick" data-date="${today}">Today (${formatDate(today)})</button>
+          <button class="btn-date-quick" data-date="${yesterday}">Yesterday (${fmtShort(yesterday)})</button>
+          <button class="btn-date-quick" data-date="${today}">Today (${fmtShort(today)})</button>
           <button class="btn-date-other">Pick a date…</button>
         </div>
       </div>`;
