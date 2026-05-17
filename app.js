@@ -33,7 +33,7 @@ import {
 } from "./firebase-service.js";
 import { exportStudentData } from "./export.js";
 
-const APP_VERSION = "v104";
+const APP_VERSION = "v105";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -348,18 +348,40 @@ function showStudentChoice(student) {
 
   $("session-picker-list").querySelector(".choice-today").addEventListener("click", () => {
     const today = getTodayString();
+    let selectedDate = today;
+
     $("session-picker-list").innerHTML = `
       <div class="session-date-step">
         <p class="session-date-prompt">Pick a date for this session</p>
-        <input type="date" class="date-start-input" value="${today}" max="${today}" />
-        <button class="btn-date-go">Start Session</button>
+        <div class="date-display-box">
+          <span class="date-display-text" id="sds-text">${formatDate(today)}</span>
+          <button class="btn-change-date" id="sds-change">📅 Change</button>
+        </div>
+        <button class="btn-date-go" id="sds-start">Start Session</button>
       </div>`;
 
-    $("session-picker-list").querySelector(".btn-date-go").addEventListener("click", () => {
-      const d = $("session-picker-list").querySelector(".date-start-input").value;
-      if (!d || d > today) { alert("Please pick a valid date."); return; }
+    document.getElementById("sds-change").addEventListener("click", () => {
+      const input = document.createElement("input");
+      input.type = "date";
+      input.value = selectedDate;
+      input.max = today;
+      input.style.cssText = "position:fixed;opacity:0;top:0;left:0;width:1px;height:1px;";
+      document.body.appendChild(input);
+      const cleanup = () => { if (document.body.contains(input)) document.body.removeChild(input); };
+      input.addEventListener("change", () => {
+        if (input.value && input.value <= today) {
+          selectedDate = input.value;
+          document.getElementById("sds-text").textContent = formatDate(selectedDate);
+        }
+        cleanup();
+      });
+      input.addEventListener("blur", () => setTimeout(cleanup, 500));
+      try { input.showPicker(); } catch (_) { input.click(); }
+    });
+
+    document.getElementById("sds-start").addEventListener("click", () => {
       closeSessionPicker();
-      openSession(student, null, d);
+      openSession(student, null, selectedDate);
     });
   });
   $("session-picker-list").querySelector(".choice-other").addEventListener("click", () => {

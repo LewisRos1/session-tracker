@@ -325,21 +325,31 @@ html, body {
   color: var(--text);
   margin: 0;
 }
-.date-start-input {
-  padding: .55rem .75rem;
+.date-display-box {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   border: 1.5px solid var(--border);
-  border-radius: 8px;
-  font-size: 1rem;
-  font-family: var(--font);
-  color: var(--text);
+  border-radius: 10px;
+  padding: .7rem 1rem;
   background: var(--white);
-  width: 100%;
-  box-sizing: border-box;
 }
-.date-start-input:focus {
-  outline: none;
-  border-color: var(--primary);
+.date-display-text {
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: var(--text);
 }
+.btn-change-date {
+  background: var(--primary-light);
+  color: var(--primary);
+  border: none;
+  border-radius: 7px;
+  padding: .35rem .65rem;
+  font-size: .88rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.btn-change-date:active { opacity: .8; }
 .session-date-actions {
   display: flex;
   justify-content: space-between;
