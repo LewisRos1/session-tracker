@@ -325,31 +325,37 @@ html, body {
   color: var(--text);
   margin: 0;
 }
-.date-display-box {
+.date-quick-btns {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  border: 1.5px solid var(--border);
-  border-radius: 10px;
-  padding: .7rem 1rem;
-  background: var(--white);
+  gap: .5rem;
+  flex-wrap: wrap;
 }
-.date-display-text {
-  font-size: 1.15rem;
-  font-weight: 600;
-  color: var(--text);
-}
-.btn-change-date {
-  background: var(--primary-light);
-  color: var(--primary);
+.btn-date-quick {
+  flex: 1;
+  min-width: 80px;
+  padding: .55rem .75rem;
+  background: var(--primary);
+  color: #fff;
   border: none;
-  border-radius: 7px;
-  padding: .35rem .65rem;
-  font-size: .88rem;
+  border-radius: 8px;
+  font-size: .95rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.btn-date-quick:active { opacity: .85; }
+.btn-date-other {
+  flex: 1;
+  min-width: 100px;
+  padding: .55rem .75rem;
+  background: var(--white);
+  color: var(--primary);
+  border: 1.5px solid var(--primary);
+  border-radius: 8px;
+  font-size: .95rem;
   font-weight: 600;
   cursor: pointer;
 }
-.btn-change-date:active { opacity: .8; }
+.btn-date-other:active { background: var(--bg); }
 .session-date-actions {
   display: flex;
   justify-content: space-between;

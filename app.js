@@ -33,7 +33,7 @@ import {
 } from "./firebase-service.js";
 import { exportStudentData } from "./export.js";
 
-const APP_VERSION = "v105";
+const APP_VERSION = "v106";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -348,40 +348,44 @@ function showStudentChoice(student) {
 
   $("session-picker-list").querySelector(".choice-today").addEventListener("click", () => {
     const today = getTodayString();
-    let selectedDate = today;
+    const yesterday = (() => {
+      const d = new Date(today + "T00:00:00"); d.setDate(d.getDate() - 1);
+      return d.toISOString().slice(0, 10);
+    })();
 
     $("session-picker-list").innerHTML = `
       <div class="session-date-step">
-        <p class="session-date-prompt">Pick a date for this session</p>
-        <div class="date-display-box">
-          <span class="date-display-text" id="sds-text">${formatDate(today)}</span>
-          <button class="btn-change-date" id="sds-change">📅 Change</button>
+        <p class="session-date-prompt">What date is this session for?</p>
+        <div class="date-quick-btns">
+          <button class="btn-date-quick" data-date="${yesterday}">Yesterday</button>
+          <button class="btn-date-quick" data-date="${today}">Today</button>
+          <button class="btn-date-other">Pick a date…</button>
         </div>
-        <button class="btn-date-go" id="sds-start">Start Session</button>
       </div>`;
 
-    document.getElementById("sds-change").addEventListener("click", () => {
+    $("session-picker-list").querySelectorAll(".btn-date-quick").forEach(btn => {
+      btn.addEventListener("click", () => {
+        closeSessionPicker();
+        openSession(student, null, btn.dataset.date);
+      });
+    });
+
+    $("session-picker-list").querySelector(".btn-date-other").addEventListener("click", () => {
       const input = document.createElement("input");
       input.type = "date";
-      input.value = selectedDate;
       input.max = today;
       input.style.cssText = "position:fixed;opacity:0;top:0;left:0;width:1px;height:1px;";
       document.body.appendChild(input);
       const cleanup = () => { if (document.body.contains(input)) document.body.removeChild(input); };
       input.addEventListener("change", () => {
-        if (input.value && input.value <= today) {
-          selectedDate = input.value;
-          document.getElementById("sds-text").textContent = formatDate(selectedDate);
-        }
+        const d = input.value;
         cleanup();
+        if (!d || d > today) return;
+        closeSessionPicker();
+        openSession(student, null, d);
       });
       input.addEventListener("blur", () => setTimeout(cleanup, 500));
       try { input.showPicker(); } catch (_) { input.click(); }
-    });
-
-    document.getElementById("sds-start").addEventListener("click", () => {
-      closeSessionPicker();
-      openSession(student, null, selectedDate);
     });
   });
   $("session-picker-list").querySelector(".choice-other").addEventListener("click", () => {
