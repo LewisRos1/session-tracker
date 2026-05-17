@@ -33,7 +33,7 @@ import {
 } from "./firebase-service.js";
 import { exportStudentData } from "./export.js";
 
-const APP_VERSION = "v103";
+const APP_VERSION = "v104";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -348,44 +348,18 @@ function showStudentChoice(student) {
 
   $("session-picker-list").querySelector(".choice-today").addEventListener("click", () => {
     const today = getTodayString();
-    const yesterday = (() => {
-      const d = new Date(today + "T00:00:00"); d.setDate(d.getDate() - 1);
-      return d.toISOString().slice(0, 10);
-    })();
-
     $("session-picker-list").innerHTML = `
       <div class="session-date-step">
-        <p class="session-date-prompt">What date is this session for?</p>
-        <div class="date-quick-btns">
-          <button class="btn-date-quick" data-date="${yesterday}">Yesterday</button>
-          <button class="btn-date-quick" data-date="${today}">Today</button>
-          <button class="btn-date-other">Pick a date…</button>
-        </div>
+        <p class="session-date-prompt">Pick a date for this session</p>
+        <input type="date" class="date-start-input" value="${today}" max="${today}" />
+        <button class="btn-date-go">Start Session</button>
       </div>`;
 
-    $("session-picker-list").querySelectorAll(".btn-date-quick").forEach(btn => {
-      btn.addEventListener("click", () => {
-        closeSessionPicker();
-        openSession(student, null, btn.dataset.date);
-      });
-    });
-
-    $("session-picker-list").querySelector(".btn-date-other").addEventListener("click", () => {
-      const input = document.createElement("input");
-      input.type = "date";
-      input.max = today;
-      input.style.cssText = "position:fixed;opacity:0;top:0;left:0;width:1px;height:1px;";
-      document.body.appendChild(input);
-      const cleanup = () => { if (document.body.contains(input)) document.body.removeChild(input); };
-      input.addEventListener("change", () => {
-        const d = input.value;
-        cleanup();
-        if (!d || d > today) return;
-        closeSessionPicker();
-        openSession(student, null, d);
-      });
-      input.addEventListener("blur", () => setTimeout(cleanup, 500));
-      try { input.showPicker(); } catch (_) { input.click(); }
+    $("session-picker-list").querySelector(".btn-date-go").addEventListener("click", () => {
+      const d = $("session-picker-list").querySelector(".date-start-input").value;
+      if (!d || d > today) { alert("Please pick a valid date."); return; }
+      closeSessionPicker();
+      openSession(student, null, d);
     });
   });
   $("session-picker-list").querySelector(".choice-other").addEventListener("click", () => {
@@ -1317,28 +1291,25 @@ function renderSessionView() {
 
   $("view-session-meta").querySelector(".btn-edit-session-date").addEventListener("click", () => {
     const today = getTodayString();
-    $("view-session-meta").innerHTML =
-      `<input type="date" class="view-date-input" value="${data.date}" max="${today}" />`
-      + `<button class="btn-view-date-save">✓</button>`
-      + `<button class="btn-view-date-cancel">✕</button>`;
-
-    const input  = $("view-session-meta").querySelector(".view-date-input");
-    const saveBtn = $("view-session-meta").querySelector(".btn-view-date-save");
-    const cancelBtn = $("view-session-meta").querySelector(".btn-view-date-cancel");
-    input.focus();
-
-    saveBtn.addEventListener("click", async () => {
+    const input = document.createElement("input");
+    input.type = "date";
+    input.value = data.date;
+    input.max = today;
+    input.style.cssText = "position:fixed;opacity:0;top:0;left:0;width:1px;height:1px;";
+    document.body.appendChild(input);
+    const cleanup = () => { if (document.body.contains(input)) document.body.removeChild(input); };
+    input.addEventListener("change", async () => {
       const newDate = input.value;
-      if (!newDate) return;
-      saveBtn.disabled = true;
+      cleanup();
+      if (!newDate || newDate === data.date) return;
       try {
         await updateSessionDate(state.viewSessionId, newDate, state.viewStudent.id);
       } catch (err) {
         alert(err.message);
-        saveBtn.disabled = false;
       }
     });
-    cancelBtn.addEventListener("click", () => renderSessionView());
+    input.addEventListener("blur", () => setTimeout(cleanup, 500));
+    try { input.showPicker(); } catch (_) { input.click(); }
   });
 
   const targets = getViewEffectiveTargets();

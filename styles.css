@@ -301,37 +301,17 @@ html, body {
   flex-wrap: wrap;
 }
 .btn-edit-session-date {
-  background: none;
-  border: none;
-  padding: 0 .15rem;
-  cursor: pointer;
-  font-size: .75rem;
-  opacity: .7;
-  line-height: 1;
-}
-.btn-edit-session-date:hover { opacity: 1; }
-.view-date-input {
-  font-size: .78rem;
-  padding: .15rem .35rem;
-  border: 1.5px solid rgba(255,255,255,.6);
-  border-radius: 5px;
   background: rgba(255,255,255,.15);
-  color: var(--white);
-  font-family: var(--font);
-  color-scheme: dark;
-}
-.btn-view-date-save,
-.btn-view-date-cancel {
-  background: rgba(255,255,255,.2);
-  border: 1px solid rgba(255,255,255,.4);
-  color: var(--white);
+  border: 1px solid rgba(255,255,255,.35);
   border-radius: 5px;
-  padding: .1rem .4rem;
+  padding: .2rem .45rem;
   cursor: pointer;
-  font-size: .8rem;
+  font-size: 1rem;
+  opacity: .85;
+  line-height: 1;
+  color: var(--white);
 }
-.btn-view-date-save:hover  { background: rgba(255,255,255,.35); }
-.btn-view-date-cancel:hover { background: rgba(255,255,255,.15); }
+.btn-edit-session-date:hover { opacity: 1; background: rgba(255,255,255,.25); }
 
 .session-date-step {
   padding: 1.1rem 1rem 1rem;
@@ -345,53 +325,18 @@ html, body {
   color: var(--text);
   margin: 0;
 }
-.date-quick-btns {
-  display: flex;
-  gap: .5rem;
-  flex-wrap: wrap;
-}
-.btn-date-quick {
-  flex: 1;
-  min-width: 80px;
+.date-start-input {
   padding: .55rem .75rem;
-  background: var(--primary);
-  color: #fff;
-  border: none;
-  border-radius: 8px;
-  font-size: .95rem;
-  font-weight: 700;
-  cursor: pointer;
-}
-.btn-date-quick:active { opacity: .85; }
-.btn-date-other {
-  flex: 1;
-  min-width: 100px;
-  padding: .55rem .75rem;
-  background: var(--white);
-  color: var(--primary);
-  border: 1.5px solid var(--primary);
-  border-radius: 8px;
-  font-size: .95rem;
-  font-weight: 600;
-  cursor: pointer;
-}
-.btn-date-other:active { background: var(--bg); }
-.date-other-row {
-  display: flex;
-  gap: .5rem;
-  align-items: center;
-}
-.date-other-input {
-  flex: 1;
-  padding: .4rem .6rem;
   border: 1.5px solid var(--border);
-  border-radius: 7px;
-  font-size: .9rem;
+  border-radius: 8px;
+  font-size: 1rem;
   font-family: var(--font);
   color: var(--text);
   background: var(--white);
+  width: 100%;
+  box-sizing: border-box;
 }
-.date-other-input:focus {
+.date-start-input:focus {
   outline: none;
   border-color: var(--primary);
 }
