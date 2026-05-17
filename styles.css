@@ -1326,6 +1326,7 @@ textarea.admin-input { resize: vertical; min-height: 60px; line-height: 1.45; }
 }
 
 /* ─── Session screen Activities/Notes button ─────────────── */
+.btn-manage-targets.hidden { display: none; }
 .btn-manage-targets {
   background: none;
   border: 1.5px solid var(--border);
