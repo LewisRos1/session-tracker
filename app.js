@@ -31,7 +31,7 @@ import {
 } from "./firebase-service.js";
 import { exportStudentData } from "./export.js";
 
-const APP_VERSION = "v92";
+const APP_VERSION = "v93";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -399,7 +399,7 @@ function showStudentChoice(student) {
         </div>
         <div class="drum-type-row">
           <input class="drum-type-in drum-type-day" type="number" min="1" max="31" value="${td}" />
-          <input class="drum-type-in drum-type-mon" type="number" min="1" max="12" value="${tm}" />
+          <input class="drum-type-in drum-type-mon" type="text" value="${MONTHS[tm-1]}" maxlength="9" />
           <input class="drum-type-in drum-type-yr"  type="number" min="${START_YEAR}" max="${ty}" value="${ty}" />
         </div>
         <div class="drum-indicator"></div>
@@ -446,21 +446,29 @@ function showStudentChoice(student) {
       indicator.className   = "drum-indicator" + (diff < 0 ? " drum-indicator-warn" : "");
       // Sync inputs to match drum (setting .value doesn't fire "input" event — no loop)
       typeDay.value = d;
-      typeMon.value = m;
+      typeMon.value = MONTHS[m - 1];
       typeYr.value  = y;
     }
     [dayCol, monthCol, yearCol].forEach(col => col.addEventListener("scroll", updateIndicator));
 
-    function jumpFromInput(inp, col, min, max, toIdx) {
+    function jumpFromInput(inp, col, toIdx) {
       inp.addEventListener("input", () => {
-        const v = parseInt(inp.value);
-        if (isNaN(v) || v < min || v > max) return;
-        col.scrollTo({ top: toIdx(v) * ITEM_H, behavior: "smooth" });
+        const idx = toIdx(inp.value.trim());
+        if (idx !== null) col.scrollTo({ top: idx * ITEM_H, behavior: "smooth" });
       });
     }
-    jumpFromInput(typeDay, dayCol,   1, 31, v => v - 1);
-    jumpFromInput(typeMon, monthCol, 1, 12, v => v - 1);
-    jumpFromInput(typeYr,  yearCol,  START_YEAR, ty, v => v - START_YEAR);
+    jumpFromInput(typeDay, dayCol, val => {
+      const v = parseInt(val); return (v >= 1 && v <= 31) ? v - 1 : null;
+    });
+    jumpFromInput(typeMon, monthCol, val => {
+      const n = parseInt(val);
+      if (!isNaN(n) && n >= 1 && n <= 12) return n - 1;
+      const idx = MONTHS.findIndex(m => m.toLowerCase() === val.toLowerCase().slice(0, 3));
+      return idx >= 0 ? idx : null;
+    });
+    jumpFromInput(typeYr, yearCol, val => {
+      const v = parseInt(val); return (v >= START_YEAR && v <= ty) ? v - START_YEAR : null;
+    });
 
     // ── Mouse drag-to-scroll + click-to-select ────────────────
     const ac = new AbortController();
