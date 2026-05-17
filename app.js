@@ -31,7 +31,7 @@ import {
 } from "./firebase-service.js";
 import { exportStudentData } from "./export.js";
 
-const APP_VERSION = "v89";
+const APP_VERSION = "v90";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -397,38 +397,84 @@ function showStudentChoice(student) {
             <div class="drum-pad"></div>
           </div>
         </div>
+        <div class="drum-indicator"></div>
         <div class="session-date-actions">
           <button class="btn-date-back">← Back</button>
           <button class="btn-date-go">Start Session</button>
         </div>
       </div>`;
 
-    const dayCol   = $("session-picker-list").querySelector(".drum-day");
-    const monthCol = $("session-picker-list").querySelector(".drum-month");
-    const yearCol  = $("session-picker-list").querySelector(".drum-year");
+    const dayCol      = $("session-picker-list").querySelector(".drum-day");
+    const monthCol    = $("session-picker-list").querySelector(".drum-month");
+    const yearCol     = $("session-picker-list").querySelector(".drum-year");
+    const indicator   = $("session-picker-list").querySelector(".drum-indicator");
 
+    // ── Init scroll positions ─────────────────────────────────
     requestAnimationFrame(() => {
       dayCol.scrollTop   = (td - 1) * ITEM_H;
       monthCol.scrollTop = (tm - 1) * ITEM_H;
       yearCol.scrollTop  = (ty - START_YEAR) * ITEM_H;
+      updateIndicator();
     });
 
+    // ── Read selected date ────────────────────────────────────
     function getSelectedDate() {
       const day   = Math.min(Math.max(Math.round(dayCol.scrollTop   / ITEM_H), 0), 30) + 1;
       const month = Math.min(Math.max(Math.round(monthCol.scrollTop / ITEM_H), 0), 11) + 1;
       const year  = START_YEAR + Math.min(Math.max(Math.round(yearCol.scrollTop / ITEM_H), 0), years.length - 1);
       const maxDay = new Date(year, month, 0).getDate();
-      const d = String(Math.min(day, maxDay)).padStart(2, "0");
-      return `${year}-${String(month).padStart(2, "0")}-${d}`;
+      return `${year}-${String(month).padStart(2,"0")}-${String(Math.min(day,maxDay)).padStart(2,"0")}`;
     }
 
+    // ── Live "Today / Yesterday / N days ago" label ───────────
+    function updateIndicator() {
+      const dateStr = getSelectedDate();
+      const [y, m, d] = dateStr.split("-").map(Number);
+      const diff = Math.round((new Date(today+"T00:00:00") - new Date(dateStr+"T00:00:00")) / 86400000);
+      const tag  = diff === 0 ? "Today" : diff === 1 ? "Yesterday" : diff > 0 ? `${diff} days ago` : "Future date ⚠";
+      indicator.textContent = `${d} ${MONTHS[m-1]} ${y} · ${tag}`;
+      indicator.className   = "drum-indicator" + (diff < 0 ? " drum-indicator-warn" : "");
+    }
+    [dayCol, monthCol, yearCol].forEach(col => col.addEventListener("scroll", updateIndicator));
+
+    // ── Mouse drag-to-scroll + click-to-select ────────────────
+    const ac = new AbortController();
+    const sig = { signal: ac.signal };
+    [dayCol, monthCol, yearCol].forEach(col => {
+      let startY, startTop, moved;
+      col.addEventListener("mousedown", e => {
+        startY = e.clientY; startTop = col.scrollTop; moved = false;
+        col.style.cursor = "grabbing";
+      });
+      document.addEventListener("mousemove", e => {
+        if (startY === undefined) return;
+        const delta = startY - e.clientY;
+        if (Math.abs(delta) > 4) { moved = true; col.scrollTop = startTop + delta; }
+      }, sig);
+      document.addEventListener("mouseup", () => {
+        col.style.cursor = "";
+        startY = undefined;
+      }, sig);
+      // Click an item to snap to it
+      col.addEventListener("click", e => {
+        if (moved) { moved = false; return; }
+        const item = e.target.closest(".drum-item");
+        if (!item) return;
+        const idx = [...col.querySelectorAll(".drum-item")].indexOf(item);
+        if (idx >= 0) col.scrollTo({ top: idx * ITEM_H, behavior: "smooth" });
+      });
+    });
+
+    // ── Confirm / Back ────────────────────────────────────────
+    const cleanup = () => ac.abort();
     const doStart = () => {
       const dateStr = getSelectedDate();
       if (dateStr > today) { alert("Cannot start a session in the future."); return; }
+      cleanup();
       closeSessionPicker();
       openSession(student, null, dateStr);
     };
-    $("session-picker-list").querySelector(".btn-date-back").addEventListener("click", () => showStudentChoice(student));
+    $("session-picker-list").querySelector(".btn-date-back").addEventListener("click", () => { cleanup(); showStudentChoice(student); });
     $("session-picker-list").querySelector(".btn-date-go").addEventListener("click", doStart);
   });
   $("session-picker-list").querySelector(".choice-other").addEventListener("click", () => {
