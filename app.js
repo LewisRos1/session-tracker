@@ -30,7 +30,7 @@ import {
 } from "./firebase-service.js";
 import { exportStudentData } from "./export.js";
 
-const APP_VERSION = "v79";
+const APP_VERSION = "v80";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -159,6 +159,20 @@ async function showHome() {
     renderAssessmentStudentButtons(unfinished);
   } catch (_) {}
 }
+
+// ── Update App ───────────────────────────────────────────────
+$("btn-update-app").addEventListener("click", async () => {
+  const btn = $("btn-update-app");
+  btn.textContent = "Updating…";
+  btn.disabled = true;
+  try {
+    if ("serviceWorker" in navigator) {
+      const reg = await navigator.serviceWorker.getRegistration();
+      if (reg) await reg.update();
+    }
+  } catch (_) {}
+  window.location.reload(true);
+});
 
 // ── Add student / template from home screen ───────────────────
 
