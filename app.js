@@ -30,7 +30,7 @@ import {
 } from "./firebase-service.js";
 import { exportStudentData } from "./export.js";
 
-const APP_VERSION = "v83";
+const APP_VERSION = "v84";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -881,7 +881,7 @@ function renderPendingRemarkFields(pendingKey, actId, paName, paOrder, target) {
     <div class="entry-field">
       <span class="field-label">Remark</span>
       <textarea id="new-remark-textarea" class="field-input"
-        placeholder="Type remark…" rows="2"></textarea>
+        placeholder="Type remark… (Ctrl+Enter to save)" rows="2"></textarea>
     </div>
     <div class="pending-remark-actions">
       <button class="btn-cancel-remark btn-remark-cancel">✕ Cancel</button>
@@ -1036,10 +1036,16 @@ function attachTargetListeners(target) {
     });
   });
 
-  // ── New remark: ✓ Save button saves, Enter = new line ────
+  // ── New remark: ✓ Save button or Ctrl/Cmd+Enter saves ───
   c.querySelectorAll(".btn-save-remark").forEach(btn => {
     btn.addEventListener("click", () => saveNewRemark(target));
   });
+  const newRemTa = $("new-remark-textarea");
+  if (newRemTa) {
+    newRemTa.addEventListener("keydown", e => {
+      if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); saveNewRemark(target); }
+    });
+  }
 
   // ── Cancel new remark ─────────────────────────────────────
   c.querySelectorAll(".btn-cancel-remark").forEach(btn => {
