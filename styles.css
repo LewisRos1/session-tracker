@@ -169,21 +169,6 @@ html, body {
   letter-spacing: .03em;
 }
 
-.btn-update-app {
-  margin-left: auto;
-  padding: .35rem .75rem;
-  font-size: .78rem;
-  font-weight: 600;
-  background: rgba(255,255,255,.18);
-  color: var(--white);
-  border: 1.5px solid rgba(255,255,255,.45);
-  border-radius: 6px;
-  cursor: pointer;
-  white-space: nowrap;
-}
-.btn-update-app:active {
-  background: rgba(255,255,255,.3);
-}
 
 .home-main {
   flex: 1;
@@ -310,7 +295,43 @@ html, body {
 .session-meta {
   font-size: .8rem;
   opacity: .88;
+  display: flex;
+  align-items: center;
+  gap: .3rem;
+  flex-wrap: wrap;
 }
+.btn-edit-session-date {
+  background: none;
+  border: none;
+  padding: 0 .15rem;
+  cursor: pointer;
+  font-size: .75rem;
+  opacity: .7;
+  line-height: 1;
+}
+.btn-edit-session-date:hover { opacity: 1; }
+.view-date-input {
+  font-size: .78rem;
+  padding: .15rem .35rem;
+  border: 1.5px solid rgba(255,255,255,.6);
+  border-radius: 5px;
+  background: rgba(255,255,255,.15);
+  color: var(--white);
+  font-family: var(--font);
+  color-scheme: dark;
+}
+.btn-view-date-save,
+.btn-view-date-cancel {
+  background: rgba(255,255,255,.2);
+  border: 1px solid rgba(255,255,255,.4);
+  color: var(--white);
+  border-radius: 5px;
+  padding: .1rem .4rem;
+  cursor: pointer;
+  font-size: .8rem;
+}
+.btn-view-date-save:hover  { background: rgba(255,255,255,.35); }
+.btn-view-date-cancel:hover { background: rgba(255,255,255,.15); }
 
 .session-date-step {
   padding: 1.1rem 1rem 1rem;

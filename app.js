@@ -28,11 +28,12 @@ import {
   sanitizeKey,
   getTodayString,
   getOrCreateSessionForDate,
-  deleteSession
+  deleteSession,
+  updateSessionDate
 } from "./firebase-service.js";
 import { exportStudentData } from "./export.js";
 
-const APP_VERSION = "v101";
+const APP_VERSION = "v103";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -161,31 +162,6 @@ async function showHome() {
     renderAssessmentStudentButtons(unfinished);
   } catch (_) {}
 }
-
-// ── Update App ───────────────────────────────────────────────
-$("btn-update-app").addEventListener("click", async () => {
-  const btn = $("btn-update-app");
-  btn.textContent = "Updating…";
-  btn.disabled = true;
-  try {
-    // 1. Wipe all SW caches
-    const keys = await caches.keys();
-    await Promise.all(keys.map(k => caches.delete(k)));
-    // 2. Unregister SW
-    if ("serviceWorker" in navigator) {
-      const regs = await navigator.serviceWorker.getRegistrations();
-      await Promise.all(regs.map(r => r.unregister()));
-    }
-    // 3. Force-fetch key files from the actual server, bypassing browser HTTP cache.
-    //    cache:'reload' skips the browser disk cache and refreshes it with the server response.
-    await Promise.all(
-      ["/app.js", "/styles.css", "/firebase-service.js", "/export.js", "/sw.js", "/index.html"].map(
-        f => fetch(f, { cache: "reload" }).catch(() => {})
-      )
-    );
-  } catch (_) {}
-  window.location.reload();
-});
 
 // ── Add student / template from home screen ───────────────────
 
@@ -1335,8 +1311,35 @@ function renderSessionView() {
   const student = state.viewStudent;
   if (!data || !student) return;
 
-  $("view-session-meta").textContent =
-    `Session ${data.sessionNumber} of ${data.month.split(" ")[0]} · ${formatDate(data.date)}`;
+  $("view-session-meta").innerHTML =
+    `Session ${data.sessionNumber} of ${data.month.split(" ")[0]} · ${formatDate(data.date)}`
+    + ` <button class="btn-edit-session-date" title="Change date">✏</button>`;
+
+  $("view-session-meta").querySelector(".btn-edit-session-date").addEventListener("click", () => {
+    const today = getTodayString();
+    $("view-session-meta").innerHTML =
+      `<input type="date" class="view-date-input" value="${data.date}" max="${today}" />`
+      + `<button class="btn-view-date-save">✓</button>`
+      + `<button class="btn-view-date-cancel">✕</button>`;
+
+    const input  = $("view-session-meta").querySelector(".view-date-input");
+    const saveBtn = $("view-session-meta").querySelector(".btn-view-date-save");
+    const cancelBtn = $("view-session-meta").querySelector(".btn-view-date-cancel");
+    input.focus();
+
+    saveBtn.addEventListener("click", async () => {
+      const newDate = input.value;
+      if (!newDate) return;
+      saveBtn.disabled = true;
+      try {
+        await updateSessionDate(state.viewSessionId, newDate, state.viewStudent.id);
+      } catch (err) {
+        alert(err.message);
+        saveBtn.disabled = false;
+      }
+    });
+    cancelBtn.addEventListener("click", () => renderSessionView());
+  });
 
   const targets = getViewEffectiveTargets();
   const sorted  = [...targets].sort((a, b) => a.name.localeCompare(b.name));
