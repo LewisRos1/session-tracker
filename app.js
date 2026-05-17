@@ -27,11 +27,12 @@ import {
   setTrials,
   sanitizeKey,
   getTodayString,
-  getOrCreateSessionForDate
+  getOrCreateSessionForDate,
+  deleteSession
 } from "./firebase-service.js";
 import { exportStudentData } from "./export.js";
 
-const APP_VERSION = "v97";
+const APP_VERSION = "v98";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -372,13 +373,9 @@ function showStudentChoice(student) {
       <div class="session-date-step">
         <p class="session-date-prompt">What date is this session for?</p>
         <div class="date-quick-btns">
-          <button class="btn-date-quick" data-date="${today}">Today</button>
           <button class="btn-date-quick" data-date="${yesterday}">Yesterday</button>
+          <button class="btn-date-quick btn-date-today" data-date="${today}">Today</button>
           <button class="btn-date-other">Pick a date…</button>
-        </div>
-        <div class="date-other-row hidden">
-          <input type="date" class="date-other-input" max="${today}" value="${today}" />
-          <button class="btn-date-go">Start Session</button>
         </div>
         <button class="btn-date-back">← Back</button>
       </div>`;
@@ -391,15 +388,21 @@ function showStudentChoice(student) {
     });
 
     $("session-picker-list").querySelector(".btn-date-other").addEventListener("click", () => {
-      $("session-picker-list").querySelector(".date-other-row").classList.remove("hidden");
-      $("session-picker-list").querySelector(".date-other-input").focus();
-    });
-
-    $("session-picker-list").querySelector(".btn-date-go").addEventListener("click", () => {
-      const d = $("session-picker-list").querySelector(".date-other-input").value;
-      if (!d || d > today) { alert("Please pick a valid past date."); return; }
-      closeSessionPicker();
-      openSession(student, null, d);
+      const input = document.createElement("input");
+      input.type = "date";
+      input.max = today;
+      input.style.cssText = "position:fixed;opacity:0;pointer-events:none;top:0;left:0;width:1px;height:1px;";
+      document.body.appendChild(input);
+      const cleanup = () => { if (document.body.contains(input)) document.body.removeChild(input); };
+      input.addEventListener("change", () => {
+        const d = input.value;
+        cleanup();
+        if (!d || d > today) return;
+        closeSessionPicker();
+        openSession(student, null, d);
+      });
+      input.addEventListener("blur", () => setTimeout(cleanup, 500));
+      input.click();
     });
 
     $("session-picker-list").querySelector(".btn-date-back").addEventListener("click", () => showStudentChoice(student));
@@ -565,12 +568,23 @@ async function openSession(student, existingSessionId = null, dateStr = null) {
 
 function leaveSession() {
   if (state.fbUnsubscribe) { state.fbUnsubscribe(); state.fbUnsubscribe = null; }
+  const sessionId = state.currentSessionId;
+  const data      = state.sessionData;
   state.currentSessionId   = null;
   state.sessionData        = null;
   state.currentStudent     = null;
   state.pendingNewActivity = null;
   state.pendingNewRemark   = null;
   state.renderPending      = false;
+
+  // Auto-delete sessions that were opened but left completely empty
+  if (sessionId && data) {
+    const empty =
+      !Object.keys(data.activities || {}).length &&
+      !Object.keys(data.remarks    || {}).length;
+    if (empty) deleteSession(sessionId).catch(() => {});
+  }
+
   showHome();
 }
 

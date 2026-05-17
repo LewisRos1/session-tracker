@@ -301,6 +301,11 @@ export async function deleteStudentConfig(studentId) {
   await deleteDoc(doc(db, "students", studentId));
 }
 
+/** Delete a session document entirely (e.g. empty sessions on leave). */
+export async function deleteSession(sessionId) {
+  await deleteDoc(doc(db, "sessions", sessionId));
+}
+
 // ─── EXPORT DATA ─────────────────────────────────────────────
 
 /** Fetch recent sessions for a student, newest-first (for session picker). */
