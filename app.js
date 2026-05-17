@@ -30,7 +30,7 @@ import {
 } from "./firebase-service.js";
 import { exportStudentData } from "./export.js";
 
-const APP_VERSION = "v72";
+const APP_VERSION = "v73";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -1387,15 +1387,17 @@ function viewActivityRows(no, actName, actId, data, target) {
 }
 
 function viewRemarkRow(no, actName, rem, target) {
-  const trials  = rem.trials || [];
-  const maxPts  = target.maxPoints || 3;
-  const total   = trials.reduce((a, b) => a + b, 0);
-  const scorePct = trials.length > 0
-    ? Math.round(total / (trials.length * maxPts) * 100) + "%" : "";
+  const allTrials  = rem.trials || [];
+  const maxPts     = target.maxPoints || 3;
+  const validTrials = allTrials.filter(t => t !== -1);
+  const total      = validTrials.reduce((a, b) => a + b, 0);
+  const scorePct   = validTrials.length > 0
+    ? Math.round(total / (validTrials.length * maxPts) * 100) + "%" : "";
 
-  const trialCells = trials.map((t, ti) => `
+  const trialCells = allTrials.map((t, ti) => `
     <span class="trial-cell">
       <select class="view-trial-select" data-rem-id="${escHtml(rem.id)}" data-trial-idx="${ti}">
+        <option value="-1"${t === -1 ? " selected" : ""}>—</option>
         ${Array.from({ length: maxPts + 1 }, (_, i) => maxPts - i)
           .map(v => `<option value="${v}"${v === t ? " selected" : ""}>${v}</option>`).join("")}
       </select>
@@ -1411,8 +1413,13 @@ function viewRemarkRow(no, actName, rem, target) {
         rows="2">${escHtml(rem.text || "")}</textarea>
     </td>
     <td class="vcol-trials"><div class="trial-cells">${trialCells}</div></td>
-    <td class="vcol-total">${trials.length > 0 ? total : ""}</td>
-    <td class="vcol-score">${scorePct}</td>
+    <td class="vcol-total">${validTrials.length > 0 ? total : ""}</td>
+    <td class="vcol-score">
+      <div style="display:flex;align-items:center;gap:.3rem;justify-content:flex-end">
+        <span>${scorePct}</span>
+        <button class="view-rem-del" data-rem-id="${escHtml(rem.id)}" title="Delete remark">×</button>
+      </div>
+    </td>
   </tr>`;
 }
 
@@ -1429,7 +1436,7 @@ function calcViewDayAvg(data, target) {
     .filter(([, a]) => a.targetName === target.name)
     .forEach(([actId]) => {
       viewGetRemarks(data, actId).forEach(rem => {
-        const trials = rem.trials || [];
+        const trials = (rem.trials || []).filter(t => t !== -1);
         if (!trials.length) return;
         avgs.push(trials.reduce((a, b) => a + b, 0) / (trials.length * (target.maxPoints || 3)) * 100);
       });
@@ -1468,7 +1475,7 @@ function attachViewListeners() {
         ? getViewEffectiveTargets().find(t => t.name === act.targetName)
         : null;
       const maxPts = target?.maxPoints || 3;
-      await setTrials(state.viewSessionId, btn.dataset.remId, [...(rem.trials || []), maxPts]);
+      await setTrials(state.viewSessionId, btn.dataset.remId, [...(rem.trials || []), -1]);
     });
   });
 
@@ -1533,7 +1540,14 @@ function attachViewListeners() {
       let actId = btn.dataset.actId;
       if (!actId) actId = await addActivity(state.viewSessionId, btn.dataset.targetName, btn.dataset.actName, Date.now(), true);
       const remId = await addRemark(state.viewSessionId, actId, "", null);
-      await setTrials(state.viewSessionId, remId, [maxPts]);
+      await setTrials(state.viewSessionId, remId, [-1]);
+    });
+  });
+
+  body.querySelectorAll(".view-rem-del").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      if (!confirm("Delete this remark?")) return;
+      await deleteRemark(state.viewSessionId, btn.dataset.remId);
     });
   });
 
