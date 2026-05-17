@@ -1745,10 +1745,10 @@ textarea.admin-input { resize: vertical; min-height: 60px; line-height: 1.45; }
   background: var(--primary-light);
   color: var(--primary-dark);
   font-weight: 700;
-  text-align: left;
+  text-align: center;
   padding: .55rem .7rem;
   border: 1px solid var(--border);
-  border-bottom: 2.5px solid var(--primary);
+  border-bottom: 2px solid var(--primary);
   white-space: nowrap;
 }
 
@@ -1777,9 +1777,9 @@ textarea.admin-input { resize: vertical; min-height: 60px; line-height: 1.45; }
 .view-comment-label { font-weight: 600; color: var(--text-muted); }
 
 .vcol-no     { width: 44px; text-align: center; white-space: nowrap; }
-.vcol-act    { width: 190px; min-width: 150px; }
+.vcol-act    { width: 285px; min-width: 200px; }
 .vcol-rem    { min-width: 220px; }
-.vcol-trials { min-width: 110px; }
+.vcol-trials { min-width: 55px; }
 .vcol-total  { width: 58px; text-align: center; white-space: nowrap; }
 .vcol-score  { width: 72px; text-align: center; font-weight: 600; white-space: nowrap; }
 
