@@ -342,10 +342,6 @@ html, body {
   cursor: pointer;
 }
 .btn-date-quick:active { opacity: .85; }
-.btn-date-today {
-  background: var(--primary-dark, #4f46e5);
-  box-shadow: 0 2px 8px rgba(99,102,241,.35);
-}
 .btn-date-other {
   flex: 1;
   min-width: 100px;

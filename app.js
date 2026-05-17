@@ -32,7 +32,7 @@ import {
 } from "./firebase-service.js";
 import { exportStudentData } from "./export.js";
 
-const APP_VERSION = "v98";
+const APP_VERSION = "v99";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -374,7 +374,7 @@ function showStudentChoice(student) {
         <p class="session-date-prompt">What date is this session for?</p>
         <div class="date-quick-btns">
           <button class="btn-date-quick" data-date="${yesterday}">Yesterday</button>
-          <button class="btn-date-quick btn-date-today" data-date="${today}">Today</button>
+          <button class="btn-date-quick" data-date="${today}">Today</button>
           <button class="btn-date-other">Pick a date…</button>
         </div>
         <button class="btn-date-back">← Back</button>
@@ -391,7 +391,7 @@ function showStudentChoice(student) {
       const input = document.createElement("input");
       input.type = "date";
       input.max = today;
-      input.style.cssText = "position:fixed;opacity:0;pointer-events:none;top:0;left:0;width:1px;height:1px;";
+      input.style.cssText = "position:fixed;opacity:0;top:0;left:0;width:1px;height:1px;";
       document.body.appendChild(input);
       const cleanup = () => { if (document.body.contains(input)) document.body.removeChild(input); };
       input.addEventListener("change", () => {
@@ -402,7 +402,7 @@ function showStudentChoice(student) {
         openSession(student, null, d);
       });
       input.addEventListener("blur", () => setTimeout(cleanup, 500));
-      input.click();
+      try { input.showPicker(); } catch (_) { input.click(); }
     });
 
     $("session-picker-list").querySelector(".btn-date-back").addEventListener("click", () => showStudentChoice(student));
