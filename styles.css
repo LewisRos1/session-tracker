@@ -668,6 +668,36 @@ html, body {
 .btn-icon:hover { background: var(--bg); color: var(--text); }
 .btn-delete-activity:hover, .btn-delete-remark:hover { color: var(--danger); }
 
+.pending-remark-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-left: 57px;
+  padding: .2rem 0 .1rem;
+}
+.btn-remark-cancel {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: .85rem;
+  cursor: pointer;
+  padding: .35rem .5rem;
+  border-radius: 6px;
+}
+.btn-remark-cancel:hover { background: var(--bg); }
+.btn-remark-save {
+  background: var(--primary);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: .4rem 1rem;
+  font-size: .92rem;
+  font-weight: 700;
+  cursor: pointer;
+  min-height: 36px;
+}
+.btn-remark-save:active { opacity: .82; }
+
 /* ============================================================
    SCORE PICKER MODAL
    ============================================================ */

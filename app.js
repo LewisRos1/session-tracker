@@ -30,7 +30,7 @@ import {
 } from "./firebase-service.js";
 import { exportStudentData } from "./export.js";
 
-const APP_VERSION = "v81";
+const APP_VERSION = "v83";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -166,12 +166,16 @@ $("btn-update-app").addEventListener("click", async () => {
   btn.textContent = "Updating…";
   btn.disabled = true;
   try {
+    // Clear all SW caches so the reload fetches fresh files from server
+    const keys = await caches.keys();
+    await Promise.all(keys.map(k => caches.delete(k)));
+    // Unregister SW so reload bypasses it entirely (it re-registers on load)
     if ("serviceWorker" in navigator) {
-      const reg = await navigator.serviceWorker.getRegistration();
-      if (reg) await reg.update();
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map(r => r.unregister()));
     }
   } catch (_) {}
-  window.location.reload(true);
+  window.location.reload();
 });
 
 // ── Add student / template from home screen ───────────────────
@@ -877,8 +881,11 @@ function renderPendingRemarkFields(pendingKey, actId, paName, paOrder, target) {
     <div class="entry-field">
       <span class="field-label">Remark</span>
       <textarea id="new-remark-textarea" class="field-input"
-        placeholder="Type remark… (Enter to save, Shift+Enter for new line)" rows="2"></textarea>
-      <button class="btn-icon btn-cancel-remark" title="Cancel">✕</button>
+        placeholder="Type remark…" rows="2"></textarea>
+    </div>
+    <div class="pending-remark-actions">
+      <button class="btn-cancel-remark btn-remark-cancel">✕ Cancel</button>
+      <button class="btn-save-remark btn-remark-save">✓ Save</button>
     </div>`;
 }
 
@@ -1001,7 +1008,7 @@ function attachTargetListeners(target) {
     });
   });
 
-  // ── Remark text: Enter saves, Shift+Enter = new line, blur saves ──
+  // ── Remark text: Enter = new line, blur auto-saves ──
   c.querySelectorAll(".remark-text-input").forEach(ta => {
     ta.addEventListener("blur", async () => {
       const newText  = ta.value.trim();
@@ -1011,9 +1018,6 @@ function attachTargetListeners(target) {
         flashSaved(ta);
         await updateRemarkText(state.currentSessionId, ta.dataset.remId, newText);
       }
-    });
-    ta.addEventListener("keydown", e => {
-      if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); ta.blur(); }
     });
   });
 
@@ -1032,19 +1036,10 @@ function attachTargetListeners(target) {
     });
   });
 
-  // ── New remark: Enter saves, Shift+Enter = new line, blur also saves ──
-  const newRemTa = $("new-remark-textarea");
-  if (newRemTa) {
-    newRemTa.addEventListener("keydown", e => {
-      if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); saveNewRemark(target); }
-    });
-    newRemTa.addEventListener("blur", () => {
-      setTimeout(() => {
-        if (!state.pendingNewRemark) return; // already saved by Enter
-        saveNewRemark(target);
-      }, 150);
-    });
-  }
+  // ── New remark: ✓ Save button saves, Enter = new line ────
+  c.querySelectorAll(".btn-save-remark").forEach(btn => {
+    btn.addEventListener("click", () => saveNewRemark(target));
+  });
 
   // ── Cancel new remark ─────────────────────────────────────
   c.querySelectorAll(".btn-cancel-remark").forEach(btn => {
