@@ -1624,6 +1624,24 @@ textarea.admin-input { resize: vertical; min-height: 60px; line-height: 1.45; }
 }
 .view-add-trial:hover { background: var(--primary-light); }
 
+.view-add-remark-row td,
+.view-add-activity-row td {
+  padding: .15rem .4rem;
+  border: none;
+}
+.btn-view-add-remark,
+.btn-view-add-activity {
+  background: none;
+  border: none;
+  color: var(--primary);
+  font-size: .8rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: .1rem 0;
+}
+.btn-view-add-remark:hover,
+.btn-view-add-activity:hover { text-decoration: underline; }
+
 .view-remark-edit,
 .view-comment-edit {
   width: 100%;

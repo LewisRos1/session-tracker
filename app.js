@@ -30,7 +30,7 @@ import {
 } from "./firebase-service.js";
 import { exportStudentData } from "./export.js";
 
-const APP_VERSION = "v68";
+const APP_VERSION = "v70";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -1307,6 +1307,12 @@ function buildTargetViewTable(target, data) {
       });
   }
 
+  rows += `<tr class="view-add-activity-row">
+    <td colspan="6">
+      <button class="btn-view-add-activity" data-target-name="${escHtml(target.name)}">+ Add Activity</button>
+    </td>
+  </tr>`;
+
   if (target.hasComment) {
     const key     = sanitizeKey(target.name);
     const comment = (data.fedcComments || {})[key] || "";
@@ -1349,18 +1355,29 @@ function buildTargetViewTable(target, data) {
 
 function viewActivityRows(no, actName, actId, data, target) {
   const remarks = actId ? viewGetRemarks(data, actId) : [];
-  if (remarks.length === 0) {
-    return `<tr>
-      <td class="vcol-no">${no}</td>
-      <td class="vcol-act">${escHtml(actName)}</td>
-      <td class="vcol-rem" colspan="4" style="color:var(--text-muted);font-size:.82rem">—</td>
-    </tr>`;
-  }
-  return remarks.map((rem, ri) => viewRemarkRow(
-    ri === 0 ? no : null,
-    ri === 0 ? actName : null,
-    rem, target
-  )).join("");
+  const remarkRows = remarks.length === 0
+    ? `<tr>
+        <td class="vcol-no">${no}</td>
+        <td class="vcol-act">${escHtml(actName)}</td>
+        <td class="vcol-rem" colspan="4" style="color:var(--text-muted);font-size:.82rem">—</td>
+      </tr>`
+    : remarks.map((rem, ri) => viewRemarkRow(
+        ri === 0 ? no : null,
+        ri === 0 ? actName : null,
+        rem, target
+      )).join("");
+
+  const addRemRow = `<tr class="view-add-remark-row">
+    <td></td><td></td>
+    <td colspan="4">
+      <button class="btn-view-add-remark"
+        data-target-name="${escHtml(target.name)}"
+        data-act-name="${escHtml(actName)}"
+        data-act-id="${escHtml(actId || "")}">+ Add Remark</button>
+    </td>
+  </tr>`;
+
+  return remarkRows + addRemRow;
 }
 
 function viewRemarkRow(no, actName, rem, target) {
@@ -1457,6 +1474,24 @@ function attachViewListeners() {
     });
   });
 
+  body.querySelectorAll(".btn-view-add-remark").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      let actId = btn.dataset.actId;
+      if (!actId) {
+        actId = await addActivity(state.viewSessionId, btn.dataset.targetName, btn.dataset.actName, Date.now(), true);
+      }
+      await addRemark(state.viewSessionId, actId, "", null);
+    });
+  });
+
+  body.querySelectorAll(".btn-view-add-activity").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const name = prompt("Activity name:");
+      if (!name?.trim()) return;
+      await addActivity(state.viewSessionId, btn.dataset.targetName, name.trim(), Date.now(), false);
+    });
+  });
+
   body.querySelectorAll(".view-comment-edit").forEach(ta => {
     ta.addEventListener("blur", async () => {
       const key    = ta.dataset.targetKey;
@@ -1535,7 +1570,7 @@ function showAddTargetPicker(student) {
     </div>`;
 
   if (state.templates.length > 0) {
-    html += `<div class="admin-section-title">Or add from a shared Template</div>
+    html += `<div class="admin-section-title">Or add from a Template</div>
     <div class="admin-list" id="template-picker-list">`;
     const sortedTmpls = [...state.templates].sort((a, b) => a.name.localeCompare(b.name));
     sortedTmpls.forEach(tmpl => {
