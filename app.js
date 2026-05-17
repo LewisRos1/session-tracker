@@ -30,7 +30,7 @@ import {
 } from "./firebase-service.js";
 import { exportStudentData } from "./export.js";
 
-const APP_VERSION = "v63";
+const APP_VERSION = "v64";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -589,7 +589,7 @@ function renderTargetContent() {
   if (!state.selectedTargetName) {
     const mb = $("btn-manage-targets");
     if (mb) mb.classList.add("hidden");
-    $("target-type-row")?.classList.add("hidden");
+    $("target-type-badge")?.classList.add("hidden");
     $("target-content").innerHTML =
       `<p class="empty-hint" style="padding:2rem;text-align:center">
         No targets added yet. Use the dropdown above to add one.
@@ -600,7 +600,7 @@ function renderTargetContent() {
   const manageBtn = $("btn-manage-targets");
   if (!target) {
     if (manageBtn) manageBtn.classList.add("hidden");
-    $("target-type-row")?.classList.add("hidden");
+    $("target-type-badge")?.classList.add("hidden");
     return;
   }
 
@@ -609,24 +609,22 @@ function renderTargetContent() {
   }
 
   // Target type badge
-  const typeRow   = $("target-type-row");
   const typeBadge = $("target-type-badge");
-  if (typeRow && typeBadge) {
+  if (typeBadge) {
     let label, cls;
     if (target.templateId) {
       const tmpl = state.templates.find(t => t.id === target.templateId);
-      label = `From Template: ${tmpl?.name || target.name}`;
+      label = `Template: ${tmpl?.name || target.name}`;
       cls = "badge-template";
     } else if (target.isStructured) {
-      label = "Structured Target";
+      label = "Structured";
       cls = "badge-structured";
     } else {
-      label = "Blank Target";
+      label = "Blank";
       cls = "badge-blank";
     }
     typeBadge.textContent = label;
     typeBadge.className   = `target-type-badge ${cls}`;
-    typeRow.classList.remove("hidden");
   }
 
   const avg = calcDaysAverage(target);
