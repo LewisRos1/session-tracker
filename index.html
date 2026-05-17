@@ -104,10 +104,13 @@
     <div class="session-body">
       <div class="target-selector">
         <label for="target-select" class="target-label">Target</label>
-        <span id="target-type-badge" class="target-type-badge hidden"></span>
         <select id="target-select" class="target-dropdown">
           <option value="">— select —</option>
         </select>
+        <div class="target-type-chip hidden" id="target-type-chip">
+          <span class="target-type-label">Type</span>
+          <span class="target-type-value" id="target-type-badge"></span>
+        </div>
         <div class="days-average-chip">
           <span class="days-average-label">Target's Avg</span>
           <span class="days-average-value" id="days-average-value">—</span>
