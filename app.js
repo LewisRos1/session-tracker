@@ -30,7 +30,7 @@ import {
 } from "./firebase-service.js";
 import { exportStudentData } from "./export.js";
 
-const APP_VERSION = "v54";
+const APP_VERSION = "v55";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -1500,12 +1500,20 @@ function showAddTargetPicker(student) {
   $("manage-modal-title").textContent = "Add Target";
   $("manage-modal").classList.remove("hidden");
 
-  let html = `<div style="margin-bottom:.75rem">
-    <button class="btn-admin-add" id="btn-add-custom-target">+ Custom Student Target</button>
-  </div>`;
+  let html = `
+    <div style="display:flex;flex-direction:column;gap:.6rem;margin-bottom:1.25rem">
+      <button class="btn-target-type" id="btn-add-custom-target">
+        <span class="btn-target-label">+ Blank Target</span>
+        <span class="btn-target-desc">Type everything from scratch each session</span>
+      </button>
+      <button class="btn-target-type" id="btn-add-structured-target">
+        <span class="btn-target-label">+ Structured Target</span>
+        <span class="btn-target-desc">Activities are preset — just fill in remarks</span>
+      </button>
+    </div>`;
 
   if (state.templates.length > 0) {
-    html += `<div class="admin-section-title">From Template</div>
+    html += `<div class="admin-section-title">Or add from a shared Template</div>
     <div class="admin-list" id="template-picker-list">`;
     const sortedTmpls = [...state.templates].sort((a, b) => a.name.localeCompare(b.name));
     sortedTmpls.forEach(tmpl => {
@@ -1520,9 +1528,6 @@ function showAddTargetPicker(student) {
       style="width:100%;margin-top:.5rem;padding:.75rem">
       Add Selected Templates
     </button>`;
-  } else {
-    html += `<p style="color:var(--text-muted);font-size:.88rem;margin-top:.5rem">
-      No templates available. Create templates from the home screen.</p>`;
   }
 
   $("manage-modal-body").innerHTML = html;
@@ -1545,6 +1550,27 @@ function showAddTargetPicker(student) {
     state.selectedTargetName = t.name;
     populateTargetDropdown(student.targets);
     renderTargetContent();
+  });
+
+  $("btn-add-structured-target").addEventListener("click", async () => {
+    $("manage-modal").classList.add("hidden");
+    const name = prompt("Target name:");
+    if (!name?.trim()) return;
+    const t = {
+      id: cfgId("t"), name: name.trim(),
+      maxPoints: 3, hasComment: false, fullName: "",
+      order: student.targets.length,
+      predefinedActivities: [], notes: [],
+      templateId: null
+    };
+    student.targets.push(t);
+    const si = state.students.findIndex(s => s.id === student.id);
+    if (si >= 0) state.students[si] = student;
+    await saveStudent(student);
+    state.selectedTargetName = t.name;
+    populateTargetDropdown(student.targets);
+    renderTargetContent();
+    openManageModal(student, t);
   });
 
   $("btn-add-from-templates")?.addEventListener("click", async () => {

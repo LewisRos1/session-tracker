@@ -1243,6 +1243,32 @@ textarea.admin-input { resize: vertical; min-height: 60px; line-height: 1.45; }
 }
 .btn-admin-add:hover { background: var(--primary-light); }
 
+/* ─── Add target type buttons ───────────────────────────── */
+.btn-target-type {
+  width: 100%;
+  padding: .75rem 1rem;
+  background: var(--white);
+  border: 2px dashed var(--primary);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: .2rem;
+  transition: background .15s;
+}
+.btn-target-type:hover { background: var(--primary-light); }
+.btn-target-label {
+  font-size: .95rem;
+  font-weight: 700;
+  color: var(--primary);
+}
+.btn-target-desc {
+  font-size: .8rem;
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
 /* ─── Admin PIN modal body ───────────────────────────────── */
 .admin-pin-body {
   padding: 1.25rem;
