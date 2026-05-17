@@ -30,7 +30,7 @@ import {
 } from "./firebase-service.js";
 import { exportStudentData } from "./export.js";
 
-const APP_VERSION = "v58";
+const APP_VERSION = "v59";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -600,7 +600,7 @@ function renderTargetContent() {
 
   const manageBtn = $("btn-manage-targets");
   if (manageBtn) {
-    const isStructured = target.predefinedActivities?.length > 0;
+    const isStructured = target.predefinedActivities?.length > 0 && target.templateId === null;
     manageBtn.classList.toggle("hidden", !isStructured);
   }
 
@@ -647,7 +647,7 @@ function renderFedcTarget(target) {
     html += `<div class="entry-block entry-block-predefined">
       <div class="entry-field">
         <span class="field-label">Activity</span>
-        <span class="field-value-fixed" data-pa-idx="${idx}" data-target="${escHtml(target.name)}">${escHtml(pa.name)}</span>
+        <span class="field-value-fixed">${escHtml(pa.name)}</span>
       </div>`;
 
     // Reference notes (a, b, c… sub-items)
@@ -930,44 +930,6 @@ function attachTargetListeners(target) {
     });
     input.addEventListener("keydown", e => {
       if (e.key === "Enter") { e.preventDefault(); input.blur(); }
-    });
-  });
-
-  // ── Predefined activity name: click to inline-edit ──────
-  c.querySelectorAll(".field-value-fixed").forEach(span => {
-    span.addEventListener("click", async () => {
-      const paIdx = Number(span.dataset.paIdx);
-      const targetName = span.dataset.target;
-      const student = state.currentStudent;
-      const tgt = student.targets.find(t => t.name === targetName);
-      if (!tgt || !tgt.predefinedActivities?.[paIdx]) return;
-
-      const original = tgt.predefinedActivities[paIdx].name;
-      const input = document.createElement("input");
-      input.type = "text";
-      input.value = original;
-      input.className = "field-input";
-      input.style.flex = "1";
-      span.replaceWith(input);
-      input.focus();
-      input.select();
-
-      const save = async () => {
-        const newName = input.value.trim();
-        if (!newName || newName === original) {
-          input.replaceWith(span);
-          return;
-        }
-        tgt.predefinedActivities[paIdx].name = newName;
-        await saveStudent(student);
-        renderTargetContent();
-      };
-
-      input.addEventListener("blur", save);
-      input.addEventListener("keydown", e => {
-        if (e.key === "Enter") { e.preventDefault(); input.blur(); }
-        if (e.key === "Escape") { input.value = original; input.blur(); }
-      });
     });
   });
 
