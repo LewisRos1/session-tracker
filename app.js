@@ -30,7 +30,7 @@ import {
 } from "./firebase-service.js";
 import { exportStudentData } from "./export.js";
 
-const APP_VERSION = "v59";
+const APP_VERSION = "v60";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -600,8 +600,7 @@ function renderTargetContent() {
 
   const manageBtn = $("btn-manage-targets");
   if (manageBtn) {
-    const isStructured = target.predefinedActivities?.length > 0 && target.templateId === null;
-    manageBtn.classList.toggle("hidden", !isStructured);
+    manageBtn.classList.toggle("hidden", target.isStructured !== true);
   }
 
   const avg = calcDaysAverage(target);
@@ -1549,7 +1548,7 @@ function showAddTargetPicker(student) {
       maxPoints: 3, hasComment: false, fullName: "",
       order: student.targets.length,
       predefinedActivities: [], notes: [],
-      templateId: null
+      templateId: null, isStructured: false
     };
     student.targets.push(t);
     const si = state.students.findIndex(s => s.id === student.id);
@@ -1569,7 +1568,7 @@ function showAddTargetPicker(student) {
       maxPoints: 3, hasComment: false, fullName: "",
       order: student.targets.length,
       predefinedActivities: [], notes: [],
-      templateId: null
+      templateId: null, isStructured: true
     };
     student.targets.push(t);
     const si = state.students.findIndex(s => s.id === student.id);
