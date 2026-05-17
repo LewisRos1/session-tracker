@@ -32,7 +32,7 @@ import {
 } from "./firebase-service.js";
 import { exportStudentData } from "./export.js";
 
-const APP_VERSION = "v99";
+const APP_VERSION = "v100";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -168,15 +168,23 @@ $("btn-update-app").addEventListener("click", async () => {
   btn.textContent = "Updating…";
   btn.disabled = true;
   try {
+    // 1. Wipe all SW caches
     const keys = await caches.keys();
     await Promise.all(keys.map(k => caches.delete(k)));
+    // 2. Unregister SW
     if ("serviceWorker" in navigator) {
       const regs = await navigator.serviceWorker.getRegistrations();
       await Promise.all(regs.map(r => r.unregister()));
     }
+    // 3. Force-fetch key files from the actual server, bypassing browser HTTP cache.
+    //    cache:'reload' skips the browser disk cache and refreshes it with the server response.
+    await Promise.all(
+      ["/app.js", "/styles.css", "/firebase-service.js", "/export.js", "/sw.js", "/index.html"].map(
+        f => fetch(f, { cache: "reload" }).catch(() => {})
+      )
+    );
   } catch (_) {}
-  // Cache-busting URL forces a fresh server fetch, bypassing HTTP cache
-  window.location.href = location.pathname + "?v=" + Date.now();
+  window.location.reload();
 });
 
 // ── Add student / template from home screen ───────────────────
@@ -377,7 +385,6 @@ function showStudentChoice(student) {
           <button class="btn-date-quick" data-date="${today}">Today</button>
           <button class="btn-date-other">Pick a date…</button>
         </div>
-        <button class="btn-date-back">← Back</button>
       </div>`;
 
     $("session-picker-list").querySelectorAll(".btn-date-quick").forEach(btn => {
@@ -404,8 +411,6 @@ function showStudentChoice(student) {
       input.addEventListener("blur", () => setTimeout(cleanup, 500));
       try { input.showPicker(); } catch (_) { input.click(); }
     });
-
-    $("session-picker-list").querySelector(".btn-date-back").addEventListener("click", () => showStudentChoice(student));
   });
   $("session-picker-list").querySelector(".choice-other").addEventListener("click", () => {
     showSessionPicker(student);
