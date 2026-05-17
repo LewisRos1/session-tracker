@@ -30,7 +30,7 @@ import {
 } from "./firebase-service.js";
 import { exportStudentData } from "./export.js";
 
-const APP_VERSION = "v80";
+const APP_VERSION = "v81";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -1420,21 +1420,8 @@ function viewActivityRows(no, actName, actId, data, target, isPredefined = true)
     return `<tr>
       <td class="vcol-no">${no}</td>
       <td class="vcol-act">${actCell}</td>
-      <td class="vcol-rem">
-        <textarea class="view-remark-edit view-remark-new"
-          data-act-id="${escHtml(actId || "")}"
-          data-act-name="${escHtml(actName)}"
-          data-target-name="${escHtml(target.name)}"
-          rows="2"></textarea>
-      </td>
-      <td class="vcol-trials">
-        <div class="trial-cells">
-          <button class="view-add-trial view-add-trial-new"
-            data-act-id="${escHtml(actId || "")}"
-            data-act-name="${escHtml(actName)}"
-            data-target-name="${escHtml(target.name)}">+</button>
-        </div>
-      </td>
+      <td class="vcol-rem"></td>
+      <td class="vcol-trials"></td>
       <td class="vcol-total"></td>
       <td class="vcol-score"></td>
     </tr>`;
