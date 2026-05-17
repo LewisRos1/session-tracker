@@ -1746,8 +1746,9 @@ textarea.admin-input { resize: vertical; min-height: 60px; line-height: 1.45; }
   color: var(--primary-dark);
   font-weight: 700;
   text-align: left;
-  padding: .5rem .7rem;
+  padding: .55rem .7rem;
   border: 1px solid var(--border);
+  border-bottom: 2.5px solid var(--primary);
   white-space: nowrap;
 }
 
@@ -1762,7 +1763,9 @@ textarea.admin-input { resize: vertical; min-height: 60px; line-height: 1.45; }
   background: var(--primary-light);
   font-weight: 700;
   color: var(--primary-dark);
-  padding: .4rem .75rem;
+  padding: .45rem .75rem;
+  border-top: 2px solid var(--primary) !important;
+  border-bottom: 2px solid var(--primary) !important;
 }
 
 .view-dayavg-row td {
@@ -1774,7 +1777,7 @@ textarea.admin-input { resize: vertical; min-height: 60px; line-height: 1.45; }
 .view-comment-label { font-weight: 600; color: var(--text-muted); }
 
 .vcol-no     { width: 44px; text-align: center; white-space: nowrap; }
-.vcol-act    { width: 110px; min-width: 80px; }
+.vcol-act    { width: 190px; min-width: 150px; }
 .vcol-rem    { min-width: 220px; }
 .vcol-trials { min-width: 110px; }
 .vcol-total  { width: 58px; text-align: center; white-space: nowrap; }
