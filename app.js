@@ -30,7 +30,7 @@ import {
 } from "./firebase-service.js";
 import { exportStudentData } from "./export.js";
 
-const APP_VERSION = "v60";
+const APP_VERSION = "v61";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -596,9 +596,12 @@ function renderTargetContent() {
     return;
   }
   const target = getEffectiveTargets().find(t => t.name === state.selectedTargetName);
-  if (!target) return;
-
   const manageBtn = $("btn-manage-targets");
+  if (!target) {
+    if (manageBtn) manageBtn.classList.add("hidden");
+    return;
+  }
+
   if (manageBtn) {
     manageBtn.classList.toggle("hidden", target.isStructured !== true);
   }
