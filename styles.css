@@ -409,6 +409,27 @@ html, body {
   align-self: stretch;
 }
 
+.drum-type-row {
+  display: flex;
+  gap: .5rem;
+}
+.drum-type-in {
+  flex: 1;
+  padding: .35rem .5rem;
+  border: 1.5px solid var(--border);
+  border-radius: 7px;
+  font-size: .9rem;
+  font-family: var(--font);
+  color: var(--text);
+  background: var(--white);
+  text-align: center;
+  min-width: 0;
+}
+.drum-type-in:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+
 .drum-indicator {
   font-size: .88rem;
   font-weight: 600;

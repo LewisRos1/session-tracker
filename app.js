@@ -31,7 +31,7 @@ import {
 } from "./firebase-service.js";
 import { exportStudentData } from "./export.js";
 
-const APP_VERSION = "v90";
+const APP_VERSION = "v91";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -397,6 +397,11 @@ function showStudentChoice(student) {
             <div class="drum-pad"></div>
           </div>
         </div>
+        <div class="drum-type-row">
+          <input class="drum-type-in drum-type-day" type="number" min="1" max="31" placeholder="Day" />
+          <input class="drum-type-in drum-type-mon" type="number" min="1" max="12" placeholder="Mon 1–12" />
+          <input class="drum-type-in drum-type-yr"  type="number" min="${START_YEAR}" max="${ty}" placeholder="Year" />
+        </div>
         <div class="drum-indicator"></div>
         <div class="session-date-actions">
           <button class="btn-date-back">← Back</button>
@@ -436,6 +441,22 @@ function showStudentChoice(student) {
       indicator.className   = "drum-indicator" + (diff < 0 ? " drum-indicator-warn" : "");
     }
     [dayCol, monthCol, yearCol].forEach(col => col.addEventListener("scroll", updateIndicator));
+
+    // ── Type-to-jump inputs ───────────────────────────────────
+    const typeDay = $("session-picker-list").querySelector(".drum-type-day");
+    const typeMon = $("session-picker-list").querySelector(".drum-type-mon");
+    const typeYr  = $("session-picker-list").querySelector(".drum-type-yr");
+
+    function jumpFromInput(inp, col, min, max, toIdx) {
+      inp.addEventListener("input", () => {
+        const v = parseInt(inp.value);
+        if (isNaN(v) || v < min || v > max) return;
+        col.scrollTo({ top: toIdx(v) * ITEM_H, behavior: "smooth" });
+      });
+    }
+    jumpFromInput(typeDay, dayCol,   1, 31, v => v - 1);
+    jumpFromInput(typeMon, monthCol, 1, 12, v => v - 1);
+    jumpFromInput(typeYr,  yearCol,  START_YEAR, ty, v => v - START_YEAR);
 
     // ── Mouse drag-to-scroll + click-to-select ────────────────
     const ac = new AbortController();
