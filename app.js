@@ -32,7 +32,7 @@ import {
 } from "./firebase-service.js";
 import { exportStudentData } from "./export.js";
 
-const APP_VERSION = "v100";
+const APP_VERSION = "v101";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -940,7 +940,7 @@ function renderPendingRemarkFields(pendingKey, actId, paName, paOrder, target) {
     <div class="entry-field">
       <span class="field-label">Remark</span>
       <textarea id="new-remark-textarea" class="field-input"
-        placeholder="Type remark… (Ctrl+Enter to save)" rows="2"></textarea>
+        placeholder="Type remark… (Enter = new line · Ctrl+Enter to save)" rows="2"></textarea>
     </div>
     <div class="pending-remark-actions">
       <button class="btn-cancel-remark btn-remark-cancel">✕ Cancel</button>
