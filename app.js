@@ -31,7 +31,7 @@ import {
 } from "./firebase-service.js";
 import { exportStudentData } from "./export.js";
 
-const APP_VERSION = "v91";
+const APP_VERSION = "v92";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -398,9 +398,9 @@ function showStudentChoice(student) {
           </div>
         </div>
         <div class="drum-type-row">
-          <input class="drum-type-in drum-type-day" type="number" min="1" max="31" placeholder="Day" />
-          <input class="drum-type-in drum-type-mon" type="number" min="1" max="12" placeholder="Mon 1–12" />
-          <input class="drum-type-in drum-type-yr"  type="number" min="${START_YEAR}" max="${ty}" placeholder="Year" />
+          <input class="drum-type-in drum-type-day" type="number" min="1" max="31" value="${td}" />
+          <input class="drum-type-in drum-type-mon" type="number" min="1" max="12" value="${tm}" />
+          <input class="drum-type-in drum-type-yr"  type="number" min="${START_YEAR}" max="${ty}" value="${ty}" />
         </div>
         <div class="drum-indicator"></div>
         <div class="session-date-actions">
@@ -431,21 +431,25 @@ function showStudentChoice(student) {
       return `${year}-${String(month).padStart(2,"0")}-${String(Math.min(day,maxDay)).padStart(2,"0")}`;
     }
 
+    // ── Type-to-jump inputs ───────────────────────────────────
+    const typeDay = $("session-picker-list").querySelector(".drum-type-day");
+    const typeMon = $("session-picker-list").querySelector(".drum-type-mon");
+    const typeYr  = $("session-picker-list").querySelector(".drum-type-yr");
+
     // ── Live "Today / Yesterday / N days ago" label ───────────
     function updateIndicator() {
       const dateStr = getSelectedDate();
       const [y, m, d] = dateStr.split("-").map(Number);
       const diff = Math.round((new Date(today+"T00:00:00") - new Date(dateStr+"T00:00:00")) / 86400000);
       const tag  = diff === 0 ? "Today" : diff === 1 ? "Yesterday" : diff > 0 ? `${diff} days ago` : "Future date ⚠";
-      indicator.textContent = `${d} ${MONTHS[m-1]} ${y} · ${tag}`;
+      indicator.textContent = tag;
       indicator.className   = "drum-indicator" + (diff < 0 ? " drum-indicator-warn" : "");
+      // Sync inputs to match drum (setting .value doesn't fire "input" event — no loop)
+      typeDay.value = d;
+      typeMon.value = m;
+      typeYr.value  = y;
     }
     [dayCol, monthCol, yearCol].forEach(col => col.addEventListener("scroll", updateIndicator));
-
-    // ── Type-to-jump inputs ───────────────────────────────────
-    const typeDay = $("session-picker-list").querySelector(".drum-type-day");
-    const typeMon = $("session-picker-list").querySelector(".drum-type-mon");
-    const typeYr  = $("session-picker-list").querySelector(".drum-type-yr");
 
     function jumpFromInput(inp, col, min, max, toIdx) {
       inp.addEventListener("input", () => {
