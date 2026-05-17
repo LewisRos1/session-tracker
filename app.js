@@ -30,7 +30,7 @@ import {
 } from "./firebase-service.js";
 import { exportStudentData } from "./export.js";
 
-const APP_VERSION = "v76";
+const APP_VERSION = "v77";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -55,8 +55,9 @@ const state = {
   viewStudent:        null,
   viewSessionId:      null,
   viewSessionData:    null,
-  fbViewUnsubscribe:  null,
-  viewRenderPending:  false
+  fbViewUnsubscribe:    null,
+  viewRenderPending:    false,
+  viewPickerTargetName: null
 };
 
 const $ = id => document.getElementById(id);
@@ -1244,6 +1245,7 @@ async function openSessionView(student, sessionId) {
 }
 
 function leaveSessionView() {
+  state.viewPickerTargetName = null;
   if (state.fbViewUnsubscribe) { state.fbViewUnsubscribe(); state.fbViewUnsubscribe = null; }
   state.viewSessionId     = null;
   state.viewSessionData   = null;
@@ -1270,6 +1272,21 @@ function renderSessionView() {
     : `<p style="color:var(--text-muted);padding:1rem">No targets recorded.</p>`;
 
   attachViewListeners();
+}
+
+function buildViewActList(target, data) {
+  const actList = [];
+  const targetName = target.name;
+  if (target.predefinedActivities?.length > 0) {
+    target.predefinedActivities.filter(pa => !pa.isHeading).forEach(pa => {
+      const entry = Object.entries(data.activities || {}).find(([, a]) => a.targetName === targetName && a.activityName === pa.name);
+      actList.push({ name: pa.name, actId: entry?.[0] || null, isPredefined: true });
+    });
+  }
+  Object.entries(data.activities || {})
+    .filter(([, a]) => a.targetName === targetName && !a.isPredefined)
+    .forEach(([actId, act]) => actList.push({ name: act.activityName, actId, isPredefined: false }));
+  return actList;
 }
 
 function buildTargetViewTable(target, data) {
@@ -1313,6 +1330,19 @@ function buildTargetViewTable(target, data) {
       <button class="btn-view-add-remark" data-target-name="${escHtml(target.name)}">＋ Remark</button>
     </td>
   </tr>`;
+
+  if (state.viewPickerTargetName === target.name) {
+    const actList = buildViewActList(target, data);
+    rows += `<tr class="view-act-picker-row">
+      <td colspan="6">
+        <div class="view-act-picker">
+          <span class="view-act-picker-label">Add remark to:</span>
+          ${actList.map((a, i) => `<button class="btn-view-act-pick" data-idx="${i}" data-target-name="${escHtml(target.name)}">${escHtml(a.name)}</button>`).join("")}
+          <button class="btn-view-cancel-picker">Cancel</button>
+        </div>
+      </td>
+    </tr>`;
+  }
 
   if (target.hasComment) {
     const key     = sanitizeKey(target.name);
@@ -1507,45 +1537,32 @@ function attachViewListeners() {
 
   body.querySelectorAll(".btn-view-add-remark").forEach(btn => {
     btn.addEventListener("click", () => {
-      body.querySelectorAll(".view-act-picker-row").forEach(r => r.remove());
-
       const targetName = btn.dataset.targetName;
       const target = getViewEffectiveTargets().find(t => t.name === targetName);
-      const data = state.viewSessionData;
-      const actList = [];
-      if (target?.predefinedActivities?.length > 0) {
-        target.predefinedActivities.filter(pa => !pa.isHeading).forEach(pa => {
-          const entry = Object.entries(data.activities || {}).find(([, a]) => a.targetName === targetName && a.activityName === pa.name);
-          actList.push({ name: pa.name, actId: entry?.[0] || null, isPredefined: true });
-        });
-      }
-      Object.entries(data.activities || {})
-        .filter(([, a]) => a.targetName === targetName && !a.isPredefined)
-        .forEach(([actId, act]) => actList.push({ name: act.activityName, actId, isPredefined: false }));
+      const actList = buildViewActList(target, state.viewSessionData);
       if (actList.length === 0) { alert("Add an activity first."); return; }
+      state.viewPickerTargetName = targetName;
+      renderSessionView();
+    });
+  });
 
-      const pickerRow = document.createElement("tr");
-      pickerRow.className = "view-act-picker-row";
-      pickerRow.innerHTML = `<td colspan="6">
-        <div class="view-act-picker">
-          <span class="view-act-picker-label">Add remark to:</span>
-          ${actList.map((a, i) => `<button class="btn-view-act-pick" data-idx="${i}">${escHtml(a.name)}</button>`).join("")}
-          <button class="btn-view-cancel-picker">Cancel</button>
-        </div>
-      </td>`;
-      btn.closest("tr").after(pickerRow);
+  body.querySelectorAll(".btn-view-act-pick").forEach(pickBtn => {
+    pickBtn.addEventListener("click", async () => {
+      const targetName = pickBtn.dataset.targetName;
+      const target = getViewEffectiveTargets().find(t => t.name === targetName);
+      const actList = buildViewActList(target, state.viewSessionData);
+      const chosen = actList[Number(pickBtn.dataset.idx)];
+      state.viewPickerTargetName = null;
+      let actId = chosen.actId;
+      if (!actId) actId = await addActivity(state.viewSessionId, targetName, chosen.name, Date.now(), chosen.isPredefined);
+      await addRemark(state.viewSessionId, actId, "", null);
+    });
+  });
 
-      pickerRow.querySelectorAll(".btn-view-act-pick").forEach(pickBtn => {
-        pickBtn.addEventListener("click", async () => {
-          const chosen = actList[Number(pickBtn.dataset.idx)];
-          let actId = chosen.actId;
-          if (!actId) actId = await addActivity(state.viewSessionId, targetName, chosen.name, Date.now(), chosen.isPredefined);
-          pickerRow.remove();
-          await addRemark(state.viewSessionId, actId, "", null);
-        });
-      });
-
-      pickerRow.querySelector(".btn-view-cancel-picker").addEventListener("click", () => pickerRow.remove());
+  body.querySelectorAll(".btn-view-cancel-picker").forEach(btn => {
+    btn.addEventListener("click", () => {
+      state.viewPickerTargetName = null;
+      renderSessionView();
     });
   });
 
