@@ -312,6 +312,36 @@ html, body {
   opacity: .88;
 }
 
+.session-meta-row {
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+}
+
+.btn-edit-session-date {
+  background: rgba(255,255,255,.15);
+  border: none;
+  color: rgba(255,255,255,.8);
+  font-size: .7rem;
+  cursor: pointer;
+  padding: .1rem .3rem;
+  border-radius: 4px;
+  line-height: 1.4;
+  flex-shrink: 0;
+}
+.btn-edit-session-date:hover { background: rgba(255,255,255,.28); }
+
+.session-date-input {
+  background: rgba(255,255,255,.15);
+  border: 1.5px solid rgba(255,255,255,.5);
+  color: #fff;
+  border-radius: 6px;
+  padding: .15rem .4rem;
+  font-size: .78rem;
+  color-scheme: dark;
+}
+.session-date-input.hidden { display: none; }
+
 .session-date {
   font-size: .85rem;
   opacity: .88;

@@ -142,6 +142,35 @@ export async function finishSession(sessionId) {
   await updateDoc(doc(db, "sessions", sessionId), { finished: true });
 }
 
+/** Change the date (and recalculate month + session number) of an existing session. */
+export async function updateSessionDate(sessionId, newDateStr, studentId) {
+  const month = getMonthString(newDateStr);
+
+  // Conflict check — another session for same student on that date
+  const conflictSnap = await getDocs(
+    query(collection(db, "sessions"),
+      where("studentId", "==", studentId),
+      where("date",      "==", newDateStr))
+  );
+  if (conflictSnap.docs.some(d => d.id !== sessionId)) {
+    throw new Error("There is already a session on that date for this student.");
+  }
+
+  // Recalculate session number within the target month
+  const monthSnap = await getDocs(
+    query(collection(db, "sessions"),
+      where("studentId", "==", studentId),
+      where("month",     "==", month))
+  );
+  const dates = new Set(
+    monthSnap.docs.filter(d => d.id !== sessionId).map(d => d.data().date)
+  );
+  dates.add(newDateStr);
+  const sessionNumber = [...dates].sort().indexOf(newDateStr) + 1;
+
+  await updateDoc(doc(db, "sessions", sessionId), { date: newDateStr, month, sessionNumber });
+}
+
 // ─── ACTIVITY OPERATIONS ─────────────────────────────────────
 
 export async function addActivity(sessionId, targetName, activityName, order, isPredefined = false) {

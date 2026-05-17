@@ -26,11 +26,12 @@ import {
   updateFedcComment,
   setTrials,
   sanitizeKey,
-  getTodayString
+  getTodayString,
+  updateSessionDate
 } from "./firebase-service.js";
 import { exportStudentData } from "./export.js";
 
-const APP_VERSION = "v84";
+const APP_VERSION = "v86";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -166,16 +167,15 @@ $("btn-update-app").addEventListener("click", async () => {
   btn.textContent = "Updating…";
   btn.disabled = true;
   try {
-    // Clear all SW caches so the reload fetches fresh files from server
     const keys = await caches.keys();
     await Promise.all(keys.map(k => caches.delete(k)));
-    // Unregister SW so reload bypasses it entirely (it re-registers on load)
     if ("serviceWorker" in navigator) {
       const regs = await navigator.serviceWorker.getRegistrations();
       await Promise.all(regs.map(r => r.unregister()));
     }
   } catch (_) {}
-  window.location.reload();
+  // Cache-busting URL forces a fresh server fetch, bypassing HTTP cache
+  window.location.href = location.pathname + "?v=" + Date.now();
 });
 
 // ── Add student / template from home screen ───────────────────
@@ -550,6 +550,41 @@ function updateSessionHeader() {
     finishBtn.disabled    = false;
     finishBtn.classList.remove("finished");
   }
+}
+
+// ── Change session date ───────────────────────────────────────
+$("btn-edit-session-date").addEventListener("click", () => {
+  const d = state.sessionData;
+  if (!d) return;
+  const input = $("session-date-input");
+  input.value = d.date;
+  input.max   = getTodayString();
+  $("session-meta").classList.add("hidden");
+  $("btn-edit-session-date").classList.add("hidden");
+  input.classList.remove("hidden");
+  input.focus();
+});
+
+$("session-date-input").addEventListener("change", async () => {
+  const input   = $("session-date-input");
+  const newDate = input.value;
+  cancelSessionDateEdit();
+  if (!newDate || newDate === state.sessionData?.date) return;
+  try {
+    await updateSessionDate(state.currentSessionId, newDate, state.currentStudent.id);
+  } catch (err) {
+    alert(err.message || "Could not change date.");
+  }
+});
+
+$("session-date-input").addEventListener("blur", () => {
+  setTimeout(cancelSessionDateEdit, 200);
+});
+
+function cancelSessionDateEdit() {
+  $("session-date-input").classList.add("hidden");
+  $("session-meta").classList.remove("hidden");
+  $("btn-edit-session-date").classList.remove("hidden");
 }
 
 function populateTargetDropdown(targets) {

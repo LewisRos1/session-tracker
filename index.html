@@ -98,7 +98,11 @@
       <button class="btn-back" id="btn-back" aria-label="Back to home">←</button>
       <div class="session-info">
         <span class="session-student-name" id="session-student-name"></span>
-        <span class="session-meta"         id="session-meta"></span>
+        <div class="session-meta-row">
+          <span class="session-meta" id="session-meta"></span>
+          <button class="btn-edit-session-date" id="btn-edit-session-date" title="Change date">✏</button>
+          <input type="date" id="session-date-input" class="session-date-input hidden" />
+        </div>
       </div>
     </header>
 
