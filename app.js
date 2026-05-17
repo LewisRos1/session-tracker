@@ -30,7 +30,7 @@ import {
 } from "./firebase-service.js";
 import { exportStudentData } from "./export.js";
 
-const APP_VERSION = "v74";
+const APP_VERSION = "v76";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -1309,8 +1309,8 @@ function buildTargetViewTable(target, data) {
 
   rows += `<tr class="view-add-activity-row">
     <td colspan="6">
-      <button class="btn-view-add-activity" data-target-name="${escHtml(target.name)}">+ Add Activity</button>
-      <button class="btn-view-add-remark" data-target-name="${escHtml(target.name)}">+ Add Remark</button>
+      <button class="btn-view-add-activity" data-target-name="${escHtml(target.name)}">＋ Activity</button>
+      <button class="btn-view-add-remark" data-target-name="${escHtml(target.name)}">＋ Remark</button>
     </td>
   </tr>`;
 
@@ -1506,7 +1506,9 @@ function attachViewListeners() {
   });
 
   body.querySelectorAll(".btn-view-add-remark").forEach(btn => {
-    btn.addEventListener("click", async () => {
+    btn.addEventListener("click", () => {
+      body.querySelectorAll(".view-act-picker-row").forEach(r => r.remove());
+
       const targetName = btn.dataset.targetName;
       const target = getViewEffectiveTargets().find(t => t.name === targetName);
       const data = state.viewSessionData;
@@ -1521,15 +1523,29 @@ function attachViewListeners() {
         .filter(([, a]) => a.targetName === targetName && !a.isPredefined)
         .forEach(([actId, act]) => actList.push({ name: act.activityName, actId, isPredefined: false }));
       if (actList.length === 0) { alert("Add an activity first."); return; }
-      const listStr = actList.map((a, i) => `${i + 1}. ${a.name}`).join("\n");
-      const input = prompt(`Add remark to which activity?\n\n${listStr}\n\nEnter number:`);
-      if (!input) return;
-      const idx = parseInt(input) - 1;
-      if (isNaN(idx) || idx < 0 || idx >= actList.length) return;
-      const chosen = actList[idx];
-      let actId = chosen.actId;
-      if (!actId) actId = await addActivity(state.viewSessionId, targetName, chosen.name, Date.now(), chosen.isPredefined);
-      await addRemark(state.viewSessionId, actId, "", null);
+
+      const pickerRow = document.createElement("tr");
+      pickerRow.className = "view-act-picker-row";
+      pickerRow.innerHTML = `<td colspan="6">
+        <div class="view-act-picker">
+          <span class="view-act-picker-label">Add remark to:</span>
+          ${actList.map((a, i) => `<button class="btn-view-act-pick" data-idx="${i}">${escHtml(a.name)}</button>`).join("")}
+          <button class="btn-view-cancel-picker">Cancel</button>
+        </div>
+      </td>`;
+      btn.closest("tr").after(pickerRow);
+
+      pickerRow.querySelectorAll(".btn-view-act-pick").forEach(pickBtn => {
+        pickBtn.addEventListener("click", async () => {
+          const chosen = actList[Number(pickBtn.dataset.idx)];
+          let actId = chosen.actId;
+          if (!actId) actId = await addActivity(state.viewSessionId, targetName, chosen.name, Date.now(), chosen.isPredefined);
+          pickerRow.remove();
+          await addRemark(state.viewSessionId, actId, "", null);
+        });
+      });
+
+      pickerRow.querySelector(".btn-view-cancel-picker").addEventListener("click", () => pickerRow.remove());
     });
   });
 
