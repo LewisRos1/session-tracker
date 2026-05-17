@@ -33,7 +33,7 @@ import {
 } from "./firebase-service.js";
 import { exportStudentData } from "./export.js";
 
-const APP_VERSION = "v106";
+const APP_VERSION = "v107";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -357,8 +357,8 @@ function showStudentChoice(student) {
       <div class="session-date-step">
         <p class="session-date-prompt">What date is this session for?</p>
         <div class="date-quick-btns">
-          <button class="btn-date-quick" data-date="${yesterday}">Yesterday</button>
-          <button class="btn-date-quick" data-date="${today}">Today</button>
+          <button class="btn-date-quick" data-date="${yesterday}">Yesterday (${formatDate(yesterday)})</button>
+          <button class="btn-date-quick" data-date="${today}">Today (${formatDate(today)})</button>
           <button class="btn-date-other">Pick a date…</button>
         </div>
       </div>`;
