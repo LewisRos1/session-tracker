@@ -1328,19 +1328,6 @@ textarea.admin-input { resize: vertical; min-height: 60px; line-height: 1.45; }
 /* ─── Session screen Activities/Notes button ─────────────── */
 .btn-manage-targets.hidden { display: none; }
 
-.target-type-badge {
-  font-size: .72rem;
-  font-weight: 600;
-  padding: .15rem .5rem;
-  border-radius: 20px;
-  letter-spacing: .02em;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-.target-type-badge.hidden { display: none; }
-.badge-blank      { background: #f0f0f0; color: #666; }
-.badge-structured { background: #ede9fe; color: #5b21b6; }
-.badge-template   { background: #d1fae5; color: #065f46; }
 .btn-manage-targets {
   background: none;
   border: 1.5px solid var(--border);
