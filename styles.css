@@ -1344,10 +1344,15 @@ textarea.admin-input { resize: vertical; min-height: 60px; line-height: 1.45; }
   text-transform: uppercase;
 }
 .target-type-value {
-  font-size: .78rem;
+  font-size: .72rem;
   font-weight: 600;
-  color: var(--text);
+  padding: .12rem .45rem;
+  border-radius: 20px;
+  white-space: nowrap;
 }
+.badge-blank      { background: #f0f0f0; color: #888; }
+.badge-structured { background: #ede9fe; color: #5b21b6; }
+.badge-template   { background: #d1fae5; color: #065f46; }
 
 .btn-manage-targets {
   background: none;

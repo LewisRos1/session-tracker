@@ -30,7 +30,7 @@ import {
 } from "./firebase-service.js";
 import { exportStudentData } from "./export.js";
 
-const APP_VERSION = "v67";
+const APP_VERSION = "v68";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -611,7 +611,10 @@ function renderTargetContent() {
   const typeChip  = $("target-type-chip");
   const typeBadge = $("target-type-badge");
   if (typeChip && typeBadge) {
-    typeBadge.textContent = target.templateId ? "Template" : target.isStructured ? "Structured" : "Blank";
+    const label = target.templateId ? "Template" : target.isStructured ? "Structured" : "Blank";
+    const cls   = target.templateId ? "badge-template" : target.isStructured ? "badge-structured" : "badge-blank";
+    typeBadge.textContent = label;
+    typeBadge.className   = `target-type-value ${cls}`;
     typeChip.classList.remove("hidden");
   }
 
