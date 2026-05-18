@@ -34,7 +34,7 @@ import {
 } from "./firebase-service.js";
 import { exportStudentData } from "./export.js";
 
-const APP_VERSION = "v110";
+const APP_VERSION = "v111";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -413,6 +413,15 @@ async function showSessionPicker(student) {
 
   let sessions = [];
   try { sessions = await getRecentSessionsForStudent(student.id); } catch (_) {}
+
+  // Auto-delete empty unfinished sessions (e.g. accidental opens)
+  const emptySessions = sessions.filter(s =>
+    !s.finished &&
+    !Object.keys(s.activities || {}).length &&
+    !Object.keys(s.remarks   || {}).length
+  );
+  emptySessions.forEach(s => deleteSession(s.id).catch(() => {}));
+  sessions = sessions.filter(s => !emptySessions.some(e => e.id === s.id));
 
   const today = getTodayString();
   const byMonth = new Map();
@@ -1270,10 +1279,16 @@ $("score-modal-backdrop").addEventListener("click", closeScorePicker);
 
 function getViewEffectiveTargets() {
   const d = state.viewSessionData;
-  if (!d) return state.viewStudent?.targets || [];
-  if (d.date === getTodayString()) return state.viewStudent?.targets || [];
-  if (d.targetsSnapshot?.length) return d.targetsSnapshot;
-  return state.viewStudent?.targets || [];
+  const currentTargets = state.viewStudent?.targets || [];
+  if (!d) return currentTargets;
+  if (d.date === getTodayString()) return currentTargets;
+  if (d.targetsSnapshot?.length) {
+    // Only show snapshot targets that still exist in the current student config.
+    // Deleted targets are excluded so their data doesn't appear.
+    const currentNames = new Set(currentTargets.map(t => t.name));
+    return d.targetsSnapshot.filter(t => currentNames.has(t.name));
+  }
+  return currentTargets;
 }
 
 async function openSessionView(student, sessionId) {
@@ -1306,10 +1321,20 @@ async function openSessionView(student, sessionId) {
 function leaveSessionView() {
   state.viewPickerTargetName = null;
   if (state.fbViewUnsubscribe) { state.fbViewUnsubscribe(); state.fbViewUnsubscribe = null; }
+  const sessionId = state.viewSessionId;
+  const data      = state.viewSessionData;
   state.viewSessionId     = null;
   state.viewSessionData   = null;
   state.viewStudent       = null;
   state.viewRenderPending = false;
+
+  if (sessionId && data && !data.finished) {
+    const empty =
+      !Object.keys(data.activities || {}).length &&
+      !Object.keys(data.remarks    || {}).length;
+    if (empty) deleteSession(sessionId).catch(() => {});
+  }
+
   showHome();
 }
 
