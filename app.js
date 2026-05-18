@@ -32,7 +32,7 @@ import {
 } from "./firebase-service.js";
 import { exportStudentData } from "./export.js";
 
-const APP_VERSION = "v115";
+const APP_VERSION = "v117";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -468,16 +468,12 @@ function renderSessionsForMonth(student, month, monthSessions, byMonth, today) {
   for (const s of monthSessions) {
     const sessionNum = sorted.findIndex(x => x.id === s.id) + 1;
     const isToday    = s.date === today;
-    const badge      = isToday ? (s.finished ? "Finished" : "In Progress")
-                               : (s.finished ? "Finished" : "Unfinished");
-    const badgeClass = s.finished ? "badge-finished" : "badge-inprogress";
-    const dateLabel  = isToday ? `Today · ${formatDate(s.date)}` : formatDate(s.date);
+    const dateLabel = isToday ? `Today · ${formatDate(s.date)}` : formatDate(s.date);
     html += `<div class="session-list-item" data-session-id="${s.id}">
       <div class="session-list-meta">
         <div class="session-list-label">Session ${sessionNum} of ${s.month.split(" ")[0]}</div>
         <div class="session-list-date">${dateLabel}</div>
       </div>
-      <span class="session-list-badge ${badgeClass}">${badge}</span>
     </div>`;
   }
 
