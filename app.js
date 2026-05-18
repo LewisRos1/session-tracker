@@ -34,7 +34,7 @@ import {
 } from "./firebase-service.js";
 import { exportStudentData } from "./export.js";
 
-const APP_VERSION = "v111";
+const APP_VERSION = "v112";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -414,12 +414,14 @@ async function showSessionPicker(student) {
   let sessions = [];
   try { sessions = await getRecentSessionsForStudent(student.id); } catch (_) {}
 
-  // Auto-delete empty unfinished sessions (e.g. accidental opens)
-  const emptySessions = sessions.filter(s =>
-    !s.finished &&
-    !Object.keys(s.activities || {}).length &&
-    !Object.keys(s.remarks   || {}).length
-  );
+  // Auto-delete sessions that have no data for any currently existing target
+  const currentTargetNames = new Set((student.targets || []).map(t => t.name));
+  const isEffectivelyEmpty = s => {
+    if (s.finished) return false;
+    const acts = Object.values(s.activities || {});
+    return !acts.some(a => currentTargetNames.has(a.targetName));
+  };
+  const emptySessions = sessions.filter(isEffectivelyEmpty);
   emptySessions.forEach(s => deleteSession(s.id).catch(() => {}));
   sessions = sessions.filter(s => !emptySessions.some(e => e.id === s.id));
 
@@ -569,6 +571,7 @@ function leaveSession() {
   if (state.fbUnsubscribe) { state.fbUnsubscribe(); state.fbUnsubscribe = null; }
   const sessionId = state.currentSessionId;
   const data      = state.sessionData;
+  const student   = state.currentStudent;
   state.currentSessionId   = null;
   state.sessionData        = null;
   state.currentStudent     = null;
@@ -576,12 +579,11 @@ function leaveSession() {
   state.pendingNewRemark   = null;
   state.renderPending      = false;
 
-  // Auto-delete sessions that were opened but left completely empty
   if (sessionId && data) {
-    const empty =
-      !Object.keys(data.activities || {}).length &&
-      !Object.keys(data.remarks    || {}).length;
-    if (empty) deleteSession(sessionId).catch(() => {});
+    const currentTargetNames = new Set((student?.targets || []).map(t => t.name));
+    const acts = Object.values(data.activities || {});
+    const hasValidActivity = acts.some(a => currentTargetNames.has(a.targetName));
+    if (!hasValidActivity) deleteSession(sessionId).catch(() => {});
   }
 
   showHome();
@@ -1323,16 +1325,17 @@ function leaveSessionView() {
   if (state.fbViewUnsubscribe) { state.fbViewUnsubscribe(); state.fbViewUnsubscribe = null; }
   const sessionId = state.viewSessionId;
   const data      = state.viewSessionData;
+  const student   = state.viewStudent;
   state.viewSessionId     = null;
   state.viewSessionData   = null;
   state.viewStudent       = null;
   state.viewRenderPending = false;
 
   if (sessionId && data && !data.finished) {
-    const empty =
-      !Object.keys(data.activities || {}).length &&
-      !Object.keys(data.remarks    || {}).length;
-    if (empty) deleteSession(sessionId).catch(() => {});
+    const currentTargetNames = new Set((student?.targets || []).map(t => t.name));
+    const acts = Object.values(data.activities || {});
+    const hasValidActivity = acts.some(a => currentTargetNames.has(a.targetName));
+    if (!hasValidActivity) deleteSession(sessionId).catch(() => {});
   }
 
   showHome();
