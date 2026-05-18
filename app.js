@@ -29,11 +29,12 @@ import {
   getTodayString,
   getOrCreateSessionForDate,
   deleteSession,
-  updateSessionDate
+  updateSessionDate,
+  deleteTargetDataFromSessions
 } from "./firebase-service.js";
 import { exportStudentData } from "./export.js";
 
-const APP_VERSION = "v109";
+const APP_VERSION = "v110";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -1955,12 +1956,13 @@ function renderStudentManageContent(student) {
     btn.addEventListener("click", async () => {
       const target = student.targets.find(t => t.id === btn.dataset.targetId);
       if (!target) return;
-      if (!confirm(`Delete target "${target.name}"?`)) return;
+      if (!confirm(`Delete target "${target.name}"? All session data for this target will also be permanently deleted.`)) return;
       student.targets = student.targets.filter(t => t.id !== target.id);
       student.targets.forEach((t, i) => t.order = i);
       const si = state.students.findIndex(s => s.id === student.id);
       if (si >= 0) state.students[si] = student;
       await saveStudent(student);
+      await deleteTargetDataFromSessions(student.id, target.name);
       renderStudentManageContent(student);
     });
   });
@@ -2245,10 +2247,11 @@ function renderTargetManageContent(student, target) {
   });
 
   $("btn-mn-del-target").addEventListener("click", async () => {
-    if (!confirm(`Delete target "${target.name}"?`)) return;
+    if (!confirm(`Delete target "${target.name}"? All session data for this target will also be permanently deleted.`)) return;
     student.targets = student.targets.filter(t => t.id !== target.id);
     student.targets.forEach((t, i) => t.order = i);
     await saveStudent(student);
+    await deleteTargetDataFromSessions(student.id, target.name);
     const si = state.students.findIndex(s => s.id === student.id);
     if (si >= 0) state.students[si] = student;
     renderStudentManageContent(student);

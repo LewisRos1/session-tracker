@@ -310,6 +310,37 @@ export async function deleteStudentConfig(studentId) {
   await deleteDoc(doc(db, "students", studentId));
 }
 
+/**
+ * Remove all activities, remarks, and FEDC comments for a deleted target
+ * from every session belonging to that student.
+ */
+export async function deleteTargetDataFromSessions(studentId, targetName) {
+  const snap = await getDocs(
+    query(collection(db, "sessions"), where("studentId", "==", studentId))
+  );
+  const key = sanitizeKey(targetName);
+  for (const sessionDoc of snap.docs) {
+    const data = sessionDoc.data();
+    const updates = {};
+    const actIds = [];
+    for (const [actId, act] of Object.entries(data.activities || {})) {
+      if (act.targetName === targetName) {
+        updates[`activities.${actId}`] = deleteField();
+        actIds.push(actId);
+      }
+    }
+    for (const [remId, rem] of Object.entries(data.remarks || {})) {
+      if (actIds.includes(rem.activityId)) updates[`remarks.${remId}`] = deleteField();
+    }
+    if ((data.fedcComments || {})[key] !== undefined) {
+      updates[`fedcComments.${key}`] = deleteField();
+    }
+    if (Object.keys(updates).length > 0) {
+      await updateDoc(doc(db, "sessions", sessionDoc.id), updates);
+    }
+  }
+}
+
 /** Delete a session document entirely (e.g. empty sessions on leave). */
 export async function deleteSession(sessionId) {
   await deleteDoc(doc(db, "sessions", sessionId));
