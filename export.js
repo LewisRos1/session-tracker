@@ -16,11 +16,17 @@ const STYLE_SESSION = {
 };
 const STYLE_COL_HEADER = {
   fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFF3F4F6" } },
-  font: { bold: true }
+  font: { bold: true },
+  alignment: { horizontal: "center", vertical: "middle" }
 };
 // Activity section heading: light indigo tint, bold, merged across all columns
 const STYLE_ACT_HEADING = {
   fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFE0E7FF" } },
+  font: { bold: true }
+};
+// Daily Average: bright amber, bold
+const STYLE_DAILY_AVG = {
+  fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFFBBF24" } },
   font: { bold: true }
 };
 
@@ -54,14 +60,16 @@ export async function exportStudentData(student) {
 
   // ── One sheet per target ───────────────────────────────
   for (const target of allTargets) {
-    const { rows, monthHeaderRows, sessionHeaderRows, columnHeaderRows, activityHeadingRows } =
+    const { rows, monthHeaderRows, sessionHeaderRows, columnHeaderRows, activityHeadingRows, dailyAvgRows } =
       buildTargetSheet(target, sessions);
     const ws = wb.addWorksheet(target.name.slice(0, 31));
     rows.forEach(row => ws.addRow(row));
-    ws.getColumn(1).width = 45;
-    ws.getColumn(2).width = 52;
-    ws.getColumn(3).width = 22;
-    ws.getColumn(4).width = 10;
+    ws.getColumn(1).width     = 45;
+    ws.getColumn(2).width     = 52;
+    ws.getColumn(3).width     = 22;
+    ws.getColumn(4).width     = 10;
+    ws.getColumn(1).alignment = { wrapText: true, vertical: "top" };
+    ws.getColumn(2).alignment = { wrapText: true, vertical: "top" };
 
     applyRowStyles(ws, monthHeaderRows,    STYLE_MONTH);
     applyRowStyles(ws, sessionHeaderRows,  STYLE_SESSION);
@@ -75,6 +83,9 @@ export async function exportStudentData(student) {
       cell.fill = STYLE_ACT_HEADING.fill;
       cell.font = STYLE_ACT_HEADING.font;
     }
+
+    // Daily Average rows: bright amber across all 4 columns
+    applyRowStyles(ws, dailyAvgRows, STYLE_DAILY_AVG);
   }
 
   // Filename: StudentName_DD-Mon-YYYY_HHmm.xlsx
@@ -103,8 +114,9 @@ function applyRowStyles(ws, rowIndices, style) {
   for (const rowIdx of rowIndices) {
     for (let c = 1; c <= 4; c++) {
       const cell = ws.getRow(rowIdx + 1).getCell(c);
-      if (style.fill) cell.fill = style.fill;
-      if (style.font) cell.font = style.font;
+      if (style.fill)      cell.fill      = style.fill;
+      if (style.font)      cell.font      = style.font;
+      if (style.alignment) cell.alignment = style.alignment;
     }
   }
 }
@@ -160,10 +172,11 @@ function buildTargetSheet(target, sessions) {
   }
 
   const rows = [];
-  const monthHeaderRows    = new Set();
-  const sessionHeaderRows  = new Set();
-  const columnHeaderRows   = new Set();
+  const monthHeaderRows     = new Set();
+  const sessionHeaderRows   = new Set();
+  const columnHeaderRows    = new Set();
   const activityHeadingRows = new Set();
+  const dailyAvgRows        = new Set();
   let firstMonth = true;
 
   for (const [month, monthSessions] of byMonth) {
@@ -190,16 +203,16 @@ function buildTargetSheet(target, sessions) {
       const effectiveTarget = snap
         ? { ...target, maxPoints: snap.maxPoints, predefinedActivities: snap.predefinedActivities || target.predefinedActivities || [] }
         : target;
-      appendSessionRows(rows, sessionHeaderRows, columnHeaderRows, activityHeadingRows, session, effectiveTarget);
+      appendSessionRows(rows, sessionHeaderRows, columnHeaderRows, activityHeadingRows, dailyAvgRows, session, effectiveTarget);
     }
   }
 
-  return { rows, monthHeaderRows, sessionHeaderRows, columnHeaderRows, activityHeadingRows };
+  return { rows, monthHeaderRows, sessionHeaderRows, columnHeaderRows, activityHeadingRows, dailyAvgRows };
 }
 
 // ─── SESSION ROWS ────────────────────────────────────────────
 
-function appendSessionRows(rows, sessionHeaderRows, columnHeaderRows, activityHeadingRows, session, target) {
+function appendSessionRows(rows, sessionHeaderRows, columnHeaderRows, activityHeadingRows, dailyAvgRows, session, target) {
   const monthName = session.month.split(" ")[0];
 
   sessionHeaderRows.add(rows.length);
@@ -250,10 +263,12 @@ function appendSessionRows(rows, sessionHeaderRows, columnHeaderRows, activityHe
       const commentText = (session.fedcComments || {})[sanitizeKey(target.name)] || "";
       if (commentText) rows.push(["Comment", commentText, "", ""]);
     }
-
-    const daily = calcDailyAverage(session, target);
-    if (daily !== null) rows.push(["Daily Average", "", "", pct(daily)]);
   }
+
+  // Daily Average always present; empty if no trial data
+  const daily = calcDailyAverage(session, target);
+  dailyAvgRows.add(rows.length);
+  rows.push(["Daily Average", "", "", daily !== null ? pct(daily) : ""]);
 
   rows.push([]);
 }
