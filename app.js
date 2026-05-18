@@ -32,7 +32,7 @@ import {
 } from "./firebase-service.js";
 import { exportStudentData } from "./export.js";
 
-const APP_VERSION = "v117";
+const APP_VERSION = "v120";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {

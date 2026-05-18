@@ -1,9 +1,28 @@
 // ============================================================
-// EXPORT.JS — Excel export via SheetJS (loaded globally as XLSX)
+// EXPORT.JS — Excel export via ExcelJS (loaded globally as ExcelJS)
 // One .xlsx per student: a Summary sheet + one sheet per target.
 // ============================================================
 
 import { getAllSessionsForStudent, sanitizeKey } from "./firebase-service.js";
+
+// ─── STYLE CONSTANTS ─────────────────────────────────────────
+const STYLE_MONTH = {
+  fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FF6366F1" } },
+  font: { bold: true, color: { argb: "FFFFFFFF" } }
+};
+const STYLE_SESSION = {
+  fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFE5E7EB" } },
+  font: { bold: true }
+};
+const STYLE_COL_HEADER = {
+  fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFF3F4F6" } },
+  font: { bold: true }
+};
+// Activity section heading: light indigo tint, bold, merged across all columns
+const STYLE_ACT_HEADING = {
+  fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFE0E7FF" } },
+  font: { bold: true }
+};
 
 // ─── PUBLIC ENTRY POINT ──────────────────────────────────────
 
@@ -22,55 +41,77 @@ export async function exportStudentData(student) {
 
   const allTargets = getAllTargets(student);
 
-  const wb = XLSX.utils.book_new();
+  const wb = new ExcelJS.Workbook();
 
   // ── Summary sheet (monthly averages grid) ──────────────
   const summaryRows = buildSummarySheet(allTargets, sessions);
-  const summaryWs   = XLSX.utils.aoa_to_sheet(summaryRows);
-  summaryWs["!cols"] = [{ wch: 30 }, ...Array(50).fill({ wch: 12 })];
-  XLSX.utils.book_append_sheet(wb, summaryWs, "Summary");
+  const summaryWs   = wb.addWorksheet("Summary");
+  summaryRows.forEach(row => summaryWs.addRow(row));
+  summaryWs.getColumn(1).width = 30;
+  for (let c = 2; c <= (summaryRows[0]?.length || 1); c++) {
+    summaryWs.getColumn(c).width = 12;
+  }
 
   // ── One sheet per target ───────────────────────────────
   for (const target of allTargets) {
-    const { rows, boldRows } = buildTargetSheet(target, sessions);
-    const ws = XLSX.utils.aoa_to_sheet(rows);
-    ws["!cols"] = [{ wch: 45 }, { wch: 52 }, { wch: 22 }, { wch: 10 }];
-    applyBoldRows(ws, boldRows);
-    XLSX.utils.book_append_sheet(wb, ws, target.name);
+    const { rows, monthHeaderRows, sessionHeaderRows, columnHeaderRows, activityHeadingRows } =
+      buildTargetSheet(target, sessions);
+    const ws = wb.addWorksheet(target.name.slice(0, 31));
+    rows.forEach(row => ws.addRow(row));
+    ws.getColumn(1).width = 45;
+    ws.getColumn(2).width = 52;
+    ws.getColumn(3).width = 22;
+    ws.getColumn(4).width = 10;
+
+    applyRowStyles(ws, monthHeaderRows,    STYLE_MONTH);
+    applyRowStyles(ws, sessionHeaderRows,  STYLE_SESSION);
+    applyRowStyles(ws, columnHeaderRows,   STYLE_COL_HEADER);
+
+    // Activity section headings: merge A:D + style
+    for (const rowIdx of activityHeadingRows) {
+      const n = rowIdx + 1;
+      ws.mergeCells(`A${n}:D${n}`);
+      const cell = ws.getRow(n).getCell(1);
+      cell.fill = STYLE_ACT_HEADING.fill;
+      cell.font = STYLE_ACT_HEADING.font;
+    }
   }
 
   // Filename: StudentName_DD-Mon-YYYY_HHmm.xlsx
-  const now    = new Date();
-  const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-  const dd     = String(now.getDate()).padStart(2, "0");
-  const mon    = months[now.getMonth()];
-  const yyyy   = now.getFullYear();
-  const hh     = String(now.getHours()).padStart(2, "0");
-  const mm     = String(now.getMinutes()).padStart(2, "0");
-  XLSX.writeFile(wb, `${student.name}_${dd}-${mon}-${yyyy}_${hh}${mm}.xlsx`, { cellStyles: true });
+  const now      = new Date();
+  const monNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const dd       = String(now.getDate()).padStart(2, "0");
+  const mon      = monNames[now.getMonth()];
+  const yyyy     = now.getFullYear();
+  const hh       = String(now.getHours()).padStart(2, "0");
+  const mm       = String(now.getMinutes()).padStart(2, "0");
+  const filename = `${student.name}_${dd}-${mon}-${yyyy}_${hh}${mm}.xlsx`;
+
+  const buffer = await wb.xlsx.writeBuffer();
+  const blob   = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  const url    = URL.createObjectURL(blob);
+  const a      = document.createElement("a");
+  a.href       = url;
+  a.download   = filename;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
-// ─── BOLD HELPER ─────────────────────────────────────────────
+// ─── STYLE HELPER ────────────────────────────────────────────
 
-function applyBoldRows(ws, boldRows) {
-  const colLetters = ["A", "B", "C", "D"];
-  for (const rowIdx of boldRows) {
-    for (const col of colLetters) {
-      const ref = col + (rowIdx + 1);
-      if (!ws[ref]) ws[ref] = { v: "", t: "s" };
-      ws[ref].s = { font: { bold: true } };
+function applyRowStyles(ws, rowIndices, style) {
+  for (const rowIdx of rowIndices) {
+    for (let c = 1; c <= 4; c++) {
+      const cell = ws.getRow(rowIdx + 1).getCell(c);
+      if (style.fill) cell.fill = style.fill;
+      if (style.font) cell.font = style.font;
     }
   }
 }
 
 // ─── SUMMARY SHEET ───────────────────────────────────────────
-// Layout:
-//   Target       | Jan 2026 | Feb 2026 | Mar 2026 | ...
-//   Ex. Function |   78%    |   82%    |          |
-//   FEDC 1       |   71%    |   74%    |          |
 
 function buildSummarySheet(allTargets, sessions) {
-  // Collect all months, sorted chronologically
   const monthSet = new Set(sessions.map(s => s.month));
   const months   = [...monthSet].sort((a, b) => {
     const [ma, ya] = parseMonth(a);
@@ -79,11 +120,8 @@ function buildSummarySheet(allTargets, sessions) {
   });
 
   const rows = [];
-
-  // Header row
   rows.push(["Target", ...months]);
 
-  // One row per target
   for (const target of allTargets) {
     const row = [target.name];
     for (const month of months) {
@@ -122,7 +160,10 @@ function buildTargetSheet(target, sessions) {
   }
 
   const rows = [];
-  const boldRows = new Set();
+  const monthHeaderRows    = new Set();
+  const sessionHeaderRows  = new Set();
+  const columnHeaderRows   = new Set();
+  const activityHeadingRows = new Set();
   let firstMonth = true;
 
   for (const [month, monthSessions] of byMonth) {
@@ -140,6 +181,7 @@ function buildTargetSheet(target, sessions) {
     if (!firstMonth) rows.push([]);
     firstMonth = false;
 
+    monthHeaderRows.add(rows.length);
     rows.push([`${month}  —  Monthly Average: ${monthlyAvg !== null ? pct(monthlyAvg) : "N/A"}`]);
     rows.push([]);
 
@@ -148,24 +190,22 @@ function buildTargetSheet(target, sessions) {
       const effectiveTarget = snap
         ? { ...target, maxPoints: snap.maxPoints, predefinedActivities: snap.predefinedActivities || target.predefinedActivities || [] }
         : target;
-      appendSessionRows(rows, boldRows, session, effectiveTarget);
+      appendSessionRows(rows, sessionHeaderRows, columnHeaderRows, activityHeadingRows, session, effectiveTarget);
     }
   }
 
-  return { rows, boldRows };
+  return { rows, monthHeaderRows, sessionHeaderRows, columnHeaderRows, activityHeadingRows };
 }
 
 // ─── SESSION ROWS ────────────────────────────────────────────
 
-function appendSessionRows(rows, boldRows, session, target) {
+function appendSessionRows(rows, sessionHeaderRows, columnHeaderRows, activityHeadingRows, session, target) {
   const monthName = session.month.split(" ")[0];
 
-  // Session header — bold
-  boldRows.add(rows.length);
+  sessionHeaderRows.add(rows.length);
   rows.push([`Session ${session.sessionNumber} of ${monthName}  —  ${fmtDate(session.date)}`]);
 
-  // Column headers — bold
-  boldRows.add(rows.length);
+  columnHeaderRows.add(rows.length);
   rows.push(["Activity", "Remark", "Trials", "Avg"]);
 
   const activities = getAllActivitiesForTarget(session, target);
@@ -174,8 +214,13 @@ function appendSessionRows(rows, boldRows, session, target) {
     rows.push(["(no data recorded)", "", "", ""]);
   } else {
     for (const act of activities) {
+      if (act.isHeading) {
+        activityHeadingRows.add(rows.length);
+        rows.push([act.activityName, "", "", ""]);
+        continue;
+      }
+
       if (act.empty) {
-        // Predefined activity with no session entry
         rows.push([act.activityName, "", "", ""]);
         continue;
       }
@@ -201,7 +246,6 @@ function appendSessionRows(rows, boldRows, session, target) {
       }
     }
 
-    // FEDC free-text comment — once, after all activities
     if (target.hasComment) {
       const commentText = (session.fedcComments || {})[sanitizeKey(target.name)] || "";
       if (commentText) rows.push(["Comment", commentText, "", ""]);
@@ -217,16 +261,11 @@ function appendSessionRows(rows, boldRows, session, target) {
 // ─── DATA HELPERS ────────────────────────────────────────────
 
 /**
- * Returns a complete ordered activity list for a target in a session:
- * - All predefined activities (non-heading) appear in order, with
- *   { empty: true } when no session entry exists for that activity.
- * - Non-predefined (custom) activities appended after.
+ * Returns predefined activities in their original order (headings included),
+ * with { empty: true } for predefined items with no session data, plus any
+ * custom (non-predefined) activities appended at the end.
  */
 function getAllActivitiesForTarget(session, target) {
-  const predefinedNames = (target.predefinedActivities || [])
-    .filter(pa => !pa.isHeading && pa.name)
-    .map(pa => pa.name);
-
   const sessionActs = Object.entries(session.activities || {})
     .filter(([, a]) => a.targetName === target.name)
     .sort(([, a], [, b]) => (a.order || 0) - (b.order || 0))
@@ -235,17 +274,21 @@ function getAllActivitiesForTarget(session, target) {
   const result = [];
   const usedIds = new Set();
 
-  for (const name of predefinedNames) {
-    const sessionAct = sessionActs.find(a => a.activityName === name && a.isPredefined);
+  for (const pa of (target.predefinedActivities || [])) {
+    if (!pa.name) continue;
+    if (pa.isHeading) {
+      result.push({ isHeading: true, activityName: pa.name });
+      continue;
+    }
+    const sessionAct = sessionActs.find(a => a.activityName === pa.name && a.isPredefined);
     if (sessionAct) {
       usedIds.add(sessionAct.id);
       result.push(sessionAct);
     } else {
-      result.push({ id: null, activityName: name, isPredefined: true, empty: true });
+      result.push({ id: null, activityName: pa.name, isPredefined: true, empty: true });
     }
   }
 
-  // Append any custom (non-predefined) activities not already included
   for (const act of sessionActs) {
     if (!usedIds.has(act.id)) result.push(act);
   }
@@ -273,7 +316,7 @@ function calcRemarkAvg(trials, maxPoints) {
 function calcDailyAverage(session, target) {
   const avgs = [];
   for (const act of getAllActivitiesForTarget(session, target)) {
-    if (act.empty) continue;
+    if (act.isHeading || act.empty) continue;
     for (const rem of getRemarksForActivity(session, act.id)) {
       const validTrials = (rem.trials || []).filter(t => t !== -1);
       const a = calcRemarkAvg(validTrials, target.maxPoints);
