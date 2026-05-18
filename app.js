@@ -34,7 +34,7 @@ import {
 } from "./firebase-service.js";
 import { exportStudentData } from "./export.js";
 
-const APP_VERSION = "v112";
+const APP_VERSION = "v113";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -417,7 +417,6 @@ async function showSessionPicker(student) {
   // Auto-delete sessions that have no data for any currently existing target
   const currentTargetNames = new Set((student.targets || []).map(t => t.name));
   const isEffectivelyEmpty = s => {
-    if (s.finished) return false;
     const acts = Object.values(s.activities || {});
     return !acts.some(a => currentTargetNames.has(a.targetName));
   };
@@ -1331,7 +1330,7 @@ function leaveSessionView() {
   state.viewStudent       = null;
   state.viewRenderPending = false;
 
-  if (sessionId && data && !data.finished) {
+  if (sessionId && data) {
     const currentTargetNames = new Set((student?.targets || []).map(t => t.name));
     const acts = Object.values(data.activities || {});
     const hasValidActivity = acts.some(a => currentTargetNames.has(a.targetName));
