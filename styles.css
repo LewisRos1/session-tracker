@@ -217,12 +217,6 @@ html, body {
 
 .student-btn-name { flex: 1; }
 
-.session-indicator {
-  font-size: .75rem;
-  font-weight: 600;
-  color: var(--success);
-  flex-shrink: 0;
-}
 
 /* ─── EXPORT BUTTONS ─────────────────────────────────────── */
 .export-buttons {
@@ -461,33 +455,6 @@ html, body {
   gap: .85rem;
 }
 
-/* ─── SESSION FOOTER ─────────────────────────────────────── */
-.session-footer {
-  padding: .85rem 1rem;
-  background: var(--white);
-  border-top: 1px solid var(--border);
-  flex-shrink: 0;
-}
-
-.btn-finish {
-  width: 100%;
-  padding: .9rem;
-  background: var(--danger);
-  color: var(--white);
-  border: none;
-  border-radius: var(--radius-sm);
-  font-size: 1rem;
-  font-weight: 600;
-  cursor: pointer;
-  min-height: var(--tap-min);
-  transition: background .15s;
-}
-
-.btn-finish:hover   { background: #dc2626; }
-.btn-finish.finished {
-  background: var(--text-muted);
-  cursor: not-allowed;
-}
 
 /* ============================================================
    FEDC TARGET

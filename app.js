@@ -6,7 +6,6 @@ import { CONFIG } from "./config.js";
 import {
   getOrCreateTodaySession,
   listenToSession,
-  finishSession,
   addActivity,
   deleteActivity,
   updateActivityName,
@@ -15,7 +14,6 @@ import {
   deleteRemark,
   addTrial,
   deleteTrial,
-  getTodayUnfinishedStudentIds,
   getRecentSessionsForStudent,
   loadStudentsConfig,
   saveStudent,
@@ -34,14 +32,13 @@ import {
 } from "./firebase-service.js";
 import { exportStudentData } from "./export.js";
 
-const APP_VERSION = "v113";
+const APP_VERSION = "v114";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
   authenticated:      false,
   students:           [],
   templates:          [],
-  unfinishedIds:      new Set(),
   searchExisting:     "",
   searchAssessment:   "",
   searchTemplate:     "",
@@ -152,16 +149,10 @@ async function showHome() {
   state.searchExisting = ""; state.searchAssessment = ""; state.searchTemplate = "";
   [$("search-existing"), $("search-assessment"), $("search-template")]
     .forEach(el => { if (el) el.value = ""; });
-  renderExistingStudentButtons(state.unfinishedIds);
-  renderAssessmentStudentButtons(state.unfinishedIds);
+  renderExistingStudentButtons();
+  renderAssessmentStudentButtons();
   renderTemplateButtons();
   renderExportButtons();
-  try {
-    const unfinished = await getTodayUnfinishedStudentIds();
-    state.unfinishedIds = unfinished;
-    renderExistingStudentButtons(unfinished);
-    renderAssessmentStudentButtons(unfinished);
-  } catch (_) {}
 }
 
 // ── Add student / template from home screen ───────────────────
@@ -172,11 +163,11 @@ $("btn-add-template").addEventListener("click", addNewTemplate);
 
 $("search-existing").addEventListener("input", e => {
   state.searchExisting = e.target.value;
-  renderExistingStudentButtons(state.unfinishedIds);
+  renderExistingStudentButtons();
 });
 $("search-assessment").addEventListener("input", e => {
   state.searchAssessment = e.target.value;
-  renderAssessmentStudentButtons(state.unfinishedIds);
+  renderAssessmentStudentButtons();
 });
 $("search-template").addEventListener("input", e => {
   state.searchTemplate = e.target.value;
@@ -196,8 +187,8 @@ async function addNewStudent(type) {
   };
   state.students.push(s);
   await saveStudent(s);
-  if (type === "existing") renderExistingStudentButtons(state.unfinishedIds);
-  else renderAssessmentStudentButtons(state.unfinishedIds);
+  if (type === "existing") renderExistingStudentButtons();
+  else renderAssessmentStudentButtons();
 }
 
 async function addNewTemplate() {
@@ -219,7 +210,7 @@ async function addNewTemplate() {
 
 // ── Render helpers ────────────────────────────────────────────
 
-function renderStudentList(container, students, unfinishedIds, query = "") {
+function renderStudentList(container, students, query = "") {
   if (!container) return;
   const q = query.toLowerCase();
   const filtered = students
@@ -236,9 +227,6 @@ function renderStudentList(container, students, unfinishedIds, query = "") {
     filtered.map(s => `
       <button class="roster-item" data-id="${s.id}">
         <span class="roster-item-name">${escHtml(s.name)}</span>
-        ${unfinishedIds.has(s.id)
-          ? `<span class="session-indicator">Ongoing Session</span>`
-          : ""}
       </button>
     `).join("") +
     `</div>`;
@@ -250,14 +238,14 @@ function renderStudentList(container, students, unfinishedIds, query = "") {
   });
 }
 
-function renderExistingStudentButtons(unfinishedIds) {
+function renderExistingStudentButtons() {
   const students = state.students.filter(s => !s.type || s.type === "existing");
-  renderStudentList($("existing-student-buttons"), students, unfinishedIds, state.searchExisting);
+  renderStudentList($("existing-student-buttons"), students, state.searchExisting);
 }
 
-function renderAssessmentStudentButtons(unfinishedIds) {
+function renderAssessmentStudentButtons() {
   const students = state.students.filter(s => s.type === "assessment");
-  renderStudentList($("assessment-student-buttons"), students, unfinishedIds, state.searchAssessment);
+  renderStudentList($("assessment-student-buttons"), students, state.searchAssessment);
 }
 
 function renderTemplateButtons() {
@@ -593,16 +581,6 @@ function updateSessionHeader() {
   if (!d) return;
   $("session-meta").textContent =
     `Session ${d.sessionNumber} of ${d.month.split(" ")[0]} · ${formatDate(d.date)}`;
-  const finishBtn = $("btn-finish-session");
-  if (d.finished) {
-    finishBtn.textContent = "Session Finished";
-    finishBtn.disabled    = true;
-    finishBtn.classList.add("finished");
-  } else {
-    finishBtn.textContent = "Finish Session";
-    finishBtn.disabled    = false;
-    finishBtn.classList.remove("finished");
-  }
 }
 
 
@@ -632,11 +610,6 @@ function populateTargetDropdown(targets) {
 }
 
 $("btn-back").addEventListener("click", leaveSession);
-$("btn-finish-session").addEventListener("click", async () => {
-  if (!state.currentSessionId) return;
-  if (!confirm("Mark this session as finished?")) return;
-  await finishSession(state.currentSessionId);
-});
 
 // ============================================================
 // TARGET CONTENT RENDERING
@@ -1790,8 +1763,8 @@ function closeManageModal() {
     if (state.currentSessionId && state.selectedTargetName) renderTargetContent();
   }
   // Always refresh all home screen sections
-  renderExistingStudentButtons(state.unfinishedIds);
-  renderAssessmentStudentButtons(state.unfinishedIds);
+  renderExistingStudentButtons();
+  renderAssessmentStudentButtons();
   renderTemplateButtons();
   renderExportButtons();
 }
