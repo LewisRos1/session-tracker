@@ -32,7 +32,7 @@ import {
 } from "./firebase-service.js";
 import { exportStudentData } from "./export.js";
 
-const APP_VERSION = "v114";
+const APP_VERSION = "v115";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -402,13 +402,17 @@ async function showSessionPicker(student) {
   let sessions = [];
   try { sessions = await getRecentSessionsForStudent(student.id); } catch (_) {}
 
-  // Auto-delete sessions that have no data for any currently existing target
+  // Auto-delete sessions with no remarks for any currently existing target
   const currentTargetNames = new Set((student.targets || []).map(t => t.name));
-  const isEffectivelyEmpty = s => {
-    const acts = Object.values(s.activities || {});
-    return !acts.some(a => currentTargetNames.has(a.targetName));
+  const hasUsefulData = s => {
+    const remarks = Object.values(s.remarks || {});
+    if (!remarks.length) return false;
+    return remarks.some(r => {
+      const act = (s.activities || {})[r.activityId];
+      return act && currentTargetNames.has(act.targetName);
+    });
   };
-  const emptySessions = sessions.filter(isEffectivelyEmpty);
+  const emptySessions = sessions.filter(s => !hasUsefulData(s));
   emptySessions.forEach(s => deleteSession(s.id).catch(() => {}));
   sessions = sessions.filter(s => !emptySessions.some(e => e.id === s.id));
 
@@ -568,9 +572,12 @@ function leaveSession() {
 
   if (sessionId && data) {
     const currentTargetNames = new Set((student?.targets || []).map(t => t.name));
-    const acts = Object.values(data.activities || {});
-    const hasValidActivity = acts.some(a => currentTargetNames.has(a.targetName));
-    if (!hasValidActivity) deleteSession(sessionId).catch(() => {});
+    const remarks = Object.values(data.remarks || {});
+    const hasUsefulData = remarks.some(r => {
+      const act = (data.activities || {})[r.activityId];
+      return act && currentTargetNames.has(act.targetName);
+    });
+    if (!hasUsefulData) deleteSession(sessionId).catch(() => {});
   }
 
   showHome();
@@ -1305,9 +1312,12 @@ function leaveSessionView() {
 
   if (sessionId && data) {
     const currentTargetNames = new Set((student?.targets || []).map(t => t.name));
-    const acts = Object.values(data.activities || {});
-    const hasValidActivity = acts.some(a => currentTargetNames.has(a.targetName));
-    if (!hasValidActivity) deleteSession(sessionId).catch(() => {});
+    const remarks = Object.values(data.remarks || {});
+    const hasUsefulData = remarks.some(r => {
+      const act = (data.activities || {})[r.activityId];
+      return act && currentTargetNames.has(act.targetName);
+    });
+    if (!hasUsefulData) deleteSession(sessionId).catch(() => {});
   }
 
   showHome();
