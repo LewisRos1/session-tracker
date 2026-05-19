@@ -514,6 +514,18 @@ html, body {
   border-left: 4px solid var(--primary);
 }
 
+.activity-note-heading {
+  margin-top: 1rem;
+  padding: .5rem .85rem;
+  font-size: .8rem;
+  font-weight: 700;
+  color: var(--primary-dark);
+  background: var(--primary-light);
+  border-radius: var(--radius-sm);
+  border-left: 4px solid var(--primary);
+  white-space: pre-wrap;
+}
+
 .fedc-comment-block {
   display: flex;
   flex-direction: column;

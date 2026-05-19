@@ -42,7 +42,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "142";
+const APP_VERSION = "144";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -112,12 +112,17 @@ document.addEventListener("DOMContentLoaded", async () => {
 
 function registerServiceWorker() {
   if (!("serviceWorker" in navigator)) return;
-  // updateViaCache:"none" prevents Safari from serving a stale sw.js from HTTP cache.
+  const promptSkip = sw => sw.postMessage("skipWaiting");
   navigator.serviceWorker.register("sw.js", { updateViaCache: "none" })
     .then(reg => {
-      // Force an update check on every page load — bypasses Chrome's 24-hour throttle.
+      if (reg.waiting) promptSkip(reg.waiting);
+      reg.addEventListener("updatefound", () => {
+        const sw = reg.installing;
+        sw.addEventListener("statechange", () => {
+          if (sw.state === "installed") promptSkip(sw);
+        });
+      });
       reg.update();
-      // Also check whenever the boss returns to the app.
       document.addEventListener("visibilitychange", () => {
         if (document.visibilityState === "visible") reg.update();
       });
@@ -745,6 +750,12 @@ function renderFedcTarget(target) {
   const letters = "abcdefghij";
   let lastGroup = null;
   target.predefinedActivities.forEach((pa, idx) => {
+    // Note item — render inline in order, styled like a section heading
+    if (pa.isNote) {
+      if (pa.text) html += `<div class="activity-note-heading">Note: ${escHtml(pa.text)}</div>`;
+      return;
+    }
+
     // New format: explicit heading row
     if (pa.isHeading) {
       html += `<div class="activity-group-heading">${escHtml(pa.name)}</div>`;
@@ -806,19 +817,6 @@ function renderFedcTarget(target) {
 
     html += `</div>`;
   });
-
-  // Target-level reference notes (unified: new isNote items + legacy notes array)
-  const _noteItems = [
-    ...(target.predefinedActivities || []).filter(pa => pa.isNote).map(pa => ({ text: pa.text || "" })),
-    ...(target.notes || [])
-  ];
-  if (_noteItems.some(n => n.text)) {
-    html += `<div class="target-notes">`;
-    for (const n of _noteItems) {
-      if (n.text) html += `<div class="target-note-item">📌 ${escHtml(n.text)}</div>`;
-    }
-    html += `</div>`;
-  }
 
   // One-off activities added just for this session (white, same as free-form)
   const manualActivities = getActivitiesForTarget(target.name).filter(a => !a.isPredefined);
