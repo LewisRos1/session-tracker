@@ -42,7 +42,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "v130";
+const APP_VERSION = "v131";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -76,6 +76,17 @@ const $ = id => document.getElementById(id);
 
 // ─── INIT ────────────────────────────────────────────────────
 document.addEventListener("DOMContentLoaded", async () => {
+  // Register SW immediately — don't wait for Firebase so updates are never blocked.
+  registerServiceWorker();
+
+  // If already authenticated, hide the PIN screen right away (no half-second flash).
+  const alreadyAuth = sessionStorage.getItem("auth") === "1";
+  if (alreadyAuth) {
+    const pinScreen = document.getElementById("screen-pin");
+    pinScreen.classList.remove("active");
+    pinScreen.classList.add("hidden");
+  }
+
   document.addEventListener("focusout", () => {
     if (state.renderPending) {
       state.renderPending = false;
@@ -104,13 +115,11 @@ document.addEventListener("DOMContentLoaded", async () => {
     state.templates = await loadTemplates();
   } catch (_) {}
 
-  if (sessionStorage.getItem("auth") === "1") {
+  if (alreadyAuth) {
     showHome();
   } else {
     initPin();
   }
-
-  registerServiceWorker();
 });
 
 function registerServiceWorker() {
