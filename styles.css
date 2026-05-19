@@ -517,12 +517,14 @@ html, body {
 .activity-note-heading {
   margin-top: 1rem;
   padding: .5rem .85rem;
-  font-size: .8rem;
-  font-weight: 700;
+  font-size: .93rem;
+  font-weight: 600;
+  font-family: var(--font);
   color: #92400e;
   background: #fffbeb;
   border-radius: var(--radius-sm);
   border-left: 4px solid #f59e0b;
+  line-height: 1.4;
   white-space: pre-wrap;
 }
 

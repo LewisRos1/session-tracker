@@ -42,7 +42,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "147";
+const APP_VERSION = "149";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -2177,7 +2177,7 @@ function renderTargetManageContent(student, target) {
       html += `<div class="admin-list-item admin-note-item" data-idx="${idx}">
         <span class="drag-handle">⠿</span>
         <textarea class="admin-input" id="mn-act-name-${idx}" data-idx="${idx}"
-          rows="1" placeholder="Reference note…" style="flex:1">${escHtml(a.text || "")}</textarea>
+          rows="2" placeholder="Reference note…" style="flex:1">${escHtml(a.text || "")}</textarea>
         <button class="btn-adm-del mn-del-act" data-idx="${idx}">🗑</button>
       </div>`;
     } else {
@@ -2247,10 +2247,13 @@ function renderTargetManageContent(student, target) {
   acts.forEach((a, idx) => {
     const input = $(`mn-act-name-${idx}`);
     if (a.isNote && input) {
-      // Auto-resize: shrinks and grows with content
       const resize = () => { input.style.height = "auto"; input.style.height = input.scrollHeight + "px"; };
       resize();
       input.addEventListener("input", resize);
+      input.addEventListener("keyup", resize);
+      input.addEventListener("keydown", e => {
+        if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); input.blur(); }
+      });
     }
     input?.addEventListener("blur", async () => {
       if (a.isNote) {
@@ -2364,7 +2367,7 @@ function renderTemplateManageContent(template) {
       html += `<div class="admin-list-item admin-note-item" data-idx="${idx}">
         <span class="drag-handle">⠿</span>
         <textarea class="admin-input" id="mn-act-name-${idx}" data-idx="${idx}"
-          rows="1" placeholder="Reference note…" style="flex:1">${escHtml(a.text || "")}</textarea>
+          rows="2" placeholder="Reference note…" style="flex:1">${escHtml(a.text || "")}</textarea>
         <button class="btn-adm-del mn-del-act" data-idx="${idx}">🗑</button>
       </div>`;
     } else {
@@ -2434,6 +2437,10 @@ function renderTemplateManageContent(template) {
       const resize = () => { input.style.height = "auto"; input.style.height = input.scrollHeight + "px"; };
       resize();
       input.addEventListener("input", resize);
+      input.addEventListener("keyup", resize);
+      input.addEventListener("keydown", e => {
+        if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); input.blur(); }
+      });
     }
     input?.addEventListener("blur", async () => {
       if (a.isNote) {
