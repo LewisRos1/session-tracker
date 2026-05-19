@@ -42,7 +42,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "154";
+const APP_VERSION = "156";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -2197,8 +2197,8 @@ function renderTargetManageContent(student, target) {
     } else {
       html += `<div class="admin-list-item" data-idx="${idx}">
         <span class="drag-handle">⠿</span>
-        <input class="admin-input" id="mn-act-name-${idx}" data-idx="${idx}"
-          value="${escHtml(a.name)}" placeholder="Activity name" style="flex:1" />
+        <textarea class="admin-input" id="mn-act-name-${idx}" data-idx="${idx}"
+          rows="2" placeholder="Activity name" style="flex:1">${escHtml(a.name || "")}</textarea>
         <button class="btn-adm-del mn-del-act" data-idx="${idx}">🗑</button>
       </div>`;
     }
@@ -2272,9 +2272,9 @@ function renderTargetManageContent(student, target) {
       await saveTarget();
       flashSaved(input);
     });
-    if (!a.isNote) {
+    if (!a.isNote && !a.isHeading) {
       input?.addEventListener("keydown", e => {
-        if (e.key === "Enter") { e.preventDefault(); input.blur(); }
+        if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); input.blur(); }
       });
     }
   });
@@ -2378,8 +2378,8 @@ function renderTemplateManageContent(template) {
     } else {
       html += `<div class="admin-list-item" data-idx="${idx}">
         <span class="drag-handle">⠿</span>
-        <input class="admin-input" id="mn-act-name-${idx}" data-idx="${idx}"
-          value="${escHtml(a.name)}" placeholder="Activity name" style="flex:1" />
+        <textarea class="admin-input" id="mn-act-name-${idx}" data-idx="${idx}"
+          rows="2" placeholder="Activity name" style="flex:1">${escHtml(a.name || "")}</textarea>
         <button class="btn-adm-del mn-del-act" data-idx="${idx}">🗑</button>
       </div>`;
     }
@@ -2450,9 +2450,9 @@ function renderTemplateManageContent(template) {
       await saveTemplateFn();
       flashSaved(input);
     });
-    if (!a.isNote) {
+    if (!a.isNote && !a.isHeading) {
       input?.addEventListener("keydown", e => {
-        if (e.key === "Enter") { e.preventDefault(); input.blur(); }
+        if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); input.blur(); }
       });
     }
   });
