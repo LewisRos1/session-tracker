@@ -32,7 +32,17 @@ import {
 } from "./firebase-service.js";
 import { exportStudentData } from "./export.js";
 
-const APP_VERSION = "v125";
+// ── SW update detection — must run at parse time, before DOMContentLoaded,
+//   so the listener is in place before the new SW can fire controllerchange.
+if ("serviceWorker" in navigator) {
+  const hadController = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    // Only reload for updates, not for the very first SW install.
+    if (hadController) window.location.reload();
+  });
+}
+
+const APP_VERSION = "v127";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -42,6 +52,7 @@ const state = {
   searchExisting:     "",
   searchAssessment:   "",
   searchTemplate:     "",
+  searchExport:       "",
   currentStudent:     null,
   currentSessionId:   null,
   sessionData:        null,
@@ -104,10 +115,15 @@ document.addEventListener("DOMContentLoaded", async () => {
 
 function registerServiceWorker() {
   if (!("serviceWorker" in navigator)) return;
-  navigator.serviceWorker.addEventListener("controllerchange", () => {
-    window.location.reload();
-  });
-  navigator.serviceWorker.register("sw.js").catch(() => {});
+  // updateViaCache:"none" prevents Safari from serving a stale sw.js from HTTP cache.
+  navigator.serviceWorker.register("sw.js", { updateViaCache: "none" })
+    .then(reg => {
+      // Proactively check for a new SW whenever the boss returns to the app.
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible") reg.update();
+      });
+    })
+    .catch(() => {});
 }
 
 // ============================================================
@@ -146,8 +162,8 @@ async function showHome() {
   const verEl = document.getElementById("app-version");
   if (verEl) verEl.textContent = `Made by Lewis · ${APP_VERSION}`;
   // Clear section searches when returning home
-  state.searchExisting = ""; state.searchAssessment = ""; state.searchTemplate = "";
-  [$("search-existing"), $("search-assessment"), $("search-template")]
+  state.searchExisting = ""; state.searchAssessment = ""; state.searchTemplate = ""; state.searchExport = "";
+  [$("search-existing"), $("search-assessment"), $("search-template"), $("search-export")]
     .forEach(el => { if (el) el.value = ""; });
   renderExistingStudentButtons();
   renderAssessmentStudentButtons();
@@ -172,6 +188,10 @@ $("search-assessment").addEventListener("input", e => {
 $("search-template").addEventListener("input", e => {
   state.searchTemplate = e.target.value;
   renderTemplateButtons();
+});
+$("search-export").addEventListener("input", e => {
+  state.searchExport = e.target.value;
+  renderExportButtons();
 });
 
 async function addNewStudent(type) {
@@ -283,7 +303,9 @@ function renderTemplateButtons() {
 function renderExportButtons() {
   const container = $("export-buttons");
   if (!container) return;
-  container.innerHTML = state.students.map(s => `
+  const q = (state.searchExport || "").toLowerCase();
+  const filtered = q ? state.students.filter(s => s.name.toLowerCase().includes(q)) : state.students;
+  container.innerHTML = filtered.map(s => `
     <button class="export-btn" data-id="${s.id}">Export ${escHtml(s.name)}</button>
   `).join("");
   container.querySelectorAll(".export-btn").forEach(btn => {
