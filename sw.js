@@ -3,7 +3,7 @@
 // Firebase SDK handles Firestore data offline independently.
 // ============================================================
 
-const CACHE_NAME = "therapy-tracker-v120";
+const CACHE_NAME = "therapy-tracker-v121";
 
 // App shell files to pre-cache
 const SHELL_URLS = [
@@ -45,8 +45,10 @@ self.addEventListener("fetch", event => {
   if (url.origin !== self.location.origin) return;
 
   // Local — try network first, cache the response, fall back to cache if offline
+  // Use cache:"no-cache" so the browser's HTTP cache never serves stale files.
+  const freshReq = new Request(event.request, { cache: "no-cache" });
   event.respondWith(
-    fetch(event.request).then(resp => {
+    fetch(freshReq).then(resp => {
       if (resp && resp.status === 200) {
         const clone = resp.clone();
         caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
