@@ -42,7 +42,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "150";
+const APP_VERSION = "151";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -2248,7 +2248,14 @@ function renderTargetManageContent(student, target) {
     const input = $(`mn-act-name-${idx}`);
     if (a.isNote && input) {
       input.addEventListener("keydown", e => {
-        if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); input.blur(); }
+        if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); input.blur(); return; }
+        if (e.key === "Enter") {
+          e.preventDefault();
+          const s = input.selectionStart, en = input.selectionEnd;
+          input.value = input.value.slice(0, s) + "\n" + input.value.slice(en);
+          input.selectionStart = input.selectionEnd = s + 1;
+          input.dispatchEvent(new Event("input"));
+        }
       });
     }
     input?.addEventListener("blur", async () => {
@@ -2431,7 +2438,14 @@ function renderTemplateManageContent(template) {
     const input = $(`mn-act-name-${idx}`);
     if (a.isNote && input) {
       input.addEventListener("keydown", e => {
-        if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); input.blur(); }
+        if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); input.blur(); return; }
+        if (e.key === "Enter") {
+          e.preventDefault();
+          const s = input.selectionStart, en = input.selectionEnd;
+          input.value = input.value.slice(0, s) + "\n" + input.value.slice(en);
+          input.selectionStart = input.selectionEnd = s + 1;
+          input.dispatchEvent(new Event("input"));
+        }
       });
     }
     input?.addEventListener("blur", async () => {
