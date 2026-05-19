@@ -42,7 +42,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "144";
+const APP_VERSION = "146";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -752,7 +752,7 @@ function renderFedcTarget(target) {
   target.predefinedActivities.forEach((pa, idx) => {
     // Note item — render inline in order, styled like a section heading
     if (pa.isNote) {
-      if (pa.text) html += `<div class="activity-note-heading">Note: ${escHtml(pa.text)}</div>`;
+      if (pa.text) html += `<div class="activity-note-heading">${escHtml(pa.text)}</div>`;
       return;
     }
 

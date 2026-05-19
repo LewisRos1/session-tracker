@@ -519,10 +519,10 @@ html, body {
   padding: .5rem .85rem;
   font-size: .8rem;
   font-weight: 700;
-  color: var(--primary-dark);
-  background: var(--primary-light);
+  color: #92400e;
+  background: #fffbeb;
   border-radius: var(--radius-sm);
-  border-left: 4px solid var(--primary);
+  border-left: 4px solid #f59e0b;
   white-space: pre-wrap;
 }
 
