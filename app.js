@@ -42,7 +42,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "138";
+const APP_VERSION = "140";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -807,10 +807,14 @@ function renderFedcTarget(target) {
     html += `</div>`;
   });
 
-  // Target-level reference notes
-  if (target.notes?.length > 0) {
+  // Target-level reference notes (unified: new isNote items + legacy notes array)
+  const _noteItems = [
+    ...(target.predefinedActivities || []).filter(pa => pa.isNote).map(pa => ({ text: pa.text || "" })),
+    ...(target.notes || [])
+  ];
+  if (_noteItems.some(n => n.text)) {
     html += `<div class="target-notes">`;
-    for (const n of target.notes) {
+    for (const n of _noteItems) {
       if (n.text) html += `<div class="target-note-item">📌 ${escHtml(n.text)}</div>`;
     }
     html += `</div>`;
@@ -826,11 +830,10 @@ function renderFedcTarget(target) {
     html += `<div class="entry-block" data-act-id="${act.id}">
       <div class="entry-field">
         <span class="field-label">Activity</span>
-        <input class="field-input activity-name-input"
-          type="text"
-          value="${escHtml(act.activityName)}"
+        <textarea class="field-input activity-name-input"
+          rows="2"
           data-act-id="${act.id}"
-          data-original="${escHtml(act.activityName)}" />
+          data-original="${escHtml(act.activityName)}">${escHtml(act.activityName)}</textarea>
         <button class="btn-icon btn-delete-activity"
           data-act-id="${act.id}" title="Delete activity">🗑</button>
       </div>`;
@@ -854,8 +857,8 @@ function renderFedcTarget(target) {
     html += `<div class="entry-block">
       <div class="entry-field">
         <span class="field-label">Activity</span>
-        <input id="new-activity-input" class="field-input"
-          type="text" placeholder="Type activity name…" maxlength="200" />
+        <textarea id="new-activity-textarea" class="field-input"
+          placeholder="Type activity name… (Enter = new line · Ctrl+Enter to save)" rows="2"></textarea>
         <button class="btn-icon btn-cancel-new-activity" title="Cancel">✕</button>
       </div>
     </div>`;
@@ -889,11 +892,10 @@ function renderRegularTarget(target) {
     html += `<div class="entry-block" data-act-id="${act.id}">
       <div class="entry-field">
         <span class="field-label">Activity</span>
-        <input class="field-input activity-name-input"
-          type="text"
-          value="${escHtml(act.activityName)}"
+        <textarea class="field-input activity-name-input"
+          rows="2"
           data-act-id="${act.id}"
-          data-original="${escHtml(act.activityName)}" />
+          data-original="${escHtml(act.activityName)}">${escHtml(act.activityName)}</textarea>
         <button class="btn-icon btn-delete-activity"
           data-act-id="${act.id}" title="Delete activity">🗑</button>
       </div>`;
@@ -919,8 +921,8 @@ function renderRegularTarget(target) {
     html += `<div class="entry-block">
       <div class="entry-field">
         <span class="field-label">Activity</span>
-        <input id="new-activity-input" class="field-input"
-          type="text" placeholder="Type activity name…" maxlength="200" />
+        <textarea id="new-activity-textarea" class="field-input"
+          placeholder="Type activity name… (Enter = new line · Ctrl+Enter to save)" rows="2"></textarea>
         <button class="btn-icon btn-cancel-new-activity" title="Cancel">✕</button>
       </div>
     </div>`;
@@ -1053,7 +1055,7 @@ function attachTargetListeners(target) {
       }
     });
     input.addEventListener("keydown", e => {
-      if (e.key === "Enter") { e.preventDefault(); input.blur(); }
+      if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); input.blur(); }
     });
   });
 
@@ -1062,18 +1064,18 @@ function attachTargetListeners(target) {
     state.pendingNewActivity = { targetName: target.name };
     state.pendingNewRemark   = null;
     renderTargetContent();
-    setTimeout(() => $("new-activity-input")?.focus(), 50);
+    setTimeout(() => $("new-activity-textarea")?.focus(), 50);
   });
 
-  $("new-activity-input")?.addEventListener("keydown", e => {
-    if (e.key === "Enter") confirmNewActivity(target);
+  $("new-activity-textarea")?.addEventListener("keydown", e => {
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); confirmNewActivity(target); }
     if (e.key === "Escape") cancelPendingActivity();
   });
 
-  $("new-activity-input")?.addEventListener("blur", e => {
+  $("new-activity-textarea")?.addEventListener("blur", e => {
     // Small delay so cancel button click can fire first
     setTimeout(() => {
-      const input = $("new-activity-input");
+      const input = $("new-activity-textarea");
       if (!input) return; // already removed by cancel
       const name = input.value.trim();
       state.pendingNewActivity = null;
@@ -1221,7 +1223,7 @@ function attachTargetListeners(target) {
 // ─── ACTION HELPERS ──────────────────────────────────────────
 
 async function confirmNewActivity(target) {
-  const input = $("new-activity-input");
+  const input = $("new-activity-textarea");
   if (!input) return;
   const name = input.value.trim();
   if (!name) { input.focus(); return; }
@@ -2137,10 +2139,17 @@ function normalizeActivitiesFormat(acts) {
 
 function renderTargetManageContent(student, target) {
   $("manage-modal-title").textContent = target.name;
-  // Migrate old group-field format to heading-row format (saved on next boss action)
   target.predefinedActivities = normalizeActivitiesFormat(target.predefinedActivities || []);
-  const acts  = target.predefinedActivities;
-  const notes = target.notes || [];
+
+  // Migrate legacy notes array into the unified predefinedActivities list
+  if (target.notes?.length > 0) {
+    for (const n of target.notes) {
+      target.predefinedActivities.push({ id: n.id || cfgId("n"), isNote: true, text: n.text || "", order: target.predefinedActivities.length });
+    }
+    target.notes = [];
+  }
+
+  const acts = target.predefinedActivities;
 
   let html = `
     <div class="admin-section">
@@ -2155,7 +2164,7 @@ function renderTargetManageContent(student, target) {
       </div>
     </div>
 
-    <div class="admin-section-title">Predefined Activities</div>
+    <div class="admin-section-title">Activities & Notes</div>
     <div class="admin-list" id="mn-act-list">`;
 
   acts.forEach((a, idx) => {
@@ -2164,6 +2173,13 @@ function renderTargetManageContent(student, target) {
         <span class="drag-handle">⠿</span>
         <input class="admin-input mn-heading-input" id="mn-act-name-${idx}" data-idx="${idx}"
           value="${escHtml(a.name)}" placeholder="Section heading name" />
+        <button class="btn-adm-del mn-del-act" data-idx="${idx}">🗑</button>
+      </div>`;
+    } else if (a.isNote) {
+      html += `<div class="admin-list-item admin-note-item" data-idx="${idx}">
+        <span class="drag-handle">⠿</span>
+        <textarea class="admin-input" id="mn-act-name-${idx}" data-idx="${idx}"
+          rows="2" placeholder="Reference note…" style="flex:1">${escHtml(a.text || "")}</textarea>
         <button class="btn-adm-del mn-del-act" data-idx="${idx}">🗑</button>
       </div>`;
     } else {
@@ -2177,23 +2193,11 @@ function renderTargetManageContent(student, target) {
   });
 
   html += `</div>
-    <div style="display:flex;gap:.5rem;margin-top:.25rem">
+    <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.25rem">
       <button class="btn-admin-add" id="btn-mn-add-act" style="flex:1">+ Add Activity</button>
       <button class="btn-admin-add" id="btn-mn-add-heading" style="flex:1">+ Add Section Heading</button>
+      <button class="btn-admin-add" id="btn-mn-add-note" style="flex:1">+ Add Reference Note</button>
     </div>
-
-    <div class="admin-section-title" style="margin-top:1.25rem">Reference Notes</div>
-    <div class="admin-list" id="mn-notes-list">`;
-
-  notes.forEach((n, idx) => {
-    html += `<div class="admin-list-item admin-note-item">
-      <textarea class="admin-input mn-note-text" data-idx="${idx}" rows="2">${escHtml(n.text)}</textarea>
-      <button class="btn-adm-del mn-del-note" data-idx="${idx}">🗑</button>
-    </div>`;
-  });
-
-  html += `</div>
-    <button class="btn-admin-add" id="btn-mn-add-note">+ Add Note</button>
     <div style="margin-top:2rem;padding-bottom:1.5rem">
       <button class="btn-primary-sm" id="btn-mn-done-target"
         style="width:100%;padding:.75rem;margin-bottom:.75rem">Done</button>
@@ -2245,21 +2249,29 @@ function renderTargetManageContent(student, target) {
   acts.forEach((a, idx) => {
     const input = $(`mn-act-name-${idx}`);
     input?.addEventListener("blur", async () => {
-      const v = input.value.trim();
-      if (!v || v === a.name) return;
-      a.name = v;
+      if (a.isNote) {
+        if (input.value === (a.text || "")) return;
+        a.text = input.value;
+      } else {
+        const v = input.value.trim();
+        if (!v || v === a.name) return;
+        a.name = v;
+      }
       await saveTarget();
       flashSaved(input);
     });
-    input?.addEventListener("keydown", e => {
-      if (e.key === "Enter") { e.preventDefault(); input.blur(); }
-    });
+    if (!a.isNote) {
+      input?.addEventListener("keydown", e => {
+        if (e.key === "Enter") { e.preventDefault(); input.blur(); }
+      });
+    }
   });
 
   $("manage-modal-body").querySelectorAll(".mn-del-act").forEach(btn => {
     btn.addEventListener("click", async () => {
       const idx = Number(btn.dataset.idx);
-      const label = acts[idx]?.isHeading ? "section heading" : "activity";
+      const item = acts[idx];
+      const label = item?.isHeading ? "section heading" : item?.isNote ? "reference note" : "activity";
       if (!confirm(`Delete this ${label}?`)) return;
       acts.splice(idx, 1);
       acts.forEach((a, i) => a.order = i);
@@ -2283,31 +2295,9 @@ function renderTargetManageContent(student, target) {
     renderTargetManageContent(student, target);
   });
 
-  $("manage-modal-body").querySelectorAll(".mn-note-text").forEach(ta => {
-    ta.addEventListener("blur", async () => {
-      const idx = Number(ta.dataset.idx);
-      if (ta.value === notes[idx].text) return;
-      notes[idx].text = ta.value;
-      target.notes = notes;
-      await saveTarget();
-      flashSaved(ta);
-    });
-  });
-
-  $("manage-modal-body").querySelectorAll(".mn-del-note").forEach(btn => {
-    btn.addEventListener("click", async () => {
-      const idx = Number(btn.dataset.idx);
-      if (!confirm("Delete this note?")) return;
-      notes.splice(idx, 1);
-      target.notes = notes;
-      await saveTarget();
-      renderTargetManageContent(student, target);
-    });
-  });
-
   $("btn-mn-add-note").addEventListener("click", async () => {
-    notes.push({ id: cfgId("n"), text: "", order: notes.length });
-    target.notes = notes;
+    acts.push({ id: cfgId("n"), isNote: true, text: "", order: acts.length });
+    target.predefinedActivities = acts;
     await saveTarget();
     renderTargetManageContent(student, target);
   });
@@ -2331,8 +2321,16 @@ function renderTargetManageContent(student, target) {
 function renderTemplateManageContent(template) {
   $("manage-modal-title").textContent = template.name;
   template.predefinedActivities = normalizeActivitiesFormat(template.predefinedActivities || []);
-  const acts  = template.predefinedActivities;
-  const notes = template.notes || [];
+
+  // Migrate legacy notes array into the unified predefinedActivities list
+  if (template.notes?.length > 0) {
+    for (const n of template.notes) {
+      template.predefinedActivities.push({ id: n.id || cfgId("n"), isNote: true, text: n.text || "", order: template.predefinedActivities.length });
+    }
+    template.notes = [];
+  }
+
+  const acts = template.predefinedActivities;
 
   let html = `
     <div class="admin-section">
@@ -2347,7 +2345,7 @@ function renderTemplateManageContent(template) {
       </div>
     </div>
 
-    <div class="admin-section-title">Predefined Activities</div>
+    <div class="admin-section-title">Activities & Notes</div>
     <div class="admin-list" id="mn-act-list">`;
 
   acts.forEach((a, idx) => {
@@ -2356,6 +2354,13 @@ function renderTemplateManageContent(template) {
         <span class="drag-handle">⠿</span>
         <input class="admin-input mn-heading-input" id="mn-act-name-${idx}" data-idx="${idx}"
           value="${escHtml(a.name)}" placeholder="Section heading name" />
+        <button class="btn-adm-del mn-del-act" data-idx="${idx}">🗑</button>
+      </div>`;
+    } else if (a.isNote) {
+      html += `<div class="admin-list-item admin-note-item" data-idx="${idx}">
+        <span class="drag-handle">⠿</span>
+        <textarea class="admin-input" id="mn-act-name-${idx}" data-idx="${idx}"
+          rows="2" placeholder="Reference note…" style="flex:1">${escHtml(a.text || "")}</textarea>
         <button class="btn-adm-del mn-del-act" data-idx="${idx}">🗑</button>
       </div>`;
     } else {
@@ -2369,23 +2374,11 @@ function renderTemplateManageContent(template) {
   });
 
   html += `</div>
-    <div style="display:flex;gap:.5rem;margin-top:.25rem">
+    <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.25rem">
       <button class="btn-admin-add" id="btn-mn-add-act" style="flex:1">+ Add Activity</button>
       <button class="btn-admin-add" id="btn-mn-add-heading" style="flex:1">+ Add Section Heading</button>
+      <button class="btn-admin-add" id="btn-mn-add-note" style="flex:1">+ Add Reference Note</button>
     </div>
-
-    <div class="admin-section-title" style="margin-top:1.25rem">Reference Notes</div>
-    <div class="admin-list" id="mn-notes-list">`;
-
-  notes.forEach((n, idx) => {
-    html += `<div class="admin-list-item admin-note-item">
-      <textarea class="admin-input mn-note-text" data-idx="${idx}" rows="2">${escHtml(n.text)}</textarea>
-      <button class="btn-adm-del mn-del-note" data-idx="${idx}">🗑</button>
-    </div>`;
-  });
-
-  html += `</div>
-    <button class="btn-admin-add" id="btn-mn-add-note">+ Add Note</button>
     <div style="margin-top:2rem;padding-bottom:1.5rem">
       <button class="btn-adm-danger" id="btn-mn-del-template">Delete Template</button>
     </div>`;
@@ -2434,21 +2427,29 @@ function renderTemplateManageContent(template) {
   acts.forEach((a, idx) => {
     const input = $(`mn-act-name-${idx}`);
     input?.addEventListener("blur", async () => {
-      const v = input.value.trim();
-      if (!v || v === a.name) return;
-      a.name = v;
+      if (a.isNote) {
+        if (input.value === (a.text || "")) return;
+        a.text = input.value;
+      } else {
+        const v = input.value.trim();
+        if (!v || v === a.name) return;
+        a.name = v;
+      }
       await saveTemplateFn();
       flashSaved(input);
     });
-    input?.addEventListener("keydown", e => {
-      if (e.key === "Enter") { e.preventDefault(); input.blur(); }
-    });
+    if (!a.isNote) {
+      input?.addEventListener("keydown", e => {
+        if (e.key === "Enter") { e.preventDefault(); input.blur(); }
+      });
+    }
   });
 
   $("manage-modal-body").querySelectorAll(".mn-del-act").forEach(btn => {
     btn.addEventListener("click", async () => {
       const idx = Number(btn.dataset.idx);
-      const label = acts[idx]?.isHeading ? "section heading" : "activity";
+      const item = acts[idx];
+      const label = item?.isHeading ? "section heading" : item?.isNote ? "reference note" : "activity";
       if (!confirm(`Delete this ${label}?`)) return;
       acts.splice(idx, 1);
       acts.forEach((a, i) => a.order = i);
@@ -2472,31 +2473,9 @@ function renderTemplateManageContent(template) {
     renderTemplateManageContent(template);
   });
 
-  $("manage-modal-body").querySelectorAll(".mn-note-text").forEach(ta => {
-    ta.addEventListener("blur", async () => {
-      const idx = Number(ta.dataset.idx);
-      if (ta.value === notes[idx].text) return;
-      notes[idx].text = ta.value;
-      template.notes = notes;
-      await saveTemplateFn();
-      flashSaved(ta);
-    });
-  });
-
-  $("manage-modal-body").querySelectorAll(".mn-del-note").forEach(btn => {
-    btn.addEventListener("click", async () => {
-      const idx = Number(btn.dataset.idx);
-      if (!confirm("Delete this note?")) return;
-      notes.splice(idx, 1);
-      template.notes = notes;
-      await saveTemplateFn();
-      renderTemplateManageContent(template);
-    });
-  });
-
   $("btn-mn-add-note").addEventListener("click", async () => {
-    notes.push({ id: cfgId("n"), text: "", order: notes.length });
-    template.notes = notes;
+    acts.push({ id: cfgId("n"), isNote: true, text: "", order: acts.length });
+    template.predefinedActivities = acts;
     await saveTemplateFn();
     renderTemplateManageContent(template);
   });

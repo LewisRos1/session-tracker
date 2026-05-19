@@ -292,6 +292,7 @@ function getAllActivitiesForTarget(session, target) {
   const usedIds = new Set();
 
   for (const pa of (target.predefinedActivities || [])) {
+    if (pa.isNote) continue;
     if (!pa.name) continue;
     if (pa.isHeading) {
       result.push({ isHeading: true, activityName: pa.name });
