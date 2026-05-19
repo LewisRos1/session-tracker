@@ -42,7 +42,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "156";
+const APP_VERSION = "158";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -1824,7 +1824,7 @@ function closeManageModal() {
   // Refresh session dropdown / content if a session is active
   if (state.currentStudent) {
     populateTargetDropdown(state.currentStudent.targets);
-    if (state.currentSessionId && state.selectedTargetName) renderTargetContent();
+    if (state.currentSessionId) renderTargetContent();
   }
   // Always refresh all home screen sections
   renderExistingStudentButtons();
@@ -2198,7 +2198,7 @@ function renderTargetManageContent(student, target) {
       html += `<div class="admin-list-item" data-idx="${idx}">
         <span class="drag-handle">⠿</span>
         <textarea class="admin-input" id="mn-act-name-${idx}" data-idx="${idx}"
-          rows="2" placeholder="Activity name" style="flex:1">${escHtml(a.name || "")}</textarea>
+          rows="1" placeholder="Activity name" style="flex:1">${escHtml(a.name || "")}</textarea>
         <button class="btn-adm-del mn-del-act" data-idx="${idx}">🗑</button>
       </div>`;
     }
@@ -2289,7 +2289,9 @@ function renderTargetManageContent(student, target) {
       acts.forEach((a, i) => a.order = i);
       target.predefinedActivities = acts;
       await saveTarget();
+      const sp = $("manage-modal-body")?.scrollTop ?? 0;
       renderTargetManageContent(student, target);
+      requestAnimationFrame(() => { const b = $("manage-modal-body"); if (b) b.scrollTop = sp; });
     });
   });
 
@@ -2379,7 +2381,7 @@ function renderTemplateManageContent(template) {
       html += `<div class="admin-list-item" data-idx="${idx}">
         <span class="drag-handle">⠿</span>
         <textarea class="admin-input" id="mn-act-name-${idx}" data-idx="${idx}"
-          rows="2" placeholder="Activity name" style="flex:1">${escHtml(a.name || "")}</textarea>
+          rows="1" placeholder="Activity name" style="flex:1">${escHtml(a.name || "")}</textarea>
         <button class="btn-adm-del mn-del-act" data-idx="${idx}">🗑</button>
       </div>`;
     }
@@ -2467,7 +2469,9 @@ function renderTemplateManageContent(template) {
       acts.forEach((a, i) => a.order = i);
       template.predefinedActivities = acts;
       await saveTemplateFn();
+      const sp = $("manage-modal-body")?.scrollTop ?? 0;
       renderTemplateManageContent(template);
+      requestAnimationFrame(() => { const b = $("manage-modal-body"); if (b) b.scrollTop = sp; });
     });
   });
 

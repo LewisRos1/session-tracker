@@ -1233,6 +1233,7 @@ html, body {
   outline: none;
 }
 textarea.admin-input { resize: vertical; min-height: 60px; line-height: 1.45; }
+.admin-list-item:not(.admin-note-item) textarea.admin-input { min-height: unset; }
 
 /* ─── Max-points row ─────────────────────────────────────── */
 .admin-row {
