@@ -42,7 +42,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "140";
+const APP_VERSION = "141";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -2196,7 +2196,7 @@ function renderTargetManageContent(student, target) {
     <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.25rem">
       <button class="btn-admin-add" id="btn-mn-add-act" style="flex:1">+ Add Activity</button>
       <button class="btn-admin-add" id="btn-mn-add-heading" style="flex:1">+ Add Section Heading</button>
-      <button class="btn-admin-add" id="btn-mn-add-note" style="flex:1">+ Add Reference Note</button>
+      <button class="btn-admin-add" id="btn-mn-add-note" style="flex:1">+ Add Note</button>
     </div>
     <div style="margin-top:2rem;padding-bottom:1.5rem">
       <button class="btn-primary-sm" id="btn-mn-done-target"
@@ -2377,7 +2377,7 @@ function renderTemplateManageContent(template) {
     <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.25rem">
       <button class="btn-admin-add" id="btn-mn-add-act" style="flex:1">+ Add Activity</button>
       <button class="btn-admin-add" id="btn-mn-add-heading" style="flex:1">+ Add Section Heading</button>
-      <button class="btn-admin-add" id="btn-mn-add-note" style="flex:1">+ Add Reference Note</button>
+      <button class="btn-admin-add" id="btn-mn-add-note" style="flex:1">+ Add Note</button>
     </div>
     <div style="margin-top:2rem;padding-bottom:1.5rem">
       <button class="btn-adm-danger" id="btn-mn-del-template">Delete Template</button>

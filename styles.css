@@ -1266,8 +1266,19 @@ textarea.admin-input { resize: vertical; min-height: 60px; line-height: 1.45; }
   color: var(--text-muted);
 }
 
-/* ─── Note list item ─────────────────────────────────────── */
-.admin-note-item { align-items: flex-start; }
+/* ─── Note list item (amber tint, matches daily-avg row in export) ── */
+.admin-note-item {
+  align-items: flex-start;
+  background: #fffbeb;
+  border-color: #f59e0b;
+}
+
+.admin-note-item textarea {
+  background: transparent;
+  border-color: #f59e0b;
+  font-weight: 600;
+  color: #92400e;
+}
 
 /* ─── Hint text ──────────────────────────────────────────── */
 .admin-hint {
