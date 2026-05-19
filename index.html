@@ -30,19 +30,22 @@
       <div class="pin-logo">🧩</div>
       <h1 class="pin-title">Therapy Tracker</h1>
       <p class="pin-subtitle">Enter PIN to continue</p>
-      <input
-        id="pin-input"
-        class="pin-input"
-        type="password"
-        maxlength="10"
-        placeholder="PIN"
-        autocomplete="off"
-        autocorrect="off"
-        autocapitalize="characters"
-        spellcheck="false"
-      />
+      <div class="pin-dots" id="pin-dots"></div>
       <div id="pin-error" class="pin-error hidden">Incorrect PIN. Try again.</div>
-      <button id="pin-submit" class="btn-unlock">Unlock</button>
+      <div class="pin-keypad" id="pin-keypad">
+        <button class="pin-key" data-key="1">1</button>
+        <button class="pin-key" data-key="2">2</button>
+        <button class="pin-key" data-key="3">3</button>
+        <button class="pin-key" data-key="4">4</button>
+        <button class="pin-key" data-key="5">5</button>
+        <button class="pin-key" data-key="6">6</button>
+        <button class="pin-key" data-key="7">7</button>
+        <button class="pin-key" data-key="8">8</button>
+        <button class="pin-key" data-key="9">9</button>
+        <button class="pin-key pin-key-back" data-key="back">⌫</button>
+        <button class="pin-key" data-key="0">0</button>
+        <button class="pin-key pin-key-empty" disabled></button>
+      </div>
     </div>
   </div>
 

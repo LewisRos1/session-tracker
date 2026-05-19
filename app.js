@@ -42,7 +42,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "v128";
+const APP_VERSION = "v130";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -132,25 +132,65 @@ function registerServiceWorker() {
 
 function initPin() {
   showScreen("screen-pin");
-  const input  = $("pin-input");
   const errMsg = $("pin-error");
+  const dotsEl = $("pin-dots");
+  const keypad = $("pin-keypad");
+  const pinLen = CONFIG.PIN.length;
+  let value = "";
 
-  const check = () => {
-    if (input.value.trim().toUpperCase() === CONFIG.PIN) {
+  dotsEl.innerHTML = Array.from({ length: pinLen }, () =>
+    '<span class="pin-dot"></span>'
+  ).join("");
+  const dots = dotsEl.querySelectorAll(".pin-dot");
+
+  function renderDots() {
+    dots.forEach((d, i) => d.classList.toggle("filled", i < value.length));
+  }
+
+  function shake() {
+    dotsEl.classList.remove("shake");
+    void dotsEl.offsetWidth;
+    dotsEl.classList.add("shake");
+  }
+
+  function submit() {
+    if (value === CONFIG.PIN) {
+      document.removeEventListener("keydown", onKeyDown);
       sessionStorage.setItem("auth", "1");
-      input.value = "";
-      errMsg.classList.add("hidden");
       showHome();
     } else {
+      shake();
       errMsg.classList.remove("hidden");
-      input.value = "";
-      input.focus();
+      value = "";
+      renderDots();
     }
-  };
+  }
 
-  $("pin-submit").addEventListener("click", check);
-  input.addEventListener("keydown", e => { if (e.key === "Enter") check(); });
-  setTimeout(() => input.focus(), 100);
+  function pressKey(key) {
+    if (key === "back") {
+      value = value.slice(0, -1);
+      errMsg.classList.add("hidden");
+      renderDots();
+      return;
+    }
+    if (value.length >= pinLen) return;
+    value += key;
+    renderDots();
+    if (value.length === pinLen) setTimeout(submit, 120);
+  }
+
+  keypad.addEventListener("click", e => {
+    const btn = e.target.closest(".pin-key");
+    if (!btn || btn.disabled) return;
+    pressKey(btn.dataset.key);
+  });
+
+  function onKeyDown(e) {
+    if (e.key >= "0" && e.key <= "9") pressKey(e.key);
+    else if (e.key === "Backspace") pressKey("back");
+    else if (e.key === "Enter" && value.length === pinLen) submit();
+  }
+  document.addEventListener("keydown", onKeyDown);
 }
 
 // ============================================================

@@ -106,16 +106,35 @@ html, body {
   margin-top: -.5rem;
 }
 
-.pin-input {
-  width: 100%;
-  padding: .85rem 1rem;
-  border: 2px solid var(--border);
-  border-radius: var(--radius-sm);
-  font-size: 1.4rem;
-  text-align: center;
-  letter-spacing: .25em;
-  outline: none;
+.pin-dots {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+  margin: .25rem 0;
 }
+
+.pin-dot {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid var(--primary);
+  background: transparent;
+  transition: background .15s;
+}
+
+.pin-dot.filled { background: var(--primary); }
+
+@keyframes pin-shake {
+  0%, 100% { transform: translateX(0); }
+  15%  { transform: translateX(-8px); }
+  30%  { transform: translateX(8px); }
+  45%  { transform: translateX(-6px); }
+  60%  { transform: translateX(6px); }
+  75%  { transform: translateX(-3px); }
+  90%  { transform: translateX(3px); }
+}
+
+.pin-dots.shake { animation: pin-shake .45s ease; }
 
 .pin-error {
   color: var(--danger);
@@ -126,22 +145,39 @@ html, body {
 
 .pin-error.hidden { display: none; }
 
-.btn-unlock {
+.pin-keypad {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: .6rem;
   width: 100%;
-  padding: .9rem;
-  background: var(--primary);
-  color: var(--white);
-  border: none;
-  border-radius: var(--radius-sm);
-  font-size: 1.05rem;
-  font-weight: 600;
-  cursor: pointer;
-  min-height: var(--tap-min);
-  transition: background .15s;
 }
 
-.btn-unlock:hover { background: var(--primary-dark); }
-.btn-unlock:active { opacity: .85; }
+.pin-key {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 1.4rem;
+  font-weight: 500;
+  min-height: 58px;
+  cursor: pointer;
+  color: var(--text);
+  transition: background .1s, transform .1s;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.pin-key:active {
+  background: var(--primary-light);
+  transform: scale(.93);
+}
+
+.pin-key-back { color: var(--danger); }
+
+.pin-key-empty {
+  background: transparent;
+  border: none;
+  cursor: default;
+  pointer-events: none;
+}
 
 /* ============================================================
    HOME SCREEN
