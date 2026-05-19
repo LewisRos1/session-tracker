@@ -42,7 +42,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "v136";
+const APP_VERSION = "137";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -132,7 +132,7 @@ function registerServiceWorker() {
 function initPin() {
   showScreen("screen-pin");
   const vEl = $("pin-version");
-  if (vEl) vEl.textContent = `Made by Lewis · ${APP_VERSION}`;
+  if (vEl) vEl.textContent = `Made by Lewis · version ${APP_VERSION}`;
   const errMsg = $("pin-error");
   const dotsEl = $("pin-dots");
   const keypad = $("pin-keypad");
@@ -200,7 +200,7 @@ function initPin() {
 async function showHome() {
   showScreen("screen-home");
   const verEl = document.getElementById("app-version");
-  if (verEl) verEl.textContent = `Made by Lewis · ${APP_VERSION}`;
+  if (verEl) verEl.textContent = `Made by Lewis · version ${APP_VERSION}`;
   // Clear section searches when returning home
   state.searchExisting = ""; state.searchAssessment = ""; state.searchTemplate = ""; state.searchExport = "";
   [$("search-existing"), $("search-assessment"), $("search-template"), $("search-export")]
