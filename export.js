@@ -70,6 +70,8 @@ export async function exportStudentData(student) {
     ws.getColumn(4).width     = 10;
     ws.getColumn(1).alignment = { wrapText: true, vertical: "top" };
     ws.getColumn(2).alignment = { wrapText: true, vertical: "top" };
+    ws.getColumn(3).alignment = { horizontal: "center", vertical: "top" };
+    ws.getColumn(4).alignment = { horizontal: "center", vertical: "top" };
 
     applyRowStyles(ws, monthHeaderRows,    STYLE_MONTH);
     applyRowStyles(ws, sessionHeaderRows,  STYLE_SESSION);

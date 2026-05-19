@@ -32,7 +32,7 @@ import {
 } from "./firebase-service.js";
 import { exportStudentData } from "./export.js";
 
-const APP_VERSION = "v122";
+const APP_VERSION = "v125";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -503,11 +503,7 @@ $("session-picker-backdrop").addEventListener("click", closeSessionPicker);
 // ============================================================
 
 function getEffectiveTargets() {
-  const d = state.sessionData;
-  if (!d) return state.currentStudent?.targets || [];
-  if (d.date === getTodayString()) return state.currentStudent.targets;
-  if (d.targetsSnapshot?.length) return d.targetsSnapshot;
-  return state.currentStudent.targets;
+  return state.currentStudent?.targets || [];
 }
 
 async function openSession(student, existingSessionId = null, dateStr = null) {
@@ -1800,13 +1796,13 @@ function showAddTargetPicker(student) {
         <span class="btn-target-desc">Type everything from scratch each session</span>
       </button>
       <button class="btn-target-type" id="btn-add-structured-target">
-        <span class="btn-target-label">+ Structured Target</span>
+        <span class="btn-target-label">+ Custom Template Target</span>
         <span class="btn-target-desc">Activities are preset — just fill in remarks</span>
       </button>
     </div>`;
 
   if (state.templates.length > 0) {
-    html += `<div class="admin-section-title">Or add from a Template</div>
+    html += `<div class="admin-section-title">Or add from a Standard Template</div>
     <div class="admin-list" id="template-picker-list">`;
     const sortedTmpls = [...state.templates].sort((a, b) => a.name.localeCompare(b.name));
     sortedTmpls.forEach(tmpl => {
@@ -2137,6 +2133,8 @@ function renderTargetManageContent(student, target) {
   html += `</div>
     <button class="btn-admin-add" id="btn-mn-add-note">+ Add Note</button>
     <div style="margin-top:2rem;padding-bottom:1.5rem">
+      <button class="btn-primary-sm" id="btn-mn-done-target"
+        style="width:100%;padding:.75rem;margin-bottom:.75rem">Done</button>
       <button class="btn-adm-danger" id="btn-mn-del-target">Delete This Target</button>
     </div>`;
 
@@ -2251,6 +2249,8 @@ function renderTargetManageContent(student, target) {
     await saveTarget();
     renderTargetManageContent(student, target);
   });
+
+  $("btn-mn-done-target").addEventListener("click", closeManageModal);
 
   $("btn-mn-del-target").addEventListener("click", async () => {
     if (!confirm(`Delete target "${target.name}"? All session data for this target will also be permanently deleted.`)) return;
