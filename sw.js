@@ -3,7 +3,7 @@
 // Firebase SDK handles Firestore data offline independently.
 // ============================================================
 
-const CACHE_NAME = "therapy-tracker-v135";
+const CACHE_NAME = "therapy-tracker-v136";
 
 // App shell files to pre-cache
 const SHELL_URLS = [
@@ -24,8 +24,9 @@ self.addEventListener("message", event => {
   if (event.data === "skipWaiting") self.skipWaiting();
 });
 
-// Install: cache app shell — use allSettled so one bad URL can't block activation.
+// Install: cache app shell and skip waiting immediately so new SW always activates.
 self.addEventListener("install", event => {
+  self.skipWaiting();
   event.waitUntil(
     caches.open(CACHE_NAME)
       .then(cache => Promise.allSettled(
