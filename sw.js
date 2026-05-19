@@ -3,7 +3,7 @@
 // Firebase SDK handles Firestore data offline independently.
 // ============================================================
 
-const CACHE_NAME = "therapy-tracker-v118";
+const CACHE_NAME = "therapy-tracker-v119";
 
 // App shell files to pre-cache
 const SHELL_URLS = [
@@ -19,10 +19,10 @@ const SHELL_URLS = [
   "/icon-512.png"
 ];
 
-// Install: cache app shell
+// Install: cache app shell (failure is non-fatal — don't block SW activation)
 self.addEventListener("install", event => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then(cache => cache.addAll(SHELL_URLS))
+    caches.open(CACHE_NAME).then(cache => cache.addAll(SHELL_URLS)).catch(() => {})
   );
   self.skipWaiting();
 });

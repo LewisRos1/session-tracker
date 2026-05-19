@@ -179,6 +179,12 @@ html, body {
   pointer-events: none;
 }
 
+.pin-version {
+  font-size: .75rem;
+  color: var(--text-muted);
+  margin-top: -.25rem;
+}
+
 /* ============================================================
    HOME SCREEN
    ============================================================ */

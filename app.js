@@ -42,7 +42,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "v135";
+const APP_VERSION = "v136";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -131,6 +131,8 @@ function registerServiceWorker() {
 
 function initPin() {
   showScreen("screen-pin");
+  const vEl = $("pin-version");
+  if (vEl) vEl.textContent = `Made by Lewis · ${APP_VERSION}`;
   const errMsg = $("pin-error");
   const dotsEl = $("pin-dots");
   const keypad = $("pin-keypad");
