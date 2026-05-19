@@ -42,7 +42,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "v134";
+const APP_VERSION = "v135";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -115,7 +115,9 @@ function registerServiceWorker() {
   // updateViaCache:"none" prevents Safari from serving a stale sw.js from HTTP cache.
   navigator.serviceWorker.register("sw.js", { updateViaCache: "none" })
     .then(reg => {
-      // Proactively check for a new SW whenever the boss returns to the app.
+      // Force an update check on every page load — bypasses Chrome's 24-hour throttle.
+      reg.update();
+      // Also check whenever the boss returns to the app.
       document.addEventListener("visibilitychange", () => {
         if (document.visibilityState === "visible") reg.update();
       });
