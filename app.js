@@ -42,7 +42,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "153";
+const APP_VERSION = "154";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -2191,7 +2191,7 @@ function renderTargetManageContent(student, target) {
       html += `<div class="admin-list-item admin-note-item" data-idx="${idx}">
         <span class="drag-handle">⠿</span>
         <textarea class="admin-input" id="mn-act-name-${idx}" data-idx="${idx}"
-          rows="2" placeholder="Reference note…" style="flex:1">${escHtml(a.text || "")}</textarea>
+          rows="4" placeholder="Type note… (Enter = new line · Ctrl+Enter = save)" style="flex:1">${escHtml(a.text || "")}</textarea>
         <button class="btn-adm-del mn-del-act" data-idx="${idx}">🗑</button>
       </div>`;
     } else {
@@ -2260,18 +2260,6 @@ function renderTargetManageContent(student, target) {
 
   acts.forEach((a, idx) => {
     const input = $(`mn-act-name-${idx}`);
-    if (a.isNote && input) {
-      input.addEventListener("keydown", e => {
-        if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); input.blur(); return; }
-        if (e.key === "Enter") {
-          e.preventDefault();
-          const s = input.selectionStart, en = input.selectionEnd;
-          input.value = input.value.slice(0, s) + "\n" + input.value.slice(en);
-          input.selectionStart = input.selectionEnd = s + 1;
-          input.dispatchEvent(new Event("input"));
-        }
-      });
-    }
     input?.addEventListener("blur", async () => {
       if (a.isNote) {
         if (input.value === (a.text || "")) return;
@@ -2384,7 +2372,7 @@ function renderTemplateManageContent(template) {
       html += `<div class="admin-list-item admin-note-item" data-idx="${idx}">
         <span class="drag-handle">⠿</span>
         <textarea class="admin-input" id="mn-act-name-${idx}" data-idx="${idx}"
-          rows="2" placeholder="Reference note…" style="flex:1">${escHtml(a.text || "")}</textarea>
+          rows="4" placeholder="Type note… (Enter = new line · Ctrl+Enter = save)" style="flex:1">${escHtml(a.text || "")}</textarea>
         <button class="btn-adm-del mn-del-act" data-idx="${idx}">🗑</button>
       </div>`;
     } else {
@@ -2450,18 +2438,6 @@ function renderTemplateManageContent(template) {
 
   acts.forEach((a, idx) => {
     const input = $(`mn-act-name-${idx}`);
-    if (a.isNote && input) {
-      input.addEventListener("keydown", e => {
-        if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); input.blur(); return; }
-        if (e.key === "Enter") {
-          e.preventDefault();
-          const s = input.selectionStart, en = input.selectionEnd;
-          input.value = input.value.slice(0, s) + "\n" + input.value.slice(en);
-          input.selectionStart = input.selectionEnd = s + 1;
-          input.dispatchEvent(new Event("input"));
-        }
-      });
-    }
     input?.addEventListener("blur", async () => {
       if (a.isNote) {
         if (input.value === (a.text || "")) return;
