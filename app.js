@@ -42,7 +42,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "149";
+const APP_VERSION = "150";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -2247,10 +2247,6 @@ function renderTargetManageContent(student, target) {
   acts.forEach((a, idx) => {
     const input = $(`mn-act-name-${idx}`);
     if (a.isNote && input) {
-      const resize = () => { input.style.height = "auto"; input.style.height = input.scrollHeight + "px"; };
-      resize();
-      input.addEventListener("input", resize);
-      input.addEventListener("keyup", resize);
       input.addEventListener("keydown", e => {
         if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); input.blur(); }
       });
@@ -2434,10 +2430,6 @@ function renderTemplateManageContent(template) {
   acts.forEach((a, idx) => {
     const input = $(`mn-act-name-${idx}`);
     if (a.isNote && input) {
-      const resize = () => { input.style.height = "auto"; input.style.height = input.scrollHeight + "px"; };
-      resize();
-      input.addEventListener("input", resize);
-      input.addEventListener("keyup", resize);
       input.addEventListener("keydown", e => {
         if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); input.blur(); }
       });
