@@ -1278,6 +1278,9 @@ textarea.admin-input { resize: vertical; min-height: 60px; line-height: 1.45; }
   border-color: #f59e0b;
   font-weight: 600;
   color: #92400e;
+  resize: none;
+  overflow: hidden;
+  min-height: 2.5rem;
 }
 
 /* ─── Hint text ──────────────────────────────────────────── */
