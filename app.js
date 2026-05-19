@@ -42,7 +42,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "151";
+const APP_VERSION = "152";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -1835,6 +1835,20 @@ function closeManageModal() {
 
 $("manage-modal-close").addEventListener("click",    closeManageModal);
 $("manage-modal-backdrop").addEventListener("click", closeManageModal);
+
+// Delegated handler: Enter inserts newline in note textareas (Ctrl+Enter = blur to save)
+$("manage-modal-body").addEventListener("keydown", e => {
+  const ta = e.target;
+  if (!ta.closest(".admin-note-item")) return;
+  if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); ta.blur(); return; }
+  if (e.key === "Enter") {
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    const s = ta.selectionStart, en = ta.selectionEnd;
+    ta.value = ta.value.slice(0, s) + "\n" + ta.value.slice(en);
+    ta.selectionStart = ta.selectionEnd = s + 1;
+  }
+});
 
 // ── Session-screen ⚙ button ───────────────────────────────────
 
