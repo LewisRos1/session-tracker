@@ -45,7 +45,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "179";
+const APP_VERSION = "180";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -1175,10 +1175,13 @@ function attachTargetListeners(target) {
   // ── Remark preset option buttons ──────────────────────────
   c.querySelectorAll(".btn-remark-opt").forEach(btn => {
     btn.addEventListener("click", async () => {
+      const isActive = btn.classList.contains("active");
       btn.closest(".remark-preset-opts")?.querySelectorAll(".btn-remark-opt").forEach(b => {
-        b.classList.toggle("active", b === btn);
+        b.classList.remove("active");
       });
-      await updateRemarkText(state.currentSessionId, btn.dataset.remId, btn.dataset.opt);
+      const newText = isActive ? "" : btn.dataset.opt;
+      if (!isActive) btn.classList.add("active");
+      await updateRemarkText(state.currentSessionId, btn.dataset.remId, newText);
     });
   });
 
@@ -2336,9 +2339,9 @@ function renderTargetManageContent(student, target) {
       const type = (a.sentenceStarter && a.inlineOptions) ? "starter_fixed" : a.sentenceStarter ? "starter" : (a.inlineOptions || a.remarkPresetId) ? "fixed" : "";
       const remarkTypeSelect = `<select class="act-preset-select mn-act-preset" data-idx="${idx}">
           <option value="">Free text</option>
-          <option value="fixed"${type === "fixed" ? " selected" : ""}>Fixed options</option>
+          <option value="fixed"${type === "fixed" ? " selected" : ""}>Options</option>
           <option value="starter"${type === "starter" ? " selected" : ""}>Sentence starter</option>
-          <option value="starter_fixed"${type === "starter_fixed" ? " selected" : ""}>Sentence starter + Fixed options</option>
+          <option value="starter_fixed"${type === "starter_fixed" ? " selected" : ""}>Sentence starter + Options</option>
         </select>
         <input class="admin-input mn-act-starter-text" data-idx="${idx}"
           placeholder="Starter phrase…"
@@ -2583,9 +2586,9 @@ function renderTemplateManageContent(template) {
       const type = (a.sentenceStarter && a.inlineOptions) ? "starter_fixed" : a.sentenceStarter ? "starter" : (a.inlineOptions || a.remarkPresetId) ? "fixed" : "";
       const remarkTypeSelect = `<select class="act-preset-select mn-act-preset" data-idx="${idx}">
           <option value="">Free text</option>
-          <option value="fixed"${type === "fixed" ? " selected" : ""}>Fixed options</option>
+          <option value="fixed"${type === "fixed" ? " selected" : ""}>Options</option>
           <option value="starter"${type === "starter" ? " selected" : ""}>Sentence starter</option>
-          <option value="starter_fixed"${type === "starter_fixed" ? " selected" : ""}>Sentence starter + Fixed options</option>
+          <option value="starter_fixed"${type === "starter_fixed" ? " selected" : ""}>Sentence starter + Options</option>
         </select>
         <input class="admin-input mn-act-starter-text" data-idx="${idx}"
           placeholder="Starter phrase…"
