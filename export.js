@@ -91,13 +91,14 @@ export async function exportStudentData(student) {
       cell.font = STYLE_ACT_HEADING.font;
     }
 
-    // Reference notes: merge A:D + amber tint
+    // Reference notes: merge A:D + amber tint + wrap text for multi-line
     for (const rowIdx of noteRows) {
       const n = rowIdx + 1;
       ws.mergeCells(`A${n}:D${n}`);
       const cell = ws.getRow(n).getCell(1);
       cell.fill = STYLE_NOTE.fill;
       cell.font = STYLE_NOTE.font;
+      cell.alignment = { wrapText: true, vertical: "top" };
     }
 
     // Daily Average rows: bright amber across all 4 columns
@@ -157,9 +158,7 @@ function buildSummarySheet(allTargets, sessions) {
       const dailyAvgs = monthSessions
         .map(s => {
           const snap = (s.targetsSnapshot || []).find(t => t.name === target.name);
-          const eff  = snap
-            ? { ...target, maxPoints: snap.maxPoints, predefinedActivities: snap.predefinedActivities || target.predefinedActivities || [] }
-            : target;
+          const eff  = snap ? { ...target, maxPoints: snap.maxPoints } : target;
           return calcDailyAverage(s, eff);
         })
         .filter(v => v !== null);
@@ -217,9 +216,7 @@ function buildTargetSheet(target, sessions) {
 
     for (const session of monthSessions) {
       const snap = (session.targetsSnapshot || []).find(t => t.name === target.name);
-      const effectiveTarget = snap
-        ? { ...target, maxPoints: snap.maxPoints, predefinedActivities: snap.predefinedActivities || target.predefinedActivities || [] }
-        : target;
+      const effectiveTarget = snap ? { ...target, maxPoints: snap.maxPoints } : target;
       appendSessionRows(rows, sessionHeaderRows, columnHeaderRows, activityHeadingRows, noteRows, dailyAvgRows, session, effectiveTarget);
     }
   }
@@ -252,7 +249,15 @@ function appendSessionRows(rows, sessionHeaderRows, columnHeaderRows, activityHe
 
       if (act.isNote) {
         noteRows.add(rows.length);
-        rows.push([(act.activityName || "").replace(/<[^>]*>/g, "").replace(/\*\*/g, ""), "", "", ""]);
+        const noteText = (act.activityName || "")
+          .replace(/<br\s*\/?>/gi, "\n")
+          .replace(/<\/div>/gi, "\n").replace(/<div>/gi, "")
+          .replace(/<\/p>/gi, "\n").replace(/<p>/gi, "")
+          .replace(/<[^>]*>/g, "")
+          .replace(/\*\*/g, "")
+          .replace(/\n{3,}/g, "\n\n")
+          .trim();
+        rows.push([noteText, "", "", ""]);
         continue;
       }
 
