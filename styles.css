@@ -1280,6 +1280,38 @@ html, body {
 textarea.admin-input { resize: vertical; min-height: 60px; line-height: 1.45; }
 .admin-list-item:not(.admin-note-item) textarea.admin-input { min-height: unset; overflow: hidden; resize: none; }
 
+/* ─── Note rich-text editor ──────────────────────────────── */
+.note-format-bar {
+  display: flex;
+  gap: .3rem;
+}
+.btn-note-fmt {
+  padding: .15rem .55rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  cursor: pointer;
+  font-size: .82rem;
+  color: var(--text);
+  line-height: 1.4;
+}
+.btn-note-fmt:hover { background: var(--primary-light); border-color: var(--primary); }
+div.admin-note-editable {
+  min-height: 3rem;
+  line-height: 1.45;
+  word-break: break-word;
+  cursor: text;
+  outline: none;
+  box-sizing: border-box;
+}
+div.admin-note-editable:focus { border-color: var(--primary); box-shadow: 0 0 0 2px rgba(99,102,241,.15); }
+div.admin-note-editable:empty::before {
+  content: attr(data-placeholder);
+  color: var(--text-muted);
+  pointer-events: none;
+  font-style: italic;
+}
+
 /* ─── Max-points row ─────────────────────────────────────── */
 .admin-row {
   flex-direction: row;

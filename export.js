@@ -252,7 +252,7 @@ function appendSessionRows(rows, sessionHeaderRows, columnHeaderRows, activityHe
 
       if (act.isNote) {
         noteRows.add(rows.length);
-        rows.push([(act.activityName || "").replace(/\*\*/g, ""), "", "", ""]);
+        rows.push([(act.activityName || "").replace(/<[^>]*>/g, "").replace(/\*\*/g, ""), "", "", ""]);
         continue;
       }
 

@@ -45,7 +45,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "174";
+const APP_VERSION = "176";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -811,7 +811,7 @@ function renderFedcTarget(target) {
   target.predefinedActivities.forEach((pa, idx) => {
     // Note item — render inline in order, styled like a section heading
     if (pa.isNote) {
-      if (pa.text) html += `<div class="activity-note-heading">${renderNoteText(pa.text)}</div>`;
+      if (pa.text) html += `<div class="activity-note-heading">${noteToHtml(pa.text)}</div>`;
       return;
     }
 
@@ -1547,7 +1547,7 @@ function buildTargetViewTable(target, data) {
         continue;
       }
       if (pa.isNote) {
-        rows += `<tr class="view-note-row"><td colspan="6">${renderNoteText(pa.text)}</td></tr>`;
+        rows += `<tr class="view-note-row"><td colspan="6">${noteToHtml(pa.text)}</td></tr>`;
         continue;
       }
       no++;
@@ -1974,34 +1974,22 @@ function closeManageModal() {
 $("manage-modal-close").addEventListener("click",    closeManageModal);
 $("manage-modal-backdrop").addEventListener("click", closeManageModal);
 
-// Delegated handler: Enter/Ctrl+B in note textareas
+// Delegated handlers for note contenteditable divs
 $("manage-modal-body").addEventListener("keydown", e => {
-  const ta = e.target;
-  if (!ta.closest(".admin-note-item")) return;
-  if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); ta.blur(); return; }
-  if (e.key === "Enter") {
-    e.preventDefault();
-    e.stopImmediatePropagation();
-    const s = ta.selectionStart, en = ta.selectionEnd;
-    ta.value = ta.value.slice(0, s) + "\n" + ta.value.slice(en);
-    ta.selectionStart = ta.selectionEnd = s + 1;
-    autoResizeTextarea(ta);
-    return;
-  }
-  if (e.key === "b" && (e.ctrlKey || e.metaKey)) {
-    e.preventDefault();
-    const s = ta.selectionStart, en = ta.selectionEnd;
-    const selected = ta.value.slice(s, en);
-    const replacement = `**${selected}**`;
-    ta.value = ta.value.slice(0, s) + replacement + ta.value.slice(en);
-    if (selected.length === 0) {
-      ta.selectionStart = ta.selectionEnd = s + 2;
-    } else {
-      ta.selectionStart = s;
-      ta.selectionEnd = s + replacement.length;
-    }
-    ta.dispatchEvent(new Event("input"));
-  }
+  const el = e.target;
+  if (!el.closest(".admin-note-item") || el.contentEditable !== "true") return;
+  if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); el.blur(); return; }
+  if (e.key === "Enter") { e.preventDefault(); document.execCommand("insertLineBreak"); return; }
+  if (e.key === "b" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); document.execCommand("bold"); return; }
+  if (e.key === "u" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); document.execCommand("underline"); return; }
+});
+
+// Format bar buttons — mousedown keeps focus on the contenteditable
+$("manage-modal-body").addEventListener("mousedown", e => {
+  const btn = e.target.closest(".btn-note-fmt");
+  if (!btn) return;
+  e.preventDefault();
+  document.execCommand(btn.dataset.cmd);
 });
 
 // ── Session-screen ⚙ button ───────────────────────────────────
@@ -2021,10 +2009,6 @@ function showAddTargetPicker(student) {
 
   let html = `
     <div style="display:flex;flex-direction:column;gap:.6rem;margin-bottom:1.25rem">
-      <button class="btn-target-type" id="btn-add-custom-target">
-        <span class="btn-target-label">+ Blank Target</span>
-        <span class="btn-target-desc">Type everything from scratch each session</span>
-      </button>
       <button class="btn-target-type" id="btn-add-structured-target">
         <span class="btn-target-label">+ Individual Template Target</span>
         <span class="btn-target-desc">Activities will be the same every session, just fill in remarks</span>
@@ -2051,25 +2035,6 @@ function showAddTargetPicker(student) {
 
   $("manage-modal-body").innerHTML = html;
 
-  $("btn-add-custom-target").addEventListener("click", async () => {
-    $("manage-modal").classList.add("hidden");
-    const name = prompt("Target name:");
-    if (!name?.trim()) return;
-    const t = {
-      id: cfgId("t"), name: name.trim(),
-      maxPoints: 3, hasComment: false, fullName: "",
-      order: student.targets.length,
-      predefinedActivities: [], notes: [],
-      templateId: null, isStructured: false
-    };
-    student.targets.push(t);
-    const si = state.students.findIndex(s => s.id === student.id);
-    if (si >= 0) state.students[si] = student;
-    await saveStudent(student);
-    state.selectedTargetName = t.name;
-    populateTargetDropdown(student.targets);
-    renderTargetContent();
-  });
 
   $("btn-add-structured-target").addEventListener("click", async () => {
     $("manage-modal").classList.add("hidden");
@@ -2420,8 +2385,12 @@ function autoResizeTextarea(el) {
   el.style.height = el.scrollHeight + "px";
 }
 
-function renderNoteText(text) {
-  return escHtml(text || "").replace(/\*\*([\s\S]+?)\*\*/g, "<strong>$1</strong>");
+// Converts stored note text to safe display HTML.
+// Accepts both legacy **bold** markdown and new HTML from contenteditable.
+function noteToHtml(text) {
+  if (!text) return "";
+  if (/<[a-z]/i.test(text)) return text;            // already HTML — use directly
+  return escHtml(text).replace(/\*\*([\s\S]+?)\*\*/g, "<strong>$1</strong>");
 }
 
 function renderTargetManageContent(student, target) {
@@ -2465,8 +2434,15 @@ function renderTargetManageContent(student, target) {
     } else if (a.isNote) {
       html += `<div class="admin-list-item admin-note-item" data-idx="${idx}">
         <span class="drag-handle">⠿</span>
-        <textarea class="admin-input" id="mn-act-name-${idx}" data-idx="${idx}"
-          rows="1" placeholder="Type note… (Enter = new line · Ctrl+Enter = save)" style="flex:1">${escHtml(a.text || "")}</textarea>
+        <div style="flex:1;display:flex;flex-direction:column;gap:.25rem">
+          <div class="note-format-bar">
+            <button class="btn-note-fmt" data-cmd="bold" tabindex="-1"><b>B</b></button>
+            <button class="btn-note-fmt" data-cmd="underline" tabindex="-1"><u>U</u></button>
+          </div>
+          <div class="admin-input admin-note-editable" id="mn-act-name-${idx}" data-idx="${idx}"
+            contenteditable="true"
+            data-placeholder="Type note… (Enter = new line · Ctrl+Enter = save)">${noteToHtml(a.text || "")}</div>
+        </div>
         <button class="btn-adm-del mn-del-act" data-idx="${idx}">🗑</button>
       </div>`;
     } else {
@@ -2555,8 +2531,9 @@ function renderTargetManageContent(student, target) {
     const input = $(`mn-act-name-${idx}`);
     input?.addEventListener("blur", async () => {
       if (a.isNote) {
-        if (input.value === (a.text || "")) return;
-        a.text = input.value;
+        const html = input.innerHTML;
+        if (html === (a.text || "")) return;
+        a.text = html;
       } else {
         const v = input.value.trim();
         if (!v || v === a.name) return;
@@ -2565,7 +2542,7 @@ function renderTargetManageContent(student, target) {
       await saveTarget();
       flashSaved(input);
     });
-    input?.addEventListener("input", () => autoResizeTextarea(input));
+    if (!a.isNote) input?.addEventListener("input", () => autoResizeTextarea(input));
   });
 
   $("manage-modal-body").querySelectorAll(".mn-del-act").forEach(btn => {
@@ -2698,8 +2675,15 @@ function renderTemplateManageContent(template) {
     } else if (a.isNote) {
       html += `<div class="admin-list-item admin-note-item" data-idx="${idx}">
         <span class="drag-handle">⠿</span>
-        <textarea class="admin-input" id="mn-act-name-${idx}" data-idx="${idx}"
-          rows="1" placeholder="Type note… (Enter = new line · Ctrl+Enter = save)" style="flex:1">${escHtml(a.text || "")}</textarea>
+        <div style="flex:1;display:flex;flex-direction:column;gap:.25rem">
+          <div class="note-format-bar">
+            <button class="btn-note-fmt" data-cmd="bold" tabindex="-1"><b>B</b></button>
+            <button class="btn-note-fmt" data-cmd="underline" tabindex="-1"><u>U</u></button>
+          </div>
+          <div class="admin-input admin-note-editable" id="mn-act-name-${idx}" data-idx="${idx}"
+            contenteditable="true"
+            data-placeholder="Type note… (Enter = new line · Ctrl+Enter = save)">${noteToHtml(a.text || "")}</div>
+        </div>
         <button class="btn-adm-del mn-del-act" data-idx="${idx}">🗑</button>
       </div>`;
     } else {
@@ -2784,8 +2768,9 @@ function renderTemplateManageContent(template) {
     const input = $(`mn-act-name-${idx}`);
     input?.addEventListener("blur", async () => {
       if (a.isNote) {
-        if (input.value === (a.text || "")) return;
-        a.text = input.value;
+        const html = input.innerHTML;
+        if (html === (a.text || "")) return;
+        a.text = html;
       } else {
         const v = input.value.trim();
         if (!v || v === a.name) return;
@@ -2794,7 +2779,7 @@ function renderTemplateManageContent(template) {
       await saveTemplateFn();
       flashSaved(input);
     });
-    input?.addEventListener("input", () => autoResizeTextarea(input));
+    if (!a.isNote) input?.addEventListener("input", () => autoResizeTextarea(input));
   });
 
   $("manage-modal-body").querySelectorAll(".mn-del-act").forEach(btn => {
