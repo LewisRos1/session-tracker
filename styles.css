@@ -1912,7 +1912,7 @@ div.admin-note-editable:empty::before {
 .view-comment-label { font-weight: 600; color: var(--text-muted); }
 
 .vcol-no     { width: 44px; text-align: center; white-space: nowrap; }
-.vcol-act    { width: 356px; min-width: 250px; }
+.vcol-act    { width: 356px; min-width: 250px; white-space: pre-wrap; }
 .vcol-rem    { min-width: 220px; }
 .vcol-trials { min-width: 55px; }
 .vcol-total  { width: 58px; text-align: center; white-space: nowrap; }

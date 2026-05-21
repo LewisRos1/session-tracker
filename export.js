@@ -91,7 +91,8 @@ export async function exportStudentData(student) {
       cell.font = STYLE_ACT_HEADING.font;
     }
 
-    // Reference notes: merge A:D + amber tint + wrap text for multi-line
+    // Reference notes: merge A:D + amber tint + wrap text + explicit row height
+    // (Excel never auto-sizes merged cells, so we calculate height manually)
     for (const rowIdx of noteRows) {
       const n = rowIdx + 1;
       ws.mergeCells(`A${n}:D${n}`);
@@ -99,6 +100,10 @@ export async function exportStudentData(student) {
       cell.fill = STYLE_NOTE.fill;
       cell.font = STYLE_NOTE.font;
       cell.alignment = { wrapText: true, vertical: "top" };
+      const text = (cell.value || "").toString();
+      const visLines = text.split("\n").reduce((sum, seg) =>
+        sum + Math.max(1, Math.ceil((seg.length || 1) / 52)), 0);
+      ws.getRow(n).height = Math.max(18, visLines * 15);
     }
 
     // Daily Average rows: bright amber across all 4 columns
