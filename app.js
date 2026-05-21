@@ -45,7 +45,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "187";
+const APP_VERSION = "189";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -2017,12 +2017,17 @@ function showAddTargetPicker(student) {
   $("manage-modal-title").textContent = "Add Target";
   $("manage-modal").classList.remove("hidden");
 
+  const hasDuplicatable = student.targets.length > 0;
   let html = `
     <div style="display:flex;flex-direction:column;gap:.6rem;margin-bottom:1.25rem">
       <button class="btn-target-type" id="btn-add-structured-target">
         <span class="btn-target-label">+ Individual Template</span>
         <span class="btn-target-desc">Activities will be the same every session, just fill in remarks</span>
       </button>
+      ${hasDuplicatable ? `<button class="btn-target-type" id="btn-duplicate-target">
+        <span class="btn-target-label">+ Duplicate Target</span>
+        <span class="btn-target-desc">Copy an existing target from this student</span>
+      </button>` : ""}
     </div>`;
 
   if (state.templates.length > 0) {
@@ -2066,6 +2071,49 @@ function showAddTargetPicker(student) {
     populateTargetDropdown(student.targets);
     renderTargetContent();
     openManageModal(student, t);
+  });
+
+  $("btn-duplicate-target")?.addEventListener("click", () => {
+    const sorted = [...student.targets].sort((a, b) => a.name.localeCompare(b.name));
+    $("manage-modal-body").innerHTML = `
+      <div class="admin-section-title" style="margin-bottom:.5rem">Choose a target to duplicate</div>
+      <div class="admin-list" id="duplicate-target-list">
+        ${sorted.map(t => `
+          <label class="admin-list-item" style="cursor:pointer;gap:.75rem">
+            <input type="radio" name="dup-target" class="dup-target-radio" data-target-id="${escHtml(t.id)}"
+              style="width:18px;height:18px;flex-shrink:0;cursor:pointer" />
+            <span class="admin-item-name">${escHtml(t.name)}</span>
+          </label>`).join("")}
+      </div>
+      <button class="btn-primary-sm" id="btn-confirm-duplicate"
+        style="width:100%;margin-top:.75rem;padding:.75rem">Duplicate Selected</button>
+      <button class="btn-adm-secondary" id="btn-dup-back"
+        style="width:100%;margin-top:.5rem;padding:.65rem">← Back</button>`;
+
+    $("btn-dup-back").addEventListener("click", () => showAddTargetPicker(student));
+
+    $("btn-confirm-duplicate").addEventListener("click", async () => {
+      const radio = $("manage-modal-body").querySelector(".dup-target-radio:checked");
+      if (!radio) { alert("Select a target to duplicate."); return; }
+      const source = student.targets.find(t => t.id === radio.dataset.targetId);
+      if (!source) return;
+      $("manage-modal").classList.add("hidden");
+      const name = prompt("Name for the duplicate:", source.name + " (copy)");
+      if (!name?.trim()) { $("manage-modal").classList.remove("hidden"); showAddTargetPicker(student); return; }
+      const copy = JSON.parse(JSON.stringify(source));
+      copy.id    = cfgId("t");
+      copy.name  = name.trim();
+      copy.order = student.targets.length;
+      copy.templateId = null;
+      student.targets.push(copy);
+      const si = state.students.findIndex(s => s.id === student.id);
+      if (si >= 0) state.students[si] = student;
+      await saveStudent(student);
+      state.selectedTargetName = copy.name;
+      populateTargetDropdown(student.targets);
+      renderTargetContent();
+      openManageModal(student, copy);
+    });
   });
 
   $("btn-add-from-templates")?.addEventListener("click", async () => {
@@ -2372,8 +2420,8 @@ function renderTargetManageContent(student, target) {
       const type = (a.sentenceStarter && a.inlineOptions) ? "starter_fixed" : a.sentenceStarter ? "starter" : (a.inlineOptions && a.optionsMulti) ? "fixed_multi" : (a.inlineOptions || a.remarkPresetId) ? "fixed" : "";
       const remarkTypeSelect = `<select class="act-preset-select mn-act-preset" data-idx="${idx}">
           <option value="">Free text</option>
-          <option value="fixed"${type === "fixed" ? " selected" : ""}>Options (pick one)</option>
-          <option value="fixed_multi"${type === "fixed_multi" ? " selected" : ""}>Options (pick multiple)</option>
+          <option value="fixed"${type === "fixed" ? " selected" : ""}>Pick one</option>
+          <option value="fixed_multi"${type === "fixed_multi" ? " selected" : ""}>Tick boxes</option>
           <option value="starter"${type === "starter" ? " selected" : ""}>Sentence starter</option>
           <option value="starter_fixed"${type === "starter_fixed" ? " selected" : ""}>Sentence starter + Options</option>
         </select>
@@ -2624,8 +2672,8 @@ function renderTemplateManageContent(template) {
       const type = (a.sentenceStarter && a.inlineOptions) ? "starter_fixed" : a.sentenceStarter ? "starter" : (a.inlineOptions && a.optionsMulti) ? "fixed_multi" : (a.inlineOptions || a.remarkPresetId) ? "fixed" : "";
       const remarkTypeSelect = `<select class="act-preset-select mn-act-preset" data-idx="${idx}">
           <option value="">Free text</option>
-          <option value="fixed"${type === "fixed" ? " selected" : ""}>Options (pick one)</option>
-          <option value="fixed_multi"${type === "fixed_multi" ? " selected" : ""}>Options (pick multiple)</option>
+          <option value="fixed"${type === "fixed" ? " selected" : ""}>Pick one</option>
+          <option value="fixed_multi"${type === "fixed_multi" ? " selected" : ""}>Tick boxes</option>
           <option value="starter"${type === "starter" ? " selected" : ""}>Sentence starter</option>
           <option value="starter_fixed"${type === "starter_fixed" ? " selected" : ""}>Sentence starter + Options</option>
         </select>

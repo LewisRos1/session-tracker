@@ -1452,6 +1452,21 @@ div.admin-note-editable:empty::before {
 }
 .btn-adm-del:hover { color: var(--danger); background: var(--danger-light); }
 
+.btn-adm-secondary {
+  width: 100%;
+  padding: .75rem;
+  background: none;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-size: .95rem;
+  font-weight: 500;
+  cursor: pointer;
+  min-height: var(--tap-min);
+  transition: border-color .15s, color .15s;
+}
+.btn-adm-secondary:hover { border-color: var(--primary); color: var(--primary); }
+
 .btn-adm-danger {
   width: 100%;
   padding: .75rem;
