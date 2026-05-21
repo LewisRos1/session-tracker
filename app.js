@@ -45,7 +45,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "189";
+const APP_VERSION = "190";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -2417,22 +2417,23 @@ function renderTargetManageContent(student, target) {
         <button class="btn-adm-del mn-del-act" data-idx="${idx}">🗑</button>
       </div>`;
     } else {
-      const type = (a.sentenceStarter && a.inlineOptions) ? "starter_fixed" : a.sentenceStarter ? "starter" : (a.inlineOptions && a.optionsMulti) ? "fixed_multi" : (a.inlineOptions || a.remarkPresetId) ? "fixed" : "";
+      const type = (a.sentenceStarter && a.inlineOptions && a.optionsMulti) ? "starter_fixed_multi" : (a.sentenceStarter && a.inlineOptions) ? "starter_fixed" : a.sentenceStarter ? "starter" : (a.inlineOptions && a.optionsMulti) ? "fixed_multi" : (a.inlineOptions || a.remarkPresetId) ? "fixed" : "";
       const remarkTypeSelect = `<select class="act-preset-select mn-act-preset" data-idx="${idx}">
           <option value="">Free text</option>
-          <option value="fixed"${type === "fixed" ? " selected" : ""}>Pick one</option>
+          <option value="fixed"${type === "fixed" ? " selected" : ""}>Select one</option>
           <option value="fixed_multi"${type === "fixed_multi" ? " selected" : ""}>Tick boxes</option>
           <option value="starter"${type === "starter" ? " selected" : ""}>Sentence starter</option>
-          <option value="starter_fixed"${type === "starter_fixed" ? " selected" : ""}>Sentence starter + Options</option>
+          <option value="starter_fixed"${type === "starter_fixed" ? " selected" : ""}>Sentence starter + Select one</option>
+          <option value="starter_fixed_multi"${type === "starter_fixed_multi" ? " selected" : ""}>Sentence starter + Tick boxes</option>
         </select>
         <input class="admin-input mn-act-starter-text" data-idx="${idx}"
           placeholder="Starter phrase…"
           value="${escHtml(a.sentenceStarter || "")}"
-          style="${type === "starter" || type === "starter_fixed" ? "" : "display:none"}">
+          style="${type === "starter" || type === "starter_fixed" || type === "starter_fixed_multi" ? "" : "display:none"}">
         <input class="admin-input mn-act-inline-opts" data-idx="${idx}"
           placeholder="Options separated by /  e.g. Low/Medium/High"
           value="${escHtml(a.inlineOptions || (a.remarkPresetId ? (state.remarkPresets.find(p=>p.id===a.remarkPresetId)?.options||[]).join("/") : ""))}"
-          style="${type === "fixed" || type === "fixed_multi" || type === "starter_fixed" ? "" : "display:none"}">`;
+          style="${type === "fixed" || type === "fixed_multi" || type === "starter_fixed" || type === "starter_fixed_multi" ? "" : "display:none"}">`;
       html += `<div class="admin-list-item" data-idx="${idx}">
         <span class="drag-handle">⠿</span>
         <div style="flex:1;display:flex;flex-direction:column;gap:.3rem">
@@ -2569,10 +2570,10 @@ function renderTargetManageContent(student, target) {
       acts[idx].sentenceStarter = null;
       acts[idx].remarkPresetId  = null;
       acts[idx].inlineOptions   = null;
-      acts[idx].optionsMulti    = (type === "fixed_multi");
-      starterInput.style.display = (type === "starter" || type === "starter_fixed") ? "" : "none";
-      optsInput.style.display    = (type === "fixed" || type === "fixed_multi" || type === "starter_fixed") ? "" : "none";
-      if (type === "starter" || type === "starter_fixed") { starterInput.focus(); }
+      acts[idx].optionsMulti    = (type === "fixed_multi" || type === "starter_fixed_multi");
+      starterInput.style.display = (type === "starter" || type === "starter_fixed" || type === "starter_fixed_multi") ? "" : "none";
+      optsInput.style.display    = (type === "fixed" || type === "fixed_multi" || type === "starter_fixed" || type === "starter_fixed_multi") ? "" : "none";
+      if (type === "starter" || type === "starter_fixed" || type === "starter_fixed_multi") { starterInput.focus(); }
       else if (type === "fixed" || type === "fixed_multi") { optsInput.focus(); }
       else { target.predefinedActivities = acts; await saveTarget(); }
     });
@@ -2669,22 +2670,23 @@ function renderTemplateManageContent(template) {
         <button class="btn-adm-del mn-del-act" data-idx="${idx}">🗑</button>
       </div>`;
     } else {
-      const type = (a.sentenceStarter && a.inlineOptions) ? "starter_fixed" : a.sentenceStarter ? "starter" : (a.inlineOptions && a.optionsMulti) ? "fixed_multi" : (a.inlineOptions || a.remarkPresetId) ? "fixed" : "";
+      const type = (a.sentenceStarter && a.inlineOptions && a.optionsMulti) ? "starter_fixed_multi" : (a.sentenceStarter && a.inlineOptions) ? "starter_fixed" : a.sentenceStarter ? "starter" : (a.inlineOptions && a.optionsMulti) ? "fixed_multi" : (a.inlineOptions || a.remarkPresetId) ? "fixed" : "";
       const remarkTypeSelect = `<select class="act-preset-select mn-act-preset" data-idx="${idx}">
           <option value="">Free text</option>
-          <option value="fixed"${type === "fixed" ? " selected" : ""}>Pick one</option>
+          <option value="fixed"${type === "fixed" ? " selected" : ""}>Select one</option>
           <option value="fixed_multi"${type === "fixed_multi" ? " selected" : ""}>Tick boxes</option>
           <option value="starter"${type === "starter" ? " selected" : ""}>Sentence starter</option>
-          <option value="starter_fixed"${type === "starter_fixed" ? " selected" : ""}>Sentence starter + Options</option>
+          <option value="starter_fixed"${type === "starter_fixed" ? " selected" : ""}>Sentence starter + Select one</option>
+          <option value="starter_fixed_multi"${type === "starter_fixed_multi" ? " selected" : ""}>Sentence starter + Tick boxes</option>
         </select>
         <input class="admin-input mn-act-starter-text" data-idx="${idx}"
           placeholder="Starter phrase…"
           value="${escHtml(a.sentenceStarter || "")}"
-          style="${type === "starter" || type === "starter_fixed" ? "" : "display:none"}">
+          style="${type === "starter" || type === "starter_fixed" || type === "starter_fixed_multi" ? "" : "display:none"}">
         <input class="admin-input mn-act-inline-opts" data-idx="${idx}"
           placeholder="Options separated by /  e.g. Low/Medium/High"
           value="${escHtml(a.inlineOptions || (a.remarkPresetId ? (state.remarkPresets.find(p=>p.id===a.remarkPresetId)?.options||[]).join("/") : ""))}"
-          style="${type === "fixed" || type === "fixed_multi" || type === "starter_fixed" ? "" : "display:none"}">`;
+          style="${type === "fixed" || type === "fixed_multi" || type === "starter_fixed" || type === "starter_fixed_multi" ? "" : "display:none"}">`;
       html += `<div class="admin-list-item" data-idx="${idx}">
         <span class="drag-handle">⠿</span>
         <div style="flex:1;display:flex;flex-direction:column;gap:.3rem">
@@ -2817,10 +2819,10 @@ function renderTemplateManageContent(template) {
       acts[idx].sentenceStarter = null;
       acts[idx].remarkPresetId  = null;
       acts[idx].inlineOptions   = null;
-      acts[idx].optionsMulti    = (type === "fixed_multi");
-      starterInput.style.display = (type === "starter" || type === "starter_fixed") ? "" : "none";
-      optsInput.style.display    = (type === "fixed" || type === "fixed_multi" || type === "starter_fixed") ? "" : "none";
-      if (type === "starter" || type === "starter_fixed") { starterInput.focus(); }
+      acts[idx].optionsMulti    = (type === "fixed_multi" || type === "starter_fixed_multi");
+      starterInput.style.display = (type === "starter" || type === "starter_fixed" || type === "starter_fixed_multi") ? "" : "none";
+      optsInput.style.display    = (type === "fixed" || type === "fixed_multi" || type === "starter_fixed" || type === "starter_fixed_multi") ? "" : "none";
+      if (type === "starter" || type === "starter_fixed" || type === "starter_fixed_multi") { starterInput.focus(); }
       else if (type === "fixed" || type === "fixed_multi") { optsInput.focus(); }
       else { template.predefinedActivities = acts; await saveTemplateFn(); }
     });
