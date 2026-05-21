@@ -21,6 +21,9 @@ import {
   loadTemplates,
   saveTemplate,
   deleteTemplate,
+  loadRemarkPresets,
+  saveRemarkPreset,
+  deleteRemarkPreset,
   updateFedcComment,
   setTrials,
   sanitizeKey,
@@ -42,16 +45,18 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "158";
+const APP_VERSION = "159";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
   authenticated:      false,
   students:           [],
   templates:          [],
+  remarkPresets:      [],
   searchExisting:     "",
   searchAssessment:   "",
   searchTemplate:     "",
+  searchRemarkPreset: "",
   searchExport:       "",
   currentStudent:     null,
   currentSessionId:   null,
@@ -105,6 +110,11 @@ document.addEventListener("DOMContentLoaded", async () => {
   // Load templates
   try {
     state.templates = await loadTemplates();
+  } catch (_) {}
+
+  // Load remark presets
+  try {
+    state.remarkPresets = await loadRemarkPresets();
   } catch (_) {}
 
   initPin();
@@ -207,12 +217,14 @@ async function showHome() {
   const verEl = document.getElementById("app-version");
   if (verEl) verEl.textContent = `Made by Lewis · Version ${APP_VERSION}`;
   // Clear section searches when returning home
-  state.searchExisting = ""; state.searchAssessment = ""; state.searchTemplate = ""; state.searchExport = "";
-  [$("search-existing"), $("search-assessment"), $("search-template"), $("search-export")]
+  state.searchExisting = ""; state.searchAssessment = ""; state.searchTemplate = "";
+  state.searchRemarkPreset = ""; state.searchExport = "";
+  [$("search-existing"), $("search-assessment"), $("search-template"), $("search-remark-preset"), $("search-export")]
     .forEach(el => { if (el) el.value = ""; });
   renderExistingStudentButtons();
   renderAssessmentStudentButtons();
   renderTemplateButtons();
+  renderRemarkPresetButtons();
   renderExportButtons();
 }
 
@@ -221,6 +233,7 @@ async function showHome() {
 $("btn-add-existing-student").addEventListener("click", () => addNewStudent("existing"));
 $("btn-add-assessment-student").addEventListener("click", () => addNewStudent("assessment"));
 $("btn-add-template").addEventListener("click", addNewTemplate);
+$("btn-add-remark-preset").addEventListener("click", addNewRemarkPreset);
 
 $("search-existing").addEventListener("input", e => {
   state.searchExisting = e.target.value;
@@ -233,6 +246,10 @@ $("search-assessment").addEventListener("input", e => {
 $("search-template").addEventListener("input", e => {
   state.searchTemplate = e.target.value;
   renderTemplateButtons();
+});
+$("search-remark-preset").addEventListener("input", e => {
+  state.searchRemarkPreset = e.target.value;
+  renderRemarkPresetButtons();
 });
 $("search-export").addEventListener("input", e => {
   state.searchExport = e.target.value;
@@ -370,6 +387,48 @@ function renderExportButtons() {
       }
     });
   });
+}
+
+function renderRemarkPresetButtons() {
+  const container = $("remark-preset-buttons");
+  if (!container) return;
+  const q = state.searchRemarkPreset.toLowerCase();
+  const filtered = state.remarkPresets
+    .filter(p => !q || p.name.toLowerCase().includes(q))
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  if (filtered.length === 0) {
+    container.innerHTML = `<p class="empty-hint">${q ? "No matches." : "No remark presets yet."}</p>`;
+    return;
+  }
+  container.innerHTML = `<div class="roster-list">` +
+    filtered.map(p => `
+      <button class="roster-item" data-id="${escHtml(p.id)}">
+        <span class="roster-item-name">${escHtml(p.name)}</span>
+        <span class="roster-item-sub">${escHtml((p.options || []).join(" / "))}</span>
+      </button>
+    `).join("") +
+    `</div>`;
+
+  container.querySelectorAll(".roster-item").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const preset = state.remarkPresets.find(p => p.id === btn.dataset.id);
+      if (preset) openManageModal(null, null, null, preset);
+    });
+  });
+}
+
+async function addNewRemarkPreset() {
+  const preset = {
+    id: cfgId("rp"),
+    name: "New Preset",
+    options: [],
+    order: state.remarkPresets.length
+  };
+  state.remarkPresets.push(preset);
+  await saveRemarkPreset(preset);
+  renderRemarkPresetButtons();
+  openManageModal(null, null, null, preset);
 }
 
 // ============================================================
@@ -811,7 +870,7 @@ function renderFedcTarget(target) {
           data-act-id="${actId || ""}"
           data-pa-name="${escHtml(pa.name)}"
           data-pa-order="${idx}"
-          data-target="${escHtml(target.name)}">+ Add Remark</button>`;
+          data-target="${escHtml(target.name)}">+ Add Remark &amp; Trials</button>`;
       }
     }
 
@@ -845,7 +904,7 @@ function renderFedcTarget(target) {
       html += `<button class="btn-add-remark"
         data-pending-key="${escHtml(pendingKey)}"
         data-act-id="${act.id}"
-        data-target="${escHtml(target.name)}">+ Add Remark</button>`;
+        data-target="${escHtml(target.name)}">+ Add Remark &amp; Trials</button>`;
     }
     html += `</div>`;
   }
@@ -908,7 +967,7 @@ function renderRegularTarget(target) {
       html += `<button class="btn-add-remark"
         data-pending-key="${escHtml(pendingKey)}"
         data-act-id="${act.id}"
-        data-target="${escHtml(target.name)}">+ Add Remark</button>`;
+        data-target="${escHtml(target.name)}">+ Add Remark &amp; Trials</button>`;
     }
 
     html += `</div>`;
@@ -935,20 +994,37 @@ function renderRegularTarget(target) {
 // ─── REMARK FIELDS ───────────────────────────────────────────
 
 function renderRemarkFields(rem, target) {
+  const preset = target.remarkPresetId
+    ? state.remarkPresets.find(p => p.id === target.remarkPresetId)
+    : null;
+
   const trials = rem.trials || [];
   const badgesHtml = trials.map((score, idx) =>
     `<span class="trial-badge">${score}<button class="btn-trial-delete"
       data-rem-id="${rem.id}" data-idx="${idx}">×</button></span>`
   ).join("");
 
+  let remarkContent;
+  if (preset) {
+    remarkContent = `<div class="remark-preset-opts">
+      ${(preset.options || []).map(opt =>
+        `<button class="btn-remark-opt${rem.text === opt ? " active" : ""}"
+          data-rem-id="${rem.id}"
+          data-opt="${escHtml(opt)}">${escHtml(opt)}</button>`
+      ).join("")}
+    </div>`;
+  } else {
+    remarkContent = `<textarea class="field-input remark-text-input"
+      data-rem-id="${rem.id}"
+      data-original="${escHtml(rem.text || "")}"
+      rows="2">${escHtml(rem.text || "")}</textarea>`;
+  }
+
   return `
     <div class="entry-divider"></div>
     <div class="entry-field">
       <span class="field-label">Remark</span>
-      <textarea class="field-input remark-text-input"
-        data-rem-id="${rem.id}"
-        data-original="${escHtml(rem.text || "")}"
-        rows="2">${escHtml(rem.text || "")}</textarea>
+      ${remarkContent}
       <button class="btn-icon btn-delete-remark"
         data-rem-id="${rem.id}" title="Delete remark">🗑</button>
     </div>
@@ -1109,18 +1185,26 @@ function attachTargetListeners(target) {
     });
   });
 
-  // ── Add remark ────────────────────────────────────────────
+  // ── Add remark (immediate creation) ──────────────────────
   c.querySelectorAll(".btn-add-remark").forEach(btn => {
-    btn.addEventListener("click", () => {
-      state.pendingNewRemark = {
-        pendingKey: btn.dataset.pendingKey,
-        actId:      btn.dataset.actId   || null,
-        paName:     btn.dataset.paName  || null,
-        paOrder:    btn.dataset.paOrder !== undefined ? Number(btn.dataset.paOrder) : null
-      };
+    btn.addEventListener("click", async () => {
+      const paName  = btn.dataset.paName || null;
+      const paOrder = Number(btn.dataset.paOrder) || 0;
+      let   actId   = btn.dataset.actId  || null;
       state.pendingNewActivity = null;
-      renderTargetContent();
-      setTimeout(() => $("new-remark-textarea")?.focus(), 50);
+      if (paName) actId = await ensureFedcActivity(target.name, paName, paOrder);
+      if (!actId) return;
+      await addRemark(state.currentSessionId, actId, "");
+    });
+  });
+
+  // ── Remark preset option buttons ──────────────────────────
+  c.querySelectorAll(".btn-remark-opt").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      btn.closest(".remark-preset-opts")?.querySelectorAll(".btn-remark-opt").forEach(b => {
+        b.classList.toggle("active", b === btn);
+      });
+      await updateRemarkText(state.currentSessionId, btn.dataset.remId, btn.dataset.opt);
     });
   });
 
@@ -1808,9 +1892,11 @@ function cfgId(prefix) {
 
 // ── Open / close ──────────────────────────────────────────────
 
-function openManageModal(student, targetOrNull, templateOrNull = null) {
+function openManageModal(student, targetOrNull, templateOrNull = null, remarkPresetOrNull = null) {
   $("manage-modal").classList.remove("hidden");
-  if (templateOrNull) {
+  if (remarkPresetOrNull) {
+    renderRemarkPresetManageContent(remarkPresetOrNull);
+  } else if (templateOrNull) {
     renderTemplateManageContent(templateOrNull);
   } else if (targetOrNull) {
     renderTargetManageContent(student, targetOrNull);
@@ -1830,6 +1916,7 @@ function closeManageModal() {
   renderExistingStudentButtons();
   renderAssessmentStudentButtons();
   renderTemplateButtons();
+  renderRemarkPresetButtons();
   renderExportButtons();
 }
 
@@ -1968,6 +2055,96 @@ function showAddTargetPicker(student) {
     if (lastTarget) state.selectedTargetName = lastTarget.name;
     populateTargetDropdown(student.targets);
     renderTargetContent();
+  });
+}
+
+// ── Remark preset management content ─────────────────────────
+
+function renderRemarkPresetManageContent(preset) {
+  $("manage-modal-title").textContent = preset.name || "New Preset";
+  const opts = preset.options || [];
+
+  let html = `
+    <div class="admin-section">
+      <label class="admin-label">Preset Name</label>
+      <input class="admin-input" id="mn-preset-name" value="${escHtml(preset.name || "")}"
+        placeholder="e.g. Basic Progress" />
+    </div>
+    <div class="admin-section-title">Options</div>
+    <div class="admin-list" id="mn-preset-options">`;
+
+  opts.forEach((opt, idx) => {
+    html += `<div class="admin-list-item" data-idx="${idx}">
+      <input class="admin-input" id="mn-preset-opt-${idx}" value="${escHtml(opt)}"
+        placeholder="Option text" style="flex:1" />
+      <button class="btn-adm-del mn-del-preset-opt" data-idx="${idx}">🗑</button>
+    </div>`;
+  });
+
+  html += `</div>
+    <div style="margin-top:.5rem">
+      <button class="btn-admin-add" id="btn-mn-add-preset-opt" style="width:100%">+ Add Option</button>
+    </div>
+    <div style="margin-top:2rem;padding-bottom:1.5rem">
+      <button class="btn-primary-sm" id="btn-mn-done-preset"
+        style="width:100%;padding:.75rem;margin-bottom:.75rem">Done</button>
+      <button class="btn-adm-danger" id="btn-mn-del-preset">Delete This Preset</button>
+    </div>`;
+
+  $("manage-modal-body").innerHTML = html;
+
+  const savePreset = async () => {
+    const i = state.remarkPresets.findIndex(p => p.id === preset.id);
+    if (i >= 0) state.remarkPresets[i] = preset;
+    await saveRemarkPreset(preset);
+  };
+
+  $("mn-preset-name").addEventListener("blur", async () => {
+    const v = $("mn-preset-name").value.trim();
+    if (!v || v === preset.name) return;
+    preset.name = v;
+    $("manage-modal-title").textContent = v;
+    await savePreset();
+  });
+  $("mn-preset-name").addEventListener("keydown", e => {
+    if (e.key === "Enter") { e.preventDefault(); $("mn-preset-name").blur(); }
+  });
+
+  $("manage-modal-body").querySelectorAll(".mn-del-preset-opt").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      preset.options.splice(Number(btn.dataset.idx), 1);
+      await savePreset();
+      renderRemarkPresetManageContent(preset);
+    });
+  });
+
+  $("btn-mn-add-preset-opt").addEventListener("click", async () => {
+    (preset.options = preset.options || []).push("New Option");
+    await savePreset();
+    renderRemarkPresetManageContent(preset);
+  });
+
+  opts.forEach((opt, idx) => {
+    const input = $(`mn-preset-opt-${idx}`);
+    if (!input) return;
+    input.addEventListener("blur", async () => {
+      const v = input.value.trim();
+      if (!v || v === preset.options[idx]) return;
+      preset.options[idx] = v;
+      await savePreset();
+    });
+    input.addEventListener("keydown", e => {
+      if (e.key === "Enter") { e.preventDefault(); input.blur(); }
+    });
+  });
+
+  $("btn-mn-done-preset").addEventListener("click", closeManageModal);
+
+  $("btn-mn-del-preset").addEventListener("click", async () => {
+    if (!confirm(`Delete "${preset.name}"? This will also clear its assignment from any targets.`)) return;
+    state.remarkPresets = state.remarkPresets.filter(p => p.id !== preset.id);
+    await deleteRemarkPreset(preset.id);
+    closeManageModal();
   });
 }
 
@@ -2209,11 +2386,30 @@ function renderTargetManageContent(student, target) {
     }
   });
 
+  const presetOptions = state.remarkPresets.length > 0
+    ? `<select class="admin-input" id="mn-preset-select" style="margin-top:.5rem">
+        <option value="">— none —</option>
+        ${state.remarkPresets.map(p =>
+          `<option value="${escHtml(p.id)}" ${target.remarkPresetId === p.id ? "selected" : ""}>${escHtml(p.name)}</option>`
+        ).join("")}
+       </select>`
+    : `<p class="admin-hint">No presets yet — add them from the home screen first.</p>`;
+
   html += `</div>
     <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.25rem">
       <button class="btn-admin-add" id="btn-mn-add-act" style="flex:1">+ Add Activity</button>
       <button class="btn-admin-add" id="btn-mn-add-heading" style="flex:1">+ Add Section Heading</button>
       <button class="btn-admin-add" id="btn-mn-add-note" style="flex:1">+ Add Note</button>
+    </div>
+    <div class="admin-section" style="margin-top:1.5rem">
+      <label class="admin-label">Remark Input</label>
+      <label class="admin-checkbox-row">
+        <input type="checkbox" id="mn-use-preset" ${target.remarkPresetId ? "checked" : ""} />
+        Use a remark preset
+      </label>
+      <div id="mn-preset-picker" ${target.remarkPresetId ? "" : 'style="display:none"'}>
+        ${presetOptions}
+      </div>
     </div>
     <div style="margin-top:2rem;padding-bottom:1.5rem">
       <button class="btn-primary-sm" id="btn-mn-done-target"
@@ -2325,6 +2521,23 @@ function renderTargetManageContent(student, target) {
 
   $("btn-mn-done-target").addEventListener("click", closeManageModal);
 
+  // ── Remark preset selector ──────────────────────────────────
+  $("mn-use-preset")?.addEventListener("change", async () => {
+    const checked = $("mn-use-preset").checked;
+    const picker  = $("mn-preset-picker");
+    if (checked) {
+      picker?.style.removeProperty("display");
+    } else {
+      picker?.style.setProperty("display", "none");
+      target.remarkPresetId = null;
+      await saveTarget();
+    }
+  });
+  $("mn-preset-select")?.addEventListener("change", async () => {
+    target.remarkPresetId = $("mn-preset-select").value || null;
+    await saveTarget();
+  });
+
   $("btn-mn-del-target").addEventListener("click", async () => {
     if (!confirm(`Delete target "${target.name}"? All session data for this target will also be permanently deleted.`)) return;
     student.targets = student.targets.filter(t => t.id !== target.id);
@@ -2394,11 +2607,30 @@ function renderTemplateManageContent(template) {
     }
   });
 
+  const tmplPresetOptions = state.remarkPresets.length > 0
+    ? `<select class="admin-input" id="mn-preset-select" style="margin-top:.5rem">
+        <option value="">— none —</option>
+        ${state.remarkPresets.map(p =>
+          `<option value="${escHtml(p.id)}" ${template.remarkPresetId === p.id ? "selected" : ""}>${escHtml(p.name)}</option>`
+        ).join("")}
+       </select>`
+    : `<p class="admin-hint">No presets yet — add them from the home screen first.</p>`;
+
   html += `</div>
     <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.25rem">
       <button class="btn-admin-add" id="btn-mn-add-act" style="flex:1">+ Add Activity</button>
       <button class="btn-admin-add" id="btn-mn-add-heading" style="flex:1">+ Add Section Heading</button>
       <button class="btn-admin-add" id="btn-mn-add-note" style="flex:1">+ Add Note</button>
+    </div>
+    <div class="admin-section" style="margin-top:1.5rem">
+      <label class="admin-label">Remark Input</label>
+      <label class="admin-checkbox-row">
+        <input type="checkbox" id="mn-use-preset" ${template.remarkPresetId ? "checked" : ""} />
+        Use a remark preset
+      </label>
+      <div id="mn-preset-picker" ${template.remarkPresetId ? "" : 'style="display:none"'}>
+        ${tmplPresetOptions}
+      </div>
     </div>
     <div style="margin-top:2rem;padding-bottom:1.5rem">
       <button class="btn-adm-danger" id="btn-mn-del-template">Delete Template</button>
@@ -2505,6 +2737,23 @@ function renderTemplateManageContent(template) {
     renderTemplateManageContent(template);
   });
 
+  // ── Remark preset selector ──────────────────────────────────
+  $("mn-use-preset")?.addEventListener("change", async () => {
+    const checked = $("mn-use-preset").checked;
+    const picker  = $("mn-preset-picker");
+    if (checked) {
+      picker?.style.removeProperty("display");
+    } else {
+      picker?.style.setProperty("display", "none");
+      template.remarkPresetId = null;
+      await saveTemplateFn();
+    }
+  });
+  $("mn-preset-select")?.addEventListener("change", async () => {
+    template.remarkPresetId = $("mn-preset-select").value || null;
+    await saveTemplateFn();
+  });
+
   $("btn-mn-del-template").addEventListener("click", async () => {
     if (!confirm(`Delete template "${template.name}"? Students using this template will keep their activities.`)) return;
     await deleteTemplate(template.id);
@@ -2525,6 +2774,7 @@ async function syncTemplateToStudents(template) {
       target.predefinedActivities = JSON.parse(JSON.stringify(template.predefinedActivities || []));
       target.notes                = JSON.parse(JSON.stringify(template.notes || []));
       target.maxPoints            = template.maxPoints || 3;
+      target.remarkPresetId       = template.remarkPresetId || null;
       changed = true;
     }
     if (changed) toSave.push(student);
