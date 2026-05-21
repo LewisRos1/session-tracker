@@ -732,6 +732,29 @@ html, body {
   font-weight: 600;
 }
 
+.view-remark-multi-opts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .35rem;
+}
+.view-remark-multi-btn {
+  padding: .3rem .65rem;
+  border: 1.5px solid var(--border);
+  border-radius: 20px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: .85rem;
+  cursor: pointer;
+  transition: background .12s, border-color .12s, color .12s;
+}
+.view-remark-multi-btn:hover { border-color: var(--primary); color: var(--primary); }
+.view-remark-multi-btn.active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--white);
+  font-weight: 600;
+}
+
 /* ─── GENERIC BUTTONS ────────────────────────────────────── */
 .btn-primary-sm {
   padding: .45rem .85rem;
@@ -1183,7 +1206,6 @@ html, body {
 
 /* ─── Compact per-activity remark preset selector ────────── */
 .act-preset-select {
-  align-self: flex-start;
   font-size: .75rem;
   color: var(--text-muted);
   background: transparent;
