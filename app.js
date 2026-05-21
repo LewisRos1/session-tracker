@@ -45,7 +45,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "167";
+const APP_VERSION = "170";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -1981,7 +1981,7 @@ function showAddTargetPicker(student) {
       </button>
       <button class="btn-target-type" id="btn-add-structured-target">
         <span class="btn-target-label">+ Individual Template Target</span>
-        <span class="btn-target-desc">Activities are preset — just fill in remarks</span>
+        <span class="btn-target-desc">Activities will be the same every session, just fill in remarks</span>
       </button>
     </div>`;
 
