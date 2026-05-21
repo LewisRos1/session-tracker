@@ -45,7 +45,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "165";
+const APP_VERSION = "166";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -1631,6 +1631,10 @@ function viewActivityRows(no, actName, actId, data, target, isPredefined = true)
           data-target-name="${escHtml(target.name)}" title="Delete activity">×</button>
        </div>`;
 
+  const remarkPresetId = isPredefined
+    ? (target.predefinedActivities?.find(pa => pa.name === actName)?.remarkPresetId || null)
+    : null;
+
   if (remarks.length === 0) {
     return `<tr>
       <td class="vcol-no">${no}</td>
@@ -1644,11 +1648,11 @@ function viewActivityRows(no, actName, actId, data, target, isPredefined = true)
   return remarks.map((rem, ri) => viewRemarkRow(
     ri === 0 ? no : null,
     ri === 0 ? actCell : null,
-    rem, target
+    rem, target, remarkPresetId
   )).join("");
 }
 
-function viewRemarkRow(no, actName, rem, target) {
+function viewRemarkRow(no, actName, rem, target, remarkPresetId = null) {
   const allTrials  = rem.trials || [];
   const maxPts     = target.maxPoints || 3;
   const validTrials = allTrials.filter(t => t !== -1);
@@ -1667,13 +1671,21 @@ function viewRemarkRow(no, actName, rem, target) {
     </span>`).join("") +
     `<button class="view-add-trial" data-rem-id="${escHtml(rem.id)}">+</button>`;
 
+  const preset = remarkPresetId ? state.remarkPresets.find(p => p.id === remarkPresetId) : null;
+  const remarkCell = preset
+    ? `<select class="view-remark-preset-select" data-rem-id="${escHtml(rem.id)}">
+        <option value="">— select —</option>
+        ${(preset.options || []).map(opt =>
+          `<option value="${escHtml(opt)}"${rem.text === opt ? " selected" : ""}>${escHtml(opt)}</option>`
+        ).join("")}
+       </select>`
+    : `<textarea class="view-remark-edit" data-rem-id="${escHtml(rem.id)}"
+        rows="2">${escHtml(rem.text || "")}</textarea>`;
+
   return `<tr>
     <td class="vcol-no">${no !== null ? no : ""}</td>
     <td class="vcol-act">${actName !== null ? actName : ""}</td>
-    <td class="vcol-rem">
-      <textarea class="view-remark-edit" data-rem-id="${escHtml(rem.id)}"
-        rows="2">${escHtml(rem.text || "")}</textarea>
-    </td>
+    <td class="vcol-rem">${remarkCell}</td>
     <td class="vcol-trials"><div class="trial-cells">${trialCells}</div></td>
     <td class="vcol-total">${validTrials.length > 0 ? total : ""}</td>
     <td class="vcol-score">
@@ -1746,6 +1758,13 @@ function attachViewListeners() {
       const rem = state.viewSessionData?.remarks?.[ta.dataset.remId];
       if (!rem || ta.value === (rem.text || "")) return;
       await updateRemarkText(state.viewSessionId, ta.dataset.remId, ta.value);
+    });
+  });
+
+  body.querySelectorAll(".view-remark-preset-select").forEach(sel => {
+    sel.addEventListener("change", async () => {
+      if (!sel.value) return;
+      await updateRemarkText(state.viewSessionId, sel.dataset.remId, sel.value);
     });
   });
 

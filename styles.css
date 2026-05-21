@@ -1925,3 +1925,16 @@ textarea.admin-input { resize: vertical; min-height: 60px; line-height: 1.45; }
   padding: .2rem .3rem;
   outline: none;
 }
+
+.view-remark-preset-select {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-family: var(--font);
+  font-size: .85rem;
+  color: var(--text);
+  background: var(--surface);
+  padding: .3rem .4rem;
+  cursor: pointer;
+}
+.view-remark-preset-select:focus { outline: none; border-color: var(--primary); }
