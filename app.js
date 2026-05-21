@@ -45,7 +45,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "170";
+const APP_VERSION = "172";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -2474,6 +2474,7 @@ function renderTargetManageContent(student, target) {
   $("mn-t-name").addEventListener("blur", async () => {
     const v = $("mn-t-name").value.trim();
     if (!v || v === target.name) return;
+    if (state.selectedTargetName === target.name) state.selectedTargetName = v;
     target.name = v;
     $("manage-modal-title").textContent = v;
     await saveTarget();
@@ -2568,7 +2569,10 @@ function renderTargetManageContent(student, target) {
     await deleteTargetDataFromSessions(student.id, target.name);
     const si = state.students.findIndex(s => s.id === student.id);
     if (si >= 0) state.students[si] = student;
-    renderStudentManageContent(student);
+    if (state.selectedTargetName === target.name) {
+      state.selectedTargetName = student.targets[0]?.name || null;
+    }
+    closeManageModal();
   });
 }
 
