@@ -45,7 +45,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "173";
+const APP_VERSION = "174";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -811,7 +811,7 @@ function renderFedcTarget(target) {
   target.predefinedActivities.forEach((pa, idx) => {
     // Note item — render inline in order, styled like a section heading
     if (pa.isNote) {
-      if (pa.text) html += `<div class="activity-note-heading">${escHtml(pa.text)}</div>`;
+      if (pa.text) html += `<div class="activity-note-heading">${renderNoteText(pa.text)}</div>`;
       return;
     }
 
@@ -1547,7 +1547,7 @@ function buildTargetViewTable(target, data) {
         continue;
       }
       if (pa.isNote) {
-        rows += `<tr class="view-note-row"><td colspan="6">${escHtml(pa.text || "")}</td></tr>`;
+        rows += `<tr class="view-note-row"><td colspan="6">${renderNoteText(pa.text)}</td></tr>`;
         continue;
       }
       no++;
@@ -1974,7 +1974,7 @@ function closeManageModal() {
 $("manage-modal-close").addEventListener("click",    closeManageModal);
 $("manage-modal-backdrop").addEventListener("click", closeManageModal);
 
-// Delegated handler: Enter inserts newline in note textareas (Ctrl+Enter = blur to save)
+// Delegated handler: Enter/Ctrl+B in note textareas
 $("manage-modal-body").addEventListener("keydown", e => {
   const ta = e.target;
   if (!ta.closest(".admin-note-item")) return;
@@ -1985,6 +1985,22 @@ $("manage-modal-body").addEventListener("keydown", e => {
     const s = ta.selectionStart, en = ta.selectionEnd;
     ta.value = ta.value.slice(0, s) + "\n" + ta.value.slice(en);
     ta.selectionStart = ta.selectionEnd = s + 1;
+    autoResizeTextarea(ta);
+    return;
+  }
+  if (e.key === "b" && (e.ctrlKey || e.metaKey)) {
+    e.preventDefault();
+    const s = ta.selectionStart, en = ta.selectionEnd;
+    const selected = ta.value.slice(s, en);
+    const replacement = `**${selected}**`;
+    ta.value = ta.value.slice(0, s) + replacement + ta.value.slice(en);
+    if (selected.length === 0) {
+      ta.selectionStart = ta.selectionEnd = s + 2;
+    } else {
+      ta.selectionStart = s;
+      ta.selectionEnd = s + replacement.length;
+    }
+    ta.dispatchEvent(new Event("input"));
   }
 });
 
@@ -2402,6 +2418,10 @@ function normalizeActivitiesFormat(acts) {
 function autoResizeTextarea(el) {
   el.style.height = "auto";
   el.style.height = el.scrollHeight + "px";
+}
+
+function renderNoteText(text) {
+  return escHtml(text || "").replace(/\*\*([\s\S]+?)\*\*/g, "<strong>$1</strong>");
 }
 
 function renderTargetManageContent(student, target) {

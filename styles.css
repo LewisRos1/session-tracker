@@ -1827,6 +1827,7 @@ textarea.admin-input { resize: vertical; min-height: 60px; line-height: 1.45; }
   padding: .4rem .75rem;
   border-top: 2px solid #f59e0b !important;
   border-bottom: 2px solid #f59e0b !important;
+  white-space: pre-wrap;
 }
 
 .view-dayavg-row td {
