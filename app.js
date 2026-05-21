@@ -45,7 +45,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "178";
+const APP_VERSION = "179";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -2333,16 +2333,17 @@ function renderTargetManageContent(student, target) {
         <button class="btn-adm-del mn-del-act" data-idx="${idx}">🗑</button>
       </div>`;
     } else {
-      const type = a.sentenceStarter ? "starter_fixed" : (a.inlineOptions || a.remarkPresetId) ? "fixed" : "";
+      const type = (a.sentenceStarter && a.inlineOptions) ? "starter_fixed" : a.sentenceStarter ? "starter" : (a.inlineOptions || a.remarkPresetId) ? "fixed" : "";
       const remarkTypeSelect = `<select class="act-preset-select mn-act-preset" data-idx="${idx}">
           <option value="">Free text</option>
           <option value="fixed"${type === "fixed" ? " selected" : ""}>Fixed options</option>
+          <option value="starter"${type === "starter" ? " selected" : ""}>Sentence starter</option>
           <option value="starter_fixed"${type === "starter_fixed" ? " selected" : ""}>Sentence starter + Fixed options</option>
         </select>
         <input class="admin-input mn-act-starter-text" data-idx="${idx}"
           placeholder="Starter phrase…"
           value="${escHtml(a.sentenceStarter || "")}"
-          style="${type === "starter_fixed" ? "" : "display:none"}">
+          style="${type === "starter" || type === "starter_fixed" ? "" : "display:none"}">
         <input class="admin-input mn-act-inline-opts" data-idx="${idx}"
           placeholder="Options separated by /  e.g. Low/Medium/High"
           value="${escHtml(a.inlineOptions || (a.remarkPresetId ? (state.remarkPresets.find(p=>p.id===a.remarkPresetId)?.options||[]).join("/") : ""))}"
@@ -2480,9 +2481,9 @@ function renderTargetManageContent(student, target) {
       acts[idx].sentenceStarter = null;
       acts[idx].remarkPresetId  = null;
       acts[idx].inlineOptions   = null;
-      starterInput.style.display = type === "starter_fixed" ? "" : "none";
+      starterInput.style.display = (type === "starter" || type === "starter_fixed") ? "" : "none";
       optsInput.style.display    = (type === "fixed" || type === "starter_fixed") ? "" : "none";
-      if (type === "starter_fixed") { starterInput.focus(); }
+      if (type === "starter" || type === "starter_fixed") { starterInput.focus(); }
       else if (type === "fixed")    { optsInput.focus(); }
       else { target.predefinedActivities = acts; await saveTarget(); }
     });
@@ -2579,16 +2580,17 @@ function renderTemplateManageContent(template) {
         <button class="btn-adm-del mn-del-act" data-idx="${idx}">🗑</button>
       </div>`;
     } else {
-      const type = a.sentenceStarter ? "starter_fixed" : (a.inlineOptions || a.remarkPresetId) ? "fixed" : "";
+      const type = (a.sentenceStarter && a.inlineOptions) ? "starter_fixed" : a.sentenceStarter ? "starter" : (a.inlineOptions || a.remarkPresetId) ? "fixed" : "";
       const remarkTypeSelect = `<select class="act-preset-select mn-act-preset" data-idx="${idx}">
           <option value="">Free text</option>
           <option value="fixed"${type === "fixed" ? " selected" : ""}>Fixed options</option>
+          <option value="starter"${type === "starter" ? " selected" : ""}>Sentence starter</option>
           <option value="starter_fixed"${type === "starter_fixed" ? " selected" : ""}>Sentence starter + Fixed options</option>
         </select>
         <input class="admin-input mn-act-starter-text" data-idx="${idx}"
           placeholder="Starter phrase…"
           value="${escHtml(a.sentenceStarter || "")}"
-          style="${type === "starter_fixed" ? "" : "display:none"}">
+          style="${type === "starter" || type === "starter_fixed" ? "" : "display:none"}">
         <input class="admin-input mn-act-inline-opts" data-idx="${idx}"
           placeholder="Options separated by /  e.g. Low/Medium/High"
           value="${escHtml(a.inlineOptions || (a.remarkPresetId ? (state.remarkPresets.find(p=>p.id===a.remarkPresetId)?.options||[]).join("/") : ""))}"
@@ -2722,9 +2724,9 @@ function renderTemplateManageContent(template) {
       acts[idx].sentenceStarter = null;
       acts[idx].remarkPresetId  = null;
       acts[idx].inlineOptions   = null;
-      starterInput.style.display = type === "starter_fixed" ? "" : "none";
+      starterInput.style.display = (type === "starter" || type === "starter_fixed") ? "" : "none";
       optsInput.style.display    = (type === "fixed" || type === "starter_fixed") ? "" : "none";
-      if (type === "starter_fixed") { starterInput.focus(); }
+      if (type === "starter" || type === "starter_fixed") { starterInput.focus(); }
       else if (type === "fixed")    { optsInput.focus(); }
       else { template.predefinedActivities = acts; await saveTemplateFn(); }
     });
