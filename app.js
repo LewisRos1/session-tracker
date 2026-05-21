@@ -45,7 +45,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "161";
+const APP_VERSION = "163";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -2238,9 +2238,27 @@ function renderStudentManageContent(student) {
 // ── Drag-to-reorder for the activity list ─────────────────────
 // Uses Pointer Events so it works on mouse, iPad, and iPhone.
 function initDragSort(listEl, onReorder) {
-  let dragEl = null;
+  let dragEl      = null;
   let placeholder = null;
-  let offsetY = 0;
+  let offsetY     = 0;
+  let lastY       = 0;
+  let scrollRaf   = null;
+
+  // The scrollable container is the manage modal body
+  const scrollEl = listEl.closest('.manage-modal-body') || listEl.parentElement;
+  const ZONE  = 80;  // px from edge to start auto-scrolling
+  const SPEED = 12;  // max px per frame
+
+  function autoScroll() {
+    if (!dragEl || !scrollEl) { scrollRaf = null; return; }
+    const { top, bottom } = scrollEl.getBoundingClientRect();
+    if (lastY < top + ZONE) {
+      scrollEl.scrollTop -= Math.ceil(SPEED * (1 - (lastY - top) / ZONE));
+    } else if (lastY > bottom - ZONE) {
+      scrollEl.scrollTop += Math.ceil(SPEED * (1 - (bottom - lastY) / ZONE));
+    }
+    scrollRaf = requestAnimationFrame(autoScroll);
+  }
 
   listEl.addEventListener('pointerdown', e => {
     if (!e.target.closest('.drag-handle')) return;
@@ -2250,6 +2268,7 @@ function initDragSort(listEl, onReorder) {
 
     const rect = item.getBoundingClientRect();
     offsetY = e.clientY - rect.top;
+    lastY   = e.clientY;
 
     placeholder = document.createElement('div');
     placeholder.className = 'drag-placeholder';
@@ -2263,10 +2282,12 @@ function initDragSort(listEl, onReorder) {
       `box-shadow:0 4px 16px rgba(0,0,0,.2);pointer-events:none;`;
 
     listEl.setPointerCapture(e.pointerId);
+    scrollRaf = requestAnimationFrame(autoScroll);
   });
 
   listEl.addEventListener('pointermove', e => {
     if (!dragEl) return;
+    lastY = e.clientY;
     dragEl.style.top = (e.clientY - offsetY) + 'px';
 
     const items = [...listEl.querySelectorAll('.admin-list-item')].filter(el => el !== dragEl);
@@ -2284,6 +2305,7 @@ function initDragSort(listEl, onReorder) {
 
   const endDrag = () => {
     if (!dragEl) return;
+    if (scrollRaf) { cancelAnimationFrame(scrollRaf); scrollRaf = null; }
     dragEl.style.cssText = '';
     if (placeholder?.parentNode) placeholder.parentNode.insertBefore(dragEl, placeholder);
     placeholder?.remove();
@@ -2376,9 +2398,8 @@ function renderTargetManageContent(student, target) {
       </div>`;
     } else {
       const presetDropdown = state.remarkPresets.length > 0
-        ? `<select class="admin-input mn-act-preset" data-idx="${idx}"
-            style="font-size:.8rem;padding:.2rem .4rem;margin-top:.25rem">
-            <option value="">Remark: Free text</option>
+        ? `<select class="act-preset-select mn-act-preset" data-idx="${idx}">
+            <option value="">Free text</option>
             ${state.remarkPresets.map(p =>
               `<option value="${escHtml(p.id)}" ${a.remarkPresetId === p.id ? "selected" : ""}>${escHtml(p.name)}</option>`
             ).join("")}
@@ -2386,7 +2407,7 @@ function renderTargetManageContent(student, target) {
         : "";
       html += `<div class="admin-list-item" data-idx="${idx}">
         <span class="drag-handle">⠿</span>
-        <div style="flex:1;display:flex;flex-direction:column">
+        <div style="flex:1;display:flex;flex-direction:column;gap:.3rem">
           <textarea class="admin-input" id="mn-act-name-${idx}" data-idx="${idx}"
             rows="1" placeholder="Activity name (Enter = new line · Ctrl+Enter = save)">${escHtml(a.name || "")}</textarea>
           ${presetDropdown}
@@ -2582,9 +2603,8 @@ function renderTemplateManageContent(template) {
       </div>`;
     } else {
       const presetDropdown = state.remarkPresets.length > 0
-        ? `<select class="admin-input mn-act-preset" data-idx="${idx}"
-            style="font-size:.8rem;padding:.2rem .4rem;margin-top:.25rem">
-            <option value="">Remark: Free text</option>
+        ? `<select class="act-preset-select mn-act-preset" data-idx="${idx}">
+            <option value="">Free text</option>
             ${state.remarkPresets.map(p =>
               `<option value="${escHtml(p.id)}" ${a.remarkPresetId === p.id ? "selected" : ""}>${escHtml(p.name)}</option>`
             ).join("")}
@@ -2592,7 +2612,7 @@ function renderTemplateManageContent(template) {
         : "";
       html += `<div class="admin-list-item" data-idx="${idx}">
         <span class="drag-handle">⠿</span>
-        <div style="flex:1;display:flex;flex-direction:column">
+        <div style="flex:1;display:flex;flex-direction:column;gap:.3rem">
           <textarea class="admin-input" id="mn-act-name-${idx}" data-idx="${idx}"
             rows="1" placeholder="Activity name (Enter = new line · Ctrl+Enter = save)">${escHtml(a.name || "")}</textarea>
           ${presetDropdown}

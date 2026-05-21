@@ -1175,9 +1175,23 @@ html, body {
   background: var(--white);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  padding: .65rem .75rem;
+  padding: .75rem .75rem;
   box-shadow: var(--shadow);
 }
+
+/* ─── Compact per-activity remark preset selector ────────── */
+.act-preset-select {
+  align-self: flex-start;
+  font-size: .75rem;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: .15rem .35rem;
+  cursor: pointer;
+  max-width: 100%;
+}
+.act-preset-select:focus { outline: none; border-color: var(--primary); color: var(--text); }
 
 .drag-handle {
   cursor: grab;
