@@ -45,7 +45,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "164";
+const APP_VERSION = "165";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -782,7 +782,7 @@ function renderTargetContent() {
   const typeChip  = $("target-type-chip");
   const typeBadge = $("target-type-badge");
   if (typeChip && typeBadge) {
-    const label = target.templateId ? "Template" : target.isStructured ? "Structured" : "Blank";
+    const label = target.templateId ? "Standard Template" : target.isStructured ? "Individual Template" : "Blank";
     const cls   = target.templateId ? "badge-template" : target.isStructured ? "badge-structured" : "badge-blank";
     typeBadge.textContent = label;
     typeBadge.className   = `target-type-value ${cls}`;
@@ -1957,7 +1957,7 @@ function showAddTargetPicker(student) {
         <span class="btn-target-desc">Type everything from scratch each session</span>
       </button>
       <button class="btn-target-type" id="btn-add-structured-target">
-        <span class="btn-target-label">+ Custom Template Target</span>
+        <span class="btn-target-label">+ Individual Template Target</span>
         <span class="btn-target-desc">Activities are preset — just fill in remarks</span>
       </button>
     </div>`;
