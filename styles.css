@@ -1478,6 +1478,47 @@ textarea.admin-input { resize: vertical; min-height: 60px; line-height: 1.45; }
   gap: .85rem;
 }
 
+/* ─── Sentence starter remark (session screen) ──────────── */
+.remark-starter-wrap {
+  display: flex;
+  align-items: flex-start;
+  gap: .45rem;
+  flex: 1;
+}
+.remark-starter-prefix {
+  font-size: .82rem;
+  color: var(--text-muted);
+  font-weight: 600;
+  white-space: nowrap;
+  padding-top: .35rem;
+  flex-shrink: 0;
+}
+.remark-starter-wrap .remark-text-input { flex: 1; }
+
+/* ─── Sentence starter remark (view/edit table) ──────────── */
+.view-starter-wrap {
+  display: flex;
+  align-items: center;
+  gap: .3rem;
+}
+.view-starter-prefix {
+  font-size: .8rem;
+  color: var(--text-muted);
+  font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.view-starter-input {
+  flex: 1;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: .2rem .4rem;
+  font-size: .85rem;
+  font-family: var(--font);
+  background: var(--white);
+  min-width: 0;
+}
+
 /* ─── Target notes (session screen) ─────────────────────── */
 .target-notes {
   display: flex;

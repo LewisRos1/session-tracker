@@ -262,6 +262,9 @@ function appendSessionRows(rows, sessionHeaderRows, columnHeaderRows, activityHe
       }
 
       const remarks = getRemarksForActivity(session, act.id);
+      const starter = (target.predefinedActivities || []).find(
+        p => !p.isHeading && !p.isNote && p.name === act.activityName
+      )?.sentenceStarter || null;
 
       if (remarks.length === 0) {
         rows.push([act.activityName, "", "", ""]);
@@ -272,9 +275,10 @@ function appendSessionRows(rows, sessionHeaderRows, columnHeaderRows, activityHe
       for (const rem of remarks) {
         const validTrials = (rem.trials || []).filter(t => t !== -1);
         const remarkAvg   = calcRemarkAvg(validTrials, target.maxPoints);
+        const remarkText  = starter ? `${starter} ${rem.text || ""}`.trim() : (rem.text || "");
         rows.push([
           firstRemark ? act.activityName : "",
-          rem.text || "",
+          remarkText,
           validTrials.join(", "),
           remarkAvg !== null ? pct(remarkAvg) : ""
         ]);
