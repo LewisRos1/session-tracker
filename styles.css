@@ -528,6 +528,8 @@ html, body {
   line-height: 1.4;
   white-space: pre-wrap;
 }
+.activity-note-heading div,
+.activity-note-heading p { margin: 0; padding: 0; }
 
 .fedc-comment-block {
   display: flex;
@@ -1861,6 +1863,8 @@ div.admin-note-editable:empty::before {
   border-bottom: 2px solid #f59e0b !important;
   white-space: pre-wrap;
 }
+.view-note-row div,
+.view-note-row p { margin: 0; padding: 0; }
 
 .view-dayavg-row td {
   background: #fffbe6;
