@@ -396,17 +396,3 @@ export async function deleteTemplate(templateId) {
   await deleteDoc(doc(db, "templates", templateId));
 }
 
-// ─── REMARK PRESETS ──────────────────────────────────────────
-
-export async function loadRemarkPresets() {
-  const snap = await getDocs(collection(db, "remarkPresets"));
-  return snap.docs.map(d => d.data()).sort((a, b) => (a.order || 0) - (b.order || 0));
-}
-
-export async function saveRemarkPreset(preset) {
-  await setDoc(doc(db, "remarkPresets", preset.id), preset);
-}
-
-export async function deleteRemarkPreset(presetId) {
-  await deleteDoc(doc(db, "remarkPresets", presetId));
-}

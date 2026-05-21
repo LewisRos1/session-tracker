@@ -701,35 +701,6 @@ html, body {
 
 .btn-add-remark:hover { opacity: .75; }
 
-/* ─── Remark preset option buttons ──────────────────────── */
-.remark-preset-opts {
-  display: flex;
-  flex-wrap: wrap;
-  gap: .4rem;
-  flex: 1;
-}
-
-.btn-remark-opt {
-  padding: .4rem .75rem;
-  border: 1.5px solid var(--border);
-  border-radius: 20px;
-  background: var(--surface);
-  color: var(--text);
-  font-size: .88rem;
-  cursor: pointer;
-  transition: background .12s, border-color .12s, color .12s;
-  min-height: 36px;
-}
-
-.btn-remark-opt:hover { border-color: var(--primary); color: var(--primary); }
-
-.btn-remark-opt.active {
-  background: var(--primary);
-  border-color: var(--primary);
-  color: var(--white);
-  font-weight: 600;
-}
-
 /* ─── GENERIC BUTTONS ────────────────────────────────────── */
 .btn-primary-sm {
   padding: .45rem .85rem;
@@ -1336,16 +1307,6 @@ textarea.admin-input { resize: vertical; min-height: 60px; line-height: 1.45; }
   line-height: 1.5;
 }
 
-/* ─── Checkbox row in manage modal ───────────────────────── */
-.admin-checkbox-row {
-  display: flex;
-  align-items: center;
-  gap: .5rem;
-  font-size: .9rem;
-  color: var(--text);
-  cursor: pointer;
-  padding: .25rem 0;
-}
 
 /* ─── Action buttons ─────────────────────────────────────── */
 .btn-adm-ord {
@@ -1644,16 +1605,6 @@ textarea.admin-input { resize: vertical; min-height: 60px; line-height: 1.45; }
 .roster-item:active { opacity: .8; }
 
 .roster-item-name { flex: 1; }
-
-.roster-item-sub {
-  display: block;
-  font-size: .75rem;
-  color: var(--text-muted);
-  margin-top: .15rem;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
 
 /* ─── Section header (title + add button inline) ────────── */
 .section-header {
