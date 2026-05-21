@@ -45,7 +45,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "186";
+const APP_VERSION = "187";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -874,10 +874,7 @@ function renderFedcTarget(target) {
     </div>`;
   }
 
-  html += `<div style="display:flex;flex-direction:column;align-items:flex-start;gap:.15rem;padding:.5rem 0">
-    <button class="btn-add-activity" data-target="${escHtml(target.name)}">+ Add Activity</button>
-    <span style="font-size:.72rem;color:#9ca3af;padding-left:.25rem">This activity only appears in this session</span>
-  </div>`;
+  html += `<button class="btn-add-activity" data-target="${escHtml(target.name)}">+ Add Activity (This activity only appears in this session)</button>`;
 
   return html;
 }
@@ -940,10 +937,7 @@ function renderRegularTarget(target) {
     </div>`;
   }
 
-  html += `<div style="display:flex;flex-direction:column;align-items:flex-start;gap:.15rem;padding:.5rem 0">
-    <button class="btn-add-activity" data-target="${escHtml(target.name)}">+ Add Activity</button>
-    <span style="font-size:.72rem;color:#9ca3af;padding-left:.25rem">This activity only appears in this session</span>
-  </div>`;
+  html += `<button class="btn-add-activity" data-target="${escHtml(target.name)}">+ Add Activity (This activity only appears in this session)</button>`;
 
   return html;
 }
