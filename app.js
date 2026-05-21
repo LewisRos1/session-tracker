@@ -45,7 +45,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "177";
+const APP_VERSION = "178";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -56,7 +56,6 @@ const state = {
   searchExisting:     "",
   searchAssessment:   "",
   searchTemplate:     "",
-  searchRemarkPreset: "",
   searchExport:       "",
   currentStudent:     null,
   currentSessionId:   null,
@@ -218,13 +217,12 @@ async function showHome() {
   if (verEl) verEl.textContent = `Made by Lewis · Version ${APP_VERSION}`;
   // Clear section searches when returning home
   state.searchExisting = ""; state.searchAssessment = ""; state.searchTemplate = "";
-  state.searchRemarkPreset = ""; state.searchExport = "";
-  [$("search-existing"), $("search-assessment"), $("search-template"), $("search-remark-preset"), $("search-export")]
+  state.searchExport = "";
+  [$("search-existing"), $("search-assessment"), $("search-template"), $("search-export")]
     .forEach(el => { if (el) el.value = ""; });
   renderExistingStudentButtons();
   renderAssessmentStudentButtons();
   renderTemplateButtons();
-  renderRemarkPresetButtons();
   renderExportButtons();
 }
 
@@ -233,8 +231,6 @@ async function showHome() {
 $("btn-add-existing-student").addEventListener("click", () => addNewStudent("existing"));
 $("btn-add-assessment-student").addEventListener("click", () => addNewStudent("assessment"));
 $("btn-add-template").addEventListener("click", addNewTemplate);
-$("btn-add-remark-preset").addEventListener("click", addNewRemarkPreset);
-
 $("search-existing").addEventListener("input", e => {
   state.searchExisting = e.target.value;
   renderExistingStudentButtons();
@@ -246,10 +242,6 @@ $("search-assessment").addEventListener("input", e => {
 $("search-template").addEventListener("input", e => {
   state.searchTemplate = e.target.value;
   renderTemplateButtons();
-});
-$("search-remark-preset").addEventListener("input", e => {
-  state.searchRemarkPreset = e.target.value;
-  renderRemarkPresetButtons();
 });
 $("search-export").addEventListener("input", e => {
   state.searchExport = e.target.value;
@@ -387,48 +379,6 @@ function renderExportButtons() {
       }
     });
   });
-}
-
-function renderRemarkPresetButtons() {
-  const container = $("remark-preset-buttons");
-  if (!container) return;
-  const q = state.searchRemarkPreset.toLowerCase();
-  const filtered = state.remarkPresets
-    .filter(p => !q || p.name.toLowerCase().includes(q))
-    .sort((a, b) => a.name.localeCompare(b.name));
-
-  if (filtered.length === 0) {
-    container.innerHTML = `<p class="empty-hint">${q ? "No matches." : "No fixed options yet."}</p>`;
-    return;
-  }
-  container.innerHTML = `<div class="roster-list">` +
-    filtered.map(p => `
-      <button class="roster-item" data-id="${escHtml(p.id)}">
-        <span class="roster-item-name">${escHtml(p.name)}</span>
-        <span class="roster-item-sub">${escHtml((p.options || []).join(" / "))}</span>
-      </button>
-    `).join("") +
-    `</div>`;
-
-  container.querySelectorAll(".roster-item").forEach(btn => {
-    btn.addEventListener("click", () => {
-      const preset = state.remarkPresets.find(p => p.id === btn.dataset.id);
-      if (preset) openManageModal(null, null, null, preset);
-    });
-  });
-}
-
-async function addNewRemarkPreset() {
-  const preset = {
-    id: cfgId("rp"),
-    name: "New Preset",
-    options: [],
-    order: state.remarkPresets.length
-  };
-  state.remarkPresets.push(preset);
-  await saveRemarkPreset(preset);
-  renderRemarkPresetButtons();
-  openManageModal(null, null, null, preset);
 }
 
 // ============================================================
@@ -860,7 +810,7 @@ function renderFedcTarget(target) {
       }
     } else {
       for (const rem of remarks) {
-        html += renderRemarkFields(rem, target, pa.remarkPresetId || null, pa.sentenceStarter || null);
+        html += renderRemarkFields(rem, target, getActivityInlineOptions(pa), pa.sentenceStarter || null);
       }
       if (isPending) {
         html += renderPendingRemarkFields(pendingKey, actId, pa.name, idx, target);
@@ -991,12 +941,25 @@ function renderRegularTarget(target) {
   return html;
 }
 
+// Returns the inline options string for an activity (new inlineOptions field,
+// falling back to old remarkPresetId preset for backward compat).
+function getActivityInlineOptions(a) {
+  if (a.inlineOptions) return a.inlineOptions;
+  if (a.remarkPresetId) {
+    const preset = state.remarkPresets.find(p => p.id === a.remarkPresetId);
+    if (preset?.options?.length) return preset.options.join("/");
+  }
+  return null;
+}
+
+function parseOpts(str) {
+  return (str || "").split("/").map(s => s.trim()).filter(Boolean);
+}
+
 // ─── REMARK FIELDS ───────────────────────────────────────────
 
-function renderRemarkFields(rem, target, remarkPresetId = null, sentenceStarter = null) {
-  const preset = remarkPresetId
-    ? state.remarkPresets.find(p => p.id === remarkPresetId)
-    : null;
+function renderRemarkFields(rem, target, inlineOptions = null, sentenceStarter = null) {
+  const opts = parseOpts(inlineOptions);
 
   const trials = rem.trials || [];
   const badgesHtml = trials.map((score, idx) =>
@@ -1004,28 +967,31 @@ function renderRemarkFields(rem, target, remarkPresetId = null, sentenceStarter 
       data-rem-id="${rem.id}" data-idx="${idx}">×</button></span>`
   ).join("");
 
+  const optBtns = opts.length > 0
+    ? `<div class="remark-preset-opts">${opts.map(opt =>
+        `<button class="btn-remark-opt${rem.text === opt ? " active" : ""}"
+          data-rem-id="${rem.id}" data-opt="${escHtml(opt)}">${escHtml(opt)}</button>`
+      ).join("")}</div>`
+    : `<textarea class="field-input remark-text-input"
+        data-rem-id="${rem.id}" data-original="${escHtml(rem.text || "")}"
+        rows="2">${escHtml(rem.text || "")}</textarea>`;
+
   let remarkContent;
   if (sentenceStarter) {
     remarkContent = `<div class="remark-starter-wrap">
       <span class="remark-starter-prefix">${escHtml(sentenceStarter)}</span>
-      <textarea class="field-input remark-text-input"
-        data-rem-id="${rem.id}"
-        data-original="${escHtml(rem.text || "")}"
-        rows="1">${escHtml(rem.text || "")}</textarea>
+      ${opts.length > 0
+        ? `<div class="remark-preset-opts">${opts.map(opt =>
+            `<button class="btn-remark-opt${rem.text === opt ? " active" : ""}"
+              data-rem-id="${rem.id}" data-opt="${escHtml(opt)}">${escHtml(opt)}</button>`
+          ).join("")}</div>`
+        : `<textarea class="field-input remark-text-input"
+            data-rem-id="${rem.id}" data-original="${escHtml(rem.text || "")}"
+            rows="1">${escHtml(rem.text || "")}</textarea>`
+      }
     </div>`;
-  } else if (preset) {
-    remarkContent = `<div class="remark-preset-opts">
-        ${(preset.options || []).map(opt =>
-          `<button class="btn-remark-opt${rem.text === opt ? " active" : ""}"
-            data-rem-id="${rem.id}"
-            data-opt="${escHtml(opt)}">${escHtml(opt)}</button>`
-        ).join("")}
-       </div>`;
   } else {
-    remarkContent = `<textarea class="field-input remark-text-input"
-        data-rem-id="${rem.id}"
-        data-original="${escHtml(rem.text || "")}"
-        rows="2">${escHtml(rem.text || "")}</textarea>`;
+    remarkContent = optBtns;
   }
 
   return `
@@ -1649,7 +1615,7 @@ function viewActivityRows(no, actName, actId, data, target, isPredefined = true)
   const paEntry = isPredefined
     ? target.predefinedActivities?.find(pa => pa.name === actName)
     : null;
-  const remarkPresetId  = paEntry?.remarkPresetId  || null;
+  const inlineOptions   = paEntry ? getActivityInlineOptions(paEntry) : null;
   const sentenceStarter = paEntry?.sentenceStarter || null;
 
   if (remarks.length === 0) {
@@ -1665,11 +1631,11 @@ function viewActivityRows(no, actName, actId, data, target, isPredefined = true)
   return remarks.map((rem, ri) => viewRemarkRow(
     ri === 0 ? no : null,
     ri === 0 ? actCell : null,
-    rem, target, remarkPresetId, sentenceStarter
+    rem, target, inlineOptions, sentenceStarter
   )).join("");
 }
 
-function viewRemarkRow(no, actName, rem, target, remarkPresetId = null, sentenceStarter = null) {
+function viewRemarkRow(no, actName, rem, target, inlineOptions = null, sentenceStarter = null) {
   const allTrials  = rem.trials || [];
   const maxPts     = target.maxPoints || 3;
   const validTrials = allTrials.filter(t => t !== -1);
@@ -1688,24 +1654,34 @@ function viewRemarkRow(no, actName, rem, target, remarkPresetId = null, sentence
     </span>`).join("") +
     `<button class="view-add-trial" data-rem-id="${escHtml(rem.id)}">+</button>`;
 
-  const preset = remarkPresetId ? state.remarkPresets.find(p => p.id === remarkPresetId) : null;
+  const opts = parseOpts(inlineOptions);
+  const optSelect = opts.length > 0
+    ? `<select class="view-remark-preset-select" data-rem-id="${escHtml(rem.id)}">
+        <option value="">— select —</option>
+        ${opts.map(opt =>
+          `<option value="${escHtml(opt)}"${rem.text === opt ? " selected" : ""}>${escHtml(opt)}</option>`
+        ).join("")}
+       </select>`
+    : `<textarea class="view-remark-edit" data-rem-id="${escHtml(rem.id)}"
+        rows="2">${escHtml(rem.text || "")}</textarea>`;
+
   let remarkCell;
   if (sentenceStarter) {
     remarkCell = `<div class="view-starter-wrap">
       <span class="view-starter-prefix">${escHtml(sentenceStarter)}</span>
-      <input type="text" class="view-starter-input" data-rem-id="${escHtml(rem.id)}"
-        value="${escHtml(rem.text || "")}">
+      ${opts.length > 0
+        ? `<select class="view-remark-preset-select" data-rem-id="${escHtml(rem.id)}">
+            <option value="">— select —</option>
+            ${opts.map(opt =>
+              `<option value="${escHtml(opt)}"${rem.text === opt ? " selected" : ""}>${escHtml(opt)}</option>`
+            ).join("")}
+           </select>`
+        : `<input type="text" class="view-starter-input" data-rem-id="${escHtml(rem.id)}"
+            value="${escHtml(rem.text || "")}">`
+      }
     </div>`;
-  } else if (preset) {
-    remarkCell = `<select class="view-remark-preset-select" data-rem-id="${escHtml(rem.id)}">
-      <option value="">— select —</option>
-      ${(preset.options || []).map(opt =>
-        `<option value="${escHtml(opt)}"${rem.text === opt ? " selected" : ""}>${escHtml(opt)}</option>`
-      ).join("")}
-     </select>`;
   } else {
-    remarkCell = `<textarea class="view-remark-edit" data-rem-id="${escHtml(rem.id)}"
-      rows="2">${escHtml(rem.text || "")}</textarea>`;
+    remarkCell = optSelect;
   }
 
   return `<tr>
@@ -1967,7 +1943,6 @@ function closeManageModal() {
   renderExistingStudentButtons();
   renderAssessmentStudentButtons();
   renderTemplateButtons();
-  renderRemarkPresetButtons();
   renderExportButtons();
 }
 
@@ -2091,94 +2066,6 @@ function showAddTargetPicker(student) {
 }
 
 // ── Remark preset management content ─────────────────────────
-
-function renderRemarkPresetManageContent(preset) {
-  $("manage-modal-title").textContent = preset.name || "New Preset";
-  const opts = preset.options || [];
-
-  let html = `
-    <div class="admin-section">
-      <label class="admin-label">Preset Name</label>
-      <input class="admin-input" id="mn-preset-name" value="${escHtml(preset.name || "")}"
-        placeholder="e.g. Progress Level" />
-    </div>
-    <div class="admin-section-title">Options</div>
-    <div class="admin-list" id="mn-preset-options">`;
-
-  opts.forEach((opt, idx) => {
-    html += `<div class="admin-list-item" data-idx="${idx}">
-      <input class="admin-input" id="mn-preset-opt-${idx}" value="${escHtml(opt)}"
-        placeholder="Option text" style="flex:1" />
-      <button class="btn-adm-del mn-del-preset-opt" data-idx="${idx}">🗑</button>
-    </div>`;
-  });
-
-  html += `</div>
-    <div style="margin-top:.5rem">
-      <button class="btn-admin-add" id="btn-mn-add-preset-opt" style="width:100%">+ Add Option</button>
-    </div>
-    <div style="margin-top:2rem;padding-bottom:1.5rem">
-      <button class="btn-primary-sm" id="btn-mn-done-preset"
-        style="width:100%;padding:.75rem;margin-bottom:.75rem">Done</button>
-      <button class="btn-adm-danger" id="btn-mn-del-preset">Delete This Preset</button>
-    </div>`;
-
-  $("manage-modal-body").innerHTML = html;
-
-  const savePreset = async () => {
-    const i = state.remarkPresets.findIndex(p => p.id === preset.id);
-    if (i >= 0) state.remarkPresets[i] = preset;
-    await saveRemarkPreset(preset);
-  };
-
-  $("mn-preset-name").addEventListener("blur", async () => {
-    const v = $("mn-preset-name").value.trim();
-    if (!v || v === preset.name) return;
-    preset.name = v;
-    $("manage-modal-title").textContent = v;
-    await savePreset();
-  });
-  $("mn-preset-name").addEventListener("keydown", e => {
-    if (e.key === "Enter") { e.preventDefault(); $("mn-preset-name").blur(); }
-  });
-
-  $("manage-modal-body").querySelectorAll(".mn-del-preset-opt").forEach(btn => {
-    btn.addEventListener("click", async () => {
-      preset.options.splice(Number(btn.dataset.idx), 1);
-      await savePreset();
-      renderRemarkPresetManageContent(preset);
-    });
-  });
-
-  $("btn-mn-add-preset-opt").addEventListener("click", async () => {
-    (preset.options = preset.options || []).push("New Option");
-    await savePreset();
-    renderRemarkPresetManageContent(preset);
-  });
-
-  opts.forEach((opt, idx) => {
-    const input = $(`mn-preset-opt-${idx}`);
-    if (!input) return;
-    input.addEventListener("blur", async () => {
-      const v = input.value.trim();
-      if (!v || v === preset.options[idx]) return;
-      preset.options[idx] = v;
-      await savePreset();
-    });
-    input.addEventListener("keydown", e => {
-      if (e.key === "Enter") { e.preventDefault(); input.blur(); }
-    });
-  });
-
-  $("btn-mn-done-preset").addEventListener("click", closeManageModal);
-
-  $("btn-mn-del-preset").addEventListener("click", async () => {
-    if (!confirm(`Delete "${preset.name}"?`)) return;
-    state.remarkPresets = state.remarkPresets.filter(p => p.id !== preset.id);
-    await deleteRemarkPreset(preset.id);
-    closeManageModal();
-  });
-}
 
 // ── Student management content ────────────────────────────────
 
@@ -2446,19 +2333,20 @@ function renderTargetManageContent(student, target) {
         <button class="btn-adm-del mn-del-act" data-idx="${idx}">🗑</button>
       </div>`;
     } else {
-      const isStarter = !!a.sentenceStarter;
+      const type = a.sentenceStarter ? "starter_fixed" : (a.inlineOptions || a.remarkPresetId) ? "fixed" : "";
       const remarkTypeSelect = `<select class="act-preset-select mn-act-preset" data-idx="${idx}">
           <option value="">Free text</option>
-          <option value="__starter__"${isStarter ? " selected" : ""}>Sentence starter</option>
-          ${state.remarkPresets.length > 0 ? `<option disabled>─ Fixed options ─</option>` : ""}
-          ${state.remarkPresets.map(p =>
-            `<option value="${escHtml(p.id)}"${a.remarkPresetId === p.id ? " selected" : ""}>${escHtml(p.name)}</option>`
-          ).join("")}
+          <option value="fixed"${type === "fixed" ? " selected" : ""}>Fixed options</option>
+          <option value="starter_fixed"${type === "starter_fixed" ? " selected" : ""}>Sentence starter + Fixed options</option>
         </select>
         <input class="admin-input mn-act-starter-text" data-idx="${idx}"
           placeholder="Starter phrase…"
           value="${escHtml(a.sentenceStarter || "")}"
-          style="${isStarter ? "" : "display:none"}">`;
+          style="${type === "starter_fixed" ? "" : "display:none"}">
+        <input class="admin-input mn-act-inline-opts" data-idx="${idx}"
+          placeholder="Options separated by /  e.g. Low/Medium/High"
+          value="${escHtml(a.inlineOptions || (a.remarkPresetId ? (state.remarkPresets.find(p=>p.id===a.remarkPresetId)?.options||[]).join("/") : ""))}"
+          style="${type === "fixed" || type === "starter_fixed" ? "" : "display:none"}">`;
       html += `<div class="admin-list-item" data-idx="${idx}">
         <span class="drag-handle">⠿</span>
         <div style="flex:1;display:flex;flex-direction:column;gap:.3rem">
@@ -2585,31 +2473,35 @@ function renderTargetManageContent(student, target) {
   $("manage-modal-body").querySelectorAll(".mn-act-preset").forEach(sel => {
     sel.addEventListener("change", async () => {
       const idx = Number(sel.dataset.idx);
-      const starterInput = $("manage-modal-body").querySelector(`.mn-act-starter-text[data-idx="${idx}"]`);
-      if (sel.value === "__starter__") {
-        acts[idx].remarkPresetId = null;
-        starterInput.style.display = "";
-        starterInput.focus();
-      } else {
-        acts[idx].remarkPresetId = sel.value || null;
-        acts[idx].sentenceStarter = null;
-        starterInput.style.display = "none";
-        target.predefinedActivities = acts;
-        await saveTarget();
-      }
+      const body = $("manage-modal-body");
+      const starterInput = body.querySelector(`.mn-act-starter-text[data-idx="${idx}"]`);
+      const optsInput    = body.querySelector(`.mn-act-inline-opts[data-idx="${idx}"]`);
+      const type = sel.value;
+      acts[idx].sentenceStarter = null;
+      acts[idx].remarkPresetId  = null;
+      acts[idx].inlineOptions   = null;
+      starterInput.style.display = type === "starter_fixed" ? "" : "none";
+      optsInput.style.display    = (type === "fixed" || type === "starter_fixed") ? "" : "none";
+      if (type === "starter_fixed") { starterInput.focus(); }
+      else if (type === "fixed")    { optsInput.focus(); }
+      else { target.predefinedActivities = acts; await saveTarget(); }
     });
   });
 
   $("manage-modal-body").querySelectorAll(".mn-act-starter-text").forEach(input => {
     input.addEventListener("blur", async () => {
       const idx = Number(input.dataset.idx);
-      const v = input.value.trim();
-      acts[idx].sentenceStarter = v || null;
-      if (!v) {
-        const sel = $("manage-modal-body").querySelector(`.mn-act-preset[data-idx="${idx}"]`);
-        if (sel) sel.value = "";
-        input.style.display = "none";
-      }
+      acts[idx].sentenceStarter = input.value.trim() || null;
+      target.predefinedActivities = acts;
+      await saveTarget();
+    });
+  });
+
+  $("manage-modal-body").querySelectorAll(".mn-act-inline-opts").forEach(input => {
+    input.addEventListener("blur", async () => {
+      const idx = Number(input.dataset.idx);
+      acts[idx].inlineOptions  = input.value.trim() || null;
+      acts[idx].remarkPresetId = null;
       target.predefinedActivities = acts;
       await saveTarget();
     });
@@ -2687,19 +2579,20 @@ function renderTemplateManageContent(template) {
         <button class="btn-adm-del mn-del-act" data-idx="${idx}">🗑</button>
       </div>`;
     } else {
-      const isStarter = !!a.sentenceStarter;
+      const type = a.sentenceStarter ? "starter_fixed" : (a.inlineOptions || a.remarkPresetId) ? "fixed" : "";
       const remarkTypeSelect = `<select class="act-preset-select mn-act-preset" data-idx="${idx}">
           <option value="">Free text</option>
-          <option value="__starter__"${isStarter ? " selected" : ""}>Sentence starter</option>
-          ${state.remarkPresets.length > 0 ? `<option disabled>─ Fixed options ─</option>` : ""}
-          ${state.remarkPresets.map(p =>
-            `<option value="${escHtml(p.id)}"${a.remarkPresetId === p.id ? " selected" : ""}>${escHtml(p.name)}</option>`
-          ).join("")}
+          <option value="fixed"${type === "fixed" ? " selected" : ""}>Fixed options</option>
+          <option value="starter_fixed"${type === "starter_fixed" ? " selected" : ""}>Sentence starter + Fixed options</option>
         </select>
         <input class="admin-input mn-act-starter-text" data-idx="${idx}"
           placeholder="Starter phrase…"
           value="${escHtml(a.sentenceStarter || "")}"
-          style="${isStarter ? "" : "display:none"}">`;
+          style="${type === "starter_fixed" ? "" : "display:none"}">
+        <input class="admin-input mn-act-inline-opts" data-idx="${idx}"
+          placeholder="Options separated by /  e.g. Low/Medium/High"
+          value="${escHtml(a.inlineOptions || (a.remarkPresetId ? (state.remarkPresets.find(p=>p.id===a.remarkPresetId)?.options||[]).join("/") : ""))}"
+          style="${type === "fixed" || type === "starter_fixed" ? "" : "display:none"}">`;
       html += `<div class="admin-list-item" data-idx="${idx}">
         <span class="drag-handle">⠿</span>
         <div style="flex:1;display:flex;flex-direction:column;gap:.3rem">
@@ -2822,31 +2715,35 @@ function renderTemplateManageContent(template) {
   $("manage-modal-body").querySelectorAll(".mn-act-preset").forEach(sel => {
     sel.addEventListener("change", async () => {
       const idx = Number(sel.dataset.idx);
-      const starterInput = $("manage-modal-body").querySelector(`.mn-act-starter-text[data-idx="${idx}"]`);
-      if (sel.value === "__starter__") {
-        acts[idx].remarkPresetId = null;
-        starterInput.style.display = "";
-        starterInput.focus();
-      } else {
-        acts[idx].remarkPresetId = sel.value || null;
-        acts[idx].sentenceStarter = null;
-        starterInput.style.display = "none";
-        template.predefinedActivities = acts;
-        await saveTemplateFn();
-      }
+      const body = $("manage-modal-body");
+      const starterInput = body.querySelector(`.mn-act-starter-text[data-idx="${idx}"]`);
+      const optsInput    = body.querySelector(`.mn-act-inline-opts[data-idx="${idx}"]`);
+      const type = sel.value;
+      acts[idx].sentenceStarter = null;
+      acts[idx].remarkPresetId  = null;
+      acts[idx].inlineOptions   = null;
+      starterInput.style.display = type === "starter_fixed" ? "" : "none";
+      optsInput.style.display    = (type === "fixed" || type === "starter_fixed") ? "" : "none";
+      if (type === "starter_fixed") { starterInput.focus(); }
+      else if (type === "fixed")    { optsInput.focus(); }
+      else { template.predefinedActivities = acts; await saveTemplateFn(); }
     });
   });
 
   $("manage-modal-body").querySelectorAll(".mn-act-starter-text").forEach(input => {
     input.addEventListener("blur", async () => {
       const idx = Number(input.dataset.idx);
-      const v = input.value.trim();
-      acts[idx].sentenceStarter = v || null;
-      if (!v) {
-        const sel = $("manage-modal-body").querySelector(`.mn-act-preset[data-idx="${idx}"]`);
-        if (sel) sel.value = "";
-        input.style.display = "none";
-      }
+      acts[idx].sentenceStarter = input.value.trim() || null;
+      template.predefinedActivities = acts;
+      await saveTemplateFn();
+    });
+  });
+
+  $("manage-modal-body").querySelectorAll(".mn-act-inline-opts").forEach(input => {
+    input.addEventListener("blur", async () => {
+      const idx = Number(input.dataset.idx);
+      acts[idx].inlineOptions  = input.value.trim() || null;
+      acts[idx].remarkPresetId = null;
       template.predefinedActivities = acts;
       await saveTemplateFn();
     });
