@@ -45,7 +45,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "166";
+const APP_VERSION = "167";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -1533,6 +1533,10 @@ function buildTargetViewTable(target, data) {
     for (const pa of target.predefinedActivities) {
       if (pa.isHeading) {
         rows += `<tr class="view-heading-row"><td colspan="6">${escHtml(pa.name)}</td></tr>`;
+        continue;
+      }
+      if (pa.isNote) {
+        rows += `<tr class="view-note-row"><td colspan="6">${escHtml(pa.text || "")}</td></tr>`;
         continue;
       }
       no++;

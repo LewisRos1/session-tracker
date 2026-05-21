@@ -1779,6 +1779,16 @@ textarea.admin-input { resize: vertical; min-height: 60px; line-height: 1.45; }
   border-bottom: 2px solid var(--primary) !important;
 }
 
+.view-note-row td {
+  background: #fffbeb;
+  color: #92400e;
+  font-size: .88rem;
+  padding: .4rem .75rem;
+  border-top: 2px solid #f59e0b !important;
+  border-bottom: 2px solid #f59e0b !important;
+  border-left: 4px solid #f59e0b !important;
+}
+
 .view-dayavg-row td {
   background: #fffbe6;
   font-weight: 700;

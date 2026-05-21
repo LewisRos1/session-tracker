@@ -29,6 +29,11 @@ const STYLE_DAILY_AVG = {
   fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFFBBF24" } },
   font: { bold: true }
 };
+// Reference note: soft amber tint, italic
+const STYLE_NOTE = {
+  fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFFBEB" } },
+  font: { italic: true, color: { argb: "FF92400E" } }
+};
 
 // ─── PUBLIC ENTRY POINT ──────────────────────────────────────
 
@@ -60,7 +65,7 @@ export async function exportStudentData(student) {
 
   // ── One sheet per target ───────────────────────────────
   for (const target of allTargets) {
-    const { rows, monthHeaderRows, sessionHeaderRows, columnHeaderRows, activityHeadingRows, dailyAvgRows } =
+    const { rows, monthHeaderRows, sessionHeaderRows, columnHeaderRows, activityHeadingRows, noteRows, dailyAvgRows } =
       buildTargetSheet(target, sessions);
     const ws = wb.addWorksheet(target.name.slice(0, 31));
     rows.forEach(row => ws.addRow(row));
@@ -84,6 +89,15 @@ export async function exportStudentData(student) {
       const cell = ws.getRow(n).getCell(1);
       cell.fill = STYLE_ACT_HEADING.fill;
       cell.font = STYLE_ACT_HEADING.font;
+    }
+
+    // Reference notes: merge A:D + amber tint
+    for (const rowIdx of noteRows) {
+      const n = rowIdx + 1;
+      ws.mergeCells(`A${n}:D${n}`);
+      const cell = ws.getRow(n).getCell(1);
+      cell.fill = STYLE_NOTE.fill;
+      cell.font = STYLE_NOTE.font;
     }
 
     // Daily Average rows: bright amber across all 4 columns
@@ -178,6 +192,7 @@ function buildTargetSheet(target, sessions) {
   const sessionHeaderRows   = new Set();
   const columnHeaderRows    = new Set();
   const activityHeadingRows = new Set();
+  const noteRows            = new Set();
   const dailyAvgRows        = new Set();
   let firstMonth = true;
 
@@ -205,16 +220,16 @@ function buildTargetSheet(target, sessions) {
       const effectiveTarget = snap
         ? { ...target, maxPoints: snap.maxPoints, predefinedActivities: snap.predefinedActivities || target.predefinedActivities || [] }
         : target;
-      appendSessionRows(rows, sessionHeaderRows, columnHeaderRows, activityHeadingRows, dailyAvgRows, session, effectiveTarget);
+      appendSessionRows(rows, sessionHeaderRows, columnHeaderRows, activityHeadingRows, noteRows, dailyAvgRows, session, effectiveTarget);
     }
   }
 
-  return { rows, monthHeaderRows, sessionHeaderRows, columnHeaderRows, activityHeadingRows, dailyAvgRows };
+  return { rows, monthHeaderRows, sessionHeaderRows, columnHeaderRows, activityHeadingRows, noteRows, dailyAvgRows };
 }
 
 // ─── SESSION ROWS ────────────────────────────────────────────
 
-function appendSessionRows(rows, sessionHeaderRows, columnHeaderRows, activityHeadingRows, dailyAvgRows, session, target) {
+function appendSessionRows(rows, sessionHeaderRows, columnHeaderRows, activityHeadingRows, noteRows, dailyAvgRows, session, target) {
   const monthName = session.month.split(" ")[0];
 
   sessionHeaderRows.add(rows.length);
@@ -231,6 +246,12 @@ function appendSessionRows(rows, sessionHeaderRows, columnHeaderRows, activityHe
     for (const act of activities) {
       if (act.isHeading) {
         activityHeadingRows.add(rows.length);
+        rows.push([act.activityName, "", "", ""]);
+        continue;
+      }
+
+      if (act.isNote) {
+        noteRows.add(rows.length);
         rows.push([act.activityName, "", "", ""]);
         continue;
       }
@@ -292,7 +313,11 @@ function getAllActivitiesForTarget(session, target) {
   const usedIds = new Set();
 
   for (const pa of (target.predefinedActivities || [])) {
-    if (pa.isNote) continue;
+    if (!pa.name && !pa.isNote && !pa.isHeading) continue;
+    if (pa.isNote) {
+      result.push({ isNote: true, activityName: pa.text || "" });
+      continue;
+    }
     if (!pa.name) continue;
     if (pa.isHeading) {
       result.push({ isHeading: true, activityName: pa.name });
@@ -334,7 +359,7 @@ function calcRemarkAvg(trials, maxPoints) {
 function calcDailyAverage(session, target) {
   const avgs = [];
   for (const act of getAllActivitiesForTarget(session, target)) {
-    if (act.isHeading || act.empty) continue;
+    if (act.isHeading || act.isNote || act.empty) continue;
     for (const rem of getRemarksForActivity(session, act.id)) {
       const validTrials = (rem.trials || []).filter(t => t !== -1);
       const a = calcRemarkAvg(validTrials, target.maxPoints);
