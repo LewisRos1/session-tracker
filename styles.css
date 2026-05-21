@@ -512,6 +512,7 @@ html, body {
   background: var(--primary-light);
   border-radius: var(--radius-sm);
   border-left: 4px solid var(--primary);
+  white-space: pre-wrap;
 }
 
 .activity-note-heading {
@@ -608,6 +609,7 @@ html, body {
   font-weight: 600;
   color: var(--text);
   line-height: 1.4;
+  white-space: pre-wrap;
 }
 
 .entry-block-predefined {
@@ -1233,7 +1235,7 @@ html, body {
   outline: none;
 }
 textarea.admin-input { resize: vertical; min-height: 60px; line-height: 1.45; }
-.admin-list-item:not(.admin-note-item) textarea.admin-input { min-height: unset; }
+.admin-list-item:not(.admin-note-item) textarea.admin-input { min-height: unset; overflow: hidden; resize: none; }
 
 /* ─── Max-points row ─────────────────────────────────────── */
 .admin-row {

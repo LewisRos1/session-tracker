@@ -2149,6 +2149,11 @@ function normalizeActivitiesFormat(acts) {
 
 // ── Target management content ─────────────────────────────────
 
+function autoResizeTextarea(el) {
+  el.style.height = "auto";
+  el.style.height = el.scrollHeight + "px";
+}
+
 function renderTargetManageContent(student, target) {
   $("manage-modal-title").textContent = target.name;
   target.predefinedActivities = normalizeActivitiesFormat(target.predefinedActivities || []);
@@ -2183,8 +2188,8 @@ function renderTargetManageContent(student, target) {
     if (a.isHeading) {
       html += `<div class="admin-list-item mn-heading-item" data-idx="${idx}">
         <span class="drag-handle">⠿</span>
-        <input class="admin-input mn-heading-input" id="mn-act-name-${idx}" data-idx="${idx}"
-          value="${escHtml(a.name)}" placeholder="Section heading name" />
+        <textarea class="admin-input mn-heading-input" id="mn-act-name-${idx}" data-idx="${idx}"
+          rows="1" placeholder="Section heading name (Enter = new line · Ctrl+Enter = save)" style="flex:1">${escHtml(a.name || "")}</textarea>
         <button class="btn-adm-del mn-del-act" data-idx="${idx}">🗑</button>
       </div>`;
     } else if (a.isNote) {
@@ -2198,7 +2203,7 @@ function renderTargetManageContent(student, target) {
       html += `<div class="admin-list-item" data-idx="${idx}">
         <span class="drag-handle">⠿</span>
         <textarea class="admin-input" id="mn-act-name-${idx}" data-idx="${idx}"
-          rows="1" placeholder="Activity name" style="flex:1">${escHtml(a.name || "")}</textarea>
+          rows="1" placeholder="Activity name (Enter = new line · Ctrl+Enter = save)" style="flex:1">${escHtml(a.name || "")}</textarea>
         <button class="btn-adm-del mn-del-act" data-idx="${idx}">🗑</button>
       </div>`;
     }
@@ -2217,6 +2222,7 @@ function renderTargetManageContent(student, target) {
     </div>`;
 
   $("manage-modal-body").innerHTML = html;
+  $("manage-modal-body").querySelectorAll(".admin-list-item:not(.admin-note-item) textarea").forEach(autoResizeTextarea);
 
   const saveTarget = async () => {
     const i = student.targets.findIndex(t => t.id === target.id);
@@ -2272,7 +2278,8 @@ function renderTargetManageContent(student, target) {
       await saveTarget();
       flashSaved(input);
     });
-    if (!a.isNote && !a.isHeading) {
+    if (!a.isNote) {
+      input?.addEventListener("input", () => autoResizeTextarea(input));
       input?.addEventListener("keydown", e => {
         if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); input.blur(); }
       });
@@ -2366,8 +2373,8 @@ function renderTemplateManageContent(template) {
     if (a.isHeading) {
       html += `<div class="admin-list-item mn-heading-item" data-idx="${idx}">
         <span class="drag-handle">⠿</span>
-        <input class="admin-input mn-heading-input" id="mn-act-name-${idx}" data-idx="${idx}"
-          value="${escHtml(a.name)}" placeholder="Section heading name" />
+        <textarea class="admin-input mn-heading-input" id="mn-act-name-${idx}" data-idx="${idx}"
+          rows="1" placeholder="Section heading name (Enter = new line · Ctrl+Enter = save)" style="flex:1">${escHtml(a.name || "")}</textarea>
         <button class="btn-adm-del mn-del-act" data-idx="${idx}">🗑</button>
       </div>`;
     } else if (a.isNote) {
@@ -2381,7 +2388,7 @@ function renderTemplateManageContent(template) {
       html += `<div class="admin-list-item" data-idx="${idx}">
         <span class="drag-handle">⠿</span>
         <textarea class="admin-input" id="mn-act-name-${idx}" data-idx="${idx}"
-          rows="1" placeholder="Activity name" style="flex:1">${escHtml(a.name || "")}</textarea>
+          rows="1" placeholder="Activity name (Enter = new line · Ctrl+Enter = save)" style="flex:1">${escHtml(a.name || "")}</textarea>
         <button class="btn-adm-del mn-del-act" data-idx="${idx}">🗑</button>
       </div>`;
     }
@@ -2398,6 +2405,7 @@ function renderTemplateManageContent(template) {
     </div>`;
 
   $("manage-modal-body").innerHTML = html;
+  $("manage-modal-body").querySelectorAll(".admin-list-item:not(.admin-note-item) textarea").forEach(autoResizeTextarea);
 
   const saveTemplateFn = async () => {
     const idx = state.templates.findIndex(t => t.id === template.id);
@@ -2452,7 +2460,8 @@ function renderTemplateManageContent(template) {
       await saveTemplateFn();
       flashSaved(input);
     });
-    if (!a.isNote && !a.isHeading) {
+    if (!a.isNote) {
+      input?.addEventListener("input", () => autoResizeTextarea(input));
       input?.addEventListener("keydown", e => {
         if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); input.blur(); }
       });
