@@ -45,7 +45,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "180";
+const APP_VERSION = "183";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -83,7 +83,10 @@ document.addEventListener("DOMContentLoaded", async () => {
   // Register SW immediately — don't wait for Firebase so updates are never blocked.
   registerServiceWorker();
 
-  document.addEventListener("focusout", () => {
+  document.addEventListener("focusout", (e) => {
+    // Don't re-render if focus is moving to the target dropdown — that would
+    // destroy the native select dropdown mid-open and make it snap shut.
+    if (e.relatedTarget === $("target-select")) return;
     if (state.renderPending) {
       state.renderPending = false;
       renderTargetContent();
@@ -1988,7 +1991,7 @@ function showAddTargetPicker(student) {
   let html = `
     <div style="display:flex;flex-direction:column;gap:.6rem;margin-bottom:1.25rem">
       <button class="btn-target-type" id="btn-add-structured-target">
-        <span class="btn-target-label">+ Individual Template Target</span>
+        <span class="btn-target-label">+ Individual Template</span>
         <span class="btn-target-desc">Activities will be the same every session, just fill in remarks</span>
       </button>
     </div>`;
@@ -2011,8 +2014,9 @@ function showAddTargetPicker(student) {
     </button>`;
   }
 
-  $("manage-modal-body").innerHTML = html;
-
+  const modalBody = $("manage-modal-body");
+  modalBody.innerHTML = html;
+  modalBody.scrollTop = 0;
 
   $("btn-add-structured-target").addEventListener("click", async () => {
     $("manage-modal").classList.add("hidden");
@@ -2356,7 +2360,10 @@ function renderTargetManageContent(student, target) {
         <div style="flex:1;display:flex;flex-direction:column;gap:.3rem">
           <textarea class="admin-input" id="mn-act-name-${idx}" data-idx="${idx}"
             rows="1" placeholder="Activity name (Enter = new line · Ctrl+Enter = save)">${escHtml(a.name || "")}</textarea>
-          ${remarkTypeSelect}
+          <div style="display:flex;align-items:center;gap:.5rem">
+            <span style="font-size:.75rem;color:#6b7280;white-space:nowrap;font-weight:600">Remark Type:</span>
+            ${remarkTypeSelect}
+          </div>
         </div>
         <button class="btn-adm-del mn-del-act" data-idx="${idx}">🗑</button>
       </div>`;
@@ -2603,7 +2610,10 @@ function renderTemplateManageContent(template) {
         <div style="flex:1;display:flex;flex-direction:column;gap:.3rem">
           <textarea class="admin-input" id="mn-act-name-${idx}" data-idx="${idx}"
             rows="1" placeholder="Activity name (Enter = new line · Ctrl+Enter = save)">${escHtml(a.name || "")}</textarea>
-          ${remarkTypeSelect}
+          <div style="display:flex;align-items:center;gap:.5rem">
+            <span style="font-size:.75rem;color:#6b7280;white-space:nowrap;font-weight:600">Remark Type:</span>
+            ${remarkTypeSelect}
+          </div>
         </div>
         <button class="btn-adm-del mn-del-act" data-idx="${idx}">🗑</button>
       </div>`;
