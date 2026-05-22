@@ -45,7 +45,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "208";
+const APP_VERSION = "209";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -2614,12 +2614,18 @@ function renderTargetManageContent(student, target) {
     if (a.isNote && input) {
       const resize = () => { input.style.height = "auto"; input.style.height = input.scrollHeight + "px"; };
       resize();
-      input.addEventListener("input", resize);
+      let noteTimer;
+      input.addEventListener("input", () => {
+        resize();
+        a.text = input.value;           // keep in-memory state in sync immediately
+        clearTimeout(noteTimer);
+        noteTimer = setTimeout(async () => { await saveTarget(); }, 800);
+      });
     }
     input?.addEventListener("blur", async () => {
       if (a.isNote) {
         const v = input.value;
-        if (v === stripNoteHtml(a.text || "")) return;
+        if (v === (a.text || "")) return;
         a.text = v;
       } else {
         const v = input.value.trim();
@@ -2629,7 +2635,7 @@ function renderTargetManageContent(student, target) {
       await saveTarget();
       flashSaved(input);
     });
-    input?.addEventListener("input", () => autoResizeTextarea(input));
+    if (!a.isNote) input?.addEventListener("input", () => autoResizeTextarea(input));
   });
 
   $("manage-modal-body").querySelectorAll(".mn-del-act").forEach(btn => {
@@ -2862,12 +2868,18 @@ function renderTemplateManageContent(template) {
     if (a.isNote && input) {
       const resize = () => { input.style.height = "auto"; input.style.height = input.scrollHeight + "px"; };
       resize();
-      input.addEventListener("input", resize);
+      let noteTimer;
+      input.addEventListener("input", () => {
+        resize();
+        a.text = input.value;           // keep in-memory state in sync immediately
+        clearTimeout(noteTimer);
+        noteTimer = setTimeout(async () => { await saveTemplateFn(); }, 800);
+      });
     }
     input?.addEventListener("blur", async () => {
       if (a.isNote) {
         const v = input.value;
-        if (v === stripNoteHtml(a.text || "")) return;
+        if (v === (a.text || "")) return;
         a.text = v;
       } else {
         const v = input.value.trim();
@@ -2877,7 +2889,7 @@ function renderTemplateManageContent(template) {
       await saveTemplateFn();
       flashSaved(input);
     });
-    input?.addEventListener("input", () => autoResizeTextarea(input));
+    if (!a.isNote) input?.addEventListener("input", () => autoResizeTextarea(input));
   });
 
   $("manage-modal-body").querySelectorAll(".mn-del-act").forEach(btn => {
