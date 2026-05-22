@@ -1220,12 +1220,12 @@ html, body {
 .drag-handle {
   cursor: grab;
   color: #9ca3af;
-  font-size: 1.1rem;
+  font-size: 2.2rem;
   line-height: 1;
   user-select: none;
   touch-action: none;
   flex-shrink: 0;
-  padding: 0 .15rem;
+  padding: 0 .3rem;
 }
 .drag-handle:active { cursor: grabbing; }
 

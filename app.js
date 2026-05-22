@@ -45,7 +45,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "194";
+const APP_VERSION = "199";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -732,15 +732,7 @@ function renderTargetContent() {
     manageBtn.classList.toggle("hidden", target.isStructured !== true);
   }
 
-  const typeChip  = $("target-type-chip");
-  const typeBadge = $("target-type-badge");
-  if (typeChip && typeBadge) {
-    const label = target.templateId ? "Standard Template" : target.isStructured ? "Individual Template" : "Blank";
-    const cls   = target.templateId ? "badge-template" : target.isStructured ? "badge-structured" : "badge-blank";
-    typeBadge.textContent = label;
-    typeBadge.className   = `target-type-value ${cls}`;
-    typeChip.classList.remove("hidden");
-  }
+  $("target-type-chip")?.classList.add("hidden");
 
   const avg = calcDaysAverage(target);
   const avgEl = $("days-average-value");
@@ -1370,7 +1362,6 @@ function openScorePicker(remId, maxPoints) {
     btn.addEventListener("click", async () => {
       const rem = state.sessionData?.remarks?.[remId];
       if (!rem) return;
-      closeScorePicker();
       await addTrial(state.currentSessionId, remId, Number(btn.dataset.score), rem.trials || []);
     });
   });
@@ -1984,24 +1975,6 @@ function closeManageModal() {
 $("manage-modal-close").addEventListener("click",    closeManageModal);
 $("manage-modal-backdrop").addEventListener("click", closeManageModal);
 
-// Delegated handlers for note contenteditable divs
-$("manage-modal-body").addEventListener("keydown", e => {
-  const el = e.target;
-  if (!el.closest(".admin-note-item") || el.contentEditable !== "true") return;
-  if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); el.blur(); return; }
-  if (e.key === "Enter") { e.preventDefault(); document.execCommand("insertLineBreak"); return; }
-  if (e.key === "b" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); document.execCommand("bold"); return; }
-  if (e.key === "u" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); document.execCommand("underline"); return; }
-});
-
-// Format bar buttons — mousedown keeps focus on the contenteditable
-$("manage-modal-body").addEventListener("mousedown", e => {
-  const btn = e.target.closest(".btn-note-fmt");
-  if (!btn) return;
-  e.preventDefault();
-  document.execCommand(btn.dataset.cmd);
-});
-
 // ── Session-screen ⚙ button ───────────────────────────────────
 
 $("btn-manage-targets").addEventListener("click", () => {
@@ -2017,36 +1990,30 @@ function showAddTargetPicker(student) {
   $("manage-modal-title").textContent = "Add Target";
   $("manage-modal").classList.remove("hidden");
 
-  const hasDuplicatable = student.targets.length > 0;
-  let html = `
-    <div style="display:flex;flex-direction:column;gap:.6rem;margin-bottom:1.25rem">
+  const hasDuplicatable  = student.targets.length > 0;
+  const otherStudents    = state.students.filter(s => s.id !== student.id);
+  const hasOtherStudents = otherStudents.length > 0;
+  const hasTemplates     = state.templates.length > 0;
+
+  const html = `
+    <div style="display:flex;flex-direction:column;gap:.6rem">
       <button class="btn-target-type" id="btn-add-structured-target">
         <span class="btn-target-label">+ Individual Template</span>
         <span class="btn-target-desc">Activities will be the same every session, just fill in remarks</span>
       </button>
       ${hasDuplicatable ? `<button class="btn-target-type" id="btn-duplicate-target">
-        <span class="btn-target-label">+ Duplicate Target</span>
+        <span class="btn-target-label">+ Duplicate Target from current student</span>
         <span class="btn-target-desc">Copy an existing target from this student</span>
       </button>` : ""}
+      ${hasOtherStudents ? `<button class="btn-target-type" id="btn-duplicate-from-other">
+        <span class="btn-target-label">+ Duplicate Target from another student</span>
+        <span class="btn-target-desc">Copy a target from a different student</span>
+      </button>` : ""}
+      ${hasTemplates ? `<button class="btn-target-type" id="btn-duplicate-from-template">
+        <span class="btn-target-label">+ Duplicate from standard template</span>
+        <span class="btn-target-desc">Copy a standard template as an individual target (won't sync with template changes)</span>
+      </button>` : ""}
     </div>`;
-
-  if (state.templates.length > 0) {
-    html += `<div class="admin-section-title">Or add from a Standard Template</div>
-    <div class="admin-list" id="template-picker-list">`;
-    const sortedTmpls = [...state.templates].sort((a, b) => a.name.localeCompare(b.name));
-    sortedTmpls.forEach(tmpl => {
-      html += `<label class="admin-list-item" style="cursor:pointer;gap:.75rem">
-        <input type="checkbox" class="tmpl-checkbox" data-tmpl-id="${escHtml(tmpl.id)}"
-          style="width:20px;height:20px;flex-shrink:0;cursor:pointer" />
-        <span class="admin-item-name">${escHtml(tmpl.name)}</span>
-      </label>`;
-    });
-    html += `</div>
-    <button class="btn-primary-sm" id="btn-add-from-templates"
-      style="width:100%;margin-top:.5rem;padding:.75rem">
-      Add Selected Templates
-    </button>`;
-  }
 
   const modalBody = $("manage-modal-body");
   modalBody.innerHTML = html;
@@ -2074,78 +2041,184 @@ function showAddTargetPicker(student) {
   });
 
   $("btn-duplicate-target")?.addEventListener("click", () => {
-    const sorted = [...student.targets].sort((a, b) => a.name.localeCompare(b.name));
-    $("manage-modal-body").innerHTML = `
-      <div class="admin-section-title" style="margin-bottom:.5rem">Choose a target to duplicate</div>
-      <div class="admin-list" id="duplicate-target-list">
-        ${sorted.map(t => `
-          <label class="admin-list-item" style="cursor:pointer;gap:.75rem">
-            <input type="radio" name="dup-target" class="dup-target-radio" data-target-id="${escHtml(t.id)}"
-              style="width:18px;height:18px;flex-shrink:0;cursor:pointer" />
-            <span class="admin-item-name">${escHtml(t.name)}</span>
-          </label>`).join("")}
-      </div>
-      <button class="btn-primary-sm" id="btn-confirm-duplicate"
-        style="width:100%;margin-top:.75rem;padding:.75rem">Duplicate Selected</button>
-      <button class="btn-adm-secondary" id="btn-dup-back"
-        style="width:100%;margin-top:.5rem;padding:.65rem">← Back</button>`;
-
-    $("btn-dup-back").addEventListener("click", () => showAddTargetPicker(student));
-
-    $("btn-confirm-duplicate").addEventListener("click", async () => {
-      const radio = $("manage-modal-body").querySelector(".dup-target-radio:checked");
-      if (!radio) { alert("Select a target to duplicate."); return; }
-      const source = student.targets.find(t => t.id === radio.dataset.targetId);
-      if (!source) return;
-      $("manage-modal").classList.add("hidden");
-      const name = prompt("Name for the duplicate:", source.name + " (copy)");
-      if (!name?.trim()) { $("manage-modal").classList.remove("hidden"); showAddTargetPicker(student); return; }
-      const copy = JSON.parse(JSON.stringify(source));
-      copy.id    = cfgId("t");
-      copy.name  = name.trim();
-      copy.order = student.targets.length;
-      copy.templateId = null;
-      student.targets.push(copy);
-      const si = state.students.findIndex(s => s.id === student.id);
-      if (si >= 0) state.students[si] = student;
-      await saveStudent(student);
-      state.selectedTargetName = copy.name;
-      populateTargetDropdown(student.targets);
-      renderTargetContent();
-      openManageModal(student, copy);
-    });
+    showDupFromCurrentStudent(student);
   });
 
-  $("btn-add-from-templates")?.addEventListener("click", async () => {
-    const checked = [...$("manage-modal-body").querySelectorAll(".tmpl-checkbox:checked")];
-    if (checked.length === 0) { alert("Select at least one template."); return; }
+  $("btn-duplicate-from-other")?.addEventListener("click", () => {
+    showDupFromOtherStudent_pickStudent(student, otherStudents);
+  });
 
-    for (const cb of checked) {
-      const tmpl = state.templates.find(t => t.id === cb.dataset.tmplId);
-      if (!tmpl) continue;
-      // Skip if this template is already a target for this student
-      if (student.targets.find(t => t.templateId === tmpl.id)) continue;
-      const t = {
-        id: cfgId("t"), name: tmpl.name,
-        maxPoints: tmpl.maxPoints || 3,
-        hasComment: false, fullName: "",
-        order: student.targets.length,
-        predefinedActivities: JSON.parse(JSON.stringify(tmpl.predefinedActivities || [])),
-        notes: JSON.parse(JSON.stringify(tmpl.notes || [])),
-        templateId: tmpl.id
-      };
-      student.targets.push(t);
-    }
+  $("btn-duplicate-from-template")?.addEventListener("click", () => {
+    showDupFromTemplate(student);
+  });
+}
 
+function showDupFromCurrentStudent(student) {
+  const sorted = [...student.targets].sort((a, b) => a.name.localeCompare(b.name));
+  $("manage-modal-body").innerHTML = `
+    <div class="admin-section-title" style="margin-bottom:.5rem">Choose a target to duplicate</div>
+    <div class="admin-list">
+      ${sorted.map(t => `
+        <label class="admin-list-item" style="cursor:pointer;gap:.75rem">
+          <input type="radio" name="dup-target" class="dup-target-radio" data-target-id="${escHtml(t.id)}"
+            style="width:18px;height:18px;flex-shrink:0;cursor:pointer" />
+          <span class="admin-item-name">${escHtml(t.name)}</span>
+        </label>`).join("")}
+    </div>
+    <button class="btn-primary-sm" id="btn-confirm-duplicate"
+      style="width:100%;margin-top:.75rem;padding:.75rem">Duplicate Selected</button>
+    <button class="btn-adm-secondary" id="btn-dup-back"
+      style="width:100%;margin-top:.5rem;padding:.65rem">← Back</button>`;
+
+  $("btn-dup-back").addEventListener("click", () => showAddTargetPicker(student));
+
+  $("btn-confirm-duplicate").addEventListener("click", async () => {
+    const radio = $("manage-modal-body").querySelector(".dup-target-radio:checked");
+    if (!radio) { alert("Select a target to duplicate."); return; }
+    const source = student.targets.find(t => t.id === radio.dataset.targetId);
+    if (!source) return;
+    $("manage-modal").classList.add("hidden");
+    const name = prompt("Name for the duplicate:", source.name + " (copy)");
+    if (!name?.trim()) { $("manage-modal").classList.remove("hidden"); showAddTargetPicker(student); return; }
+    const copy = JSON.parse(JSON.stringify(source));
+    copy.id    = cfgId("t");
+    copy.name  = name.trim();
+    copy.order = student.targets.length;
+    copy.templateId = null;
+    student.targets.push(copy);
     const si = state.students.findIndex(s => s.id === student.id);
     if (si >= 0) state.students[si] = student;
     await saveStudent(student);
-
-    $("manage-modal").classList.add("hidden");
-    const lastTarget = student.targets[student.targets.length - 1];
-    if (lastTarget) state.selectedTargetName = lastTarget.name;
+    state.selectedTargetName = copy.name;
     populateTargetDropdown(student.targets);
     renderTargetContent();
+    openManageModal(student, copy);
+  });
+}
+
+function showDupFromOtherStudent_pickStudent(student, otherStudents) {
+  const sorted = [...otherStudents].sort((a, b) => a.name.localeCompare(b.name));
+  $("manage-modal-body").innerHTML = `
+    <div class="admin-section-title" style="margin-bottom:.5rem">Choose a student</div>
+    <div class="admin-list">
+      ${sorted.map(s => `
+        <label class="admin-list-item" style="cursor:pointer;gap:.75rem">
+          <input type="radio" name="other-student" class="other-student-radio" data-student-id="${escHtml(s.id)}"
+            style="width:18px;height:18px;flex-shrink:0;cursor:pointer" />
+          <span class="admin-item-name">${escHtml(s.name)}</span>
+        </label>`).join("")}
+    </div>
+    <button class="btn-primary-sm" id="btn-pick-other-student"
+      style="width:100%;margin-top:.75rem;padding:.75rem">Next →</button>
+    <button class="btn-adm-secondary" id="btn-dup-back"
+      style="width:100%;margin-top:.5rem;padding:.65rem">← Back</button>`;
+
+  $("btn-dup-back").addEventListener("click", () => showAddTargetPicker(student));
+
+  $("btn-pick-other-student").addEventListener("click", () => {
+    const radio = $("manage-modal-body").querySelector(".other-student-radio:checked");
+    if (!radio) { alert("Select a student."); return; }
+    const source = otherStudents.find(s => s.id === radio.dataset.studentId);
+    if (!source) return;
+    showDupFromOtherStudent_pickTarget(student, source);
+  });
+}
+
+function showDupFromOtherStudent_pickTarget(student, sourceStudent) {
+  const sorted = [...sourceStudent.targets].sort((a, b) => a.name.localeCompare(b.name));
+  if (sorted.length === 0) {
+    alert(`${sourceStudent.name} has no targets to duplicate.`);
+    showAddTargetPicker(student);
+    return;
+  }
+  $("manage-modal-body").innerHTML = `
+    <div class="admin-section-title" style="margin-bottom:.5rem">Choose a target from ${escHtml(sourceStudent.name)}</div>
+    <div class="admin-list">
+      ${sorted.map(t => `
+        <label class="admin-list-item" style="cursor:pointer;gap:.75rem">
+          <input type="radio" name="other-target" class="other-target-radio" data-target-id="${escHtml(t.id)}"
+            style="width:18px;height:18px;flex-shrink:0;cursor:pointer" />
+          <span class="admin-item-name">${escHtml(t.name)}</span>
+        </label>`).join("")}
+    </div>
+    <button class="btn-primary-sm" id="btn-confirm-other-dup"
+      style="width:100%;margin-top:.75rem;padding:.75rem">Duplicate Selected</button>
+    <button class="btn-adm-secondary" id="btn-dup-back"
+      style="width:100%;margin-top:.5rem;padding:.65rem">← Back</button>`;
+
+  $("btn-dup-back").addEventListener("click", () => {
+    showDupFromOtherStudent_pickStudent(student, state.students.filter(s => s.id !== student.id));
+  });
+
+  $("btn-confirm-other-dup").addEventListener("click", async () => {
+    const radio = $("manage-modal-body").querySelector(".other-target-radio:checked");
+    if (!radio) { alert("Select a target to duplicate."); return; }
+    const source = sourceStudent.targets.find(t => t.id === radio.dataset.targetId);
+    if (!source) return;
+    $("manage-modal").classList.add("hidden");
+    const name = prompt("Name for the duplicate:", source.name + " (copy)");
+    if (!name?.trim()) { $("manage-modal").classList.remove("hidden"); showAddTargetPicker(student); return; }
+    const copy = JSON.parse(JSON.stringify(source));
+    copy.id         = cfgId("t");
+    copy.name       = name.trim();
+    copy.order      = student.targets.length;
+    copy.templateId = null;
+    copy.isStructured = true;
+    student.targets.push(copy);
+    const si = state.students.findIndex(s => s.id === student.id);
+    if (si >= 0) state.students[si] = student;
+    await saveStudent(student);
+    state.selectedTargetName = copy.name;
+    populateTargetDropdown(student.targets);
+    renderTargetContent();
+    openManageModal(student, copy);
+  });
+}
+
+function showDupFromTemplate(student) {
+  const sortedTmpls = [...state.templates].sort((a, b) => a.name.localeCompare(b.name));
+  $("manage-modal-body").innerHTML = `
+    <div class="admin-section-title" style="margin-bottom:.5rem">Choose a standard template to copy</div>
+    <div class="admin-list">
+      ${sortedTmpls.map(t => `
+        <label class="admin-list-item" style="cursor:pointer;gap:.75rem">
+          <input type="radio" name="tmpl-source" class="tmpl-source-radio" data-tmpl-id="${escHtml(t.id)}"
+            style="width:18px;height:18px;flex-shrink:0;cursor:pointer" />
+          <span class="admin-item-name">${escHtml(t.name)}</span>
+        </label>`).join("")}
+    </div>
+    <button class="btn-primary-sm" id="btn-confirm-tmpl-dup"
+      style="width:100%;margin-top:.75rem;padding:.75rem">Copy as Individual Target</button>
+    <button class="btn-adm-secondary" id="btn-dup-back"
+      style="width:100%;margin-top:.5rem;padding:.65rem">← Back</button>`;
+
+  $("btn-dup-back").addEventListener("click", () => showAddTargetPicker(student));
+
+  $("btn-confirm-tmpl-dup").addEventListener("click", async () => {
+    const radio = $("manage-modal-body").querySelector(".tmpl-source-radio:checked");
+    if (!radio) { alert("Select a template to copy."); return; }
+    const tmpl = state.templates.find(t => t.id === radio.dataset.tmplId);
+    if (!tmpl) return;
+    $("manage-modal").classList.add("hidden");
+    const name = prompt("Name for this target:", tmpl.name);
+    if (!name?.trim()) { $("manage-modal").classList.remove("hidden"); showAddTargetPicker(student); return; }
+    const copy = {
+      id: cfgId("t"), name: name.trim(),
+      maxPoints: tmpl.maxPoints || 3,
+      hasComment: false, fullName: "",
+      order: student.targets.length,
+      predefinedActivities: JSON.parse(JSON.stringify(tmpl.predefinedActivities || [])),
+      notes: JSON.parse(JSON.stringify(tmpl.notes || [])),
+      templateId: null, isStructured: true
+    };
+    student.targets.push(copy);
+    const si = state.students.findIndex(s => s.id === student.id);
+    if (si >= 0) state.students[si] = student;
+    await saveStudent(student);
+    state.selectedTargetName = copy.name;
+    populateTargetDropdown(student.targets);
+    renderTargetContent();
+    openManageModal(student, copy);
   });
 }
 
@@ -2364,6 +2437,22 @@ function noteToHtml(text) {
   return escHtml(text).replace(/\*\*([\s\S]+?)\*\*/g, "<strong>$1</strong>");
 }
 
+// Convert stored note text (possibly HTML) to plain text for textarea editing
+function stripNoteHtml(text) {
+  if (!text) return "";
+  if (!/<[a-z]/i.test(text)) {
+    return text.replace(/\*\*([\s\S]+?)\*\*/g, "$1");
+  }
+  return text
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/div>/gi, "\n").replace(/<div>/gi, "")
+    .replace(/<\/p>/gi, "\n").replace(/<p>/gi, "")
+    .replace(/<\/?(strong|b|u|em|i)[^>]*>/gi, "")
+    .replace(/<[^>]*>/g, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 function renderTargetManageContent(student, target) {
   $("manage-modal-title").textContent = target.name;
   target.predefinedActivities = normalizeActivitiesFormat(target.predefinedActivities || []);
@@ -2405,15 +2494,9 @@ function renderTargetManageContent(student, target) {
     } else if (a.isNote) {
       html += `<div class="admin-list-item admin-note-item" data-idx="${idx}">
         <span class="drag-handle">⠿</span>
-        <div style="flex:1;display:flex;flex-direction:column;gap:.25rem">
-          <div class="note-format-bar">
-            <button class="btn-note-fmt" data-cmd="bold" tabindex="-1"><b>B</b></button>
-            <button class="btn-note-fmt" data-cmd="underline" tabindex="-1"><u>U</u></button>
-          </div>
-          <div class="admin-input admin-note-editable" id="mn-act-name-${idx}" data-idx="${idx}"
-            contenteditable="true"
-            data-placeholder="Type note… (Enter = new line · Ctrl+Enter = save)">${noteToHtml(a.text || "")}</div>
-        </div>
+        <textarea class="admin-input" id="mn-act-name-${idx}" data-idx="${idx}"
+          rows="2" placeholder="Type note… (Enter = new line · Ctrl+Enter = save)"
+          style="flex:1">${escHtml(stripNoteHtml(a.text || ""))}</textarea>
         <button class="btn-adm-del mn-del-act" data-idx="${idx}">🗑</button>
       </div>`;
     } else {
@@ -2509,9 +2592,9 @@ function renderTargetManageContent(student, target) {
     const input = $(`mn-act-name-${idx}`);
     input?.addEventListener("blur", async () => {
       if (a.isNote) {
-        const html = input.innerHTML;
-        if (html === (a.text || "")) return;
-        a.text = html;
+        const v = input.value;
+        if (v === stripNoteHtml(a.text || "")) return;
+        a.text = v;
       } else {
         const v = input.value.trim();
         if (!v || v === a.name) return;
@@ -2520,7 +2603,7 @@ function renderTargetManageContent(student, target) {
       await saveTarget();
       flashSaved(input);
     });
-    if (!a.isNote) input?.addEventListener("input", () => autoResizeTextarea(input));
+    input?.addEventListener("input", () => autoResizeTextarea(input));
   });
 
   $("manage-modal-body").querySelectorAll(".mn-del-act").forEach(btn => {
@@ -2658,15 +2741,9 @@ function renderTemplateManageContent(template) {
     } else if (a.isNote) {
       html += `<div class="admin-list-item admin-note-item" data-idx="${idx}">
         <span class="drag-handle">⠿</span>
-        <div style="flex:1;display:flex;flex-direction:column;gap:.25rem">
-          <div class="note-format-bar">
-            <button class="btn-note-fmt" data-cmd="bold" tabindex="-1"><b>B</b></button>
-            <button class="btn-note-fmt" data-cmd="underline" tabindex="-1"><u>U</u></button>
-          </div>
-          <div class="admin-input admin-note-editable" id="mn-act-name-${idx}" data-idx="${idx}"
-            contenteditable="true"
-            data-placeholder="Type note… (Enter = new line · Ctrl+Enter = save)">${noteToHtml(a.text || "")}</div>
-        </div>
+        <textarea class="admin-input" id="mn-act-name-${idx}" data-idx="${idx}"
+          rows="2" placeholder="Type note… (Enter = new line · Ctrl+Enter = save)"
+          style="flex:1">${escHtml(stripNoteHtml(a.text || ""))}</textarea>
         <button class="btn-adm-del mn-del-act" data-idx="${idx}">🗑</button>
       </div>`;
     } else {
@@ -2758,9 +2835,9 @@ function renderTemplateManageContent(template) {
     const input = $(`mn-act-name-${idx}`);
     input?.addEventListener("blur", async () => {
       if (a.isNote) {
-        const html = input.innerHTML;
-        if (html === (a.text || "")) return;
-        a.text = html;
+        const v = input.value;
+        if (v === stripNoteHtml(a.text || "")) return;
+        a.text = v;
       } else {
         const v = input.value.trim();
         if (!v || v === a.name) return;
@@ -2769,7 +2846,7 @@ function renderTemplateManageContent(template) {
       await saveTemplateFn();
       flashSaved(input);
     });
-    if (!a.isNote) input?.addEventListener("input", () => autoResizeTextarea(input));
+    input?.addEventListener("input", () => autoResizeTextarea(input));
   });
 
   $("manage-modal-body").querySelectorAll(".mn-del-act").forEach(btn => {
