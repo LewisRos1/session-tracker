@@ -45,7 +45,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "212";
+const APP_VERSION = "213";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -2215,12 +2215,12 @@ function showDupFromOtherStudent_pickTarget(student, sourceStudent) {
 function showDupFromTemplate(student) {
   const sortedTmpls = [...state.templates].sort((a, b) => a.name.localeCompare(b.name));
   $("manage-modal-body").innerHTML = `
-    <div class="admin-section-title" style="margin-bottom:.5rem">Choose a template to duplicate</div>
+    <div class="admin-section-title" style="margin-bottom:.5rem">Choose templates to duplicate</div>
     <div class="admin-list">
       ${sortedTmpls.map(t => `
         <label class="admin-list-item" style="cursor:pointer;gap:.75rem">
-          <input type="radio" name="tmpl-source" class="tmpl-source-radio" data-tmpl-id="${escHtml(t.id)}"
-            style="width:18px;height:18px;flex-shrink:0;cursor:pointer" />
+          <input type="checkbox" class="tmpl-source-cb" data-tmpl-id="${escHtml(t.id)}"
+            style="width:20px;height:20px;flex-shrink:0;cursor:pointer" />
           <span class="admin-item-name">${escHtml(t.name)}</span>
         </label>`).join("")}
     </div>
@@ -2232,30 +2232,33 @@ function showDupFromTemplate(student) {
   $("btn-dup-back").addEventListener("click", () => showAddTargetPicker(student));
 
   $("btn-confirm-tmpl-dup").addEventListener("click", async () => {
-    const radio = $("manage-modal-body").querySelector(".tmpl-source-radio:checked");
-    if (!radio) { alert("Select a template to duplicate."); return; }
-    const tmpl = state.templates.find(t => t.id === radio.dataset.tmplId);
-    if (!tmpl) return;
+    const checked = [...$("manage-modal-body").querySelectorAll(".tmpl-source-cb:checked")];
+    if (checked.length === 0) { alert("Select at least one template to duplicate."); return; }
+
     $("manage-modal").classList.add("hidden");
-    const name = prompt("Name for this target:", tmpl.name);
-    if (!name?.trim()) { $("manage-modal").classList.remove("hidden"); showAddTargetPicker(student); return; }
-    const copy = {
-      id: cfgId("t"), name: name.trim(),
-      maxPoints: tmpl.maxPoints || 3,
-      hasComment: false, fullName: "",
-      order: student.targets.length,
-      predefinedActivities: JSON.parse(JSON.stringify(tmpl.predefinedActivities || [])),
-      notes: JSON.parse(JSON.stringify(tmpl.notes || [])),
-      templateId: null, isStructured: true
-    };
-    student.targets.push(copy);
+    let lastAdded = null;
+    for (const cb of checked) {
+      const tmpl = state.templates.find(t => t.id === cb.dataset.tmplId);
+      if (!tmpl) continue;
+      const copy = {
+        id: cfgId("t"), name: tmpl.name,
+        maxPoints: tmpl.maxPoints || 3,
+        hasComment: false, fullName: "",
+        order: student.targets.length,
+        predefinedActivities: JSON.parse(JSON.stringify(tmpl.predefinedActivities || [])),
+        notes: JSON.parse(JSON.stringify(tmpl.notes || [])),
+        templateId: null, isStructured: true
+      };
+      student.targets.push(copy);
+      lastAdded = copy;
+    }
     const si = state.students.findIndex(s => s.id === student.id);
     if (si >= 0) state.students[si] = student;
     await saveStudent(student);
-    state.selectedTargetName = copy.name;
+    if (lastAdded) state.selectedTargetName = lastAdded.name;
     populateTargetDropdown(student.targets);
     renderTargetContent();
-    openManageModal(student, copy);
+    if (lastAdded && checked.length === 1) openManageModal(student, lastAdded);
   });
 }
 
