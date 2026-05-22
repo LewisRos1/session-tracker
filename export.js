@@ -41,20 +41,10 @@ function getAllTargets(student) {
   return student.targets || [];
 }
 
-export async function exportStudentData(student) {
-  if (!student) return;
-
-  const sessions = await getAllSessionsForStudent(student.id);
-  if (sessions.length === 0) {
-    alert("No session data found for " + student.name);
-    return;
-  }
-
+async function buildStudentWorkbook(student, sessions) {
   const allTargets = getAllTargets(student);
-
   const wb = new ExcelJS.Workbook();
 
-  // ── Summary sheet (monthly averages grid) ──────────────
   const summaryRows = buildSummarySheet(allTargets, sessions);
   const summaryWs   = wb.addWorksheet("Summary");
   summaryRows.forEach(row => summaryWs.addRow(row));
@@ -63,7 +53,6 @@ export async function exportStudentData(student) {
     summaryWs.getColumn(c).width = 12;
   }
 
-  // ── One sheet per target ───────────────────────────────
   for (const target of allTargets) {
     const { rows, monthHeaderRows, sessionHeaderRows, columnHeaderRows, activityHeadingRows, noteRows, dailyAvgRows } =
       buildTargetSheet(target, sessions);
@@ -82,7 +71,6 @@ export async function exportStudentData(student) {
     applyRowStyles(ws, sessionHeaderRows,  STYLE_SESSION);
     applyRowStyles(ws, columnHeaderRows,   STYLE_COL_HEADER);
 
-    // Activity section headings: merge A:D + style
     for (const rowIdx of activityHeadingRows) {
       const n = rowIdx + 1;
       ws.mergeCells(`A${n}:D${n}`);
@@ -91,8 +79,6 @@ export async function exportStudentData(student) {
       cell.font = STYLE_ACT_HEADING.font;
     }
 
-    // Reference notes: merge A:D + amber tint + wrap text + explicit row height
-    // (Excel never auto-sizes merged cells, so we calculate height manually)
     for (const rowIdx of noteRows) {
       const n = rowIdx + 1;
       ws.mergeCells(`A${n}:D${n}`);
@@ -106,26 +92,71 @@ export async function exportStudentData(student) {
       ws.getRow(n).height = Math.max(18, visLines * 15);
     }
 
-    // Daily Average rows: bright amber across all 4 columns
     applyRowStyles(ws, dailyAvgRows, STYLE_DAILY_AVG);
   }
 
-  // Filename: StudentName_DD-Mon-YYYY_HHmm.xlsx
-  const now      = new Date();
-  const monNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-  const dd       = String(now.getDate()).padStart(2, "0");
-  const mon      = monNames[now.getMonth()];
-  const yyyy     = now.getFullYear();
-  const hh       = String(now.getHours()).padStart(2, "0");
-  const mm       = String(now.getMinutes()).padStart(2, "0");
-  const filename = `${student.name}_${dd}-${mon}-${yyyy}_${hh}${mm}.xlsx`;
+  return wb.xlsx.writeBuffer();
+}
 
-  const buffer = await wb.xlsx.writeBuffer();
+function makeFilename(studentName, now) {
+  const monNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const dd   = String(now.getDate()).padStart(2, "0");
+  const mon  = monNames[now.getMonth()];
+  const yyyy = now.getFullYear();
+  const hh   = String(now.getHours()).padStart(2, "0");
+  const mm   = String(now.getMinutes()).padStart(2, "0");
+  return `${studentName}_${dd}-${mon}-${yyyy}_${hh}${mm}.xlsx`;
+}
+
+export async function exportStudentData(student) {
+  if (!student) return;
+
+  const sessions = await getAllSessionsForStudent(student.id);
+  if (sessions.length === 0) {
+    alert("No session data found for " + student.name);
+    return;
+  }
+
+  const now    = new Date();
+  const buffer = await buildStudentWorkbook(student, sessions);
   const blob   = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
   const url    = URL.createObjectURL(blob);
   const a      = document.createElement("a");
   a.href       = url;
-  a.download   = filename;
+  a.download   = makeFilename(student.name, now);
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+export async function exportAllStudents(students) {
+  if (!students || students.length === 0) return;
+
+  const zip = new JSZip();
+  const now = new Date();
+  let exported = 0;
+
+  for (const student of students) {
+    const sessions = await getAllSessionsForStudent(student.id);
+    if (sessions.length === 0) continue;
+    const buffer = await buildStudentWorkbook(student, sessions);
+    zip.file(makeFilename(student.name, now), buffer);
+    exported++;
+  }
+
+  if (exported === 0) {
+    alert("No session data found for any student.");
+    return;
+  }
+
+  const monNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const dd   = String(now.getDate()).padStart(2, "0");
+  const mon  = monNames[now.getMonth()];
+  const yyyy = now.getFullYear();
+  const zipBlob = await zip.generateAsync({ type: "blob" });
+  const url     = URL.createObjectURL(zipBlob);
+  const a       = document.createElement("a");
+  a.href        = url;
+  a.download    = `All_Students_${dd}-${mon}-${yyyy}.zip`;
   a.click();
   URL.revokeObjectURL(url);
 }

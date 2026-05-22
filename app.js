@@ -33,7 +33,7 @@ import {
   updateSessionDate,
   deleteTargetDataFromSessions
 } from "./firebase-service.js";
-import { exportStudentData } from "./export.js";
+import { exportStudentData, exportAllStudents } from "./export.js";
 
 // ── SW update detection — must run at parse time, before DOMContentLoaded,
 //   so the listener is in place before the new SW can fire controllerchange.
@@ -45,7 +45,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "209";
+const APP_VERSION = "212";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -362,10 +362,26 @@ function renderExportButtons() {
   if (!container) return;
   const q = (state.searchExport || "").toLowerCase();
   const filtered = q ? state.students.filter(s => s.name.toLowerCase().includes(q)) : state.students;
-  container.innerHTML = filtered.map(s => `
-    <button class="export-btn" data-id="${s.id}">Export ${escHtml(s.name)}</button>
-  `).join("");
-  container.querySelectorAll(".export-btn").forEach(btn => {
+
+  container.innerHTML =
+    `<button class="export-btn export-btn-all" id="btn-export-all">Export All (ZIP)</button>` +
+    filtered.map(s => `<button class="export-btn" data-id="${s.id}">Export ${escHtml(s.name)}</button>`).join("");
+
+  $("btn-export-all").addEventListener("click", async () => {
+    const btn = $("btn-export-all");
+    btn.disabled = true;
+    btn.textContent = "Generating…";
+    try {
+      await exportAllStudents(state.students);
+    } catch (err) {
+      alert("Export failed: " + err.message);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "Export All (ZIP)";
+    }
+  });
+
+  container.querySelectorAll(".export-btn[data-id]").forEach(btn => {
     btn.addEventListener("click", async () => {
       const student = state.students.find(s => s.id === btn.dataset.id);
       if (!student) return;
@@ -1998,19 +2014,19 @@ function showAddTargetPicker(student) {
   const html = `
     <div style="display:flex;flex-direction:column;gap:.6rem">
       <button class="btn-target-type" id="btn-add-structured-target">
-        <span class="btn-target-label">+ Create Individual Template</span>
+        <span class="btn-target-label">Create Individual Template</span>
         <span class="btn-target-desc">Activities will be the same every session, just fill in remarks</span>
       </button>
       ${hasDuplicatable ? `<button class="btn-target-type" id="btn-duplicate-target">
-        <span class="btn-target-label">+ Duplicate Target from Current Student</span>
+        <span class="btn-target-label">Duplicate Target from Current Student</span>
         <span class="btn-target-desc">Duplicate an existing target from this student</span>
       </button>` : ""}
       ${hasOtherStudents ? `<button class="btn-target-type" id="btn-duplicate-from-other">
-        <span class="btn-target-label">+ Duplicate Target from Another Student</span>
+        <span class="btn-target-label">Duplicate Target from Another Student</span>
         <span class="btn-target-desc">Duplicate a target from a different student</span>
       </button>` : ""}
       ${hasTemplates ? `<button class="btn-target-type" id="btn-duplicate-from-template">
-        <span class="btn-target-label">+ Duplicate from Target</span>
+        <span class="btn-target-label">Duplicate from Template</span>
         <span class="btn-target-desc">Duplicate a template as an individual target</span>
       </button>` : ""}
     </div>`;
@@ -2526,7 +2542,7 @@ function renderTargetManageContent(student, target) {
           <option value="">Free text</option>
           <option value="fixed"${type === "fixed" ? " selected" : ""}>Select one</option>
           <option value="fixed_multi"${type === "fixed_multi" ? " selected" : ""}>Tick boxes</option>
-          <option value="starter"${type === "starter" ? " selected" : ""}>Sentence starter</option>
+          <option value="starter"${type === "starter" ? " selected" : ""}>Sentence Start + Free Text</option>
           <option value="starter_fixed"${type === "starter_fixed" ? " selected" : ""}>Sentence starter + Select one</option>
           <option value="starter_fixed_multi"${type === "starter_fixed_multi" ? " selected" : ""}>Sentence starter + Tick boxes</option>
         </select>
@@ -2784,7 +2800,7 @@ function renderTemplateManageContent(template) {
           <option value="">Free text</option>
           <option value="fixed"${type === "fixed" ? " selected" : ""}>Select one</option>
           <option value="fixed_multi"${type === "fixed_multi" ? " selected" : ""}>Tick boxes</option>
-          <option value="starter"${type === "starter" ? " selected" : ""}>Sentence starter</option>
+          <option value="starter"${type === "starter" ? " selected" : ""}>Sentence Start + Free Text</option>
           <option value="starter_fixed"${type === "starter_fixed" ? " selected" : ""}>Sentence starter + Select one</option>
           <option value="starter_fixed_multi"${type === "starter_fixed_multi" ? " selected" : ""}>Sentence starter + Tick boxes</option>
         </select>

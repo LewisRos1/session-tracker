@@ -284,6 +284,13 @@ html, body {
 .export-btn:hover  { background: var(--primary-light); border-color: var(--primary); }
 .export-btn:active { opacity: .8; }
 .export-btn:disabled { opacity: .5; cursor: not-allowed; }
+.export-btn-all {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
+  font-weight: 700;
+}
+.export-btn-all:hover { background: var(--primary-dark, #4338ca); border-color: var(--primary-dark, #4338ca); }
 
 /* ============================================================
    SESSION SCREEN
