@@ -45,7 +45,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "205";
+const APP_VERSION = "208";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -2002,15 +2002,15 @@ function showAddTargetPicker(student) {
         <span class="btn-target-desc">Activities will be the same every session, just fill in remarks</span>
       </button>
       ${hasDuplicatable ? `<button class="btn-target-type" id="btn-duplicate-target">
-        <span class="btn-target-label">+ Duplicate Target from current student</span>
+        <span class="btn-target-label">+ Duplicate Target from Current Student</span>
         <span class="btn-target-desc">Duplicate an existing target from this student</span>
       </button>` : ""}
       ${hasOtherStudents ? `<button class="btn-target-type" id="btn-duplicate-from-other">
-        <span class="btn-target-label">+ Duplicate Target from another student</span>
+        <span class="btn-target-label">+ Duplicate Target from Another Student</span>
         <span class="btn-target-desc">Duplicate a target from a different student</span>
       </button>` : ""}
       ${hasTemplates ? `<button class="btn-target-type" id="btn-duplicate-from-template">
-        <span class="btn-target-label">+ Duplicate from template</span>
+        <span class="btn-target-label">+ Duplicate from Target</span>
         <span class="btn-target-desc">Duplicate a template as an individual target</span>
       </button>` : ""}
     </div>`;
@@ -2116,13 +2116,13 @@ function showDupFromOtherStudent_pickStudent(student, otherStudents) {
     const filteredAssessment = assessment.filter(s => s.name.toLowerCase().includes(q));
     $("dup-student-list").innerHTML = `
       <div class="admin-section-title" style="margin:.5rem 0 .25rem">Existing Students</div>
-      <div class="admin-list" style="margin-bottom:.5rem">${buildList(filteredExisting)}</div>
+      <div class="admin-list" style="margin-bottom:1rem">${buildList(filteredExisting)}</div>
       <div class="admin-section-title" style="margin:.5rem 0 .25rem">Assessment Students</div>
       <div class="admin-list">${buildList(filteredAssessment)}</div>`;
   }
 
   $("manage-modal-body").innerHTML = `
-    <div class="admin-section-title" style="margin-bottom:.5rem">Choose a student</div>
+    <div class="admin-section-title" style="margin-bottom:.5rem">Search Student</div>
     <input type="search" id="dup-student-search" class="admin-input"
       placeholder="Search students…" autocomplete="off"
       style="width:100%;margin-bottom:.5rem" />
@@ -2209,7 +2209,7 @@ function showDupFromTemplate(student) {
         </label>`).join("")}
     </div>
     <button class="btn-primary-sm" id="btn-confirm-tmpl-dup"
-      style="width:100%;margin-top:.75rem;padding:.75rem">Duplicate as Individual Target</button>
+      style="width:100%;margin-top:.75rem;padding:.75rem">Duplicate Selected</button>
     <button class="btn-adm-secondary" id="btn-dup-back"
       style="width:100%;margin-top:.5rem;padding:.65rem">← Back</button>`;
 
@@ -2516,7 +2516,7 @@ function renderTargetManageContent(student, target) {
       html += `<div class="admin-list-item admin-note-item" data-idx="${idx}">
         <span class="drag-handle">⠿</span>
         <textarea class="admin-input" id="mn-act-name-${idx}" data-idx="${idx}"
-          rows="1" placeholder="Type note… (Enter = new line · Ctrl+Enter = save)"
+          rows="1" placeholder="Note"
           style="flex:1;overflow-y:hidden;resize:none">${escHtml(stripNoteHtml(a.text || ""))}</textarea>
         <button class="btn-adm-del mn-del-act" data-idx="${idx}">🗑</button>
       </div>`;
@@ -2768,7 +2768,7 @@ function renderTemplateManageContent(template) {
       html += `<div class="admin-list-item admin-note-item" data-idx="${idx}">
         <span class="drag-handle">⠿</span>
         <textarea class="admin-input" id="mn-act-name-${idx}" data-idx="${idx}"
-          rows="1" placeholder="Type note… (Enter = new line · Ctrl+Enter = save)"
+          rows="1" placeholder="Note"
           style="flex:1;overflow-y:hidden;resize:none">${escHtml(stripNoteHtml(a.text || ""))}</textarea>
         <button class="btn-adm-del mn-del-act" data-idx="${idx}">🗑</button>
       </div>`;
