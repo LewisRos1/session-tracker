@@ -45,7 +45,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "199";
+const APP_VERSION = "205";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -1998,20 +1998,20 @@ function showAddTargetPicker(student) {
   const html = `
     <div style="display:flex;flex-direction:column;gap:.6rem">
       <button class="btn-target-type" id="btn-add-structured-target">
-        <span class="btn-target-label">+ Individual Template</span>
+        <span class="btn-target-label">+ Create Individual Template</span>
         <span class="btn-target-desc">Activities will be the same every session, just fill in remarks</span>
       </button>
       ${hasDuplicatable ? `<button class="btn-target-type" id="btn-duplicate-target">
         <span class="btn-target-label">+ Duplicate Target from current student</span>
-        <span class="btn-target-desc">Copy an existing target from this student</span>
+        <span class="btn-target-desc">Duplicate an existing target from this student</span>
       </button>` : ""}
       ${hasOtherStudents ? `<button class="btn-target-type" id="btn-duplicate-from-other">
         <span class="btn-target-label">+ Duplicate Target from another student</span>
-        <span class="btn-target-desc">Copy a target from a different student</span>
+        <span class="btn-target-desc">Duplicate a target from a different student</span>
       </button>` : ""}
       ${hasTemplates ? `<button class="btn-target-type" id="btn-duplicate-from-template">
-        <span class="btn-target-label">+ Duplicate from standard template</span>
-        <span class="btn-target-desc">Copy a standard template as an individual target (won't sync with template changes)</span>
+        <span class="btn-target-label">+ Duplicate from template</span>
+        <span class="btn-target-desc">Duplicate a template as an individual target</span>
       </button>` : ""}
     </div>`;
 
@@ -2078,7 +2078,7 @@ function showDupFromCurrentStudent(student) {
     const source = student.targets.find(t => t.id === radio.dataset.targetId);
     if (!source) return;
     $("manage-modal").classList.add("hidden");
-    const name = prompt("Name for the duplicate:", source.name + " (copy)");
+    const name = prompt("Name for the duplicate:", source.name + " (duplicate)");
     if (!name?.trim()) { $("manage-modal").classList.remove("hidden"); showAddTargetPicker(student); return; }
     const copy = JSON.parse(JSON.stringify(source));
     copy.id    = cfgId("t");
@@ -2097,22 +2097,43 @@ function showDupFromCurrentStudent(student) {
 }
 
 function showDupFromOtherStudent_pickStudent(student, otherStudents) {
-  const sorted = [...otherStudents].sort((a, b) => a.name.localeCompare(b.name));
+  const existing   = otherStudents.filter(s => s.type !== "assessment").sort((a, b) => a.name.localeCompare(b.name));
+  const assessment = otherStudents.filter(s => s.type === "assessment").sort((a, b) => a.name.localeCompare(b.name));
+
+  function buildList(list) {
+    if (list.length === 0) return `<div style="color:var(--text-muted);font-size:.85rem;padding:.25rem .5rem">None</div>`;
+    return list.map(s => `
+      <label class="admin-list-item" style="cursor:pointer;gap:.75rem">
+        <input type="radio" name="other-student" class="other-student-radio" data-student-id="${escHtml(s.id)}"
+          style="width:18px;height:18px;flex-shrink:0;cursor:pointer" />
+        <span class="admin-item-name">${escHtml(s.name)}</span>
+      </label>`).join("");
+  }
+
+  function render(filter) {
+    const q = filter.toLowerCase();
+    const filteredExisting   = existing.filter(s => s.name.toLowerCase().includes(q));
+    const filteredAssessment = assessment.filter(s => s.name.toLowerCase().includes(q));
+    $("dup-student-list").innerHTML = `
+      <div class="admin-section-title" style="margin:.5rem 0 .25rem">Existing Students</div>
+      <div class="admin-list" style="margin-bottom:.5rem">${buildList(filteredExisting)}</div>
+      <div class="admin-section-title" style="margin:.5rem 0 .25rem">Assessment Students</div>
+      <div class="admin-list">${buildList(filteredAssessment)}</div>`;
+  }
+
   $("manage-modal-body").innerHTML = `
     <div class="admin-section-title" style="margin-bottom:.5rem">Choose a student</div>
-    <div class="admin-list">
-      ${sorted.map(s => `
-        <label class="admin-list-item" style="cursor:pointer;gap:.75rem">
-          <input type="radio" name="other-student" class="other-student-radio" data-student-id="${escHtml(s.id)}"
-            style="width:18px;height:18px;flex-shrink:0;cursor:pointer" />
-          <span class="admin-item-name">${escHtml(s.name)}</span>
-        </label>`).join("")}
-    </div>
+    <input type="search" id="dup-student-search" class="admin-input"
+      placeholder="Search students…" autocomplete="off"
+      style="width:100%;margin-bottom:.5rem" />
+    <div id="dup-student-list"></div>
     <button class="btn-primary-sm" id="btn-pick-other-student"
       style="width:100%;margin-top:.75rem;padding:.75rem">Next →</button>
     <button class="btn-adm-secondary" id="btn-dup-back"
       style="width:100%;margin-top:.5rem;padding:.65rem">← Back</button>`;
 
+  render("");
+  $("dup-student-search").addEventListener("input", e => render(e.target.value));
   $("btn-dup-back").addEventListener("click", () => showAddTargetPicker(student));
 
   $("btn-pick-other-student").addEventListener("click", () => {
@@ -2156,7 +2177,7 @@ function showDupFromOtherStudent_pickTarget(student, sourceStudent) {
     const source = sourceStudent.targets.find(t => t.id === radio.dataset.targetId);
     if (!source) return;
     $("manage-modal").classList.add("hidden");
-    const name = prompt("Name for the duplicate:", source.name + " (copy)");
+    const name = prompt("Name for the duplicate:", source.name + " (duplicate)");
     if (!name?.trim()) { $("manage-modal").classList.remove("hidden"); showAddTargetPicker(student); return; }
     const copy = JSON.parse(JSON.stringify(source));
     copy.id         = cfgId("t");
@@ -2178,7 +2199,7 @@ function showDupFromOtherStudent_pickTarget(student, sourceStudent) {
 function showDupFromTemplate(student) {
   const sortedTmpls = [...state.templates].sort((a, b) => a.name.localeCompare(b.name));
   $("manage-modal-body").innerHTML = `
-    <div class="admin-section-title" style="margin-bottom:.5rem">Choose a standard template to copy</div>
+    <div class="admin-section-title" style="margin-bottom:.5rem">Choose a template to duplicate</div>
     <div class="admin-list">
       ${sortedTmpls.map(t => `
         <label class="admin-list-item" style="cursor:pointer;gap:.75rem">
@@ -2188,7 +2209,7 @@ function showDupFromTemplate(student) {
         </label>`).join("")}
     </div>
     <button class="btn-primary-sm" id="btn-confirm-tmpl-dup"
-      style="width:100%;margin-top:.75rem;padding:.75rem">Copy as Individual Target</button>
+      style="width:100%;margin-top:.75rem;padding:.75rem">Duplicate as Individual Target</button>
     <button class="btn-adm-secondary" id="btn-dup-back"
       style="width:100%;margin-top:.5rem;padding:.65rem">← Back</button>`;
 
@@ -2196,7 +2217,7 @@ function showDupFromTemplate(student) {
 
   $("btn-confirm-tmpl-dup").addEventListener("click", async () => {
     const radio = $("manage-modal-body").querySelector(".tmpl-source-radio:checked");
-    if (!radio) { alert("Select a template to copy."); return; }
+    if (!radio) { alert("Select a template to duplicate."); return; }
     const tmpl = state.templates.find(t => t.id === radio.dataset.tmplId);
     if (!tmpl) return;
     $("manage-modal").classList.add("hidden");
@@ -2495,8 +2516,8 @@ function renderTargetManageContent(student, target) {
       html += `<div class="admin-list-item admin-note-item" data-idx="${idx}">
         <span class="drag-handle">⠿</span>
         <textarea class="admin-input" id="mn-act-name-${idx}" data-idx="${idx}"
-          rows="2" placeholder="Type note… (Enter = new line · Ctrl+Enter = save)"
-          style="flex:1">${escHtml(stripNoteHtml(a.text || ""))}</textarea>
+          rows="1" placeholder="Type note… (Enter = new line · Ctrl+Enter = save)"
+          style="flex:1;overflow-y:hidden;resize:none">${escHtml(stripNoteHtml(a.text || ""))}</textarea>
         <button class="btn-adm-del mn-del-act" data-idx="${idx}">🗑</button>
       </div>`;
     } else {
@@ -2590,6 +2611,11 @@ function renderTargetManageContent(student, target) {
 
   acts.forEach((a, idx) => {
     const input = $(`mn-act-name-${idx}`);
+    if (a.isNote && input) {
+      const resize = () => { input.style.height = "auto"; input.style.height = input.scrollHeight + "px"; };
+      resize();
+      input.addEventListener("input", resize);
+    }
     input?.addEventListener("blur", async () => {
       if (a.isNote) {
         const v = input.value;
@@ -2742,8 +2768,8 @@ function renderTemplateManageContent(template) {
       html += `<div class="admin-list-item admin-note-item" data-idx="${idx}">
         <span class="drag-handle">⠿</span>
         <textarea class="admin-input" id="mn-act-name-${idx}" data-idx="${idx}"
-          rows="2" placeholder="Type note… (Enter = new line · Ctrl+Enter = save)"
-          style="flex:1">${escHtml(stripNoteHtml(a.text || ""))}</textarea>
+          rows="1" placeholder="Type note… (Enter = new line · Ctrl+Enter = save)"
+          style="flex:1;overflow-y:hidden;resize:none">${escHtml(stripNoteHtml(a.text || ""))}</textarea>
         <button class="btn-adm-del mn-del-act" data-idx="${idx}">🗑</button>
       </div>`;
     } else {
@@ -2833,6 +2859,11 @@ function renderTemplateManageContent(template) {
 
   acts.forEach((a, idx) => {
     const input = $(`mn-act-name-${idx}`);
+    if (a.isNote && input) {
+      const resize = () => { input.style.height = "auto"; input.style.height = input.scrollHeight + "px"; };
+      resize();
+      input.addEventListener("input", resize);
+    }
     input?.addEventListener("blur", async () => {
       if (a.isNote) {
         const v = input.value;
