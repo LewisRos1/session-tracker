@@ -45,7 +45,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "221";
+const APP_VERSION = "222";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -649,13 +649,18 @@ async function openSession(student, existingSessionId = null, dateStr = null) {
       : await getOrCreateSessionForDate(student.id, dateStr || getTodayString(), student.targets);
     state.currentSessionId = sessionId;
 
-    state.fbUnsubscribe = listenToSession(sessionId, data => {
+    state.fbUnsubscribe = listenToSession(sessionId, async data => {
       const firstLoad = state.sessionData === null;
       state.sessionData = data;
       if (firstLoad) {
         const eff = getEffectiveTargets();
         state.selectedTargetName = eff[0]?.name || null;
         populateTargetDropdown(eff);
+        // Auto-create mastery remarks if previous session had values.
+        // If any are created the Firestore write triggers another snapshot
+        // which will render — so we return early here to avoid a stale render.
+        const filled = await autoFillMasteryRemarks(student, sessionId);
+        if (filled > 0) return;
       }
       const active = document.activeElement;
       const busy   = active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.tagName === "SELECT");
@@ -1422,6 +1427,8 @@ async function saveNewRemark(target) {
   await addRemark(state.currentSessionId, actId, text);
 }
 
+const MASTERY_VALUES = new Set(["In Progress", "Mastered", "Maintain"]);
+
 async function getLastMasteryValue(student, targetName, activityName, currentSessionId) {
   try {
     const sessions = await getRecentSessionsForStudent(student.id, 10);
@@ -1432,10 +1439,46 @@ async function getLastMasteryValue(student, targetName, activityName, currentSes
       if (!actEntry) continue;
       const [actId] = actEntry;
       const rem = Object.values(sess.remarks || {}).find(r => r.activityId === actId);
-      return rem?.text === "Mastered" ? "Mastered" : "";
+      if (rem?.text && MASTERY_VALUES.has(rem.text)) return rem.text;
+      break; // found the session but value was empty — stop looking
     }
   } catch (_) {}
   return "";
+}
+
+// Auto-create mastery remarks on session open if previous session had a value.
+// Returns number of remarks created (so the caller can skip rendering if > 0).
+async function autoFillMasteryRemarks(student, sessionId) {
+  const data = state.sessionData;
+  let count = 0;
+  for (const target of (student.targets || [])) {
+    for (const pa of (target.predefinedActivities || [])) {
+      if (!pa.isMastery) continue;
+
+      // Find existing activity entry in current session
+      const existingAct = Object.entries(data.activities || {})
+        .find(([, a]) => a.targetName === target.name && a.activityName === pa.name);
+      let actId = existingAct?.[0] || null;
+
+      // If activity exists and already has a remark, nothing to do
+      if (actId) {
+        const hasRemark = Object.values(data.remarks || {}).some(r => r.activityId === actId);
+        if (hasRemark) continue;
+      }
+
+      // Get last chosen mastery value from previous sessions
+      const lastVal = await getLastMasteryValue(student, target.name, pa.name, sessionId);
+      if (!lastVal) continue; // no previous value — leave collapsed
+
+      // Create activity if it doesn't exist yet
+      if (!actId) {
+        actId = await addActivity(sessionId, target.name, pa.name, pa.order ?? 0, true);
+      }
+      await addRemark(sessionId, actId, lastVal);
+      count++;
+    }
+  }
+  return count;
 }
 
 async function ensureFedcActivity(targetName, activityName, order) {
