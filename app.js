@@ -11,6 +11,7 @@ import {
   updateActivityName,
   addRemark,
   updateRemarkText,
+  updateRemarkNote,
   deleteRemark,
   addTrial,
   deleteTrial,
@@ -45,7 +46,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "222";
+const APP_VERSION = "223";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -1020,10 +1021,14 @@ function renderRemarkFields(rem, target, inlineOptions = null, sentenceStarter =
     <div class="entry-divider"></div>
     <div class="entry-field">
       <span class="field-label">Remark</span>
-      <div class="remark-mastery-opts" data-rem-id="${rem.id}">
-        ${["In Progress", "Mastered", "Maintain"].map(v =>
-          `<button class="btn-mastery${cur === v ? " active" : ""}" data-rem-id="${rem.id}" data-val="${v}">${v}</button>`
-        ).join("")}
+      <div class="mastery-remark-wrap">
+        <div class="remark-mastery-opts" data-rem-id="${rem.id}">
+          ${["In Progress", "Mastered", "Maintain"].map(v =>
+            `<button class="btn-mastery${cur === v ? " active" : ""}" data-rem-id="${rem.id}" data-val="${v}">${v}</button>`
+          ).join("")}
+        </div>
+        <div class="field-input mastery-note-input" contenteditable="true"
+          data-rem-id="${rem.id}" data-placeholder="Notes…">${rem.masteryNote || ""}</div>
       </div>
       <button class="btn-icon btn-delete-remark"
         data-rem-id="${rem.id}" title="Delete remark">🗑</button>
@@ -1233,6 +1238,17 @@ function attachTargetListeners(target) {
         flashSaved(ta);
         await updateRemarkText(state.currentSessionId, ta.dataset.remId, newText);
       }
+    });
+  });
+
+  // ── Mastery note text (contenteditable below buttons) ────
+  c.querySelectorAll(".mastery-note-input").forEach(div => {
+    let orig = div.innerHTML;
+    div.addEventListener("blur", async () => {
+      const newNote = div.innerHTML;
+      if (newNote === orig) return;
+      orig = newNote;
+      await updateRemarkNote(state.currentSessionId, div.dataset.remId, newNote);
     });
   });
 
@@ -1841,10 +1857,14 @@ function viewRemarkRow(no, actName, rem, target, inlineOptions = null, sentenceS
   }
 
   const optSelect = isMastery
-    ? `<div class="remark-mastery-opts view-mastery-opts" data-rem-id="${rem.id}">
-        ${["In Progress", "Mastered", "Maintain"].map(v =>
-          `<button class="btn-mastery${rem.text === v ? " active" : ""}" data-rem-id="${escHtml(rem.id)}" data-val="${v}">${v}</button>`
-        ).join("")}
+    ? `<div class="mastery-remark-wrap">
+        <div class="remark-mastery-opts view-mastery-opts" data-rem-id="${rem.id}">
+          ${["In Progress", "Mastered", "Maintain"].map(v =>
+            `<button class="btn-mastery${rem.text === v ? " active" : ""}" data-rem-id="${escHtml(rem.id)}" data-val="${v}">${v}</button>`
+          ).join("")}
+        </div>
+        <div class="view-mastery-note" contenteditable="true"
+          data-rem-id="${escHtml(rem.id)}" data-placeholder="Notes…">${rem.masteryNote || ""}</div>
       </div>`
     : (makeViewOpts(rem.id, rem.text)
         || `<div class="view-remark-edit" contenteditable="true" data-rem-id="${escHtml(rem.id)}">${remarkToHtml(rem.text)}</div>`);
@@ -1940,6 +1960,16 @@ function attachViewListeners() {
       if (newText === orig) return;
       orig = newText;
       await updateRemarkText(state.viewSessionId, ta.dataset.remId, newText);
+    });
+  });
+
+  body.querySelectorAll(".view-mastery-note").forEach(div => {
+    let orig = div.innerHTML;
+    div.addEventListener("blur", async () => {
+      const newNote = div.innerHTML;
+      if (newNote === orig) return;
+      orig = newNote;
+      await updateRemarkNote(state.viewSessionId, div.dataset.remId, newNote);
     });
   });
 

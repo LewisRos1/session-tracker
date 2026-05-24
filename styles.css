@@ -1589,7 +1589,37 @@ div.admin-note-editable:empty::before {
 }
 .remark-starter-wrap .remark-text-input { flex: 1; }
 
-/* ─── Mastery Level buttons ──────────────────────────────── */
+/* ─── Mastery Level buttons + note ──────────────────────── */
+.mastery-remark-wrap {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: .4rem;
+}
+.mastery-note-input,
+.view-mastery-note {
+  resize: none;
+  min-height: 2rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+  cursor: text;
+}
+.mastery-note-input[data-placeholder]:empty:before,
+.view-mastery-note[data-placeholder]:empty:before {
+  content: attr(data-placeholder);
+  color: #9ca3af;
+  pointer-events: none;
+}
+/* view table note: no border box, just subtle */
+.view-mastery-note {
+  font-size: .82rem;
+  color: var(--text-muted);
+  padding: .15rem .3rem;
+  border: 1px solid transparent;
+  border-radius: 4px;
+}
+.view-mastery-note:focus { border-color: var(--border); color: var(--text); }
+
 .remark-mastery-opts {
   display: flex;
   gap: .4rem;

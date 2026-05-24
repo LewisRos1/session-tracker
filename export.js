@@ -321,7 +321,9 @@ function appendSessionRows(rows, sessionHeaderRows, columnHeaderRows, activityHe
       for (const rem of remarks) {
         const validTrials = (rem.trials || []).filter(t => t !== -1);
         const remarkAvg   = calcRemarkAvg(validTrials, target.maxPoints);
-        const remarkText  = starter ? `${starter} ${stripRemarkHtml(rem.text)}`.trim() : stripRemarkHtml(rem.text);
+        const masteryNote = stripRemarkHtml(rem.masteryNote || "");
+        const baseText    = starter ? `${starter} ${stripRemarkHtml(rem.text)}`.trim() : stripRemarkHtml(rem.text);
+        const remarkText  = masteryNote ? `${baseText} — ${masteryNote}` : baseText;
         rows.push([
           firstRemark ? act.activityName : "",
           remarkText,

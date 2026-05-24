@@ -250,6 +250,12 @@ export async function updateRemarkText(sessionId, remId, text) {
   });
 }
 
+export async function updateRemarkNote(sessionId, remId, note) {
+  await updateDoc(doc(db, "sessions", sessionId), {
+    [`remarks.${remId}.masteryNote`]: note
+  });
+}
+
 export async function updateActivityName(sessionId, actId, name) {
   await updateDoc(doc(db, "sessions", sessionId), {
     [`activities.${actId}.activityName`]: name
