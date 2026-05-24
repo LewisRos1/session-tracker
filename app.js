@@ -45,7 +45,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "213";
+const APP_VERSION = "217";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -83,18 +83,47 @@ document.addEventListener("DOMContentLoaded", async () => {
   // Register SW immediately — don't wait for Firebase so updates are never blocked.
   registerServiceWorker();
 
+  // On iOS, relatedTarget is always null when tapping a <select>, so we track
+  // pointerdown on the dropdown (fires before focusout) to suppress stale re-renders.
+  $("target-select").addEventListener("pointerdown", () => {
+    state._targetSelDown = true;
+    setTimeout(() => { state._targetSelDown = false; }, 600);
+  });
+
   document.addEventListener("focusout", (e) => {
-    // Don't re-render if focus is moving to the target dropdown — that would
-    // destroy the native select dropdown mid-open and make it snap shut.
-    if (e.relatedTarget === $("target-select")) return;
-    if (state.renderPending) {
-      state.renderPending = false;
-      renderTargetContent();
+    if (e.relatedTarget === $("target-select") || state._targetSelDown) return;
+    // Defer one tick so activeElement updates before we check
+    setTimeout(() => {
+      if (document.activeElement === $("target-select")) return;
+      if (state.renderPending) {
+        state.renderPending = false;
+        renderTargetContent();
+      }
+      if (state.viewRenderPending) {
+        state.viewRenderPending = false;
+        renderSessionView();
+      }
+    }, 0);
+  });
+
+  // Ctrl+B / Cmd+B in any textarea (except section headings) wraps selection in **...**
+  document.addEventListener("keydown", e => {
+    if (!(e.key === "b" && (e.ctrlKey || e.metaKey))) return;
+    const el = document.activeElement;
+    if (!el || el.tagName !== "TEXTAREA") return;
+    if (el.classList.contains("mn-heading-input")) return;
+    e.preventDefault();
+    const start = el.selectionStart;
+    const end   = el.selectionEnd;
+    const val   = el.value;
+    if (start === end) {
+      el.value = val.slice(0, start) + "****" + val.slice(end);
+      el.setSelectionRange(start + 2, start + 2);
+    } else {
+      el.value = val.slice(0, start) + "**" + val.slice(start, end) + "**" + val.slice(end);
+      el.setSelectionRange(start, end + 4);
     }
-    if (state.viewRenderPending) {
-      state.viewRenderPending = false;
-      renderSessionView();
-    }
+    el.dispatchEvent(new Event("input", { bubbles: true }));
   });
 
   // Load student config from Firebase (seeds from INITIAL_STUDENTS if empty)
@@ -613,6 +642,9 @@ async function openSession(student, existingSessionId = null, dateStr = null) {
   $("session-student-name").textContent = student.name;
   $("session-meta").textContent = "";
   $("target-content").innerHTML = `<div class="loading">Loading…</div>`;
+  $("target-select").innerHTML  = `<option value="">— loading —</option>`;
+  $("btn-manage-targets")?.classList.add("hidden");
+  $("target-type-chip")?.classList.add("hidden");
 
   if (state.fbUnsubscribe) { state.fbUnsubscribe(); state.fbUnsubscribe = null; }
 
@@ -2014,7 +2046,7 @@ function showAddTargetPicker(student) {
   const html = `
     <div style="display:flex;flex-direction:column;gap:.6rem">
       <button class="btn-target-type" id="btn-add-structured-target">
-        <span class="btn-target-label">Create Individual Template</span>
+        <span class="btn-target-label">Create Target</span>
         <span class="btn-target-desc">Activities will be the same every session, just fill in remarks</span>
       </button>
       ${hasDuplicatable ? `<button class="btn-target-type" id="btn-duplicate-target">
@@ -2837,6 +2869,8 @@ function renderTemplateManageContent(template) {
       <button class="btn-admin-add" id="btn-mn-add-note" style="flex:1">+ Add Note</button>
     </div>
     <div style="margin-top:2rem;padding-bottom:1.5rem">
+      <button class="btn-primary-sm" id="btn-mn-done-template"
+        style="width:100%;padding:.75rem;margin-bottom:.75rem">Done</button>
       <button class="btn-adm-danger" id="btn-mn-del-template">Delete Template</button>
     </div>`;
 
@@ -2985,6 +3019,8 @@ function renderTemplateManageContent(template) {
       await saveTemplateFn();
     });
   });
+
+  $("btn-mn-done-template").addEventListener("click", closeManageModal);
 
   $("btn-mn-del-template").addEventListener("click", async () => {
     if (!confirm(`Delete template "${template.name}"? Students using this template will keep their activities.`)) return;
