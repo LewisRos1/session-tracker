@@ -45,7 +45,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "217";
+const APP_VERSION = "221";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -83,11 +83,14 @@ document.addEventListener("DOMContentLoaded", async () => {
   // Register SW immediately — don't wait for Firebase so updates are never blocked.
   registerServiceWorker();
 
-  // On iOS, relatedTarget is always null when tapping a <select>, so we track
-  // pointerdown on the dropdown (fires before focusout) to suppress stale re-renders.
-  $("target-select").addEventListener("pointerdown", () => {
-    state._targetSelDown = true;
-    setTimeout(() => { state._targetSelDown = false; }, 600);
+  // On iOS, relatedTarget is always null and pointerdown may not fire for <select>.
+  // Use both pointerdown and touchstart (touchstart fires reliably before focusout on iOS).
+  ["pointerdown", "touchstart"].forEach(evtName => {
+    $("target-select").addEventListener(evtName, () => {
+      state._targetSelDown = true;
+      clearTimeout(state._targetSelTimer);
+      state._targetSelTimer = setTimeout(() => { state._targetSelDown = false; }, 800);
+    }, { passive: true });
   });
 
   document.addEventListener("focusout", (e) => {
@@ -106,24 +109,16 @@ document.addEventListener("DOMContentLoaded", async () => {
     }, 0);
   });
 
-  // Ctrl+B / Cmd+B in any textarea (except section headings) wraps selection in **...**
+  // Ctrl+B / Cmd+B: visual bold in contenteditable remark fields
   document.addEventListener("keydown", e => {
     if (!(e.key === "b" && (e.ctrlKey || e.metaKey))) return;
     const el = document.activeElement;
-    if (!el || el.tagName !== "TEXTAREA") return;
-    if (el.classList.contains("mn-heading-input")) return;
-    e.preventDefault();
-    const start = el.selectionStart;
-    const end   = el.selectionEnd;
-    const val   = el.value;
-    if (start === end) {
-      el.value = val.slice(0, start) + "****" + val.slice(end);
-      el.setSelectionRange(start + 2, start + 2);
-    } else {
-      el.value = val.slice(0, start) + "**" + val.slice(start, end) + "**" + val.slice(end);
-      el.setSelectionRange(start, end + 4);
+    if (!el) return;
+    if (el.isContentEditable) {
+      e.preventDefault();
+      document.execCommand("bold");
+      return;
     }
-    el.dispatchEvent(new Event("input", { bubbles: true }));
   });
 
   // Load student config from Firebase (seeds from INITIAL_STUDENTS if empty)
@@ -663,7 +658,7 @@ async function openSession(student, existingSessionId = null, dateStr = null) {
         populateTargetDropdown(eff);
       }
       const active = document.activeElement;
-      const busy   = active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA");
+      const busy   = active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.tagName === "SELECT");
       if (busy) {
         state.renderPending = true;
       } else {
@@ -853,7 +848,7 @@ function renderFedcTarget(target) {
       }
     } else {
       for (const rem of remarks) {
-        html += renderRemarkFields(rem, target, getActivityInlineOptions(pa), pa.sentenceStarter || null, pa.optionsMulti || false);
+        html += renderRemarkFields(rem, target, getActivityInlineOptions(pa), pa.sentenceStarter || null, pa.optionsMulti || false, pa.isMastery || false);
       }
       if (isPending) {
         html += renderPendingRemarkFields(pendingKey, actId, pa.name, idx, target);
@@ -997,9 +992,15 @@ function parseOpts(str) {
   return (str || "").split("/").map(s => s.trim()).filter(Boolean);
 }
 
+// Converts stored remark text (plain or legacy **bold**) to HTML for contenteditable display
+function remarkToHtml(text) {
+  if (!text) return "";
+  return text.replace(/\*\*(.+?)\*\*/g, "<b>$1</b>");
+}
+
 // ─── REMARK FIELDS ───────────────────────────────────────────
 
-function renderRemarkFields(rem, target, inlineOptions = null, sentenceStarter = null, multiSelect = false) {
+function renderRemarkFields(rem, target, inlineOptions = null, sentenceStarter = null, multiSelect = false, isMastery = false) {
   const opts = parseOpts(inlineOptions);
 
   const trials = rem.trials || [];
@@ -1007,6 +1008,31 @@ function renderRemarkFields(rem, target, inlineOptions = null, sentenceStarter =
     `<span class="trial-badge">${score}<button class="btn-trial-delete"
       data-rem-id="${rem.id}" data-idx="${idx}">×</button></span>`
   ).join("");
+
+  if (isMastery) {
+    const cur = rem.text || "";
+    return `
+    <div class="entry-divider"></div>
+    <div class="entry-field">
+      <span class="field-label">Remark</span>
+      <div class="remark-mastery-opts" data-rem-id="${rem.id}">
+        ${["In Progress", "Mastered", "Maintain"].map(v =>
+          `<button class="btn-mastery${cur === v ? " active" : ""}" data-rem-id="${rem.id}" data-val="${v}">${v}</button>`
+        ).join("")}
+      </div>
+      <button class="btn-icon btn-delete-remark"
+        data-rem-id="${rem.id}" title="Delete remark">🗑</button>
+    </div>
+    <div class="entry-field">
+      <span class="field-label">Trials</span>
+      <div class="trials-row">
+        <div class="trials-badges">${badgesHtml}</div>
+        <button class="btn-add-trial btn-primary-sm"
+          data-rem-id="${rem.id}"
+          data-target="${escHtml(target.name)}">+ Trial</button>
+      </div>
+    </div>`;
+  }
 
   function makeOptPills(remId, remText) {
     if (opts.length === 0) return null;
@@ -1024,18 +1050,16 @@ function renderRemarkFields(rem, target, inlineOptions = null, sentenceStarter =
   }
 
   const optBtns = makeOptPills(rem.id, rem.text)
-    || `<textarea class="field-input remark-text-input"
-        data-rem-id="${rem.id}" data-original="${escHtml(rem.text || "")}"
-        rows="2">${escHtml(rem.text || "")}</textarea>`;
+    || `<div class="field-input remark-text-input" contenteditable="true"
+        data-rem-id="${rem.id}">${remarkToHtml(rem.text)}</div>`;
 
   let remarkContent;
   if (sentenceStarter) {
     remarkContent = `<div class="remark-starter-wrap">
       <span class="remark-starter-prefix">${escHtml(sentenceStarter)}</span>
       ${makeOptPills(rem.id, rem.text)
-        || `<textarea class="field-input remark-text-input"
-            data-rem-id="${rem.id}" data-original="${escHtml(rem.text || "")}"
-            rows="1">${escHtml(rem.text || "")}</textarea>`
+        || `<div class="field-input remark-text-input" contenteditable="true"
+            data-rem-id="${rem.id}">${remarkToHtml(rem.text)}</div>`
       }
     </div>`;
   } else {
@@ -1066,8 +1090,8 @@ function renderPendingRemarkFields(pendingKey, actId, paName, paOrder, target) {
     <div class="entry-divider"></div>
     <div class="entry-field">
       <span class="field-label">Remark</span>
-      <textarea id="new-remark-textarea" class="field-input"
-        placeholder="Type remark… (Enter = new line · Ctrl+Enter to save)" rows="2"></textarea>
+      <div id="new-remark-textarea" class="field-input" contenteditable="true"
+        data-placeholder="Type remark…"></div>
     </div>
     <div class="pending-remark-actions">
       <button class="btn-cancel-remark btn-remark-cancel">✕ Cancel</button>
@@ -1194,16 +1218,33 @@ function attachTargetListeners(target) {
     });
   });
 
-  // ── Remark text: Enter = new line, blur auto-saves ──
+  // ── Remark text: blur auto-saves (contenteditable, stores HTML) ──
   c.querySelectorAll(".remark-text-input").forEach(ta => {
+    let orig = ta.innerHTML;
     ta.addEventListener("blur", async () => {
-      const newText  = ta.value.trim();
-      const original = ta.dataset.original;
-      if (newText !== original) {
-        ta.dataset.original = newText;
+      const newText = ta.innerHTML;
+      if (newText !== orig) {
+        orig = newText;
         flashSaved(ta);
         await updateRemarkText(state.currentSessionId, ta.dataset.remId, newText);
       }
+    });
+  });
+
+  // ── Mastery level buttons ─────────────────────────────────
+  c.querySelectorAll(".btn-mastery").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const container  = btn.closest(".remark-mastery-opts");
+      const currentVal = container?.querySelector(".btn-mastery.active")?.dataset.val || "";
+      const isActive   = btn.classList.contains("active");
+      const newVal     = isActive ? "" : btn.dataset.val;
+      if (currentVal === newVal) return;
+      const fromLabel = currentVal || "none";
+      const toLabel   = newVal     || "none";
+      if (!confirm(`Change mastery level from "${fromLabel}" to "${toLabel}"?`)) return;
+      container?.querySelectorAll(".btn-mastery").forEach(b => b.classList.remove("active"));
+      if (!isActive) btn.classList.add("active");
+      await updateRemarkText(state.currentSessionId, btn.dataset.remId, newVal);
     });
   });
 
@@ -1216,7 +1257,14 @@ function attachTargetListeners(target) {
       state.pendingNewActivity = null;
       if (paName) actId = await ensureFedcActivity(target.name, paName, paOrder);
       if (!actId) return;
-      await addRemark(state.currentSessionId, actId, "");
+      let initialText = "";
+      if (paName) {
+        const pa = target.predefinedActivities?.find(a => a.name === paName);
+        if (pa?.isMastery) {
+          initialText = await getLastMasteryValue(state.currentStudent, target.name, paName, state.currentSessionId);
+        }
+      }
+      await addRemark(state.currentSessionId, actId, initialText);
     });
   });
 
@@ -1359,7 +1407,7 @@ async function saveNewRemark(target) {
   const ta = $("new-remark-textarea");
   if (!ta || !state.pendingNewRemark) return;
 
-  const text    = ta.value;
+  const text    = ta.innerHTML;
   const p       = state.pendingNewRemark;
   const paName  = p.paName || null;
   const paOrder = p.paOrder ?? 0;
@@ -1372,6 +1420,22 @@ async function saveNewRemark(target) {
   if (paName) actId = await ensureFedcActivity(target.name, paName, paOrder);
   if (!actId) return;
   await addRemark(state.currentSessionId, actId, text);
+}
+
+async function getLastMasteryValue(student, targetName, activityName, currentSessionId) {
+  try {
+    const sessions = await getRecentSessionsForStudent(student.id, 10);
+    for (const sess of sessions) {
+      if (sess.id === currentSessionId) continue;
+      const actEntry = Object.entries(sess.activities || {})
+        .find(([, a]) => a.targetName === targetName && a.activityName === activityName);
+      if (!actEntry) continue;
+      const [actId] = actEntry;
+      const rem = Object.values(sess.remarks || {}).find(r => r.activityId === actId);
+      return rem?.text === "Mastered" ? "Mastered" : "";
+    }
+  } catch (_) {}
+  return "";
 }
 
 async function ensureFedcActivity(targetName, activityName, order) {
@@ -1676,6 +1740,7 @@ function viewActivityRows(no, actName, actId, data, target, isPredefined = true)
   const inlineOptions   = paEntry ? getActivityInlineOptions(paEntry) : null;
   const sentenceStarter = paEntry?.sentenceStarter || null;
   const multiSelect     = paEntry?.optionsMulti || false;
+  const isMastery       = paEntry?.isMastery || false;
 
   if (remarks.length === 0) {
     return `<tr>
@@ -1690,11 +1755,11 @@ function viewActivityRows(no, actName, actId, data, target, isPredefined = true)
   return remarks.map((rem, ri) => viewRemarkRow(
     ri === 0 ? no : null,
     ri === 0 ? actCell : null,
-    rem, target, inlineOptions, sentenceStarter, multiSelect
+    rem, target, inlineOptions, sentenceStarter, multiSelect, isMastery
   )).join("");
 }
 
-function viewRemarkRow(no, actName, rem, target, inlineOptions = null, sentenceStarter = null, multiSelect = false) {
+function viewRemarkRow(no, actName, rem, target, inlineOptions = null, sentenceStarter = null, multiSelect = false, isMastery = false) {
   const allTrials  = rem.trials || [];
   const maxPts     = target.maxPoints || 3;
   const validTrials = allTrials.filter(t => t !== -1);
@@ -1732,9 +1797,14 @@ function viewRemarkRow(no, actName, rem, target, inlineOptions = null, sentenceS
        </select>`;
   }
 
-  const optSelect = makeViewOpts(rem.id, rem.text)
-    || `<textarea class="view-remark-edit" data-rem-id="${escHtml(rem.id)}"
-        rows="2">${escHtml(rem.text || "")}</textarea>`;
+  const optSelect = isMastery
+    ? `<div class="remark-mastery-opts view-mastery-opts" data-rem-id="${rem.id}">
+        ${["In Progress", "Mastered", "Maintain"].map(v =>
+          `<button class="btn-mastery${rem.text === v ? " active" : ""}" data-rem-id="${escHtml(rem.id)}" data-val="${v}">${v}</button>`
+        ).join("")}
+      </div>`
+    : (makeViewOpts(rem.id, rem.text)
+        || `<div class="view-remark-edit" contenteditable="true" data-rem-id="${escHtml(rem.id)}">${remarkToHtml(rem.text)}</div>`);
 
   let remarkCell;
   if (sentenceStarter) {
@@ -1821,10 +1891,26 @@ function attachViewListeners() {
   });
 
   body.querySelectorAll(".view-remark-edit").forEach(ta => {
+    let orig = ta.innerHTML;
     ta.addEventListener("blur", async () => {
-      const rem = state.viewSessionData?.remarks?.[ta.dataset.remId];
-      if (!rem || ta.value === (rem.text || "")) return;
-      await updateRemarkText(state.viewSessionId, ta.dataset.remId, ta.value);
+      const newText = ta.innerHTML;
+      if (newText === orig) return;
+      orig = newText;
+      await updateRemarkText(state.viewSessionId, ta.dataset.remId, newText);
+    });
+  });
+
+  body.querySelectorAll(".view-mastery-opts .btn-mastery").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const container  = btn.closest(".remark-mastery-opts");
+      const currentVal = container?.querySelector(".btn-mastery.active")?.dataset.val || "";
+      const isActive   = btn.classList.contains("active");
+      const newVal     = isActive ? "" : btn.dataset.val;
+      if (currentVal === newVal) return;
+      if (!confirm(`Change mastery level from "${currentVal || "none"}" to "${newVal || "none"}"?`)) return;
+      container?.querySelectorAll(".btn-mastery").forEach(b => b.classList.remove("active"));
+      if (!isActive) btn.classList.add("active");
+      await updateRemarkText(state.viewSessionId, btn.dataset.remId, newVal);
     });
   });
 
@@ -2572,14 +2658,15 @@ function renderTargetManageContent(student, target) {
         <button class="btn-adm-del mn-del-act" data-idx="${idx}">🗑</button>
       </div>`;
     } else {
-      const type = (a.sentenceStarter && a.inlineOptions && a.optionsMulti) ? "starter_fixed_multi" : (a.sentenceStarter && a.inlineOptions) ? "starter_fixed" : a.sentenceStarter ? "starter" : (a.inlineOptions && a.optionsMulti) ? "fixed_multi" : (a.inlineOptions || a.remarkPresetId) ? "fixed" : "";
+      const type = a.isMastery ? "mastery" : (a.sentenceStarter && a.inlineOptions && a.optionsMulti) ? "starter_fixed_multi" : (a.sentenceStarter && a.inlineOptions) ? "starter_fixed" : a.sentenceStarter ? "starter" : (a.inlineOptions && a.optionsMulti) ? "fixed_multi" : (a.inlineOptions || a.remarkPresetId) ? "fixed" : "";
       const remarkTypeSelect = `<select class="act-preset-select mn-act-preset" data-idx="${idx}">
           <option value="">Free text</option>
           <option value="fixed"${type === "fixed" ? " selected" : ""}>Select one</option>
           <option value="fixed_multi"${type === "fixed_multi" ? " selected" : ""}>Tick boxes</option>
-          <option value="starter"${type === "starter" ? " selected" : ""}>Sentence Start + Free Text</option>
-          <option value="starter_fixed"${type === "starter_fixed" ? " selected" : ""}>Sentence starter + Select one</option>
-          <option value="starter_fixed_multi"${type === "starter_fixed_multi" ? " selected" : ""}>Sentence starter + Tick boxes</option>
+          <option value="starter"${type === "starter" ? " selected" : ""}>Sentence Starter + Free Text</option>
+          <option value="starter_fixed"${type === "starter_fixed" ? " selected" : ""}>Sentence Starter + Select one</option>
+          <option value="starter_fixed_multi"${type === "starter_fixed_multi" ? " selected" : ""}>Sentence Starter + Tick boxes</option>
+          <option value="mastery"${type === "mastery" ? " selected" : ""}>Mastery Level + Free Text</option>
         </select>
         <input class="admin-input mn-act-starter-text" data-idx="${idx}"
           placeholder="Starter phrase…"
@@ -2737,6 +2824,7 @@ function renderTargetManageContent(student, target) {
       acts[idx].remarkPresetId  = null;
       acts[idx].inlineOptions   = null;
       acts[idx].optionsMulti    = (type === "fixed_multi" || type === "starter_fixed_multi");
+      acts[idx].isMastery       = (type === "mastery");
       starterInput.style.display = (type === "starter" || type === "starter_fixed" || type === "starter_fixed_multi") ? "" : "none";
       optsInput.style.display    = (type === "fixed" || type === "fixed_multi" || type === "starter_fixed" || type === "starter_fixed_multi") ? "" : "none";
       if (type === "starter" || type === "starter_fixed" || type === "starter_fixed_multi") { starterInput.focus(); }
@@ -2830,14 +2918,15 @@ function renderTemplateManageContent(template) {
         <button class="btn-adm-del mn-del-act" data-idx="${idx}">🗑</button>
       </div>`;
     } else {
-      const type = (a.sentenceStarter && a.inlineOptions && a.optionsMulti) ? "starter_fixed_multi" : (a.sentenceStarter && a.inlineOptions) ? "starter_fixed" : a.sentenceStarter ? "starter" : (a.inlineOptions && a.optionsMulti) ? "fixed_multi" : (a.inlineOptions || a.remarkPresetId) ? "fixed" : "";
+      const type = a.isMastery ? "mastery" : (a.sentenceStarter && a.inlineOptions && a.optionsMulti) ? "starter_fixed_multi" : (a.sentenceStarter && a.inlineOptions) ? "starter_fixed" : a.sentenceStarter ? "starter" : (a.inlineOptions && a.optionsMulti) ? "fixed_multi" : (a.inlineOptions || a.remarkPresetId) ? "fixed" : "";
       const remarkTypeSelect = `<select class="act-preset-select mn-act-preset" data-idx="${idx}">
           <option value="">Free text</option>
           <option value="fixed"${type === "fixed" ? " selected" : ""}>Select one</option>
           <option value="fixed_multi"${type === "fixed_multi" ? " selected" : ""}>Tick boxes</option>
-          <option value="starter"${type === "starter" ? " selected" : ""}>Sentence Start + Free Text</option>
-          <option value="starter_fixed"${type === "starter_fixed" ? " selected" : ""}>Sentence starter + Select one</option>
-          <option value="starter_fixed_multi"${type === "starter_fixed_multi" ? " selected" : ""}>Sentence starter + Tick boxes</option>
+          <option value="starter"${type === "starter" ? " selected" : ""}>Sentence Starter + Free Text</option>
+          <option value="starter_fixed"${type === "starter_fixed" ? " selected" : ""}>Sentence Starter + Select one</option>
+          <option value="starter_fixed_multi"${type === "starter_fixed_multi" ? " selected" : ""}>Sentence Starter + Tick boxes</option>
+          <option value="mastery"${type === "mastery" ? " selected" : ""}>Mastery Level + Free Text</option>
         </select>
         <input class="admin-input mn-act-starter-text" data-idx="${idx}"
           placeholder="Starter phrase…"
@@ -2993,6 +3082,7 @@ function renderTemplateManageContent(template) {
       acts[idx].remarkPresetId  = null;
       acts[idx].inlineOptions   = null;
       acts[idx].optionsMulti    = (type === "fixed_multi" || type === "starter_fixed_multi");
+      acts[idx].isMastery       = (type === "mastery");
       starterInput.style.display = (type === "starter" || type === "starter_fixed" || type === "starter_fixed_multi") ? "" : "none";
       optsInput.style.display    = (type === "fixed" || type === "fixed_multi" || type === "starter_fixed" || type === "starter_fixed_multi") ? "" : "none";
       if (type === "starter" || type === "starter_fixed" || type === "starter_fixed_multi") { starterInput.focus(); }

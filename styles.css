@@ -265,6 +265,8 @@ html, body {
   display: flex;
   flex-direction: column;
   gap: .6rem;
+  max-height: 285px; /* ~5 items */
+  overflow-y: auto;
 }
 
 .export-btn {
@@ -608,6 +610,20 @@ html, body {
   outline: none;
   resize: vertical;
   line-height: 1.45;
+}
+
+/* contenteditable remark divs — mimic textarea look */
+.field-input[contenteditable] {
+  resize: none;
+  min-height: 2.6rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+  cursor: text;
+}
+.field-input[contenteditable][data-placeholder]:empty:before {
+  content: attr(data-placeholder);
+  color: #9ca3af;
+  pointer-events: none;
 }
 
 /* fixed (non-editable) activity name for FEDC */
@@ -1573,6 +1589,33 @@ div.admin-note-editable:empty::before {
 }
 .remark-starter-wrap .remark-text-input { flex: 1; }
 
+/* ─── Mastery Level buttons ──────────────────────────────── */
+.remark-mastery-opts {
+  display: flex;
+  gap: .4rem;
+  flex-wrap: wrap;
+}
+.btn-mastery {
+  padding: .35rem .8rem;
+  border: 1.5px solid var(--border);
+  border-radius: 20px;
+  background: none;
+  font-size: .88rem;
+  font-family: var(--font);
+  color: var(--text);
+  cursor: pointer;
+  transition: border-color .12s, background .12s, color .12s;
+}
+.btn-mastery:hover { border-color: var(--primary); background: var(--primary-light); }
+.btn-mastery.active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+  font-weight: 600;
+}
+/* slightly smaller in the view table */
+.view-mastery-opts .btn-mastery { font-size: .8rem; padding: .25rem .6rem; }
+
 /* ─── Sentence starter remark (view/edit table) ──────────── */
 .view-starter-wrap {
   display: flex;
@@ -2052,9 +2095,13 @@ div.admin-note-editable:empty::before {
   font-size: .85rem;
   color: var(--text);
   background: transparent;
-  resize: vertical;
+  resize: none;
   padding: .2rem .3rem;
   outline: none;
+  white-space: pre-wrap;
+  word-break: break-word;
+  min-height: 1.5rem;
+  cursor: text;
 }
 
 .view-remark-preset-select {

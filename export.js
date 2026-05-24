@@ -5,6 +5,11 @@
 
 import { getAllSessionsForStudent, sanitizeKey } from "./firebase-service.js";
 
+// Strip HTML tags from remark text (stored as HTML for visual bold support)
+function stripRemarkHtml(s) {
+  return (s || "").replace(/<[^>]*>/g, "");
+}
+
 // ─── STYLE CONSTANTS ─────────────────────────────────────────
 const STYLE_MONTH = {
   fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FF6366F1" } },
@@ -316,7 +321,7 @@ function appendSessionRows(rows, sessionHeaderRows, columnHeaderRows, activityHe
       for (const rem of remarks) {
         const validTrials = (rem.trials || []).filter(t => t !== -1);
         const remarkAvg   = calcRemarkAvg(validTrials, target.maxPoints);
-        const remarkText  = starter ? `${starter} ${rem.text || ""}`.trim() : (rem.text || "");
+        const remarkText  = starter ? `${starter} ${stripRemarkHtml(rem.text)}`.trim() : stripRemarkHtml(rem.text);
         rows.push([
           firstRemark ? act.activityName : "",
           remarkText,
