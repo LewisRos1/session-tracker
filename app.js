@@ -46,7 +46,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "228";
+const APP_VERSION = "229";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -1576,10 +1576,11 @@ async function cleanupEmptyEntries(sessionId, data, targetName) {
     .filter(([, a]) => a.targetName === targetName);
   for (const [actId] of acts) {
     const rems = Object.entries(data.remarks || {}).filter(([, r]) => r.activityId === actId);
+    const stripEmpty = s => (s || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").replace(/ /g, " ").trim();
     const emptyIds = rems
       .filter(([, r]) => {
-        const hasText  = (r.text        || "").trim().length > 0;
-        const hasNote  = (r.masteryNote || "").trim().length > 0;
+        const hasText   = stripEmpty(r.text).length > 0;
+        const hasNote   = stripEmpty(r.masteryNote).length > 0;
         const hasTrials = (r.trials || []).some(t => t !== -1);
         return !hasText && !hasNote && !hasTrials;
       })
