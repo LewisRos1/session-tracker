@@ -207,6 +207,18 @@
     </div>
   </div>
 
+  <!-- ══════════════════════════════════════════════════════
+       TEXT EDITOR BOTTOM SHEET
+       ══════════════════════════════════════════════════════ -->
+  <div id="text-editor-sheet" class="text-editor-sheet hidden">
+    <div class="text-editor-sheet-header">
+      <span class="text-editor-sheet-label">Remark</span>
+      <button id="text-editor-done" class="btn-text-editor-done">Done</button>
+    </div>
+    <div id="text-editor-content" class="text-editor-content" contenteditable="true"
+         inputmode="none" data-placeholder="Write here…"></div>
+  </div>
+
   <!-- Main app (ES module) -->
   <script type="module" src="app.js"></script>
 </body>

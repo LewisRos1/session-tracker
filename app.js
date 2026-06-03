@@ -46,7 +46,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "226";
+const APP_VERSION = "228";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -79,6 +79,31 @@ const state = {
 
 const $ = id => document.getElementById(id);
 
+// ─── BOTTOM-SHEET TEXT EDITOR ────────────────────────────────
+let _sheetOriginEl = null;
+
+function openTextEditorSheet(originEl) {
+  _sheetOriginEl = originEl;
+  $("text-editor-content").innerHTML = originEl.innerHTML;
+  $("text-editor-sheet").classList.remove("hidden");
+  requestAnimationFrame(() => $("text-editor-content").focus());
+}
+
+function commitTextEditorSheet() {
+  if (!_sheetOriginEl) return;
+  _sheetOriginEl.innerHTML = $("text-editor-content").innerHTML;
+  _sheetOriginEl.dispatchEvent(new Event("blur"));
+  _sheetOriginEl = null;
+}
+
+function closeTextEditorSheet() {
+  $("text-editor-sheet").classList.add("hidden");
+  _sheetOriginEl = null;
+  // Process any render that was deferred while the sheet was open
+  if (state.renderPending) { state.renderPending = false; renderTargetContent(); }
+  if (state.viewRenderPending) { state.viewRenderPending = false; renderSessionView(); }
+}
+
 // ─── INIT ────────────────────────────────────────────────────
 document.addEventListener("DOMContentLoaded", async () => {
   // Register SW immediately — don't wait for Firebase so updates are never blocked.
@@ -96,6 +121,8 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   document.addEventListener("focusout", (e) => {
     if (e.relatedTarget === $("target-select") || state._targetSelDown) return;
+    // Don't trigger re-renders while the bottom-sheet editor is open
+    if (!$("text-editor-sheet").classList.contains("hidden")) return;
     // Defer one tick so activeElement updates before we check
     setTimeout(() => {
       if (document.activeElement === $("target-select")) return;
@@ -120,6 +147,11 @@ document.addEventListener("DOMContentLoaded", async () => {
       document.execCommand("bold");
       return;
     }
+  });
+
+  $("text-editor-done").addEventListener("click", () => {
+    commitTextEditorSheet();
+    closeTextEditorSheet();
   });
 
   // Load student config from Firebase (seeds from INITIAL_STUDENTS if empty)
@@ -683,6 +715,8 @@ async function openSession(student, existingSessionId = null, dateStr = null) {
 }
 
 function leaveSession() {
+  commitTextEditorSheet();
+  $("text-editor-sheet").classList.add("hidden");
   if (state.fbUnsubscribe) { state.fbUnsubscribe(); state.fbUnsubscribe = null; }
   const sessionId = state.currentSessionId;
   const data      = state.sessionData;
@@ -1040,8 +1074,11 @@ function renderRemarkFields(rem, target, inlineOptions = null, sentenceStarter =
             `<button class="btn-mastery${cur === v ? " active" : ""}" data-rem-id="${rem.id}" data-val="${v}">${v}</button>`
           ).join("")}
         </div>
-        <div class="field-input mastery-note-input" contenteditable="true"
-          data-rem-id="${rem.id}" data-placeholder="Notes…">${rem.masteryNote || ""}</div>
+        <div class="mastery-note-row">
+          <button class="btn-sketch" data-rem-id="${rem.id}" aria-label="Open sketch board">✏</button>
+          <div class="field-input mastery-note-input" contenteditable="true"
+            data-rem-id="${rem.id}" data-placeholder="Notes…">${rem.masteryNote || ""}</div>
+        </div>
       </div>
       <button class="btn-icon btn-delete-remark"
         data-rem-id="${rem.id}" title="Delete remark">🗑</button>
@@ -1076,6 +1113,11 @@ function renderRemarkFields(rem, target, inlineOptions = null, sentenceStarter =
     || `<div class="field-input remark-text-input" contenteditable="true"
         data-rem-id="${rem.id}">${remarkToHtml(rem.text)}</div>`;
 
+  // Sketch board button only shown when there's a free-text input (no preset opt pills)
+  const sketchBtn = opts.length === 0
+    ? `<button class="btn-sketch" data-rem-id="${rem.id}" aria-label="Open sketch board">✏</button>`
+    : "";
+
   let remarkContent;
   if (sentenceStarter) {
     remarkContent = `<div class="remark-starter-wrap">
@@ -1093,6 +1135,7 @@ function renderRemarkFields(rem, target, inlineOptions = null, sentenceStarter =
     <div class="entry-divider"></div>
     <div class="entry-field">
       <span class="field-label">Remark</span>
+      ${sketchBtn}
       ${remarkContent}
       <button class="btn-icon btn-delete-remark"
         data-rem-id="${rem.id}" title="Delete remark">🗑</button>
@@ -1113,6 +1156,7 @@ function renderPendingRemarkFields(pendingKey, actId, paName, paOrder, target) {
     <div class="entry-divider"></div>
     <div class="entry-field">
       <span class="field-label">Remark</span>
+      <button class="btn-sketch btn-sketch-pending" aria-label="Open sketch board">✏</button>
       <div id="new-remark-textarea" class="field-input" contenteditable="true"
         data-placeholder="Type remark…"></div>
     </div>
@@ -1341,6 +1385,20 @@ function attachTargetListeners(target) {
       state.pendingNewRemark = null;
       renderTargetContent();
     });
+  });
+
+  // ── Sketch board buttons (session screen) ─────────────────
+  c.querySelectorAll(".btn-sketch[data-rem-id]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const id = btn.dataset.remId;
+      const field = c.querySelector(`.remark-text-input[data-rem-id="${id}"]`)
+                 || c.querySelector(`.mastery-note-input[data-rem-id="${id}"]`);
+      if (field) openTextEditorSheet(field);
+    });
+  });
+  c.querySelector(".btn-sketch-pending")?.addEventListener("click", () => {
+    const field = $("new-remark-textarea");
+    if (field) openTextEditorSheet(field);
   });
 
   // ── Delete remark ─────────────────────────────────────────
@@ -1662,6 +1720,8 @@ async function openSessionView(student, sessionId) {
 }
 
 function leaveSessionView() {
+  commitTextEditorSheet();
+  $("text-editor-sheet").classList.add("hidden");
   state.viewPickerTargetName = null;
   if (state.fbViewUnsubscribe) { state.fbViewUnsubscribe(); state.fbViewUnsubscribe = null; }
   const sessionId = state.viewSessionId;
@@ -1931,11 +1991,17 @@ function viewRemarkRow(no, actName, rem, target, inlineOptions = null, sentenceS
             `<button class="btn-mastery${rem.text === v ? " active" : ""}" data-rem-id="${escHtml(rem.id)}" data-val="${v}">${v}</button>`
           ).join("")}
         </div>
-        <div class="view-mastery-note" contenteditable="true"
-          data-rem-id="${escHtml(rem.id)}" data-placeholder="Notes…">${rem.masteryNote || ""}</div>
+        <div class="mastery-note-row">
+          <button class="btn-sketch" data-rem-id="${escHtml(rem.id)}" aria-label="Open sketch board">✏</button>
+          <div class="view-mastery-note" contenteditable="true"
+            data-rem-id="${escHtml(rem.id)}" data-placeholder="Notes…">${rem.masteryNote || ""}</div>
+        </div>
       </div>`
     : (makeViewOpts(rem.id, rem.text)
-        || `<div class="view-remark-edit" contenteditable="true" data-rem-id="${escHtml(rem.id)}">${remarkToHtml(rem.text)}</div>`);
+        || `<div style="display:flex;align-items:flex-start;gap:.3rem">
+              <button class="btn-sketch" data-rem-id="${escHtml(rem.id)}" aria-label="Open sketch board">✏</button>
+              <div class="view-remark-edit" contenteditable="true" data-rem-id="${escHtml(rem.id)}">${remarkToHtml(rem.text)}</div>
+            </div>`);
 
   let remarkCell;
   if (sentenceStarter) {
@@ -2018,6 +2084,16 @@ function attachViewListeners() {
         : null;
       const maxPts = target?.maxPoints || 3;
       await setTrials(state.viewSessionId, btn.dataset.remId, [...(rem.trials || []), -1]);
+    });
+  });
+
+  // ── Sketch board buttons (view screen) ────────────────────
+  body.querySelectorAll(".btn-sketch[data-rem-id]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const id = btn.dataset.remId;
+      const field = body.querySelector(`.view-remark-edit[data-rem-id="${id}"]`)
+                 || body.querySelector(`.view-mastery-note[data-rem-id="${id}"]`);
+      if (field) openTextEditorSheet(field);
     });
   });
 

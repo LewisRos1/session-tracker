@@ -2193,3 +2193,91 @@ div.admin-note-editable:empty::before {
   cursor: pointer;
 }
 .view-remark-preset-select:focus { outline: none; border-color: var(--primary); }
+
+/* ── Sketch board button (pencil icon beside remark input) ── */
+.btn-sketch {
+  flex-shrink: 0;
+  background: var(--primary-light);
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: .3rem .45rem;
+  font-size: 1rem;
+  cursor: pointer;
+  line-height: 1;
+  color: var(--primary-dark);
+  min-height: 2rem;
+  align-self: flex-start;
+}
+.btn-sketch:active { background: #c7d2fe; }
+
+/* Mastery note row: sketch button + note input side by side */
+.mastery-note-row {
+  display: flex;
+  align-items: flex-start;
+  gap: .4rem;
+  width: 100%;
+}
+.mastery-note-row .mastery-note-input { flex: 1; }
+
+/* ── Text editor bottom sheet ─────────────────────────────── */
+.text-editor-sheet {
+  position: fixed;
+  bottom: 0; left: 0; right: 0;
+  height: 45vh;
+  background: var(--white);
+  border-radius: 1rem 1rem 0 0;
+  box-shadow: 0 -6px 32px rgba(0,0,0,.22);
+  z-index: 700;
+  display: flex;
+  flex-direction: column;
+  padding: .75rem 1rem 1rem;
+  gap: .55rem;
+}
+.text-editor-sheet.hidden { display: none; }
+.text-editor-sheet-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+}
+.text-editor-sheet-label {
+  font-size: .8rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: .05em;
+}
+.btn-text-editor-done {
+  background: var(--primary);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: .45rem 1.3rem;
+  font-size: .95rem;
+  font-weight: 700;
+  cursor: pointer;
+  min-height: 2.4rem;
+}
+.btn-text-editor-done:active { background: var(--primary-dark); }
+.text-editor-content {
+  flex: 1;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: .85rem 1rem;
+  overflow-y: auto;
+  font-family: var(--font);
+  font-size: 1.1rem;
+  line-height: 1.65;
+  outline: none;
+  background: var(--bg);
+  white-space: pre-wrap;
+  -webkit-user-select: text;
+  user-select: text;
+  cursor: text;
+}
+.text-editor-content:focus { border-color: var(--primary); }
+.text-editor-content[data-placeholder]:empty::before {
+  content: attr(data-placeholder);
+  color: var(--text-muted);
+  pointer-events: none;
+}
