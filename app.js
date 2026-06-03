@@ -46,7 +46,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "225";
+const APP_VERSION = "226";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -695,6 +695,10 @@ function leaveSession() {
   state.renderPending      = false;
 
   if (sessionId && data) {
+    // Clean up empty remarks/activities across all targets (fire-and-forget)
+    const allTargetNames = new Set(Object.values(data.activities || {}).map(a => a.targetName));
+    allTargetNames.forEach(name => cleanupEmptyEntries(sessionId, data, name).catch(() => {}));
+
     const currentTargetNames = new Set((student?.targets || []).map(t => t.name));
     const remarks = Object.values(data.remarks || {});
     const hasUsefulData = remarks.some(r => {
@@ -733,9 +737,14 @@ function populateTargetDropdown(targets) {
       showAddTargetPicker(state.currentStudent);
       return;
     }
+    const prevTarget = state.selectedTargetName;
     state.selectedTargetName = sel.value;
     state.pendingNewActivity = null;
     state.pendingNewRemark   = null;
+    // Clean up empty entries from the previous target (fire-and-forget)
+    if (prevTarget && prevTarget !== sel.value) {
+      cleanupEmptyEntries(state.currentSessionId, state.sessionData, prevTarget).catch(() => {});
+    }
     renderTargetContent();
   };
 }
@@ -1499,6 +1508,31 @@ async function autoFillMasteryRemarks(student, sessionId) {
     }
   }
   return count;
+}
+
+// Deletes remarks that have no text, no mastery note, and no valid trials for
+// the given target, then removes any activity that is left with no remarks.
+async function cleanupEmptyEntries(sessionId, data, targetName) {
+  if (!sessionId || !data) return;
+  const acts = Object.entries(data.activities || {})
+    .filter(([, a]) => a.targetName === targetName);
+  for (const [actId] of acts) {
+    const rems = Object.entries(data.remarks || {}).filter(([, r]) => r.activityId === actId);
+    const emptyIds = rems
+      .filter(([, r]) => {
+        const hasText  = (r.text        || "").trim().length > 0;
+        const hasNote  = (r.masteryNote || "").trim().length > 0;
+        const hasTrials = (r.trials || []).some(t => t !== -1);
+        return !hasText && !hasNote && !hasTrials;
+      })
+      .map(([id]) => id);
+    if (!emptyIds.length) continue;
+    if (emptyIds.length === rems.length) {
+      await deleteActivity(sessionId, actId, emptyIds); // removes activity + all its empty remarks
+    } else {
+      for (const remId of emptyIds) await deleteRemark(sessionId, remId);
+    }
+  }
 }
 
 async function ensureFedcActivity(targetName, activityName, order) {
