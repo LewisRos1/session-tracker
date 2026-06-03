@@ -46,7 +46,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "223";
+const APP_VERSION = "225";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -662,6 +662,10 @@ async function openSession(student, existingSessionId = null, dateStr = null) {
         // which will render — so we return early here to avoid a stale render.
         const filled = await autoFillMasteryRemarks(student, sessionId);
         if (filled > 0) return;
+      }
+      // Keep score modal trial badges in sync with Firestore
+      if (state.scorePicker?.open && state.scorePicker?.remId) {
+        renderScoreModalTrials(state.scorePicker.remId);
       }
       const active = document.activeElement;
       const busy   = active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.tagName === "SELECT");
@@ -1518,9 +1522,37 @@ function findRemarkByPredefinedKey(actId, key) {
 
 // ─── SCORE PICKER MODAL ──────────────────────────────────────
 
+function renderScoreModalTrials(remId) {
+  const el = $("score-modal-trials");
+  if (!el) return;
+  const allTrials = state.sessionData?.remarks?.[remId]?.trials || [];
+  const visible = allTrials.map((t, i) => ({ t, i })).filter(({ t }) => t !== -1);
+  if (!visible.length) { el.innerHTML = ""; return; }
+
+  el.innerHTML =
+    `<span class="score-modal-trials-label">Added:</span>` +
+    visible.map(({ t, i }) =>
+      `<span class="score-modal-trial-badge">
+        ${t}<button class="score-trial-del" data-idx="${i}" aria-label="Remove">×</button>
+      </span>`
+    ).join("");
+
+  el.querySelectorAll(".score-trial-del").forEach(btn => {
+    btn.addEventListener("click", async e => {
+      e.stopPropagation();
+      const idx = Number(btn.dataset.idx);
+      btn.closest(".score-modal-trial-badge").remove(); // optimistic
+      const rem = state.sessionData?.remarks?.[remId];
+      if (rem) await deleteTrial(state.currentSessionId, remId, idx, rem.trials || []);
+    });
+  });
+}
+
 function openScorePicker(remId, maxPoints) {
   state.scorePicker = { open: true, remId };
   const labels = CONFIG.SCORE_LABELS[maxPoints] || CONFIG.SCORE_LABELS[3];
+
+  renderScoreModalTrials(remId);
 
   $("score-buttons").innerHTML = Object.entries(labels).map(([score, label]) =>
     `<button class="score-btn" data-score="${score}">
@@ -1533,7 +1565,9 @@ function openScorePicker(remId, maxPoints) {
     btn.addEventListener("click", async () => {
       const rem = state.sessionData?.remarks?.[remId];
       if (!rem) return;
-      await addTrial(state.currentSessionId, remId, Number(btn.dataset.score), rem.trials || []);
+      const score = Number(btn.dataset.score);
+      await addTrial(state.currentSessionId, remId, score, rem.trials || []);
+      // Firestore snapshot will call renderScoreModalTrials to update badges
     });
   });
 

@@ -940,6 +940,50 @@ html, body {
   color: var(--text);
 }
 
+/* Score modal — title + selected trials row */
+.score-modal-title-row {
+  display: flex;
+  align-items: center;
+  gap: .6rem;
+  flex-wrap: wrap;
+}
+.score-modal-trials {
+  display: flex;
+  align-items: center;
+  gap: .3rem;
+  flex-wrap: wrap;
+}
+.score-modal-trials-label {
+  font-size: .75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.score-modal-trial-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: .2rem;
+  padding: 0 .4rem 0 .55rem;
+  height: 1.6rem;
+  background: var(--primary);
+  color: #fff;
+  border-radius: 20px;
+  font-size: .8rem;
+  font-weight: 700;
+}
+.score-trial-del {
+  background: none;
+  border: none;
+  color: rgba(255,255,255,.75);
+  font-size: .85rem;
+  line-height: 1;
+  padding: 0;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+}
+.score-trial-del:hover { color: #fff; }
+
 .modal-close {
   background: none;
   border: none;
