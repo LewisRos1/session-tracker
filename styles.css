@@ -442,15 +442,15 @@ html, body {
 }
 .date-picker-grid {
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
+  grid-template-columns: repeat(7, clamp(2.6rem, 7vw, 4.2rem));
+  grid-auto-rows: clamp(2.6rem, 7vw, 4.2rem);
   gap: .18rem;
+  justify-content: center;
 }
 .date-picker-grid > span {
-  aspect-ratio: 1;
   background: transparent;
 }
 .date-picker-day {
-  aspect-ratio: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
