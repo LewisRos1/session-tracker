@@ -357,6 +357,18 @@ html, body {
   color: var(--white);
 }
 .btn-edit-session-date:hover { opacity: 1; background: rgba(255,255,255,.25); }
+.btn-delete-session {
+  background: rgba(239,68,68,.2);
+  border: 1px solid rgba(239,68,68,.5);
+  border-radius: 5px;
+  padding: .2rem .45rem;
+  cursor: pointer;
+  font-size: .8rem;
+  opacity: .9;
+  line-height: 1;
+  color: #fca5a5;
+}
+.btn-delete-session:hover { opacity: 1; background: rgba(239,68,68,.35); }
 
 .session-date-step {
   padding: 1.1rem 1rem 1rem;

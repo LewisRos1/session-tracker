@@ -46,7 +46,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "229";
+const APP_VERSION = "231";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -1680,16 +1680,10 @@ $("score-modal-backdrop").addEventListener("click", closeScorePicker);
 // ============================================================
 
 function getViewEffectiveTargets() {
-  const d = state.viewSessionData;
   const currentTargets = state.viewStudent?.targets || [];
-  if (!d) return currentTargets;
-  if (d.date === getTodayString()) return currentTargets;
-  if (d.targetsSnapshot?.length) {
-    // Only show snapshot targets that still exist in the current student config.
-    // Deleted targets are excluded so their data doesn't appear.
-    const currentNames = new Set(currentTargets.map(t => t.name));
-    return d.targetsSnapshot.filter(t => currentNames.has(t.name));
-  }
+  if (!state.viewSessionData) return currentTargets;
+  // Always use the current target list: new targets appear in old sessions,
+  // deleted targets disappear from all sessions (data removed by deleteTargetDataFromSessions).
   return currentTargets;
 }
 
@@ -1755,7 +1749,8 @@ function renderSessionView() {
 
   $("view-session-meta").innerHTML =
     `Session ${data.sessionNumber} of ${data.month.split(" ")[0]} · ${formatDate(data.date)}`
-    + ` <button class="btn-edit-session-date" title="Change date">✏</button>`;
+    + ` <button class="btn-edit-session-date" title="Change date">✏</button>`
+    + ` <button class="btn-delete-session" title="Delete session">🗑</button>`;
 
   $("view-session-meta").querySelector(".btn-edit-session-date").addEventListener("click", () => {
     const today = getTodayString();
@@ -1778,6 +1773,14 @@ function renderSessionView() {
     });
     input.addEventListener("blur", () => setTimeout(cleanup, 500));
     try { input.showPicker(); } catch (_) { input.click(); }
+  });
+
+  $("view-session-meta").querySelector(".btn-delete-session").addEventListener("click", async () => {
+    const typed = prompt(`Delete Session ${data.sessionNumber} of ${data.month.split(" ")[0]} (${formatDate(data.date)})?\n\nThis cannot be undone. Type DELETE to confirm:`);
+    if (typed !== "DELETE") return;
+    const sid = state.viewSessionId;
+    leaveSessionView();
+    await deleteSession(sid).catch(() => {});
   });
 
   const targets = getViewEffectiveTargets();
@@ -2612,12 +2615,6 @@ function renderStudentManageContent(student) {
         sorted.map(t => `
           <div class="roster-item">
             <span class="roster-item-name">${escHtml(t.name)}</span>
-            <button class="btn-del-target" data-target-id="${escHtml(t.id)}"
-              style="font-size:.8rem;padding:.2rem .55rem;border-radius:6px;
-                     border:1.5px solid var(--danger);color:var(--danger);
-                     background:none;cursor:pointer;flex-shrink:0">
-              Delete
-            </button>
           </div>`).join("") +
       `</div>`
     : `<p style="color:var(--text-muted);font-size:.88rem;margin:.25rem 0 .75rem">No targets yet.</p>`;
@@ -2657,21 +2654,6 @@ function renderStudentManageContent(student) {
   });
   $("mn-s-name").addEventListener("keydown", e => {
     if (e.key === "Enter") $("btn-mn-rename").click();
-  });
-
-  $("manage-modal-body").querySelectorAll(".btn-del-target").forEach(btn => {
-    btn.addEventListener("click", async () => {
-      const target = student.targets.find(t => t.id === btn.dataset.targetId);
-      if (!target) return;
-      if (!confirm(`Delete target "${target.name}"? All session data for this target will also be permanently deleted.`)) return;
-      student.targets = student.targets.filter(t => t.id !== target.id);
-      student.targets.forEach((t, i) => t.order = i);
-      const si = state.students.findIndex(s => s.id === student.id);
-      if (si >= 0) state.students[si] = student;
-      await saveStudent(student);
-      await deleteTargetDataFromSessions(student.id, target.name);
-      renderStudentManageContent(student);
-    });
   });
 
   $("btn-mn-move-to-existing")?.addEventListener("click", async () => {
@@ -3073,7 +3055,10 @@ function renderTargetManageContent(student, target) {
   $("btn-mn-done-target").addEventListener("click", closeManageModal);
 
   $("btn-mn-del-target").addEventListener("click", async () => {
-    if (!confirm(`Delete target "${target.name}"? All session data for this target will also be permanently deleted.`)) return;
+    const typed1 = prompt(`This will permanently delete "${target.name}" and ALL its session data across every date.\n\nType DELETE to confirm:`);
+    if (typed1 !== "DELETE") return;
+    const typed2 = prompt(`Are you absolutely sure? This cannot be undone.\n\nType DELETE again to permanently delete "${target.name}":`);
+    if (typed2 !== "DELETE") return;
     student.targets = student.targets.filter(t => t.id !== target.id);
     student.targets.forEach((t, i) => t.order = i);
     await saveStudent(student);
