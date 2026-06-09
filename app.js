@@ -46,7 +46,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "231";
+const APP_VERSION = "232";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -2608,16 +2608,6 @@ function showDupFromTemplate(student) {
 function renderStudentManageContent(student) {
   $("manage-modal-title").textContent = student.name;
   const isAssessment = student.type === "assessment";
-  const sorted = [...student.targets].sort((a, b) => a.name.localeCompare(b.name));
-
-  const targetsHtml = sorted.length > 0
-    ? `<div class="roster-list" style="margin-bottom:.5rem">` +
-        sorted.map(t => `
-          <div class="roster-item">
-            <span class="roster-item-name">${escHtml(t.name)}</span>
-          </div>`).join("") +
-      `</div>`
-    : `<p style="color:var(--text-muted);font-size:.88rem;margin:.25rem 0 .75rem">No targets yet.</p>`;
 
   const html = `
     <div class="admin-section">
@@ -2626,10 +2616,6 @@ function renderStudentManageContent(student) {
         <input class="admin-input" id="mn-s-name" value="${escHtml(student.name)}" style="flex:1" />
         <button class="btn-primary-sm" id="btn-mn-rename">Save</button>
       </div>
-    </div>
-    <div class="admin-section">
-      <label class="admin-label">Targets</label>
-      ${targetsHtml}
     </div>
     ${isAssessment ? `
     <div class="admin-section">
