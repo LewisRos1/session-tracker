@@ -53,7 +53,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "243";
+const APP_VERSION = "244";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -3653,6 +3653,41 @@ function populateGroupTargetDropdown(targets) {
 
   const manageBtn = $("btn-group-manage-targets");
   if (manageBtn) manageBtn.classList.toggle("hidden", !state.selectedGroupTargetName);
+
+  // Wire change handler — same pattern as individual session's populateTargetDropdown
+  sel.onchange = async () => {
+    if (sel.value === "__add_target__") {
+      sel.value = state.selectedGroupTargetName || "";
+      const name = prompt("Target name:");
+      if (!name?.trim()) return;
+      const group = state.currentGroup;
+      if (!group) return;
+      const t = { id: cfgId("gt"), name: name.trim(), maxPoints: 3, predefinedActivities: [], notes: [], order: (group.targets || []).length };
+      group.targets = [...(group.targets || []), t];
+      const gi = state.groups.findIndex(g => g.id === group.id);
+      if (gi >= 0) state.groups[gi] = group;
+      await saveGroup(group);
+      state.selectedGroupTargetName = t.name;
+      populateGroupTargetDropdown(group.targets);
+      openGroupManageModal(group, t);
+      return;
+    }
+    const prevTarget = state.selectedGroupTargetName;
+    state.selectedGroupTargetName = sel.value || null;
+    if (prevTarget && prevTarget !== sel.value) {
+      // cleanup empty entries for prev target (fire-and-forget)
+    }
+    if (!state.selectedGroupTargetName) { renderGroupTargetContent(); return; }
+    const data = state.groupSessionData;
+    if (data) {
+      const filled = await autoFillGroupSession(
+        state.currentGroup, state.groupSessionId, data,
+        state.selectedGroupTargetName, state.groupAttendees
+      );
+      if (filled > 0) return;
+    }
+    renderGroupTargetContent();
+  };
 }
 
 // ── Auto-fill activity + remark stubs for predefined activities ──
@@ -3715,7 +3750,7 @@ function renderGroupTargetContent() {
   const target  = group?.targets.find(t => t.name === state.selectedGroupTargetName);
   if (!target || !data) {
     content.innerHTML = `<p class="empty-hint" style="padding:2rem;text-align:center">No targets added yet. Use the dropdown above to add one.</p>`;
-    $("group-avg-values").textContent = "—";
+    updateGroupAvgChips(null, null);
     return;
   }
 
@@ -3826,22 +3861,33 @@ function renderGroupStudentPendingRow(studentName, actId, actName, target) {
 }
 
 function updateGroupAvgChips(target, data) {
-  const chipsVal = $("group-avg-values");
-  if (!chipsVal) return;
-  if (!target || !data) { chipsVal.textContent = "—"; return; }
-  const attendees = state.groupAttendees;
-  const maxPts    = target.maxPoints || 3;
-  const results   = attendees.map(name => {
+  const container = $("group-avg-chips");
+  if (!container) return;
+  const attendees = state.groupAttendees || [];
+  if (!target || !data || !attendees.length) {
+    container.innerHTML = attendees.map(name =>
+      `<div class="days-average-chip">
+        <span class="days-average-label">${escHtml(name)}'s Avg</span>
+        <span class="days-average-value">—</span>
+      </div>`
+    ).join("");
+    return;
+  }
+  const maxPts = target.maxPoints || 3;
+  container.innerHTML = attendees.map(name => {
     const actIds = Object.entries(data.activities || {})
       .filter(([, a]) => a.targetName === target.name).map(([id]) => id);
     const valid = Object.values(data.remarks || {})
       .filter(r => actIds.includes(r.activityId) && r.studentName === name)
       .flatMap(r => (r.trials || []).filter(t => t !== -1));
-    if (!valid.length) return null;
-    const avg = Math.round(valid.reduce((a, b) => a + b, 0) / (valid.length * maxPts) * 100);
-    return `${escHtml(name)}: ${avg}%`;
-  }).filter(Boolean);
-  chipsVal.textContent = results.length ? results.join(" · ") : "—";
+    const avg = valid.length
+      ? Math.round(valid.reduce((a, b) => a + b, 0) / (valid.length * maxPts) * 100) + "%"
+      : "—";
+    return `<div class="days-average-chip">
+      <span class="days-average-label">${escHtml(name)}'s Avg</span>
+      <span class="days-average-value">${avg}</span>
+    </div>`;
+  }).join("");
 }
 
 // ── Attach event listeners to the rendered group target content ──
@@ -3851,41 +3897,13 @@ function attachGroupTargetListeners(target) {
 
   // Target selector change
   const sel = $("group-target-select");
-  if (sel && !sel._groupListenerAttached) {
-    sel._groupListenerAttached = true;
-    sel.addEventListener("change", async () => {
-      if (sel.value === "__add_target__") {
-        sel.value = state.selectedGroupTargetName || "";
-        // Add a new target
-        const name = prompt("Target name:");
-        if (!name?.trim()) return;
-        const group = state.currentGroup;
-        const t = { id: cfgId("gt"), name: name.trim(), maxPoints: 3, predefinedActivities: [], notes: [], order: (group.targets || []).length };
-        group.targets = [...(group.targets || []), t];
-        const gi = state.groups.findIndex(g => g.id === group.id);
-        if (gi >= 0) state.groups[gi] = group;
-        await saveGroup(group);
-        state.selectedGroupTargetName = t.name;
-        populateGroupTargetDropdown(group.targets);
-        openGroupManageModal(group, t);
-        return;
-      }
-      state.selectedGroupTargetName = sel.value || null;
-      if (!state.selectedGroupTargetName) { renderGroupTargetContent(); return; }
-      const data = state.groupSessionData;
-      if (data) {
-        const filled = await autoFillGroupSession(
-          state.currentGroup, state.groupSessionId, data,
-          state.selectedGroupTargetName, state.groupAttendees
-        );
-        if (filled > 0) return; // snapshot will re-render
-      }
-      renderGroupTargetContent();
-    });
-    $("btn-group-manage-targets")?.addEventListener("click", () => {
+  // "Edit Target" button — re-wire each time (onchange handler is in populateGroupTargetDropdown)
+  const manageBtn = $("btn-group-manage-targets");
+  if (manageBtn) {
+    manageBtn.onclick = () => {
       const tgt = state.currentGroup?.targets.find(t => t.name === state.selectedGroupTargetName);
       if (tgt) openGroupManageModal(state.currentGroup, tgt);
-    });
+    };
   }
 
   // Remark blur-save (live rows)
