@@ -63,12 +63,21 @@
     <main class="home-main">
       <section>
         <div class="section-header">
-          <h2 class="section-title">Existing Students</h2>
+          <h2 class="section-title">Individual Sessions</h2>
           <input type="search" class="section-search" id="search-existing"
             placeholder="Search…" autocomplete="off" />
           <button class="btn-add-section" id="btn-add-existing-student">+ Add</button>
         </div>
         <div class="student-buttons" id="existing-student-buttons"></div>
+      </section>
+      <section>
+        <div class="section-header">
+          <h2 class="section-title">Group Sessions</h2>
+          <input type="search" class="section-search" id="search-group"
+            placeholder="Search…" autocomplete="off" />
+          <button class="btn-add-section" id="btn-add-group">+ Add</button>
+        </div>
+        <div class="student-buttons" id="group-buttons"></div>
       </section>
       <section>
         <div class="section-header">
@@ -149,6 +158,33 @@
     </header>
     <div class="session-view-body" id="session-view-body">
       <!-- populated by JS -->
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════
+       GROUP SESSION SCREEN
+       ══════════════════════════════════════════════════════ -->
+  <div id="screen-group-session" class="screen hidden">
+    <header class="session-header">
+      <button class="btn-back" id="btn-group-back" aria-label="Back to home">←</button>
+      <div class="session-info">
+        <span class="session-student-name" id="group-session-name"></span>
+        <span class="session-meta"         id="group-session-meta"></span>
+      </div>
+    </header>
+    <div class="session-body">
+      <div class="target-selector" id="group-target-selector-bar">
+        <label for="group-target-select" class="target-label">Target</label>
+        <select id="group-target-select" class="target-dropdown">
+          <option value="">— select —</option>
+        </select>
+        <div class="days-average-chip" id="group-avg-chips" style="display:none">
+          <span class="days-average-label">Target Avg</span>
+          <span class="days-average-value" id="group-avg-values"></span>
+        </div>
+        <button id="btn-group-manage-targets" class="btn-manage-targets hidden">Edit Target</button>
+      </div>
+      <div id="group-target-content" class="target-content"></div>
     </div>
   </div>
 

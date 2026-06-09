@@ -416,3 +416,91 @@ export async function saveRemarkPreset(preset) {
 export async function deleteRemarkPreset(presetId) {
   await deleteDoc(doc(db, "remarkPresets", presetId));
 }
+
+// ─── GROUP CONFIG ─────────────────────────────────────────────
+
+export async function loadGroups() {
+  const snap = await getDocs(collection(db, "groups"));
+  return snap.docs.map(d => d.data()).sort((a, b) => (a.order || 0) - (b.order || 0));
+}
+
+export async function saveGroup(group) {
+  await setDoc(doc(db, "groups", group.id), group);
+}
+
+export async function deleteGroup(groupId) {
+  await deleteDoc(doc(db, "groups", groupId));
+}
+
+// ─── GROUP SESSION ────────────────────────────────────────────
+
+export async function getOrCreateGroupSessionForDate(groupId, dateStr, targets = [], attendees = []) {
+  const month = getMonthString(dateStr);
+  const existing = await getDocs(
+    query(collection(db, "sessions"),
+      where("groupId", "==", groupId),
+      where("date",    "==", dateStr))
+  );
+  if (!existing.empty) {
+    await updateDoc(doc(db, "sessions", existing.docs[0].id), { attendees });
+    return existing.docs[0].id;
+  }
+  const monthSnap = await getDocs(
+    query(collection(db, "sessions"),
+      where("groupId", "==", groupId),
+      where("month",   "==", month))
+  );
+  const dates = new Set(monthSnap.docs.map(d => d.data().date));
+  dates.add(dateStr);
+  const sessionNumber = [...dates].sort().indexOf(dateStr) + 1;
+  const targetsSnapshot = targets.map(t => ({
+    id: t.id, name: t.name, maxPoints: t.maxPoints,
+    predefinedActivities: t.predefinedActivities || [],
+    notes: t.notes || [], hasComment: t.hasComment || false, fullName: t.fullName || ""
+  }));
+  const ref = await addDoc(collection(db, "sessions"), {
+    groupId, date: dateStr, month, sessionNumber, attendees,
+    finished: false, activities: {}, remarks: {}, fedcComments: {},
+    targetsSnapshot, createdAt: serverTimestamp()
+  });
+  return ref.id;
+}
+
+export async function getRecentGroupSessions(groupId, maxCount = 60) {
+  const snap = await getDocs(
+    query(collection(db, "sessions"), where("groupId", "==", groupId))
+  );
+  return snap.docs
+    .map(d => ({ id: d.id, ...d.data() }))
+    .sort((a, b) => b.date.localeCompare(a.date))
+    .slice(0, maxCount);
+}
+
+export async function deleteGroupTargetDataFromSessions(groupId, targetName) {
+  const snap = await getDocs(
+    query(collection(db, "sessions"), where("groupId", "==", groupId))
+  );
+  const key = sanitizeKey(targetName);
+  for (const sd of snap.docs) {
+    const data = sd.data();
+    const updates = {};
+    const actIds = [];
+    for (const [actId, act] of Object.entries(data.activities || {})) {
+      if (act.targetName === targetName) { updates[`activities.${actId}`] = deleteField(); actIds.push(actId); }
+    }
+    for (const [remId, rem] of Object.entries(data.remarks || {})) {
+      if (actIds.includes(rem.activityId)) updates[`remarks.${remId}`] = deleteField();
+    }
+    if ((data.fedcComments || {})[key] !== undefined) updates[`fedcComments.${key}`] = deleteField();
+    if (Object.keys(updates).length > 0) await updateDoc(doc(db, "sessions", sd.id), updates);
+  }
+}
+
+/** Add a remark for a specific student in a group session. */
+export async function addGroupRemark(sessionId, actId, studentName) {
+  const remId = generateId("r");
+  await updateDoc(doc(db, "sessions", sessionId), {
+    [`remarks.${remId}`]: { activityId: actId, studentName, text: "", trials: [], order: Date.now() }
+  });
+  return remId;
+}

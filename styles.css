@@ -2220,6 +2220,91 @@ div.admin-note-editable:empty::before {
 }
 .view-remark-preset-select:focus { outline: none; border-color: var(--primary); }
 
+/* ── Attendance picker ────────────────────────────────────── */
+.attendance-sheet { padding: 1rem; display: flex; flex-direction: column; gap: .75rem; }
+.attendance-date { font-size: .9rem; color: var(--text-muted); font-weight: 600; }
+.attendance-list { display: flex; flex-direction: column; gap: .4rem; }
+.attendance-row {
+  display: flex; align-items: center; gap: .65rem;
+  font-size: 1rem; cursor: pointer; padding: .35rem 0;
+}
+.attendance-row input[type="checkbox"] { width: 1.2rem; height: 1.2rem; cursor: pointer; accent-color: var(--primary); }
+.attendance-start-btn {
+  background: var(--primary); color: #fff; border: none;
+  border-radius: var(--radius-sm); padding: .65rem 1.4rem;
+  font-size: 1rem; font-weight: 700; cursor: pointer; align-self: flex-end;
+  margin-top: .25rem;
+}
+.attendance-start-btn:active { background: var(--primary-dark); }
+
+/* ── Group session screen ──────────────────────────────────── */
+#group-target-selector-bar {
+  position: sticky; top: 0; z-index: 10;
+  background: var(--white);
+  border-bottom: 1px solid var(--border);
+}
+
+.group-activity-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin: .75rem .75rem 0;
+  overflow: hidden;
+}
+.group-activity-header {
+  background: #f5f3ff;
+  padding: .5rem .75rem;
+  font-weight: 600;
+  font-size: .9rem;
+  color: var(--primary-dark);
+  border-bottom: 1px solid #e0d9ff;
+}
+.group-student-rows { display: flex; flex-direction: column; }
+.group-student-row {
+  display: flex;
+  align-items: flex-start;
+  gap: .5rem;
+  padding: .55rem .75rem;
+  border-bottom: 1px solid var(--border);
+}
+.group-student-row:last-child { border-bottom: none; }
+.group-student-pending { background: #fafafe; }
+.group-student-label {
+  flex-shrink: 0;
+  min-width: 2rem;
+  font-weight: 700;
+  font-size: .9rem;
+  color: var(--primary-dark);
+  padding-top: .25rem;
+}
+.group-remark-area {
+  flex: 1;
+  display: flex;
+  align-items: flex-start;
+  gap: .35rem;
+  min-width: 0;
+}
+.group-remark-input {
+  flex: 1;
+  min-height: 2rem;
+  font-size: .88rem;
+}
+.group-trial-area {
+  flex-shrink: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .3rem;
+}
+.group-student-score {
+  flex-shrink: 0;
+  min-width: 3rem;
+  text-align: right;
+  font-size: .85rem;
+  font-weight: 700;
+  color: var(--primary-dark);
+  padding-top: .25rem;
+}
+
 /* ── Sketch board button (pencil icon beside remark input) ── */
 .btn-sketch {
   flex-shrink: 0;
