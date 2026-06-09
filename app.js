@@ -53,7 +53,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "238";
+const APP_VERSION = "240";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -2016,10 +2016,21 @@ function viewActivityRows(no, actName, actId, data, target, isPredefined = true)
   const isMastery       = paEntry?.isMastery || false;
 
   if (remarks.length === 0) {
+    // For free-text remark types (no preset opts, not mastery), show a clickable empty input
+    const opts = parseOpts(inlineOptions);
+    const showEmpty = opts.length === 0 && !isMastery;
+    const emptyCell = showEmpty
+      ? `<div class="view-remark-edit view-remark-empty" contenteditable="true"
+           data-act-id="${escHtml(actId || "")}"
+           data-act-name="${escHtml(actName)}"
+           data-target="${escHtml(target.name)}"
+           data-is-predefined="${isPredefined}"
+           data-placeholder="Click to add remark…"></div>`
+      : "";
     return `<tr>
       <td class="vcol-no">${no}</td>
       <td class="vcol-act">${actCell}</td>
-      <td class="vcol-rem"></td>
+      <td class="vcol-rem">${emptyCell}</td>
       <td class="vcol-trials"></td>
       <td class="vcol-total"></td>
       <td class="vcol-score"></td>
@@ -2183,13 +2194,32 @@ function attachViewListeners() {
     });
   });
 
-  body.querySelectorAll(".view-remark-edit").forEach(ta => {
+  body.querySelectorAll(".view-remark-edit:not(.view-remark-empty)").forEach(ta => {
     let orig = ta.innerHTML;
     ta.addEventListener("blur", async () => {
       const newText = ta.innerHTML;
       if (newText === orig) return;
       orig = newText;
       await updateRemarkText(state.viewSessionId, ta.dataset.remId, newText);
+    });
+  });
+
+  // Empty remark cells — create activity + remark on first input
+  body.querySelectorAll(".view-remark-empty").forEach(div => {
+    div.addEventListener("blur", async () => {
+      const strip = s => (s || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").replace(/ /g, " ").trim();
+      const text = div.innerHTML;
+      if (!strip(text)) return;
+      let actId = div.dataset.actId;
+      if (!actId) {
+        actId = await addActivity(
+          state.viewSessionId, div.dataset.target,
+          div.dataset.actName, Date.now(),
+          div.dataset.isPredefined === "true"
+        );
+      }
+      const remId = await addRemark(state.viewSessionId, actId, "");
+      await updateRemarkText(state.viewSessionId, remId, text);
     });
   });
 
