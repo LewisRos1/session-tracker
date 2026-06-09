@@ -53,7 +53,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "244";
+const APP_VERSION = "246";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -2438,6 +2438,200 @@ function openManageModal(student, targetOrNull, templateOrNull = null, remarkPre
   }
 }
 
+// ── Group Add Target picker ───────────────────────────────────
+
+function showGroupAddTargetPicker(group) {
+  $("manage-modal-title").textContent = "Add Target";
+  $("manage-modal").classList.remove("hidden");
+
+  const hasDup       = group.targets.length > 0;
+  const otherGroups  = state.groups.filter(g => g.id !== group.id && g.targets?.length > 0);
+  const hasOther     = otherGroups.length > 0;
+  const hasTemplates = state.templates.length > 0;
+
+  $("manage-modal-body").innerHTML = `
+    <div style="display:flex;flex-direction:column;gap:.6rem">
+      <button class="btn-target-type" id="btn-gadd-create">
+        <span class="btn-target-label">Create Target</span>
+        <span class="btn-target-desc">Activities will be the same every session, just fill in remarks</span>
+      </button>
+      ${hasDup ? `<button class="btn-target-type" id="btn-gadd-dup-current">
+        <span class="btn-target-label">Duplicate Target from Current Group</span>
+        <span class="btn-target-desc">Duplicate an existing target from this group</span>
+      </button>` : ""}
+      ${hasOther ? `<button class="btn-target-type" id="btn-gadd-dup-other">
+        <span class="btn-target-label">Duplicate Target from Another Group</span>
+        <span class="btn-target-desc">Duplicate a target from a different group</span>
+      </button>` : ""}
+      ${hasTemplates ? `<button class="btn-target-type" id="btn-gadd-dup-tmpl">
+        <span class="btn-target-label">Duplicate from Template</span>
+        <span class="btn-target-desc">Duplicate a template as an individual target</span>
+      </button>` : ""}
+    </div>`;
+  $("manage-modal-body").scrollTop = 0;
+
+  $("btn-gadd-create").addEventListener("click", async () => {
+    $("manage-modal").classList.add("hidden");
+    const name = prompt("Target name:");
+    if (!name?.trim()) return;
+    const t = { id: cfgId("gt"), name: name.trim(), maxPoints: 3, hasComment: false, fullName: "",
+      order: group.targets.length, predefinedActivities: [], notes: [], isStructured: true };
+    group.targets.push(t);
+    const gi = state.groups.findIndex(g => g.id === group.id);
+    if (gi >= 0) state.groups[gi] = group;
+    await saveGroup(group);
+    state.selectedGroupTargetName = t.name;
+    populateGroupTargetDropdown(group.targets);
+    renderGroupTargetContent();
+    openGroupManageModal(group, t);
+  });
+
+  $("btn-gadd-dup-current")?.addEventListener("click", () => showGroupDupFromCurrent(group));
+  $("btn-gadd-dup-other")?.addEventListener("click", () => showGroupDupFromOther(group, otherGroups));
+  $("btn-gadd-dup-tmpl")?.addEventListener("click", () => showGroupDupFromTemplate(group));
+}
+
+function showGroupDupFromCurrent(group) {
+  const sorted = [...group.targets].sort((a, b) => a.name.localeCompare(b.name));
+  $("manage-modal-body").innerHTML = `
+    <div class="admin-section-title" style="margin-bottom:.5rem">Choose a target to duplicate</div>
+    <div class="admin-list">
+      ${sorted.map(t => `
+        <label class="admin-list-item" style="cursor:pointer;gap:.75rem">
+          <input type="radio" name="gdup-target" class="gdup-target-radio" data-target-id="${escHtml(t.id)}"
+            style="width:18px;height:18px;flex-shrink:0;cursor:pointer" />
+          <span class="admin-item-name">${escHtml(t.name)}</span>
+        </label>`).join("")}
+    </div>
+    <button class="btn-primary-sm" id="btn-gdup-confirm" style="width:100%;margin-top:.75rem;padding:.75rem">Duplicate Selected</button>
+    <button class="btn-adm-secondary" id="btn-gdup-back" style="width:100%;margin-top:.5rem;padding:.65rem">← Back</button>`;
+
+  $("btn-gdup-back").addEventListener("click", () => showGroupAddTargetPicker(group));
+  $("btn-gdup-confirm").addEventListener("click", async () => {
+    const radio = $("manage-modal-body").querySelector(".gdup-target-radio:checked");
+    if (!radio) { alert("Select a target to duplicate."); return; }
+    const source = group.targets.find(t => t.id === radio.dataset.targetId);
+    if (!source) return;
+    $("manage-modal").classList.add("hidden");
+    const name = prompt("Name for the duplicate:", source.name + " (duplicate)");
+    if (!name?.trim()) { $("manage-modal").classList.remove("hidden"); showGroupAddTargetPicker(group); return; }
+    const copy = JSON.parse(JSON.stringify(source));
+    copy.id = cfgId("gt"); copy.name = name.trim(); copy.order = group.targets.length;
+    group.targets.push(copy);
+    const gi = state.groups.findIndex(g => g.id === group.id);
+    if (gi >= 0) state.groups[gi] = group;
+    await saveGroup(group);
+    state.selectedGroupTargetName = copy.name;
+    populateGroupTargetDropdown(group.targets);
+    renderGroupTargetContent();
+    openGroupManageModal(group, copy);
+  });
+}
+
+function showGroupDupFromOther(group, otherGroups) {
+  $("manage-modal-body").innerHTML = `
+    <div class="admin-section-title" style="margin-bottom:.5rem">Choose a group</div>
+    <div class="admin-list">
+      ${otherGroups.sort((a, b) => a.name.localeCompare(b.name)).map(g => `
+        <label class="admin-list-item" style="cursor:pointer;gap:.75rem">
+          <input type="radio" name="gother-group" class="gother-group-radio" data-group-id="${escHtml(g.id)}"
+            style="width:18px;height:18px;flex-shrink:0;cursor:pointer" />
+          <span class="admin-item-name">${escHtml(g.name)}</span>
+        </label>`).join("")}
+    </div>
+    <button class="btn-primary-sm" id="btn-gother-next" style="width:100%;margin-top:.75rem;padding:.75rem">Next →</button>
+    <button class="btn-adm-secondary" id="btn-gdup-back" style="width:100%;margin-top:.5rem;padding:.65rem">← Back</button>`;
+
+  $("btn-gdup-back").addEventListener("click", () => showGroupAddTargetPicker(group));
+  $("btn-gother-next").addEventListener("click", () => {
+    const radio = $("manage-modal-body").querySelector(".gother-group-radio:checked");
+    if (!radio) { alert("Select a group."); return; }
+    const src = otherGroups.find(g => g.id === radio.dataset.groupId);
+    if (!src) return;
+    showGroupDupFromOtherPickTarget(group, src);
+  });
+}
+
+function showGroupDupFromOtherPickTarget(group, sourceGroup) {
+  const sorted = [...(sourceGroup.targets || [])].sort((a, b) => a.name.localeCompare(b.name));
+  if (!sorted.length) { alert(`${sourceGroup.name} has no targets.`); showGroupAddTargetPicker(group); return; }
+  $("manage-modal-body").innerHTML = `
+    <div class="admin-section-title" style="margin-bottom:.5rem">Choose a target from ${escHtml(sourceGroup.name)}</div>
+    <div class="admin-list">
+      ${sorted.map(t => `
+        <label class="admin-list-item" style="cursor:pointer;gap:.75rem">
+          <input type="radio" name="gother-target" class="gother-target-radio" data-target-id="${escHtml(t.id)}"
+            style="width:18px;height:18px;flex-shrink:0;cursor:pointer" />
+          <span class="admin-item-name">${escHtml(t.name)}</span>
+        </label>`).join("")}
+    </div>
+    <button class="btn-primary-sm" id="btn-gother-dup" style="width:100%;margin-top:.75rem;padding:.75rem">Duplicate Selected</button>
+    <button class="btn-adm-secondary" id="btn-gdup-back" style="width:100%;margin-top:.5rem;padding:.65rem">← Back</button>`;
+
+  $("btn-gdup-back").addEventListener("click", () => showGroupDupFromOther(group, state.groups.filter(g => g.id !== group.id && g.targets?.length > 0)));
+  $("btn-gother-dup").addEventListener("click", async () => {
+    const radio = $("manage-modal-body").querySelector(".gother-target-radio:checked");
+    if (!radio) { alert("Select a target."); return; }
+    const source = sorted.find(t => t.id === radio.dataset.targetId);
+    if (!source) return;
+    $("manage-modal").classList.add("hidden");
+    const name = prompt("Name for the duplicate:", source.name + " (duplicate)");
+    if (!name?.trim()) { $("manage-modal").classList.remove("hidden"); showGroupAddTargetPicker(group); return; }
+    const copy = JSON.parse(JSON.stringify(source));
+    copy.id = cfgId("gt"); copy.name = name.trim(); copy.order = group.targets.length; copy.isStructured = true;
+    group.targets.push(copy);
+    const gi = state.groups.findIndex(g => g.id === group.id);
+    if (gi >= 0) state.groups[gi] = group;
+    await saveGroup(group);
+    state.selectedGroupTargetName = copy.name;
+    populateGroupTargetDropdown(group.targets);
+    renderGroupTargetContent();
+    openGroupManageModal(group, copy);
+  });
+}
+
+function showGroupDupFromTemplate(group) {
+  const sortedTmpls = [...state.templates].sort((a, b) => a.name.localeCompare(b.name));
+  $("manage-modal-body").innerHTML = `
+    <div class="admin-section-title" style="margin-bottom:.5rem">Choose templates to duplicate</div>
+    <div class="admin-list">
+      ${sortedTmpls.map(t => `
+        <label class="admin-list-item" style="cursor:pointer;gap:.75rem">
+          <input type="checkbox" class="gtmpl-cb" data-tmpl-id="${escHtml(t.id)}"
+            style="width:20px;height:20px;flex-shrink:0;cursor:pointer" />
+          <span class="admin-item-name">${escHtml(t.name)}</span>
+        </label>`).join("")}
+    </div>
+    <button class="btn-primary-sm" id="btn-gtmpl-dup" style="width:100%;margin-top:.75rem;padding:.75rem">Duplicate Selected</button>
+    <button class="btn-adm-secondary" id="btn-gdup-back" style="width:100%;margin-top:.5rem;padding:.65rem">← Back</button>`;
+
+  $("btn-gdup-back").addEventListener("click", () => showGroupAddTargetPicker(group));
+  $("btn-gtmpl-dup").addEventListener("click", async () => {
+    const checked = [...$("manage-modal-body").querySelectorAll(".gtmpl-cb:checked")];
+    if (!checked.length) { alert("Select at least one template."); return; }
+    $("manage-modal").classList.add("hidden");
+    let lastAdded = null;
+    for (const cb of checked) {
+      const tmpl = state.templates.find(t => t.id === cb.dataset.tmplId);
+      if (!tmpl) continue;
+      const copy = {
+        id: cfgId("gt"), name: tmpl.name, maxPoints: tmpl.maxPoints || 3,
+        hasComment: false, fullName: "", order: group.targets.length,
+        predefinedActivities: JSON.parse(JSON.stringify(tmpl.predefinedActivities || [])),
+        notes: JSON.parse(JSON.stringify(tmpl.notes || [])), isStructured: true
+      };
+      group.targets.push(copy); lastAdded = copy;
+    }
+    const gi = state.groups.findIndex(g => g.id === group.id);
+    if (gi >= 0) state.groups[gi] = group;
+    await saveGroup(group);
+    if (lastAdded) state.selectedGroupTargetName = lastAdded.name;
+    populateGroupTargetDropdown(group.targets);
+    renderGroupTargetContent();
+    if (lastAdded && checked.length === 1) openGroupManageModal(group, lastAdded);
+  });
+}
+
 function closeManageModal() {
   $("manage-modal").classList.add("hidden");
   _groupForTargetEdit = null;
@@ -3658,18 +3852,8 @@ function populateGroupTargetDropdown(targets) {
   sel.onchange = async () => {
     if (sel.value === "__add_target__") {
       sel.value = state.selectedGroupTargetName || "";
-      const name = prompt("Target name:");
-      if (!name?.trim()) return;
       const group = state.currentGroup;
-      if (!group) return;
-      const t = { id: cfgId("gt"), name: name.trim(), maxPoints: 3, predefinedActivities: [], notes: [], order: (group.targets || []).length };
-      group.targets = [...(group.targets || []), t];
-      const gi = state.groups.findIndex(g => g.id === group.id);
-      if (gi >= 0) state.groups[gi] = group;
-      await saveGroup(group);
-      state.selectedGroupTargetName = t.name;
-      populateGroupTargetDropdown(group.targets);
-      openGroupManageModal(group, t);
+      if (group) showGroupAddTargetPicker(group);
       return;
     }
     const prevTarget = state.selectedGroupTargetName;
