@@ -53,7 +53,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "263";
+const APP_VERSION = "265";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -855,19 +855,19 @@ function renderDatePickerCalendar(displayDate, takenDates, today, currentDate) {
   const daysInMon = new Date(y, m, 0).getDate();
 
   let html = `<div class="date-picker-wrap">
-    <div class="date-picker-nav">
-      <button class="btn-date-prev">‹</button>
-      <span class="date-picker-month-label">${escHtml(monthLabel)}</span>
-      <div class="date-picker-nav-right">
-        <span class="date-picker-legend-inline"><span class="date-taken-dot"></span> Existing session</span>
-        <button class="btn-date-next"${canNext ? "" : " disabled"}>›</button>
-      </div>
-    </div>
-    <div class="date-picker-day-headers">
-      <span>Su</span><span>Mo</span><span>Tu</span><span>We</span>
-      <span>Th</span><span>Fr</span><span>Sa</span>
-    </div>
-    <div class="date-picker-grid">`;
+    <p class="date-picker-subtitle">Select a new date</p>
+    <div class="date-picker-row">
+      <div class="date-picker-cal">
+        <div class="date-picker-nav">
+          <button class="btn-date-prev">‹</button>
+          <span class="date-picker-month-label">${escHtml(monthLabel)}</span>
+          <button class="btn-date-next"${canNext ? "" : " disabled"}>›</button>
+        </div>
+        <div class="date-picker-day-headers">
+          <span>Su</span><span>Mo</span><span>Tu</span><span>We</span>
+          <span>Th</span><span>Fr</span><span>Sa</span>
+        </div>
+        <div class="date-picker-grid">`;
 
   // Always render 42 cells (6 rows) so height never changes between months
   for (let cell = 0; cell < 42; cell++) {
@@ -885,7 +885,13 @@ function renderDatePickerCalendar(displayDate, takenDates, today, currentDate) {
     const dotCls = (isTaken || isCur) ? "date-taken-dot" : "day-dot-spacer";
     html += `<button class="${cls}" data-date="${ds}"${dis ? " disabled" : ""}><span class="day-num">${d}</span><span class="${dotCls}"></span></button>`;
   }
-  html += `</div></div>`;
+  html += `</div><!-- grid -->
+      </div><!-- cal -->
+      <div class="date-picker-aside">
+        <span class="date-taken-dot"></span> Session exists on this day
+      </div>
+    </div><!-- row -->
+  </div><!-- wrap -->`;
 
   $("session-picker-title").textContent = "Edit Date";
   $("session-picker-list").innerHTML = html;

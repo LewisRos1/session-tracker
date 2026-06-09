@@ -483,18 +483,28 @@ html, body {
 .date-taken-dot { background: var(--primary); }
 .date-picker-day-current .date-taken-dot { background: #fff; }
 .day-dot-spacer { background: transparent; }
-.date-picker-nav-right {
-  display: flex;
-  align-items: center;
-  gap: .5rem;
-  flex-shrink: 0;
+.date-picker-subtitle {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text-main);
+  text-align: center;
+  margin: 0 0 .75rem;
 }
-.date-picker-legend-inline {
+.date-picker-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 1.25rem;
+}
+.date-picker-cal { flex-shrink: 0; }
+.date-picker-aside {
+  flex: 1;
   display: flex;
   align-items: center;
-  gap: .3rem;
-  font-size: .7rem;
+  gap: .35rem;
+  font-size: .82rem;
+  font-weight: 500;
   color: var(--text-muted);
+  padding-top: 4rem;
   white-space: nowrap;
 }
 
