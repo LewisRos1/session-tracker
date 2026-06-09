@@ -53,7 +53,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "233";
+const APP_VERSION = "234";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -411,13 +411,21 @@ function renderExistingStudentButtons() {
 }
 
 async function addNewGroup() {
-  const name = prompt("Group name:");
-  if (!name?.trim()) return;
-  const g = { id: cfgId("g"), name: name.trim(), order: state.groups.length, students: [], targets: [] };
+  const g = { id: cfgId("g"), name: "", order: state.groups.length, students: [], targets: [] };
   state.groups.push(g);
   await saveGroup(g);
   renderGroupButtons();
   openGroupManageModal(g);
+}
+
+function groupAutoName(students) {
+  return (students || []).join(" & ");
+}
+// Returns true if the group's name still matches the auto-generated pattern
+// (meaning it's safe to update it automatically when students change).
+function groupNameIsAuto(group) {
+  const s = group.students || [];
+  return !group.name || group.name === groupAutoName(s);
 }
 
 function renderGroupButtons() {
@@ -4048,7 +4056,9 @@ function renderGroupManageContent(group) {
   const addStudent = async () => {
     const name = $("mn-g-student-input").value.trim();
     if (!name) return;
+    const wasAuto = groupNameIsAuto(group);
     group.students = [...(group.students || []), name];
+    if (wasAuto) group.name = groupAutoName(group.students);
     $("mn-g-student-input").value = "";
     const gi = state.groups.findIndex(g => g.id === group.id);
     if (gi >= 0) state.groups[gi] = group;
@@ -4062,7 +4072,9 @@ function renderGroupManageContent(group) {
   $("manage-modal-body").querySelectorAll(".btn-group-remove-student").forEach(btn => {
     btn.addEventListener("click", async () => {
       const idx = Number(btn.dataset.idx);
+      const wasAuto = groupNameIsAuto(group);
       group.students = group.students.filter((_, i) => i !== idx);
+      if (wasAuto) group.name = groupAutoName(group.students);
       const gi = state.groups.findIndex(g => g.id === group.id);
       if (gi >= 0) state.groups[gi] = group;
       await saveGroup(group);
