@@ -378,6 +378,92 @@ html, body {
 .btn-delete-session:hover { background: #dc2626; }
 .btn-delete-session.hidden { display: none; }
 
+.btn-goto-session {
+  background: none;
+  border: none;
+  color: rgba(255,255,255,.82);
+  font-size: .74rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: .1rem 0 0;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-align: left;
+  white-space: nowrap;
+}
+.btn-goto-session:hover { color: #fff; }
+.btn-goto-session.hidden { display: none; }
+
+.session-list-current {
+  border-color: var(--primary);
+  background: var(--primary-light);
+}
+
+.date-picker-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: .4rem 0 .9rem;
+}
+.date-picker-month-label {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text-main);
+}
+.btn-date-prev, .btn-date-next {
+  background: none;
+  border: 1.5px solid var(--border);
+  border-radius: 8px;
+  width: 2.4rem; height: 2.4rem;
+  font-size: 1.3rem;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--primary);
+  flex-shrink: 0;
+}
+.btn-date-prev:hover, .btn-date-next:hover:not(:disabled) { background: var(--primary-light); }
+.btn-date-next:disabled { opacity: .3; cursor: default; }
+.date-picker-day-headers {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  margin-bottom: .3rem;
+}
+.date-picker-day-headers span {
+  text-align: center;
+  font-size: .72rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  padding: .15rem 0;
+}
+.date-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: .25rem;
+}
+.date-picker-day {
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px solid transparent;
+  border-radius: 8px;
+  font-size: .92rem;
+  font-weight: 500;
+  cursor: pointer;
+  background: none;
+  color: var(--text-main);
+  transition: background .1s, border-color .1s;
+}
+.date-picker-day:hover { background: var(--primary-light); border-color: var(--primary); }
+.date-picker-day-current {
+  background: var(--primary-light);
+  border-color: var(--primary);
+  color: var(--primary-dark);
+  font-weight: 700;
+}
+.date-picker-day-disabled { opacity: .3; cursor: default; }
+
 .session-date-step {
   padding: 1.1rem 1rem 1rem;
   display: flex;

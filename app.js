@@ -53,7 +53,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "246";
+const APP_VERSION = "248";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -725,6 +725,181 @@ function closeSessionPicker() {
 
 $("session-picker-close").addEventListener("click",    closeSessionPicker);
 $("session-picker-backdrop").addEventListener("click", closeSessionPicker);
+
+// ─── GO TO ANOTHER SESSION ───────────────────────────────────
+// Opens session-picker starting at the current session's month.
+async function showGoToAnotherSession(student) {
+  $("session-picker-title").textContent = student.name;
+  $("session-picker-list").innerHTML = `<div class="session-picker-loading">Loading sessions…</div>`;
+  $("session-picker-modal").classList.remove("hidden");
+
+  let sessions = [];
+  try { sessions = await getRecentSessionsForStudent(student.id); } catch (_) {}
+
+  const currentTargetNames = new Set((student.targets || []).map(t => t.name));
+  const hasUsefulData = s => {
+    const remarks = Object.values(s.remarks || {});
+    if (!remarks.length) return false;
+    return remarks.some(r => {
+      const act = (s.activities || {})[r.activityId];
+      return act && currentTargetNames.has(act.targetName);
+    });
+  };
+  // Don't auto-delete the session currently being viewed
+  const empties = sessions.filter(s => s.id !== state.viewSessionId && !hasUsefulData(s));
+  empties.forEach(s => deleteSession(s.id).catch(() => {}));
+  sessions = sessions.filter(s => !empties.some(e => e.id === s.id));
+
+  const today = getTodayString();
+  const byMonth = new Map();
+  for (const s of sessions) {
+    if (!byMonth.has(s.month)) byMonth.set(s.month, []);
+    byMonth.get(s.month).push(s);
+  }
+
+  if (byMonth.size === 0) {
+    $("session-picker-list").innerHTML = `<div class="session-picker-loading">No sessions found.</div>`;
+    return;
+  }
+
+  // Start on the current session's month; fall back to month grid
+  const currentMonth = state.viewSessionData?.month;
+  if (currentMonth && byMonth.has(currentMonth)) {
+    renderGoToSessionsForMonth(student, currentMonth, byMonth.get(currentMonth), byMonth, today);
+  } else {
+    renderGoToMonthGrid(student, byMonth, today);
+  }
+}
+
+function renderGoToMonthGrid(student, byMonth, today) {
+  $("session-picker-title").textContent = student.name;
+  let html = `<div class="month-grid">`;
+  for (const month of byMonth.keys()) {
+    const [name, year] = month.split(" ");
+    html += `<button class="month-grid-btn" data-month="${escHtml(month)}">
+      <span class="mgb-month">${escHtml(name.slice(0, 3))}</span>
+      <span class="mgb-year">${escHtml(year)}</span>
+    </button>`;
+  }
+  html += `</div>`;
+  $("session-picker-list").innerHTML = html;
+  $("session-picker-list").querySelectorAll(".month-grid-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const month = btn.dataset.month;
+      renderGoToSessionsForMonth(student, month, byMonth.get(month), byMonth, today);
+    });
+  });
+}
+
+function renderGoToSessionsForMonth(student, month, monthSessions, byMonth, today) {
+  $("session-picker-title").textContent = month;
+  const sorted = [...monthSessions].sort((a, b) => a.date.localeCompare(b.date));
+  let html = `<button class="btn-picker-back">← Back</button>`;
+  for (const s of sorted) {
+    const num = sorted.findIndex(x => x.id === s.id) + 1;
+    const isCurrent = s.id === state.viewSessionId;
+    const dateLabel = s.date === today ? `Today · ${formatDate(s.date)}` : formatDate(s.date);
+    html += `<div class="session-list-item${isCurrent ? " session-list-current" : ""}" data-session-id="${s.id}">
+      <div class="session-list-meta">
+        <div class="session-list-label">Session ${num} of ${s.month.split(" ")[0]}${isCurrent ? " · current" : ""}</div>
+        <div class="session-list-date">${dateLabel}</div>
+      </div>
+    </div>`;
+  }
+  const list = $("session-picker-list");
+  list.innerHTML = html;
+  list.querySelector(".btn-picker-back").addEventListener("click", () => {
+    renderGoToMonthGrid(student, byMonth, today);
+  });
+  list.querySelectorAll(".session-list-item").forEach(item => {
+    item.addEventListener("click", () => {
+      const sid = item.dataset.sessionId;
+      closeSessionPicker();
+      if (sid !== state.viewSessionId) openSessionView(student, sid);
+    });
+  });
+}
+
+// ─── CUSTOM DATE PICKER ───────────────────────────────────────
+async function showEditDatePicker() {
+  const student     = state.viewStudent;
+  const currentDate = state.viewSessionData.date;
+
+  $("session-picker-title").textContent = "Edit Date";
+  $("session-picker-list").innerHTML = `<div class="session-picker-loading">Loading…</div>`;
+  $("session-picker-modal").classList.remove("hidden");
+
+  let sessions = [];
+  try { sessions = await getRecentSessionsForStudent(student.id); } catch (_) {}
+  // Dates already occupied by another session
+  const takenDates = new Set(
+    sessions.filter(s => s.id !== state.viewSessionId).map(s => s.date)
+  );
+  renderDatePickerCalendar(currentDate, takenDates, getTodayString(), currentDate);
+}
+
+function renderDatePickerCalendar(displayDate, takenDates, today, currentDate) {
+  const [y, m] = displayDate.split("-").map(Number);
+  const monthLabel = new Date(y, m - 1, 1)
+    .toLocaleString("default", { month: "long", year: "numeric" });
+  const [ty, tm] = today.split("-").map(Number);
+  const canNext = y < ty || (y === ty && m < tm);
+
+  const pad = n => String(n).padStart(2, "0");
+  const prevM = m === 1  ? `${y - 1}-12-01` : `${y}-${pad(m - 1)}-01`;
+  const nextM = m === 12 ? `${y + 1}-01-01` : `${y}-${pad(m + 1)}-01`;
+
+  const firstDow  = new Date(y, m - 1, 1).getDay();
+  const daysInMon = new Date(y, m, 0).getDate();
+
+  let html = `
+    <div class="date-picker-nav">
+      <button class="btn-date-prev">‹</button>
+      <span class="date-picker-month-label">${escHtml(monthLabel)}</span>
+      <button class="btn-date-next"${canNext ? "" : " disabled"}>›</button>
+    </div>
+    <div class="date-picker-day-headers">
+      <span>Su</span><span>Mo</span><span>Tu</span><span>We</span>
+      <span>Th</span><span>Fr</span><span>Sa</span>
+    </div>
+    <div class="date-picker-grid">`;
+
+  for (let i = 0; i < firstDow; i++) html += `<span></span>`;
+  for (let d = 1; d <= daysInMon; d++) {
+    const ds = `${y}-${pad(m)}-${pad(d)}`;
+    const isCur  = ds === currentDate;
+    const dis    = takenDates.has(ds) || ds > today;
+    let cls = "date-picker-day";
+    if (isCur) cls += " date-picker-day-current";
+    if (dis)   cls += " date-picker-day-disabled";
+    html += `<button class="${cls}" data-date="${ds}"${dis ? " disabled" : ""}>${d}</button>`;
+  }
+  html += `</div>`;
+
+  $("session-picker-title").textContent = "Edit Date";
+  $("session-picker-list").innerHTML = html;
+
+  $("session-picker-list").querySelector(".btn-date-prev").addEventListener("click", () => {
+    renderDatePickerCalendar(prevM, takenDates, today, currentDate);
+  });
+  if (canNext) {
+    $("session-picker-list").querySelector(".btn-date-next").addEventListener("click", () => {
+      renderDatePickerCalendar(nextM, takenDates, today, currentDate);
+    });
+  }
+  $("session-picker-list").querySelectorAll(".date-picker-day:not([disabled])").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const newDate = btn.dataset.date;
+      closeSessionPicker();
+      if (newDate === currentDate) return;
+      try {
+        await updateSessionDate(state.viewSessionId, newDate, state.viewStudent.id);
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+  });
+}
 
 // ============================================================
 // SESSION SCREEN
@@ -1803,6 +1978,7 @@ function leaveSessionView() {
   commitTextEditorSheet();
   $("text-editor-sheet").classList.add("hidden");
   $("btn-delete-session")?.classList.add("hidden");
+  $("btn-goto-session")?.classList.add("hidden");
   state.viewPickerTargetName = null;
   if (state.fbViewUnsubscribe) { state.fbViewUnsubscribe(); state.fbViewUnsubscribe = null; }
   const sessionId = state.viewSessionId;
@@ -1841,27 +2017,14 @@ function renderSessionView() {
   if (delBtn) delBtn.classList.remove("hidden");
 
   $("view-session-meta").querySelector(".btn-edit-session-date").addEventListener("click", () => {
-    const today = getTodayString();
-    const input = document.createElement("input");
-    input.type = "date";
-    input.value = data.date;
-    input.max = today;
-    input.style.cssText = "position:fixed;opacity:0;top:0;left:0;width:1px;height:1px;";
-    document.body.appendChild(input);
-    const cleanup = () => { if (document.body.contains(input)) document.body.removeChild(input); };
-    input.addEventListener("change", async () => {
-      const newDate = input.value;
-      cleanup();
-      if (!newDate || newDate === data.date) return;
-      try {
-        await updateSessionDate(state.viewSessionId, newDate, state.viewStudent.id);
-      } catch (err) {
-        alert(err.message);
-      }
-    });
-    input.addEventListener("blur", () => setTimeout(cleanup, 500));
-    try { input.showPicker(); } catch (_) { input.click(); }
+    showEditDatePicker();
   });
+
+  const gotoBtn = $("btn-goto-session");
+  if (gotoBtn) {
+    gotoBtn.classList.remove("hidden");
+    gotoBtn.onclick = () => showGoToAnotherSession(state.viewStudent);
+  }
 
   // Wire delete button (static element in header — re-attach each time)
   const _delBtn = $("btn-delete-session");
@@ -3759,7 +3922,7 @@ function showGroupAttendancePicker(group, dateStr) {
     alert("No students in this group. Add students first under Manage Group.");
     return;
   }
-  $("session-picker-title").textContent = "Attendance";
+  $("session-picker-title").textContent = "Attendance List";
   const checkboxHtml = group.students.map((s, i) =>
     `<label class="attendance-row">
        <input type="checkbox" class="attendance-chk" data-idx="${i}" checked />
@@ -3768,7 +3931,7 @@ function showGroupAttendancePicker(group, dateStr) {
   ).join("");
   $("session-picker-list").innerHTML = `
     <div class="attendance-sheet">
-      <p class="attendance-date">${formatDate(dateStr)} — tick the students who are here today</p>
+      <p class="attendance-date">${formatDate(dateStr)}</p>
       <div class="attendance-list">${checkboxHtml}</div>
       <button class="btn-primary attendance-start-btn">Start Session →</button>
     </div>`;
