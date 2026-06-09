@@ -358,17 +358,17 @@ html, body {
 }
 .btn-edit-session-date:hover { opacity: 1; background: rgba(255,255,255,.25); }
 .btn-delete-session {
-  background: rgba(239,68,68,.2);
-  border: 1px solid rgba(239,68,68,.5);
+  background: rgba(255,255,255,.15);
+  border: 1px solid rgba(255,255,255,.35);
   border-radius: 5px;
   padding: .2rem .45rem;
   cursor: pointer;
   font-size: .8rem;
-  opacity: .9;
+  opacity: .85;
   line-height: 1;
-  color: #fca5a5;
+  color: var(--white);
 }
-.btn-delete-session:hover { opacity: 1; background: rgba(239,68,68,.35); }
+.btn-delete-session:hover { opacity: 1; background: rgba(239,68,68,.4); }
 
 .session-date-step {
   padding: 1.1rem 1rem 1rem;

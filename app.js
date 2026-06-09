@@ -53,7 +53,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "236";
+const APP_VERSION = "238";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -3439,15 +3439,15 @@ function showGroupChoice(group) {
     <div class="choice-list">
       <button class="choice-btn choice-today">
         <span class="choice-icon">▶</span>
-        <div class="choice-text"><div class="choice-label">Start / Continue Session</div><div class="choice-sub">Record today's session</div></div>
+        <div class="choice-text"><div class="choice-label">Start Session</div></div>
       </button>
       <button class="choice-btn choice-other">
-        <span class="choice-icon">📋</span>
-        <div class="choice-text"><div class="choice-label">View Past Sessions</div><div class="choice-sub">View or edit a previous session</div></div>
+        <span class="choice-icon">🗂</span>
+        <div class="choice-text"><div class="choice-label">View/Edit Past Sessions</div></div>
       </button>
       <button class="choice-btn choice-manage">
-        <span class="choice-icon">⚙</span>
-        <div class="choice-text"><div class="choice-label">Manage Group</div><div class="choice-sub">Edit students, targets, activities</div></div>
+        <span class="choice-icon">✏</span>
+        <div class="choice-text"><div class="choice-label">Manage Group</div></div>
       </button>
     </div>`;
   $("session-picker-modal").classList.remove("hidden");
@@ -4021,10 +4021,14 @@ function renderGroupManageContent(group) {
   $("manage-modal-body").innerHTML = `
     <div class="admin-section">
       <label class="admin-label">Group Name</label>
-      <input class="admin-input" id="mn-g-name" readonly
-        value="${escHtml(group.name || "")}"
-        placeholder="The group name is automatically set based on the student names you enter below. Just fill in the students and this field will be filled automatically."
-        style="width:100%;color:var(--text-muted);font-style:italic;cursor:default" />
+      <div class="admin-input" id="mn-g-name"
+        style="min-height:2.8rem;display:flex;align-items:center;white-space:normal;
+               color:${group.name ? "var(--text)" : "var(--text-muted)"};
+               font-style:${group.name ? "normal" : "italic"};cursor:default;line-height:1.4">
+        ${group.name
+          ? escHtml(group.name)
+          : "The group name is automatically set based on the student names entered below. Just fill in the students and this field will be filled automatically."}
+      </div>
     </div>
     <div class="admin-section">
       <label class="admin-label">Students</label>
@@ -4042,7 +4046,12 @@ function renderGroupManageContent(group) {
     group.students = [...$("manage-modal-body").querySelectorAll(".mn-g-student-field")]
       .map(f => f.value.trim()).filter(Boolean);
     if (wasAuto) group.name = groupAutoName(group.students);
-    $("mn-g-name").value = group.name || "";
+    const nameEl = $("mn-g-name");
+    if (nameEl) {
+      nameEl.textContent = group.name || "The group name is automatically set based on the student names entered below. Just fill in the students and this field will be filled automatically.";
+      nameEl.style.color = group.name ? "var(--text)" : "var(--text-muted)";
+      nameEl.style.fontStyle = group.name ? "normal" : "italic";
+    }
     $("manage-modal-title").textContent = group.name || "New Group";
     const gi = state.groups.findIndex(g => g.id === group.id);
     if (gi >= 0) state.groups[gi] = group;
