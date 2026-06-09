@@ -401,13 +401,13 @@ html, body {
 
 .date-picker-wrap {
   width: 100%;
-  padding: .1rem 0 .25rem;
+  padding: 0;
 }
 .date-picker-nav {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: .2rem 0 .65rem;
+  padding: .1rem 0 .4rem;
 }
 .date-picker-month-label {
   font-size: 1rem;
@@ -430,7 +430,7 @@ html, body {
 .date-picker-day-headers {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
-  margin-bottom: .3rem;
+  margin-bottom: .15rem;
 }
 .date-picker-day-headers span {
   text-align: center;
@@ -488,24 +488,24 @@ html, body {
   font-weight: 700;
   color: var(--text-main);
   text-align: center;
-  margin: 0 0 .75rem;
+  margin: 0 0 .4rem;
 }
 .date-picker-row {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
+  justify-content: center;
   gap: 1.25rem;
 }
 .date-picker-cal { flex-shrink: 0; }
 .date-picker-aside {
-  flex: 1;
   display: flex;
   align-items: center;
   gap: .35rem;
   font-size: .82rem;
   font-weight: 500;
   color: var(--text-muted);
-  padding-top: 4rem;
   white-space: nowrap;
+  align-self: center;
 }
 
 .session-date-step {
