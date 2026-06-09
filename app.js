@@ -53,7 +53,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "240";
+const APP_VERSION = "243";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -103,6 +103,8 @@ let _sheetOriginEl = null;
 // When editing a target belonging to a group, this is set so that
 // renderTargetManageContent saves to the group instead of the student.
 let _groupForTargetEdit = null;
+// Tracks a newly-created group ID so it can be auto-deleted if closed with no students.
+let _newGroupId = null;
 
 function openTextEditorSheet(originEl) {
   _sheetOriginEl = originEl;
@@ -415,6 +417,7 @@ async function addNewGroup() {
   state.groups.push(g);
   await saveGroup(g);
   renderGroupButtons();
+  _newGroupId = g.id;
   openGroupManageModal(g);
 }
 
@@ -1799,6 +1802,7 @@ async function openSessionView(student, sessionId) {
 function leaveSessionView() {
   commitTextEditorSheet();
   $("text-editor-sheet").classList.add("hidden");
+  $("btn-delete-session")?.classList.add("hidden");
   state.viewPickerTargetName = null;
   if (state.fbViewUnsubscribe) { state.fbViewUnsubscribe(); state.fbViewUnsubscribe = null; }
   const sessionId = state.viewSessionId;
@@ -1831,8 +1835,10 @@ function renderSessionView() {
 
   $("view-session-meta").innerHTML =
     `Session ${data.sessionNumber} of ${data.month.split(" ")[0]} · ${formatDate(data.date)}`
-    + ` <button class="btn-edit-session-date" title="Change date">✏</button>`
-    + ` <button class="btn-delete-session" title="Delete session">🗑</button>`;
+    + ` <button class="btn-edit-session-date">Edit Date</button>`;
+
+  const delBtn = $("btn-delete-session");
+  if (delBtn) delBtn.classList.remove("hidden");
 
   $("view-session-meta").querySelector(".btn-edit-session-date").addEventListener("click", () => {
     const today = getTodayString();
@@ -1857,13 +1863,20 @@ function renderSessionView() {
     try { input.showPicker(); } catch (_) { input.click(); }
   });
 
-  $("view-session-meta").querySelector(".btn-delete-session").addEventListener("click", async () => {
-    const typed = prompt(`Delete Session ${data.sessionNumber} of ${data.month.split(" ")[0]} (${formatDate(data.date)})?\n\nThis cannot be undone. Type DELETE to confirm:`);
-    if (typed !== "DELETE") return;
-    const sid = state.viewSessionId;
-    leaveSessionView();
-    await deleteSession(sid).catch(() => {});
-  });
+  // Wire delete button (static element in header — re-attach each time)
+  const _delBtn = $("btn-delete-session");
+  if (_delBtn) {
+    const newDelBtn = _delBtn.cloneNode(true); // remove old listeners
+    newDelBtn.classList.remove("hidden");
+    _delBtn.replaceWith(newDelBtn);
+    newDelBtn.addEventListener("click", async () => {
+      const typed = prompt(`Delete Session ${data.sessionNumber} of ${data.month.split(" ")[0]} (${formatDate(data.date)})?\n\nThis cannot be undone. Type DELETE to confirm:`);
+      if (typed !== "DELETE") return;
+      const sid = state.viewSessionId;
+      leaveSessionView();
+      await deleteSession(sid).catch(() => {});
+    });
+  }
 
   const targets = getViewEffectiveTargets();
   const sorted  = [...targets].sort((a, b) => a.name.localeCompare(b.name));
@@ -2428,6 +2441,17 @@ function openManageModal(student, targetOrNull, templateOrNull = null, remarkPre
 function closeManageModal() {
   $("manage-modal").classList.add("hidden");
   _groupForTargetEdit = null;
+  // If a brand-new group was being created but has no students, remove it
+  if (_newGroupId) {
+    const g = state.groups.find(x => x.id === _newGroupId);
+    if (g && (!g.students || g.students.length === 0)) {
+      const gi = state.groups.findIndex(x => x.id === _newGroupId);
+      if (gi >= 0) state.groups.splice(gi, 1);
+      deleteGroup(_newGroupId).catch(() => {});
+      renderGroupButtons();
+    }
+    _newGroupId = null;
+  }
   // Refresh session dropdown / content if a session is active
   if (state.currentStudent) {
     populateTargetDropdown(state.currentStudent.targets);
@@ -3541,7 +3565,7 @@ function showGroupAttendancePicker(group, dateStr) {
     alert("No students in this group. Add students first under Manage Group.");
     return;
   }
-  $("session-picker-title").textContent = "Who is present?";
+  $("session-picker-title").textContent = "Attendance";
   const checkboxHtml = group.students.map((s, i) =>
     `<label class="attendance-row">
        <input type="checkbox" class="attendance-chk" data-idx="${i}" checked />
@@ -3550,7 +3574,7 @@ function showGroupAttendancePicker(group, dateStr) {
   ).join("");
   $("session-picker-list").innerHTML = `
     <div class="attendance-sheet">
-      <p class="attendance-date">${formatDate(dateStr)}</p>
+      <p class="attendance-date">${formatDate(dateStr)} — tick the students who are here today</p>
       <div class="attendance-list">${checkboxHtml}</div>
       <button class="btn-primary attendance-start-btn">Start Session →</button>
     </div>`;
@@ -3619,14 +3643,16 @@ function populateGroupTargetDropdown(targets) {
   const sel = $("group-target-select");
   if (!sel) return;
   const sorted = [...targets].sort((a, b) => a.name.localeCompare(b.name));
-  sel.innerHTML = sorted.length === 0
-    ? `<option value="">— no targets —</option>`
-    : sorted.map(t =>
-        `<option value="${escHtml(t.name)}"${t.name === state.selectedGroupTargetName ? " selected" : ""}>${escHtml(t.name)}</option>`
-      ).join("");
+  const placeholder = sorted.length === 0
+    ? `<option value="" disabled selected>— no targets yet —</option>` : "";
+  sel.innerHTML = placeholder +
+    sorted.map(t =>
+      `<option value="${escHtml(t.name)}"${t.name === state.selectedGroupTargetName ? " selected" : ""}>${escHtml(t.name)}</option>`
+    ).join("") +
+    `<option value="__add_target__">+ Add Target…</option>`;
 
   const manageBtn = $("btn-group-manage-targets");
-  if (manageBtn) manageBtn.classList.toggle("hidden", sorted.length === 0);
+  if (manageBtn) manageBtn.classList.toggle("hidden", !state.selectedGroupTargetName);
 }
 
 // ── Auto-fill activity + remark stubs for predefined activities ──
@@ -3688,8 +3714,8 @@ function renderGroupTargetContent() {
   const data    = state.groupSessionData;
   const target  = group?.targets.find(t => t.name === state.selectedGroupTargetName);
   if (!target || !data) {
-    content.innerHTML = `<p class="empty-hint" style="padding:1.5rem">Select a target above.</p>`;
-    updateGroupAvgChips(null, null);
+    content.innerHTML = `<p class="empty-hint" style="padding:2rem;text-align:center">No targets added yet. Use the dropdown above to add one.</p>`;
+    $("group-avg-values").textContent = "—";
     return;
   }
 
@@ -3800,10 +3826,9 @@ function renderGroupStudentPendingRow(studentName, actId, actName, target) {
 }
 
 function updateGroupAvgChips(target, data) {
-  const chipsWrap = $("group-avg-chips");
-  const chipsVal  = $("group-avg-values");
-  if (!chipsWrap || !chipsVal) return;
-  if (!target || !data) { chipsWrap.style.display = "none"; return; }
+  const chipsVal = $("group-avg-values");
+  if (!chipsVal) return;
+  if (!target || !data) { chipsVal.textContent = "—"; return; }
   const attendees = state.groupAttendees;
   const maxPts    = target.maxPoints || 3;
   const results   = attendees.map(name => {
@@ -3816,9 +3841,7 @@ function updateGroupAvgChips(target, data) {
     const avg = Math.round(valid.reduce((a, b) => a + b, 0) / (valid.length * maxPts) * 100);
     return `${escHtml(name)}: ${avg}%`;
   }).filter(Boolean);
-  if (!results.length) { chipsWrap.style.display = "none"; return; }
-  chipsWrap.style.display = "";
-  chipsVal.textContent = results.join(" · ");
+  chipsVal.textContent = results.length ? results.join(" · ") : "—";
 }
 
 // ── Attach event listeners to the rendered group target content ──
@@ -3831,6 +3854,22 @@ function attachGroupTargetListeners(target) {
   if (sel && !sel._groupListenerAttached) {
     sel._groupListenerAttached = true;
     sel.addEventListener("change", async () => {
+      if (sel.value === "__add_target__") {
+        sel.value = state.selectedGroupTargetName || "";
+        // Add a new target
+        const name = prompt("Target name:");
+        if (!name?.trim()) return;
+        const group = state.currentGroup;
+        const t = { id: cfgId("gt"), name: name.trim(), maxPoints: 3, predefinedActivities: [], notes: [], order: (group.targets || []).length };
+        group.targets = [...(group.targets || []), t];
+        const gi = state.groups.findIndex(g => g.id === group.id);
+        if (gi >= 0) state.groups[gi] = group;
+        await saveGroup(group);
+        state.selectedGroupTargetName = t.name;
+        populateGroupTargetDropdown(group.targets);
+        openGroupManageModal(group, t);
+        return;
+      }
       state.selectedGroupTargetName = sel.value || null;
       if (!state.selectedGroupTargetName) { renderGroupTargetContent(); return; }
       const data = state.groupSessionData;
@@ -3846,20 +3885,6 @@ function attachGroupTargetListeners(target) {
     $("btn-group-manage-targets")?.addEventListener("click", () => {
       const tgt = state.currentGroup?.targets.find(t => t.name === state.selectedGroupTargetName);
       if (tgt) openGroupManageModal(state.currentGroup, tgt);
-    });
-    $("btn-group-add-target")?.addEventListener("click", async () => {
-      const name = prompt("Target name:");
-      if (!name?.trim()) return;
-      const group = state.currentGroup;
-      const t = { id: cfgId("gt"), name: name.trim(), maxPoints: 3, predefinedActivities: [], notes: [], order: (group.targets || []).length };
-      group.targets = [...(group.targets || []), t];
-      const gi = state.groups.findIndex(g => g.id === group.id);
-      if (gi >= 0) state.groups[gi] = group;
-      await saveGroup(group);
-      populateGroupTargetDropdown(group.targets);
-      state.selectedGroupTargetName = t.name;
-      $("group-target-select").value = t.name;
-      openGroupManageModal(group, t);
     });
   }
 
@@ -4076,6 +4101,7 @@ function renderGroupManageContent(group) {
     group.students = [...$("manage-modal-body").querySelectorAll(".mn-g-student-field")]
       .map(f => f.value.trim()).filter(Boolean);
     if (wasAuto) group.name = groupAutoName(group.students);
+    if (group.students.length > 0) _newGroupId = null; // group is no longer empty
     const nameEl = $("mn-g-name");
     if (nameEl) {
       nameEl.textContent = group.name || "The group name is automatically set based on the student names entered below. Just fill in the students and this field will be filled automatically.";

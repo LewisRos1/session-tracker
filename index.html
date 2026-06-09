@@ -155,6 +155,7 @@
         <span class="session-student-name" id="view-student-name"></span>
         <span class="session-meta"         id="view-session-meta"></span>
       </div>
+      <button id="btn-delete-session" class="btn-delete-session hidden">Delete Session</button>
     </header>
     <div class="session-view-body" id="session-view-body">
       <!-- populated by JS -->
@@ -178,11 +179,10 @@
         <select id="group-target-select" class="target-dropdown">
           <option value="">— select —</option>
         </select>
-        <div class="days-average-chip" id="group-avg-chips" style="display:none">
-          <span class="days-average-label">Target Avg</span>
-          <span class="days-average-value" id="group-avg-values"></span>
+        <div class="days-average-chip" id="group-avg-chips">
+          <span class="days-average-label">Target's Avg</span>
+          <span class="days-average-value" id="group-avg-values">—</span>
         </div>
-        <button id="btn-group-add-target" class="btn-manage-targets">+ Add Target</button>
         <button id="btn-group-manage-targets" class="btn-manage-targets hidden">Edit Target</button>
       </div>
       <div id="group-target-content" class="target-content"></div>
