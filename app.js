@@ -53,7 +53,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "248";
+const APP_VERSION = "249";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -692,15 +692,15 @@ function renderSessionsForMonth(student, month, monthSessions, byMonth, today) {
   const list = $("session-picker-list");
   let html = `<button class="btn-picker-back">← Back</button>`;
 
-  const sorted = [...monthSessions].sort((a, b) => a.date.localeCompare(b.date));
-  for (const s of monthSessions) {
-    const sessionNum = sorted.findIndex(x => x.id === s.id) + 1;
-    const isToday    = s.date === today;
-    const dateLabel = isToday ? `Today · ${formatDate(s.date)}` : formatDate(s.date);
-    html += `<div class="session-list-item" data-session-id="${s.id}">
+  const sorted  = [...monthSessions].sort((a, b) => a.date.localeCompare(b.date));
+  const display = [...sorted].reverse();
+  for (const s of display) {
+    const num      = sorted.findIndex(x => x.id === s.id) + 1;
+    const isToday  = s.date === today;
+    const label    = `${isToday ? "Today" : formatDate(s.date)} (Session ${num} of ${s.month.split(" ")[0]})`;
+    html += `<div class="session-list-item${isToday ? " session-list-today" : ""}" data-session-id="${s.id}">
       <div class="session-list-meta">
-        <div class="session-list-label">Session ${sessionNum} of ${s.month.split(" ")[0]}</div>
-        <div class="session-list-date">${dateLabel}</div>
+        <div class="session-list-label">${label}</div>
       </div>
     </div>`;
   }
@@ -793,16 +793,21 @@ function renderGoToMonthGrid(student, byMonth, today) {
 
 function renderGoToSessionsForMonth(student, month, monthSessions, byMonth, today) {
   $("session-picker-title").textContent = month;
-  const sorted = [...monthSessions].sort((a, b) => a.date.localeCompare(b.date));
+  const sorted  = [...monthSessions].sort((a, b) => a.date.localeCompare(b.date));
+  const display = [...sorted].reverse();
   let html = `<button class="btn-picker-back">← Back</button>`;
-  for (const s of sorted) {
-    const num = sorted.findIndex(x => x.id === s.id) + 1;
+  for (const s of display) {
+    const num       = sorted.findIndex(x => x.id === s.id) + 1;
     const isCurrent = s.id === state.viewSessionId;
-    const dateLabel = s.date === today ? `Today · ${formatDate(s.date)}` : formatDate(s.date);
-    html += `<div class="session-list-item${isCurrent ? " session-list-current" : ""}" data-session-id="${s.id}">
+    const isToday   = s.date === today;
+    const datePart  = isToday ? "Today" : formatDate(s.date);
+    const label     = `${datePart} (Session ${num} of ${s.month.split(" ")[0]})${isCurrent ? " (current)" : ""}`;
+    let cls = "session-list-item";
+    if (isCurrent) cls += " session-list-current";
+    if (isToday)   cls += " session-list-today";
+    html += `<div class="${cls}" data-session-id="${s.id}">
       <div class="session-list-meta">
-        <div class="session-list-label">Session ${num} of ${s.month.split(" ")[0]}${isCurrent ? " · current" : ""}</div>
-        <div class="session-list-date">${dateLabel}</div>
+        <div class="session-list-label">${label}</div>
       </div>
     </div>`;
   }
@@ -4386,17 +4391,19 @@ function renderGroupMonthGrid(group, byMonth) {
 
 function renderGroupSessionsForMonth(group, month, monthSessions, byMonth) {
   $("session-picker-title").textContent = month;
-  const sorted = [...monthSessions].sort((a, b) => a.date.localeCompare(b.date));
-  const today  = getTodayString();
+  const sorted  = [...monthSessions].sort((a, b) => a.date.localeCompare(b.date));
+  const display = [...sorted].reverse();
+  const today   = getTodayString();
   let html = `<button class="btn-picker-back">← Back</button>`;
-  for (const s of monthSessions) {
-    const num = sorted.findIndex(x => x.id === s.id) + 1;
-    const dateLabel = s.date === today ? `Today · ${formatDate(s.date)}` : formatDate(s.date);
+  for (const s of display) {
+    const num       = sorted.findIndex(x => x.id === s.id) + 1;
+    const isToday   = s.date === today;
+    const datePart  = isToday ? "Today" : formatDate(s.date);
     const attendees = (s.attendees || []).join(", ");
-    html += `<div class="session-list-item" data-session-id="${s.id}">
+    html += `<div class="session-list-item${isToday ? " session-list-today" : ""}" data-session-id="${s.id}">
       <div class="session-list-meta">
-        <div class="session-list-label">Session ${num} of ${s.month.split(" ")[0]}</div>
-        <div class="session-list-date">${dateLabel}${attendees ? ` · ${escHtml(attendees)}` : ""}</div>
+        <div class="session-list-label">${datePart} (Session ${num} of ${s.month.split(" ")[0]})</div>
+        ${attendees ? `<div class="session-list-date">${escHtml(attendees)}</div>` : ""}
       </div>
     </div>`;
   }
