@@ -53,7 +53,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "251";
+const APP_VERSION = "253";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -868,17 +868,25 @@ function renderDatePickerCalendar(displayDate, takenDates, today, currentDate) {
     </div>
     <div class="date-picker-grid">`;
 
-  for (let i = 0; i < firstDow; i++) html += `<span></span>`;
-  for (let d = 1; d <= daysInMon; d++) {
-    const ds = `${y}-${pad(m)}-${pad(d)}`;
+  // Always render 42 cells (6 rows) so height never changes between months
+  for (let cell = 0; cell < 42; cell++) {
+    const d = cell - firstDow + 1;
+    if (d < 1 || d > daysInMon) { html += `<span></span>`; continue; }
+    const ds     = `${y}-${pad(m)}-${pad(d)}`;
     const isCur  = ds === currentDate;
-    const dis    = takenDates.has(ds) || ds > today;
+    const isFut  = ds > today;
+    const isTaken = takenDates.has(ds);
+    const dis    = isFut || isTaken;
     let cls = "date-picker-day";
-    if (isCur) cls += " date-picker-day-current";
-    if (dis)   cls += " date-picker-day-disabled";
-    html += `<button class="${cls}" data-date="${ds}"${dis ? " disabled" : ""}>${d}</button>`;
+    if (isCur)   cls += " date-picker-day-current";
+    if (isFut)   cls += " date-picker-day-future";
+    if (isTaken) cls += " date-picker-day-taken";
+    const dot = isTaken ? `<span class="date-taken-dot"></span>` : "";
+    html += `<button class="${cls}" data-date="${ds}"${dis ? " disabled" : ""}>${d}${dot}</button>`;
   }
-  html += `</div></div>`;
+  html += `</div>
+    <div class="date-picker-legend"><span class="date-taken-dot"></span> Already has a session</div>
+  </div>`;
 
   $("session-picker-title").textContent = "Edit Date";
   $("session-picker-list").innerHTML = html;
