@@ -53,7 +53,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "235";
+const APP_VERSION = "236";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -4007,36 +4007,28 @@ function openGroupManageModal(group, target = null) {
 }
 
 function renderGroupManageContent(group) {
-  const displayName = group.name || "New Group";
-  $("manage-modal-title").textContent = displayName;
+  $("manage-modal-title").textContent = group.name || "New Group";
 
-  const studentsHtml = group.students?.length > 0
-    ? group.students.map((s, i) => `
-        <div class="roster-item" style="justify-content:space-between">
-          <span class="roster-item-name">${escHtml(s)}</span>
-          <button class="btn-group-remove-student" data-idx="${i}"
-            style="background:none;border:1px solid var(--danger);color:var(--danger);border-radius:6px;padding:.15rem .5rem;font-size:.8rem;cursor:pointer;flex-shrink:0">
-            Remove
-          </button>
-        </div>`).join("")
-    : `<p style="color:var(--text-muted);font-size:.88rem;margin:.25rem 0 .5rem">No students yet — add names below.</p>`;
+  // 3 fixed student rows — always show exactly 3
+  const studentRowsHtml = [0, 1, 2].map(i => `
+    <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.45rem">
+      <span style="min-width:5.5rem;font-size:.85rem;font-weight:600;color:var(--text-muted)">Student ${i + 1}</span>
+      <input class="admin-input mn-g-student-field" data-idx="${i}"
+        value="${escHtml(group.students?.[i] || "")}"
+        placeholder="Enter name…" style="flex:1" />
+    </div>`).join("");
 
   $("manage-modal-body").innerHTML = `
     <div class="admin-section">
       <label class="admin-label">Group Name</label>
-      <input class="admin-input" id="mn-g-name" value="${escHtml(displayName)}"
-        style="flex:1;width:100%;color:var(--text-muted);font-style:italic" disabled />
-      <p style="font-size:.78rem;color:var(--text-muted);margin-top:.3rem">
-        Auto-named from student names below — add students to set the group name.
-      </p>
+      <input class="admin-input" id="mn-g-name" readonly
+        value="${escHtml(group.name || "")}"
+        placeholder="The group name is automatically set based on the student names you enter below. Just fill in the students and this field will be filled automatically."
+        style="width:100%;color:var(--text-muted);font-style:italic;cursor:default" />
     </div>
     <div class="admin-section">
       <label class="admin-label">Students</label>
-      <div class="roster-list" id="mn-g-student-list">${studentsHtml}</div>
-      <div style="display:flex;gap:.5rem;margin-top:.5rem">
-        <input class="admin-input" id="mn-g-student-input" placeholder="Student name…" style="flex:1" />
-        <button class="btn-primary-sm" id="btn-mn-g-add-student">Add</button>
-      </div>
+      ${studentRowsHtml}
     </div>
     <div style="margin-top:1.5rem;padding-bottom:.5rem;display:flex;flex-direction:column;gap:.6rem">
       <button class="btn-primary-sm" id="btn-mn-g-done"
@@ -4044,35 +4036,22 @@ function renderGroupManageContent(group) {
       <button class="btn-adm-danger" id="btn-mn-del-group">Delete Group</button>
     </div>`;
 
-  // Add student
-  const addStudent = async () => {
-    const name = $("mn-g-student-input").value.trim();
-    if (!name) return;
+  // Save student fields on blur — reads all 3 inputs, filters empty, updates group
+  const saveStudents = async () => {
     const wasAuto = groupNameIsAuto(group);
-    group.students = [...(group.students || []), name];
+    group.students = [...$("manage-modal-body").querySelectorAll(".mn-g-student-field")]
+      .map(f => f.value.trim()).filter(Boolean);
     if (wasAuto) group.name = groupAutoName(group.students);
-    $("mn-g-student-input").value = "";
+    $("mn-g-name").value = group.name || "";
+    $("manage-modal-title").textContent = group.name || "New Group";
     const gi = state.groups.findIndex(g => g.id === group.id);
     if (gi >= 0) state.groups[gi] = group;
     await saveGroup(group);
-    renderGroupManageContent(group);
-    setTimeout(() => $("mn-g-student-input")?.focus(), 50);
+    renderGroupButtons();
   };
-  $("btn-mn-g-add-student").addEventListener("click", addStudent);
-  $("mn-g-student-input").addEventListener("keydown", e => { if (e.key === "Enter") addStudent(); });
-
-  // Remove student
-  $("manage-modal-body").querySelectorAll(".btn-group-remove-student").forEach(btn => {
-    btn.addEventListener("click", async () => {
-      const idx = Number(btn.dataset.idx);
-      const wasAuto = groupNameIsAuto(group);
-      group.students = group.students.filter((_, i) => i !== idx);
-      if (wasAuto) group.name = groupAutoName(group.students);
-      const gi = state.groups.findIndex(g => g.id === group.id);
-      if (gi >= 0) state.groups[gi] = group;
-      await saveGroup(group);
-      renderGroupManageContent(group);
-    });
+  $("manage-modal-body").querySelectorAll(".mn-g-student-field").forEach(input => {
+    input.addEventListener("blur", saveStudents);
+    input.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); input.blur(); } });
   });
 
   // Done
