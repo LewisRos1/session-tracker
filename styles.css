@@ -452,10 +452,11 @@ html, body {
 }
 .date-picker-day {
   aspect-ratio: 1;
-  position: relative;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: .1rem;
   border: none;
   border-radius: 6px;
   font-size: .9rem;
@@ -465,6 +466,7 @@ html, body {
   color: var(--text-main);
   transition: background .1s;
 }
+.day-num { line-height: 1; }
 .date-picker-day:hover { background: var(--primary-light); }
 .date-picker-day-current {
   background: var(--primary);
@@ -473,17 +475,15 @@ html, body {
 }
 .date-picker-day-future { color: #bbb; cursor: default; }
 .date-picker-day-taken  { cursor: default; }
-.date-taken-dot {
-  position: absolute;
-  bottom: .22rem;
-  left: 50%;
-  transform: translateX(-50%);
-  width: .28rem; height: .28rem;
-  border-radius: 50%;
-  background: var(--primary);
+.date-taken-dot, .day-dot-spacer {
   display: block;
+  width: .3rem; height: .3rem;
+  border-radius: 50%;
+  flex-shrink: 0;
 }
+.date-taken-dot { background: var(--primary); }
 .date-picker-day-current .date-taken-dot { background: #fff; }
+.day-dot-spacer { background: transparent; }
 .date-picker-legend {
   display: flex;
   align-items: center;
@@ -492,11 +492,6 @@ html, body {
   font-size: .74rem;
   color: var(--text-muted);
   justify-content: center;
-}
-.date-picker-legend .date-taken-dot {
-  position: static;
-  transform: none;
-  flex-shrink: 0;
 }
 
 .session-date-step {

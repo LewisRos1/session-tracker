@@ -3,7 +3,7 @@
 // Firebase SDK handles Firestore data offline independently.
 // ============================================================
 
-const CACHE_NAME = "therapy-tracker-v259";
+const CACHE_NAME = "therapy-tracker-v260";
 
 // App shell files to pre-cache
 const SHELL_URLS = [
