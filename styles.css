@@ -399,11 +399,16 @@ html, body {
   background: var(--primary-light);
 }
 
+.date-picker-wrap {
+  max-width: 340px;
+  margin: 0 auto;
+  padding: .25rem 0 .5rem;
+}
 .date-picker-nav {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: .4rem 0 .9rem;
+  padding: .2rem 0 .7rem;
 }
 .date-picker-month-label {
   font-size: 1rem;
@@ -414,8 +419,8 @@ html, body {
   background: none;
   border: 1.5px solid var(--border);
   border-radius: 8px;
-  width: 2.4rem; height: 2.4rem;
-  font-size: 1.3rem;
+  width: 2.2rem; height: 2.2rem;
+  font-size: 1.2rem;
   cursor: pointer;
   display: flex; align-items: center; justify-content: center;
   color: var(--primary);
@@ -426,29 +431,29 @@ html, body {
 .date-picker-day-headers {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
-  margin-bottom: .3rem;
+  margin-bottom: .2rem;
 }
 .date-picker-day-headers span {
   text-align: center;
-  font-size: .72rem;
+  font-size: .68rem;
   font-weight: 700;
   color: var(--text-muted);
   text-transform: uppercase;
-  padding: .15rem 0;
+  padding: .1rem 0;
 }
 .date-picker-grid {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
-  gap: .25rem;
+  gap: .2rem;
 }
 .date-picker-day {
-  aspect-ratio: 1;
+  height: 2.5rem;
   display: flex;
   align-items: center;
   justify-content: center;
   border: 1.5px solid transparent;
   border-radius: 8px;
-  font-size: .92rem;
+  font-size: .9rem;
   font-weight: 500;
   cursor: pointer;
   background: none;

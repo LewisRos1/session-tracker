@@ -53,7 +53,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "249";
+const APP_VERSION = "251";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -697,7 +697,7 @@ function renderSessionsForMonth(student, month, monthSessions, byMonth, today) {
   for (const s of display) {
     const num      = sorted.findIndex(x => x.id === s.id) + 1;
     const isToday  = s.date === today;
-    const label    = `${isToday ? "Today" : formatDate(s.date)} (Session ${num} of ${s.month.split(" ")[0]})`;
+    const label = `Session ${num}: ${formatDate(s.date)}`;
     html += `<div class="session-list-item${isToday ? " session-list-today" : ""}" data-session-id="${s.id}">
       <div class="session-list-meta">
         <div class="session-list-label">${label}</div>
@@ -800,8 +800,7 @@ function renderGoToSessionsForMonth(student, month, monthSessions, byMonth, toda
     const num       = sorted.findIndex(x => x.id === s.id) + 1;
     const isCurrent = s.id === state.viewSessionId;
     const isToday   = s.date === today;
-    const datePart  = isToday ? "Today" : formatDate(s.date);
-    const label     = `${datePart} (Session ${num} of ${s.month.split(" ")[0]})${isCurrent ? " (current)" : ""}`;
+    const label = `Session ${num}: ${formatDate(s.date)}${isCurrent ? " (current)" : ""}`;
     let cls = "session-list-item";
     if (isCurrent) cls += " session-list-current";
     if (isToday)   cls += " session-list-today";
@@ -857,7 +856,7 @@ function renderDatePickerCalendar(displayDate, takenDates, today, currentDate) {
   const firstDow  = new Date(y, m - 1, 1).getDay();
   const daysInMon = new Date(y, m, 0).getDate();
 
-  let html = `
+  let html = `<div class="date-picker-wrap">
     <div class="date-picker-nav">
       <button class="btn-date-prev">‹</button>
       <span class="date-picker-month-label">${escHtml(monthLabel)}</span>
@@ -879,7 +878,7 @@ function renderDatePickerCalendar(displayDate, takenDates, today, currentDate) {
     if (dis)   cls += " date-picker-day-disabled";
     html += `<button class="${cls}" data-date="${ds}"${dis ? " disabled" : ""}>${d}</button>`;
   }
-  html += `</div>`;
+  html += `</div></div>`;
 
   $("session-picker-title").textContent = "Edit Date";
   $("session-picker-list").innerHTML = html;
@@ -4398,11 +4397,10 @@ function renderGroupSessionsForMonth(group, month, monthSessions, byMonth) {
   for (const s of display) {
     const num       = sorted.findIndex(x => x.id === s.id) + 1;
     const isToday   = s.date === today;
-    const datePart  = isToday ? "Today" : formatDate(s.date);
     const attendees = (s.attendees || []).join(", ");
     html += `<div class="session-list-item${isToday ? " session-list-today" : ""}" data-session-id="${s.id}">
       <div class="session-list-meta">
-        <div class="session-list-label">${datePart} (Session ${num} of ${s.month.split(" ")[0]})</div>
+        <div class="session-list-label">Session ${num}: ${formatDate(s.date)}</div>
         ${attendees ? `<div class="session-list-date">${escHtml(attendees)}</div>` : ""}
       </div>
     </div>`;
