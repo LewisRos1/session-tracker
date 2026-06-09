@@ -53,7 +53,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "234";
+const APP_VERSION = "235";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -3817,6 +3817,20 @@ function attachGroupTargetListeners(target) {
       const tgt = state.currentGroup?.targets.find(t => t.name === state.selectedGroupTargetName);
       if (tgt) openGroupManageModal(state.currentGroup, tgt);
     });
+    $("btn-group-add-target")?.addEventListener("click", async () => {
+      const name = prompt("Target name:");
+      if (!name?.trim()) return;
+      const group = state.currentGroup;
+      const t = { id: cfgId("gt"), name: name.trim(), maxPoints: 3, predefinedActivities: [], notes: [], order: (group.targets || []).length };
+      group.targets = [...(group.targets || []), t];
+      const gi = state.groups.findIndex(g => g.id === group.id);
+      if (gi >= 0) state.groups[gi] = group;
+      await saveGroup(group);
+      populateGroupTargetDropdown(group.targets);
+      state.selectedGroupTargetName = t.name;
+      $("group-target-select").value = t.name;
+      openGroupManageModal(group, t);
+    });
   }
 
   // Remark blur-save (live rows)
@@ -3993,7 +4007,9 @@ function openGroupManageModal(group, target = null) {
 }
 
 function renderGroupManageContent(group) {
-  $("manage-modal-title").textContent = group.name;
+  const displayName = group.name || "New Group";
+  $("manage-modal-title").textContent = displayName;
+
   const studentsHtml = group.students?.length > 0
     ? group.students.map((s, i) => `
         <div class="roster-item" style="justify-content:space-between">
@@ -4003,24 +4019,16 @@ function renderGroupManageContent(group) {
             Remove
           </button>
         </div>`).join("")
-    : `<p style="color:var(--text-muted);font-size:.88rem;margin:.25rem 0 .5rem">No students yet.</p>`;
-
-  const sorted = [...(group.targets || [])].sort((a, b) => a.name.localeCompare(b.name));
-  const targetsHtml = sorted.length > 0
-    ? `<div class="roster-list">` + sorted.map(t => `
-        <button class="roster-item btn-group-edit-target" data-target-id="${t.id}">
-          <span class="roster-item-name">${escHtml(t.name)}</span>
-          <span style="color:var(--primary);font-size:.8rem;flex-shrink:0">Edit →</span>
-        </button>`).join("") + `</div>`
-    : `<p style="color:var(--text-muted);font-size:.88rem;margin:.25rem 0 .5rem">No targets yet.</p>`;
+    : `<p style="color:var(--text-muted);font-size:.88rem;margin:.25rem 0 .5rem">No students yet — add names below.</p>`;
 
   $("manage-modal-body").innerHTML = `
     <div class="admin-section">
       <label class="admin-label">Group Name</label>
-      <div style="display:flex;gap:.5rem;align-items:center">
-        <input class="admin-input" id="mn-g-name" value="${escHtml(group.name)}" style="flex:1" />
-        <button class="btn-primary-sm" id="btn-mn-g-rename">Save</button>
-      </div>
+      <input class="admin-input" id="mn-g-name" value="${escHtml(displayName)}"
+        style="flex:1;width:100%;color:var(--text-muted);font-style:italic" disabled />
+      <p style="font-size:.78rem;color:var(--text-muted);margin-top:.3rem">
+        Auto-named from student names below — add students to set the group name.
+      </p>
     </div>
     <div class="admin-section">
       <label class="admin-label">Students</label>
@@ -4030,27 +4038,11 @@ function renderGroupManageContent(group) {
         <button class="btn-primary-sm" id="btn-mn-g-add-student">Add</button>
       </div>
     </div>
-    <div class="admin-section">
-      <label class="admin-label">Targets</label>
-      ${targetsHtml}
-      <button class="btn-admin-add" id="btn-mn-g-add-target" style="margin-top:.4rem">+ Add Target</button>
-    </div>
-    <div style="margin-top:1.5rem;padding-bottom:.5rem">
+    <div style="margin-top:1.5rem;padding-bottom:.5rem;display:flex;flex-direction:column;gap:.6rem">
+      <button class="btn-primary-sm" id="btn-mn-g-done"
+        style="width:100%;padding:.75rem;font-size:1rem">Done</button>
       <button class="btn-adm-danger" id="btn-mn-del-group">Delete Group</button>
     </div>`;
-
-  // Rename group
-  $("btn-mn-g-rename").addEventListener("click", async () => {
-    const v = $("mn-g-name").value.trim();
-    if (!v || v === group.name) return;
-    group.name = v;
-    $("manage-modal-title").textContent = v;
-    const gi = state.groups.findIndex(g => g.id === group.id);
-    if (gi >= 0) state.groups[gi] = group;
-    await saveGroup(group);
-    flashSaved($("mn-g-name"));
-  });
-  $("mn-g-name").addEventListener("keydown", e => { if (e.key === "Enter") $("btn-mn-g-rename").click(); });
 
   // Add student
   const addStudent = async () => {
@@ -4064,6 +4056,7 @@ function renderGroupManageContent(group) {
     if (gi >= 0) state.groups[gi] = group;
     await saveGroup(group);
     renderGroupManageContent(group);
+    setTimeout(() => $("mn-g-student-input")?.focus(), 50);
   };
   $("btn-mn-g-add-student").addEventListener("click", addStudent);
   $("mn-g-student-input").addEventListener("keydown", e => { if (e.key === "Enter") addStudent(); });
@@ -4082,25 +4075,8 @@ function renderGroupManageContent(group) {
     });
   });
 
-  // Edit target
-  $("manage-modal-body").querySelectorAll(".btn-group-edit-target").forEach(btn => {
-    btn.addEventListener("click", () => {
-      const tgt = group.targets.find(t => t.id === btn.dataset.targetId);
-      if (tgt) openGroupManageModal(group, tgt);
-    });
-  });
-
-  // Add target
-  $("btn-mn-g-add-target").addEventListener("click", async () => {
-    const name = prompt("Target name:");
-    if (!name?.trim()) return;
-    const t = { id: cfgId("gt"), name: name.trim(), maxPoints: 3, predefinedActivities: [], notes: [], order: (group.targets || []).length };
-    group.targets = [...(group.targets || []), t];
-    const gi = state.groups.findIndex(g => g.id === group.id);
-    if (gi >= 0) state.groups[gi] = group;
-    await saveGroup(group);
-    openGroupManageModal(group, t);
-  });
+  // Done
+  $("btn-mn-g-done").addEventListener("click", closeManageModal);
 
   // Delete group
   $("btn-mn-del-group").addEventListener("click", async () => {
