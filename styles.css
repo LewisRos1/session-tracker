@@ -467,8 +467,8 @@ html, body {
 }
 .date-picker-day:hover { background: var(--primary-light); }
 .date-picker-day-current {
-  background: var(--primary-light);
-  color: var(--primary);
+  background: var(--primary);
+  color: #fff;
   font-weight: 700;
 }
 .date-picker-day-future { color: #bbb; cursor: default; }
@@ -483,6 +483,7 @@ html, body {
   background: var(--primary);
   display: block;
 }
+.date-picker-day-current .date-taken-dot { background: #fff; }
 .date-picker-legend {
   display: flex;
   align-items: center;

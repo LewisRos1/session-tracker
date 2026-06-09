@@ -53,7 +53,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "255";
+const APP_VERSION = "256";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -879,7 +879,7 @@ function renderDatePickerCalendar(displayDate, takenDates, today, currentDate) {
     if (isCur)   cls += " date-picker-day-current";
     if (isFut)   cls += " date-picker-day-future";
     if (isTaken) cls += " date-picker-day-taken";
-    const dot = isTaken ? `<span class="date-taken-dot"></span>` : "";
+    const dot = (isTaken || isCur) ? `<span class="date-taken-dot"></span>` : "";
     html += `<button class="${cls}" data-date="${ds}"${dis ? " disabled" : ""}>${d}${dot}</button>`;
   }
   html += `</div>
