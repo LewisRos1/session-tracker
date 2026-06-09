@@ -53,7 +53,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "253";
+const APP_VERSION = "255";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -697,10 +697,9 @@ function renderSessionsForMonth(student, month, monthSessions, byMonth, today) {
   for (const s of display) {
     const num      = sorted.findIndex(x => x.id === s.id) + 1;
     const isToday  = s.date === today;
-    const label = `Session ${num}: ${formatDate(s.date)}`;
     html += `<div class="session-list-item${isToday ? " session-list-today" : ""}" data-session-id="${s.id}">
       <div class="session-list-meta">
-        <div class="session-list-label">${label}</div>
+        <div class="session-list-label"><strong>Session ${num}</strong>: ${formatDate(s.date)}</div>
       </div>
     </div>`;
   }
@@ -800,13 +799,12 @@ function renderGoToSessionsForMonth(student, month, monthSessions, byMonth, toda
     const num       = sorted.findIndex(x => x.id === s.id) + 1;
     const isCurrent = s.id === state.viewSessionId;
     const isToday   = s.date === today;
-    const label = `Session ${num}: ${formatDate(s.date)}${isCurrent ? " (current)" : ""}`;
     let cls = "session-list-item";
     if (isCurrent) cls += " session-list-current";
     if (isToday)   cls += " session-list-today";
     html += `<div class="${cls}" data-session-id="${s.id}">
       <div class="session-list-meta">
-        <div class="session-list-label">${label}</div>
+        <div class="session-list-label"><strong>Session ${num}</strong>: ${formatDate(s.date)}${isCurrent ? " (current)" : ""}</div>
       </div>
     </div>`;
   }
@@ -4408,7 +4406,7 @@ function renderGroupSessionsForMonth(group, month, monthSessions, byMonth) {
     const attendees = (s.attendees || []).join(", ");
     html += `<div class="session-list-item${isToday ? " session-list-today" : ""}" data-session-id="${s.id}">
       <div class="session-list-meta">
-        <div class="session-list-label">Session ${num}: ${formatDate(s.date)}</div>
+        <div class="session-list-label"><strong>Session ${num}</strong>: ${formatDate(s.date)}</div>
         ${attendees ? `<div class="session-list-date">${escHtml(attendees)}</div>` : ""}
       </div>
     </div>`;
