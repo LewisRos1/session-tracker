@@ -483,14 +483,19 @@ html, body {
 .date-taken-dot { background: var(--primary); }
 .date-picker-day-current .date-taken-dot { background: #fff; }
 .day-dot-spacer { background: transparent; }
-.date-picker-legend {
+.date-picker-nav-right {
   display: flex;
   align-items: center;
-  gap: .4rem;
-  margin-top: .6rem;
-  font-size: .74rem;
+  gap: .5rem;
+  flex-shrink: 0;
+}
+.date-picker-legend-inline {
+  display: flex;
+  align-items: center;
+  gap: .3rem;
+  font-size: .7rem;
   color: var(--text-muted);
-  justify-content: center;
+  white-space: nowrap;
 }
 
 .session-date-step {

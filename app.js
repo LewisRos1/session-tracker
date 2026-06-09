@@ -53,7 +53,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "262";
+const APP_VERSION = "263";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -858,7 +858,10 @@ function renderDatePickerCalendar(displayDate, takenDates, today, currentDate) {
     <div class="date-picker-nav">
       <button class="btn-date-prev">‹</button>
       <span class="date-picker-month-label">${escHtml(monthLabel)}</span>
-      <button class="btn-date-next"${canNext ? "" : " disabled"}>›</button>
+      <div class="date-picker-nav-right">
+        <span class="date-picker-legend-inline"><span class="date-taken-dot"></span> Existing session</span>
+        <button class="btn-date-next"${canNext ? "" : " disabled"}>›</button>
+      </div>
     </div>
     <div class="date-picker-day-headers">
       <span>Su</span><span>Mo</span><span>Tu</span><span>We</span>
@@ -882,9 +885,7 @@ function renderDatePickerCalendar(displayDate, takenDates, today, currentDate) {
     const dotCls = (isTaken || isCur) ? "date-taken-dot" : "day-dot-spacer";
     html += `<button class="${cls}" data-date="${ds}"${dis ? " disabled" : ""}><span class="day-num">${d}</span><span class="${dotCls}"></span></button>`;
   }
-  html += `</div>
-    <div class="date-picker-legend"><span class="date-taken-dot"></span> Already has a session</div>
-  </div>`;
+  html += `</div></div>`;
 
   $("session-picker-title").textContent = "Edit Date";
   $("session-picker-list").innerHTML = html;
