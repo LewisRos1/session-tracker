@@ -444,14 +444,15 @@ html, body {
 .date-picker-grid {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
-  grid-auto-rows: 2.6rem;
   gap: .18rem;
 }
 .date-picker-grid > span {
+  aspect-ratio: 1;
   background: #f3f4f6;
   border-radius: 6px;
 }
 .date-picker-day {
+  aspect-ratio: 1;
   position: relative;
   display: flex;
   align-items: center;
