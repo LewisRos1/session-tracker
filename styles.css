@@ -448,8 +448,7 @@ html, body {
 }
 .date-picker-grid > span {
   aspect-ratio: 1;
-  background: #f3f4f6;
-  border-radius: 6px;
+  background: transparent;
 }
 .date-picker-day {
   aspect-ratio: 1;
