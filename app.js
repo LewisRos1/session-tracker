@@ -55,7 +55,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "299";
+const APP_VERSION = "300";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -2309,9 +2309,7 @@ function viewRemarkRow(no, actName, rem, target, inlineOptions = null, sentenceS
         </div>
       </div>`
     : (makeViewOpts(rem.id, rem.text)
-        || `<div class="view-remark-free-wrap">
-              <div class="view-remark-edit" contenteditable="true" data-rem-id="${escHtml(rem.id)}">${remarkToHtml(rem.text)}</div>
-            </div>`);
+        || `<div class="view-remark-edit" contenteditable="true" data-rem-id="${escHtml(rem.id)}">${remarkToHtml(rem.text)}</div>`);
 
   let remarkCell;
   if (sentenceStarter) {

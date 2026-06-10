@@ -2230,14 +2230,10 @@ div.admin-note-editable:empty::before {
 .vcol-act    { width: 330px; white-space: pre-wrap; word-break: break-word; }
 .vcol-rem    { height: 1px; padding: 0; }
 .vcol-rem > * { padding: .4rem .6rem; box-sizing: border-box; }
-/* min-height:100% fills the cell (resolves to row height via height:1px trick);
-   using min- not height so content taller than row can expand the row */
-.view-remark-free-wrap {
-  display: flex;
-  align-items: stretch;
-  min-height: 100%;
-}
-.view-remark-empty { height: 100%; }
+/* Both empty and pre-filled edit divs are direct children of .vcol-rem.
+   min-height:100% resolves to the rendered row height (Chrome table-cell % behaviour);
+   using min- so content taller than the row can still expand the row. */
+.vcol-rem > .view-remark-edit { min-height: 100%; }
 .vcol-trials { width: 260px; }
 .vcol-total  { width: 75px; text-align: center; white-space: nowrap; }
 .vcol-score  { width: 100px; text-align: center; font-weight: 600; white-space: nowrap; }
