@@ -504,3 +504,21 @@ export async function addGroupRemark(sessionId, actId, studentName) {
   });
   return remId;
 }
+
+/** Add remarks for multiple students in one write (no sequential re-renders). */
+export async function addGroupRemarksBatch(sessionId, entries) {
+  const updates = {};
+  const now = Date.now();
+  for (const { actId, studentName } of entries) {
+    const remId = generateId("r");
+    updates[`remarks.${remId}`] = { activityId: actId, studentName, text: "", trials: [], order: now };
+  }
+  await updateDoc(doc(db, "sessions", sessionId), updates);
+}
+
+/** Delete multiple remarks in one write (no sequential re-renders). */
+export async function deleteRemarksBatch(sessionId, remIds) {
+  const updates = {};
+  for (const remId of remIds) updates[`remarks.${remId}`] = deleteField();
+  await updateDoc(doc(db, "sessions", sessionId), updates);
+}

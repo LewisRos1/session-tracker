@@ -33,6 +33,8 @@ import {
   getRecentGroupSessions,
   deleteGroupTargetDataFromSessions,
   addGroupRemark,
+  addGroupRemarksBatch,
+  deleteRemarksBatch,
   setTrials,
   sanitizeKey,
   getTodayString,
@@ -53,7 +55,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "276";
+const APP_VERSION = "277";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -4312,11 +4314,11 @@ function attachGroupTargetListeners(target) {
       if (!actId) {
         actId = await addActivity(state.groupSessionId, targetName, actName, Date.now(), true);
       }
-      for (const studentName of state.groupAttendees) {
-        const hasRemark = Object.values(data.remarks || {})
-          .some(r => r.activityId === actId && r.studentName === studentName);
-        if (!hasRemark) await addGroupRemark(state.groupSessionId, actId, studentName);
-      }
+      const entries = state.groupAttendees
+        .filter(studentName => !Object.values(data.remarks || {})
+          .some(r => r.activityId === actId && r.studentName === studentName))
+        .map(studentName => ({ actId, studentName }));
+      if (entries.length) await addGroupRemarksBatch(state.groupSessionId, entries);
       // Firestore listener will re-render
     });
   });
@@ -4343,7 +4345,7 @@ function attachGroupTargetListeners(target) {
   c.querySelectorAll(".btn-group-del-round").forEach(btn => {
     btn.addEventListener("click", async () => {
       const remIds = btn.dataset.remIds.split(",").filter(Boolean);
-      for (const remId of remIds) await deleteRemark(state.groupSessionId, remId);
+      if (remIds.length) await deleteRemarksBatch(state.groupSessionId, remIds);
     });
   });
 
@@ -4353,9 +4355,8 @@ function attachGroupTargetListeners(target) {
       btn.disabled = true;
       btn.textContent = "Adding…";
       const actId = btn.dataset.actId;
-      for (const studentName of state.groupAttendees) {
-        await addGroupRemark(state.groupSessionId, actId, studentName);
-      }
+      const entries = state.groupAttendees.map(studentName => ({ actId, studentName }));
+      await addGroupRemarksBatch(state.groupSessionId, entries);
     });
   });
 
