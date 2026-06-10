@@ -2227,15 +2227,14 @@ div.admin-note-editable:empty::before {
 .view-comment-label { font-weight: 600; color: var(--text-muted); }
 
 .vcol-no     { width: 44px; text-align: center; white-space: nowrap; }
-.vcol-act    { width: 264px; white-space: pre-wrap; word-break: break-word; }
-.vcol-rem    { position: relative; padding: 0; }
+.vcol-act    { width: 330px; white-space: pre-wrap; word-break: break-word; }
+.vcol-rem    { padding: 0; }
 .vcol-rem > * { padding: .4rem .6rem; box-sizing: border-box; }
-/* Absolutely fill the TD so size is always the full cell — no percentage-height ambiguity */
+/* In-flow so tall remarks push row height; min-height: 100% fills TD when remark is shorter */
 .view-remark-free-wrap {
-  position: absolute;
-  inset: 0;
   display: flex;
   align-items: stretch;
+  min-height: 100%;
 }
 .view-remark-empty { height: 100%; }
 .vcol-trials { width: 260px; }
