@@ -2174,6 +2174,7 @@ div.admin-note-editable:empty::before {
 
 .view-table {
   width: 100%;
+  table-layout: fixed;
   border-collapse: collapse;
   font-size: .875rem;
 }
@@ -2226,18 +2227,19 @@ div.admin-note-editable:empty::before {
 .view-comment-label { font-weight: 600; color: var(--text-muted); }
 
 .vcol-no     { width: 44px; text-align: center; white-space: nowrap; }
-.vcol-act    { width: 356px; min-width: 250px; white-space: pre-wrap; }
-.vcol-rem    { min-width: 220px; padding: 0; height: 1px; }
-.vcol-rem > * { padding: .4rem .6rem; box-sizing: border-box; }
+.vcol-act    { width: 220px; white-space: pre-wrap; word-break: break-word; }
+.vcol-rem    { padding: 0; height: 1px; }
+.vcol-rem > * { padding: .4rem .6rem; box-sizing: border-box; width: 100%; }
 .view-remark-free-wrap {
   display: flex;
-  align-items: stretch;
-  gap: .3rem;
+  align-items: center;
   height: 100%;
 }
-.view-remark-free-wrap > .btn-sketch { align-self: flex-start; flex-shrink: 0; }
+.view-remark-free-wrap:focus-within {
+  align-items: flex-start;
+}
 .view-remark-empty { height: 100%; }
-.vcol-trials { min-width: 55px; }
+.vcol-trials { width: 260px; }
 .vcol-total  { width: 58px; text-align: center; white-space: nowrap; }
 .vcol-score  { width: 72px; text-align: center; font-weight: 600; white-space: nowrap; }
 
