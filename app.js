@@ -55,7 +55,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "288";
+const APP_VERSION = "289";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -2310,7 +2310,7 @@ function viewRemarkRow(no, actName, rem, target, inlineOptions = null, sentenceS
         </div>
       </div>`
     : (makeViewOpts(rem.id, rem.text)
-        || `<div style="display:flex;align-items:flex-start;gap:.3rem">
+        || `<div class="view-remark-free-wrap">
               <button class="btn-sketch" data-rem-id="${escHtml(rem.id)}" aria-label="Open sketch board">✏</button>
               <div class="view-remark-edit" contenteditable="true" data-rem-id="${escHtml(rem.id)}">${remarkToHtml(rem.text)}</div>
             </div>`);
