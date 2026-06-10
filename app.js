@@ -55,7 +55,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "282";
+const APP_VERSION = "284";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -496,11 +496,25 @@ function renderExportButtons() {
   const container = $("export-buttons");
   if (!container) return;
   const q = (state.searchExport || "").toLowerCase();
-  const filtered = q ? state.students.filter(s => s.name.toLowerCase().includes(q)) : state.students;
+  const filteredStudents = q ? state.students.filter(s => s.name.toLowerCase().includes(q)) : state.students;
+  const filteredGroups   = q ? (state.groups || []).filter(g => g.name.toLowerCase().includes(q)) : (state.groups || []);
 
-  container.innerHTML =
-    `<button class="export-btn export-btn-all" id="btn-export-all">Export All (ZIP)</button>` +
-    filtered.map(s => `<button class="export-btn" data-id="${s.id}">Export ${escHtml(s.name)}</button>`).join("");
+  const groupButtons = filteredGroups.length
+    ? filteredGroups.map(g => `<button class="export-btn export-btn-group-item" data-group-id="${g.id}">Export ${escHtml(g.name)}</button>`).join("")
+    : `<p class="empty-hint" style="padding:.4rem 0">No groups added yet.</p>`;
+
+  container.innerHTML = `
+    <div class="export-sub-section">
+      <div class="export-sub-header">Individual Sessions</div>
+      <div class="export-sub-buttons">
+        <button class="export-btn export-btn-all" id="btn-export-all">Export All (ZIP)</button>
+        ${filteredStudents.map(s => `<button class="export-btn" data-id="${s.id}">Export ${escHtml(s.name)}</button>`).join("")}
+      </div>
+    </div>
+    <div class="export-sub-section">
+      <div class="export-sub-header">Group Sessions</div>
+      <div class="export-sub-buttons">${groupButtons}</div>
+    </div>`;
 
   $("btn-export-all").addEventListener("click", async () => {
     const btn = $("btn-export-all");
@@ -531,6 +545,12 @@ function renderExportButtons() {
         btn.disabled = false;
         btn.textContent = orig;
       }
+    });
+  });
+
+  container.querySelectorAll(".export-btn-group-item").forEach(btn => {
+    btn.addEventListener("click", () => {
+      alert("Group session export is coming soon!");
     });
   });
 }
@@ -2029,7 +2049,7 @@ function renderSessionView() {
   if (!data || !student) return;
 
   $("view-session-meta").innerHTML =
-    `Session ${data.sessionNumber} of ${data.month.split(" ")[0]} · ${formatDate(data.date)}`
+    `Session ${data.sessionNumber}: ${formatDate(data.date)}`
     + ` <button class="btn-edit-session-date">Edit Date</button>`;
 
   const delBtn = $("btn-delete-session");

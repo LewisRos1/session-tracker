@@ -293,6 +293,18 @@ html, body {
   font-weight: 700;
 }
 .export-btn-all:hover { background: var(--primary-dark, #4338ca); border-color: var(--primary-dark, #4338ca); }
+.export-sub-section { margin-bottom: 1.25rem; }
+.export-sub-header {
+  font-size: .72rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  padding-bottom: .4rem;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: .6rem;
+}
+.export-sub-buttons { display: flex; flex-wrap: wrap; gap: .5rem; }
 
 /* ============================================================
    SESSION SCREEN
@@ -306,6 +318,7 @@ html, body {
   gap: .75rem;
   flex-shrink: 0;
   box-shadow: var(--shadow);
+  position: relative;
 }
 
 .btn-back {
@@ -379,20 +392,22 @@ html, body {
 .btn-delete-session.hidden { display: none; }
 
 .btn-goto-session {
-  background: none;
-  border: none;
-  color: rgba(255,255,255,.82);
-  font-size: .74rem;
-  font-weight: 600;
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(255,255,255,.18);
+  border: 1px solid rgba(255,255,255,.4);
+  border-radius: 6px;
+  padding: .35rem .9rem;
   cursor: pointer;
-  padding: .1rem 0 0;
-  text-decoration: underline;
-  text-underline-offset: 2px;
-  text-align: left;
+  font-size: .85rem;
+  font-weight: 600;
+  color: #fff;
   white-space: nowrap;
 }
-.btn-goto-session:hover { color: #fff; }
+.btn-goto-session:hover { background: rgba(255,255,255,.28); }
 .btn-goto-session.hidden { display: none; }
+#view-session-meta { font-size: 1rem; font-weight: 700; opacity: 1; }
 
 .session-list-current {
   border-color: var(--primary);
