@@ -55,7 +55,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "296";
+const APP_VERSION = "297";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -2409,6 +2409,9 @@ function attachViewListeners() {
 
   body.querySelectorAll(".view-remark-edit:not(.view-remark-empty)").forEach(ta => {
     let orig = ta.innerHTML;
+    ta.addEventListener("keydown", e => {
+      if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); ta.blur(); }
+    });
     ta.addEventListener("blur", async () => {
       const newText = ta.innerHTML;
       if (newText === orig) return;
@@ -2419,6 +2422,9 @@ function attachViewListeners() {
 
   // Empty remark cells — create activity + remark on first input
   body.querySelectorAll(".view-remark-empty").forEach(div => {
+    div.addEventListener("keydown", e => {
+      if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); div.blur(); }
+    });
     div.addEventListener("blur", async () => {
       const strip = s => (s || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").replace(/ /g, " ").trim();
       const text = div.innerHTML;

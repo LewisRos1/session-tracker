@@ -2228,9 +2228,10 @@ div.admin-note-editable:empty::before {
 
 .vcol-no     { width: 44px; text-align: center; white-space: nowrap; }
 .vcol-act    { width: 330px; white-space: pre-wrap; word-break: break-word; }
-.vcol-rem    { padding: 0; }
+.vcol-rem    { height: 1px; padding: 0; }
 .vcol-rem > * { padding: .4rem .6rem; box-sizing: border-box; }
-/* In-flow so tall remarks push row height; min-height: 100% fills TD when remark is shorter */
+/* min-height:100% fills the cell (resolves to row height via height:1px trick);
+   using min- not height so content taller than row can expand the row */
 .view-remark-free-wrap {
   display: flex;
   align-items: stretch;
