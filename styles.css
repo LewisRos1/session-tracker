@@ -359,34 +359,32 @@ html, body {
   flex-wrap: wrap;
 }
 .btn-edit-session-date {
-  background: rgba(255,255,255,.18);
-  border: 1px solid rgba(255,255,255,.4);
-  border-radius: 6px;
-  padding: .35rem .85rem;
+  background: rgba(255,255,255,.12);
+  border: 1px solid rgba(255,255,255,.28);
+  border-radius: 5px;
+  padding: .18rem .55rem;
   cursor: pointer;
-  font-size: .82rem;
-  font-weight: 600;
-  color: var(--white);
+  font-size: .72rem;
+  font-weight: 500;
+  color: rgba(255,255,255,.85);
   white-space: nowrap;
   flex-shrink: 0;
-  min-height: 32px;
 }
-.btn-edit-session-date:hover { background: rgba(255,255,255,.28); }
+.btn-edit-session-date:hover { background: rgba(255,255,255,.22); color: #fff; }
 
 .btn-delete-session {
-  background: #ef4444;
+  background: rgba(239,68,68,.75);
   border: none;
-  border-radius: 6px;
-  padding: .35rem .85rem;
+  border-radius: 5px;
+  padding: .18rem .55rem;
   cursor: pointer;
-  font-size: .82rem;
-  font-weight: 700;
+  font-size: .72rem;
+  font-weight: 600;
   color: #fff;
   white-space: nowrap;
   flex-shrink: 0;
-  min-height: 32px;
 }
-.btn-delete-session:hover { background: #dc2626; }
+.btn-delete-session:hover { background: #ef4444; }
 .btn-delete-session.hidden { display: none; }
 
 /* View session header — 3-column grid for reliable centering */
@@ -408,18 +406,17 @@ html, body {
   align-items: center;
 }
 .btn-goto-session {
-  background: rgba(255,255,255,.18);
-  border: 1px solid rgba(255,255,255,.4);
-  border-radius: 6px;
-  padding: .35rem .85rem;
+  background: rgba(255,255,255,.12);
+  border: 1px solid rgba(255,255,255,.28);
+  border-radius: 5px;
+  padding: .18rem .55rem;
   cursor: pointer;
-  font-size: .82rem;
-  font-weight: 600;
-  color: #fff;
+  font-size: .72rem;
+  font-weight: 500;
+  color: rgba(255,255,255,.85);
   white-space: nowrap;
-  min-height: 32px;
 }
-.btn-goto-session:hover { background: rgba(255,255,255,.28); }
+.btn-goto-session:hover { background: rgba(255,255,255,.22); color: #fff; }
 .btn-goto-session.hidden { display: none; }
 #view-session-meta { font-size: 1rem; font-weight: 400; opacity: 1; }
 
@@ -1251,7 +1248,6 @@ html, body {
 .session-list-item:hover  { background: var(--primary-light); border-color: var(--primary); }
 .session-list-item:active { opacity: .8; }
 
-.session-list-today   { border-color: var(--success); }
 .session-list-current { border-color: var(--primary); background: var(--primary-light); }
 
 .session-list-meta   { flex: 1; }

@@ -55,7 +55,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "285";
+const APP_VERSION = "288";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -714,14 +714,15 @@ function renderSessionsForMonth(student, month, monthSessions, byMonth, today) {
   const list = $("session-picker-list");
   let html = `<button class="btn-picker-back">← Back</button>`;
 
-  const sorted  = [...monthSessions].sort((a, b) => a.date.localeCompare(b.date));
-  const display = [...sorted].reverse();
+  const sorted    = [...monthSessions].sort((a, b) => a.date.localeCompare(b.date));
+  const display   = [...sorted].reverse();
+  const yesterday = getYesterdayString();
   for (const s of display) {
-    const num      = sorted.findIndex(x => x.id === s.id) + 1;
-    const isToday  = s.date === today;
-    html += `<div class="session-list-item${isToday ? " session-list-today" : ""}" data-session-id="${s.id}">
+    const num   = sorted.findIndex(x => x.id === s.id) + 1;
+    const label = sessionDateLabel(s.date, today, yesterday, false);
+    html += `<div class="session-list-item" data-session-id="${s.id}">
       <div class="session-list-meta">
-        <div class="session-list-label"><strong>Session ${num}</strong>: ${formatDate(s.date)}</div>
+        <div class="session-list-label"><strong>Session ${num}</strong>: ${formatDate(s.date)}${label}</div>
       </div>
     </div>`;
   }
@@ -814,19 +815,18 @@ function renderGoToMonthGrid(student, byMonth, today) {
 
 function renderGoToSessionsForMonth(student, month, monthSessions, byMonth, today) {
   $("session-picker-title").textContent = month;
-  const sorted  = [...monthSessions].sort((a, b) => a.date.localeCompare(b.date));
-  const display = [...sorted].reverse();
+  const sorted    = [...monthSessions].sort((a, b) => a.date.localeCompare(b.date));
+  const display   = [...sorted].reverse();
+  const yesterday = getYesterdayString();
   let html = `<button class="btn-picker-back">← Back</button>`;
   for (const s of display) {
     const num       = sorted.findIndex(x => x.id === s.id) + 1;
     const isCurrent = s.id === state.viewSessionId;
-    const isToday   = s.date === today;
-    let cls = "session-list-item";
-    if (isCurrent) cls += " session-list-current";
-    if (isToday)   cls += " session-list-today";
+    const cls       = `session-list-item${isCurrent ? " session-list-current" : ""}`;
+    const label     = sessionDateLabel(s.date, today, yesterday, isCurrent);
     html += `<div class="${cls}" data-session-id="${s.id}">
       <div class="session-list-meta">
-        <div class="session-list-label"><strong>Session ${num}</strong>: ${formatDate(s.date)}${isCurrent ? " (current)" : ""}</div>
+        <div class="session-list-label"><strong>Session ${num}</strong>: ${formatDate(s.date)}${label}</div>
       </div>
     </div>`;
   }
@@ -4467,15 +4467,16 @@ function renderGroupSessionsForMonth(group, month, monthSessions, byMonth) {
   $("session-picker-title").textContent = month;
   const sorted  = [...monthSessions].sort((a, b) => a.date.localeCompare(b.date));
   const display = [...sorted].reverse();
-  const today   = getTodayString();
+  const today     = getTodayString();
+  const yesterday = getYesterdayString();
   let html = `<button class="btn-picker-back">← Back</button>`;
   for (const s of display) {
     const num       = sorted.findIndex(x => x.id === s.id) + 1;
-    const isToday   = s.date === today;
+    const label     = sessionDateLabel(s.date, today, yesterday, false);
     const attendees = (s.attendees || []).join(", ");
-    html += `<div class="session-list-item${isToday ? " session-list-today" : ""}" data-session-id="${s.id}">
+    html += `<div class="session-list-item" data-session-id="${s.id}">
       <div class="session-list-meta">
-        <div class="session-list-label"><strong>Session ${num}</strong>: ${formatDate(s.date)}</div>
+        <div class="session-list-label"><strong>Session ${num}</strong>: ${formatDate(s.date)}${label}</div>
         ${attendees ? `<div class="session-list-date">${escHtml(attendees)}</div>` : ""}
       </div>
     </div>`;
@@ -4637,4 +4638,16 @@ function formatDate(dateStr) {
   const [y, m, d] = dateStr.split("-").map(Number);
   const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
   return `${d} ${months[m - 1]} ${y}`;
+}
+function getYesterdayString() {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+}
+function sessionDateLabel(date, today, yesterday, isCurrent) {
+  const parts = [];
+  if (isCurrent) parts.push("currently viewing");
+  if (date === today) parts.push("today");
+  else if (date === yesterday) parts.push("yesterday");
+  return parts.length ? ` (${parts.join(" · ")})` : "";
 }
