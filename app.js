@@ -53,7 +53,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "268";
+const APP_VERSION = "269";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -4133,108 +4133,108 @@ function renderGroupTargetContent() {
   }
 
   const attendees = state.groupAttendees;
-  const predefined = (target.predefinedActivities || []).filter(pa => !pa.isHeading && !pa.isNote);
+  const items = [];
 
-  // Build activity list: predefined first, then manually added
-  const activityCards = [];
-  for (const pa of predefined) {
+  // Predefined activities (with heading support)
+  for (const pa of (target.predefinedActivities || [])) {
+    if (pa.isNote) continue;
+    if (pa.isHeading) {
+      items.push(`<div class="activity-group-heading">${escHtml(pa.name)}</div>`);
+      continue;
+    }
     const actId = Object.entries(data.activities || {})
       .find(([, a]) => a.targetName === target.name && a.activityName === pa.name)?.[0] || null;
-    activityCards.push(renderGroupActivityCard(pa.name, actId, target, data, attendees));
+    items.push(renderGroupActivityCard(pa.name, actId, target, data, attendees));
   }
+
   // Manually added (non-predefined) activities
   Object.entries(data.activities || {})
     .filter(([, a]) => a.targetName === target.name && !a.isPredefined)
     .sort(([, a], [, b]) => (a.order || 0) - (b.order || 0))
     .forEach(([actId, act]) => {
-      activityCards.push(renderGroupActivityCard(act.activityName, actId, target, data, attendees));
+      items.push(renderGroupActivityCard(act.activityName, actId, target, data, attendees));
     });
 
-  if (activityCards.length === 0) {
-    content.innerHTML = `<p class="empty-hint" style="padding:1.5rem">No activities yet. Add them under Edit Target.</p>`;
-  } else {
-    content.innerHTML = activityCards.join("");
+  if (items.length === 0) {
+    items.push(`<p class="empty-hint" style="padding:1.5rem">No activities yet. Add them under Edit Target.</p>`);
   }
 
+  items.push(`<button class="btn-add-activity btn-group-add-activity">+ Add Activity (This activity only appears in this session)</button>`);
+
+  content.innerHTML = items.join("");
   updateGroupAvgChips(target, data);
   attachGroupTargetListeners(target);
 }
 
 function renderGroupActivityCard(actName, actId, target, data, attendees) {
-  let rows = "";
+  const sections = [];
   for (const studentName of attendees) {
     const rems = actId
       ? Object.entries(data.remarks || {}).filter(([, r]) => r.activityId === actId && r.studentName === studentName)
       : [];
     if (rems.length > 0) {
       for (const [remId, rem] of rems) {
-        rows += renderGroupStudentRow(studentName, remId, rem, target);
+        sections.push(renderGroupStudentRow(studentName, remId, rem, target));
       }
     } else {
-      rows += renderGroupStudentPendingRow(studentName, actId, actName, target);
+      sections.push(renderGroupStudentPendingRow(studentName, actId, actName, target));
     }
   }
-  return `<div class="group-activity-card" data-act-name="${escHtml(actName)}" data-act-id="${escHtml(actId || "")}">
-    <div class="group-activity-header">${escHtml(actName)}</div>
-    <div class="group-student-rows">${rows}</div>
+  const body = sections.map((s, i) => (i > 0 ? `<div class="entry-divider"></div>` : ``) + s).join("");
+  return `<div class="entry-block entry-block-predefined" data-act-name="${escHtml(actName)}" data-act-id="${escHtml(actId || "")}">
+    <div class="entry-field">
+      <span class="field-label">Activity</span>
+      <span class="field-value-fixed">${escHtml(actName)}</span>
+    </div>
+    <div class="entry-divider"></div>
+    ${body}
   </div>`;
 }
 
 function renderGroupStudentRow(studentName, remId, rem, target) {
-  const trials  = rem.trials || [];
-  const maxPts  = target.maxPoints || 3;
-  const valid   = trials.filter(t => t !== -1);
-  const score   = valid.length > 0
-    ? Math.round(valid.reduce((a, b) => a + b, 0) / (valid.length * maxPts) * 100) + "%" : "";
-  const badges  = trials.map((t, i) =>
+  const trials = rem.trials || [];
+  const maxPts = target.maxPoints || 3;
+  const valid  = trials.filter(t => t !== -1);
+  const score  = valid.length > 0
+    ? Math.round(valid.reduce((a, b) => a + b, 0) / (valid.length * maxPts) * 100) + "%" : "—";
+  const badges = trials.map((t, i) =>
     `<span class="trial-badge">${t === -1 ? "—" : t}<button class="btn-trial-delete btn-group-trial-del" data-rem-id="${remId}" data-idx="${i}">×</button></span>`
   ).join("");
-  return `<div class="group-student-row" data-rem-id="${remId}" data-student="${escHtml(studentName)}">
-    <span class="group-student-label">${escHtml(studentName)}</span>
-    <div class="group-remark-area">
-      <button class="btn-sketch btn-group-sketch" data-rem-id="${remId}" aria-label="Sketch board">✏</button>
+  return `<div class="group-student-section" data-rem-id="${remId}" data-student="${escHtml(studentName)}">
+    <div class="group-student-name-row">
+      <span class="group-student-name-label">${escHtml(studentName)}</span>
+      <span class="group-student-score-chip">${score}</span>
+    </div>
+    <div class="entry-field">
+      <button class="btn-sketch btn-group-sketch" data-rem-id="${remId}" aria-label="Sketch">✏</button>
       <div class="field-input group-remark-input" contenteditable="true"
         data-rem-id="${remId}" data-placeholder="Remark…">${remarkToHtml(rem.text)}</div>
     </div>
-    <div class="group-trial-area">
-      <div class="trials-badges">${badges}</div>
-      <button class="btn-add-trial btn-primary-sm btn-group-add-trial"
-        data-rem-id="${remId}" data-target="${escHtml(target.name)}">+ Trial</button>
+    <div class="entry-field">
+      <span class="field-label">Trials</span>
+      <div class="trials-row">
+        <div class="trials-badges">${badges}</div>
+        <button class="btn-primary-sm btn-add-trial btn-group-add-trial"
+          data-rem-id="${remId}" data-target="${escHtml(target.name)}">+ Trial</button>
+      </div>
     </div>
-    <span class="group-student-score">${score}</span>
   </div>`;
 }
 
 function renderGroupStudentPendingRow(studentName, actId, actName, target) {
-  return `<div class="group-student-row group-student-pending"
+  return `<div class="group-student-section group-student-pending"
     data-student="${escHtml(studentName)}"
     data-act-id="${escHtml(actId || "")}"
     data-act-name="${escHtml(actName)}"
     data-target="${escHtml(target.name)}">
-    <span class="group-student-label">${escHtml(studentName)}</span>
-    <div class="group-remark-area">
-      <button class="btn-sketch btn-group-sketch-pending"
+    <div class="group-student-name-row">
+      <span class="group-student-name-label">${escHtml(studentName)}</span>
+      <button class="btn-add-remark btn-group-add-remark-pending"
         data-student="${escHtml(studentName)}"
         data-act-id="${escHtml(actId || "")}"
         data-act-name="${escHtml(actName)}"
-        data-target="${escHtml(target.name)}"
-        aria-label="Sketch board">✏</button>
-      <div class="field-input group-remark-input group-pending-remark"
-        contenteditable="true"
-        data-student="${escHtml(studentName)}"
-        data-act-id="${escHtml(actId || "")}"
-        data-act-name="${escHtml(actName)}"
-        data-target="${escHtml(target.name)}"
-        data-placeholder="Remark…"></div>
+        data-target="${escHtml(target.name)}">+ Add Remark &amp; Trials</button>
     </div>
-    <div class="group-trial-area">
-      <button class="btn-primary-sm btn-group-add-trial-pending"
-        data-student="${escHtml(studentName)}"
-        data-act-id="${escHtml(actId || "")}"
-        data-act-name="${escHtml(actName)}"
-        data-target="${escHtml(target.name)}">+ Trial</button>
-    </div>
-    <span class="group-student-score"></span>
   </div>`;
 }
 
@@ -4273,19 +4273,8 @@ function attachGroupTargetListeners(target) {
   const c = $("group-target-content");
   if (!c) return;
 
-  // Target selector change
-  const sel = $("group-target-select");
-  // "Edit Target" button — re-wire each time (onchange handler is in populateGroupTargetDropdown)
-  const manageBtn = $("btn-group-manage-targets");
-  if (manageBtn) {
-    manageBtn.onclick = () => {
-      const tgt = state.currentGroup?.targets.find(t => t.name === state.selectedGroupTargetName);
-      if (tgt) openGroupManageModal(state.currentGroup, tgt);
-    };
-  }
-
-  // Remark blur-save (live rows)
-  c.querySelectorAll(".group-remark-input:not(.group-pending-remark)").forEach(div => {
+  // Remark blur-save
+  c.querySelectorAll(".group-remark-input").forEach(div => {
     let orig = div.innerHTML;
     div.addEventListener("blur", async () => {
       const newText = div.innerHTML;
@@ -4295,18 +4284,7 @@ function attachGroupTargetListeners(target) {
     });
   });
 
-  // Pending remark blur-save: create record when text is entered
-  c.querySelectorAll(".group-pending-remark").forEach(div => {
-    div.addEventListener("blur", async () => {
-      const text = div.innerHTML;
-      const strip = s => (s || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim();
-      if (!strip(text)) return;
-      const { actId, remId } = await ensureGroupActivityAndRemark(div);
-      if (remId) await updateRemarkText(state.groupSessionId, remId, text);
-    });
-  });
-
-  // Sketch board: live rows
+  // Sketch board
   c.querySelectorAll(".btn-group-sketch").forEach(btn => {
     btn.addEventListener("click", () => {
       const field = c.querySelector(`.group-remark-input[data-rem-id="${btn.dataset.remId}"]`);
@@ -4314,17 +4292,16 @@ function attachGroupTargetListeners(target) {
     });
   });
 
-  // Sketch board: pending rows
-  c.querySelectorAll(".btn-group-sketch-pending").forEach(btn => {
+  // + Add Remark & Trials (pending rows)
+  c.querySelectorAll(".btn-group-add-remark-pending").forEach(btn => {
     btn.addEventListener("click", async () => {
-      const row = btn.closest(".group-student-pending");
-      if (!row) return;
-      const pendingInput = row.querySelector(".group-pending-remark");
-      if (pendingInput) openTextEditorSheet(pendingInput);
+      btn.disabled = true;
+      btn.textContent = "Adding…";
+      await ensureGroupActivityAndRemark(btn);
     });
   });
 
-  // + Trial: live rows
+  // + Trial
   c.querySelectorAll(".btn-group-add-trial").forEach(btn => {
     btn.addEventListener("click", () => {
       const remId = btn.dataset.remId;
@@ -4333,17 +4310,7 @@ function attachGroupTargetListeners(target) {
     });
   });
 
-  // + Trial: pending rows
-  c.querySelectorAll(".btn-group-add-trial-pending").forEach(btn => {
-    btn.addEventListener("click", async () => {
-      const { remId } = await ensureGroupActivityAndRemark(btn);
-      if (!remId) return;
-      state.scorePicker = { open: true, remId, isGroup: true };
-      openScorePicker(remId, target);
-    });
-  });
-
-  // Delete trial badges
+  // Delete trial badge
   c.querySelectorAll(".btn-group-trial-del").forEach(btn => {
     btn.addEventListener("click", async () => {
       const remId = btn.dataset.remId;
@@ -4352,6 +4319,13 @@ function attachGroupTargetListeners(target) {
       const updated = (rem.trials || []).filter((_, i) => i !== Number(btn.dataset.idx));
       await setTrials(state.groupSessionId, remId, updated);
     });
+  });
+
+  // + Add Activity (this session only)
+  c.querySelector(".btn-group-add-activity")?.addEventListener("click", async () => {
+    const name = prompt("Activity name (this session only):");
+    if (!name?.trim()) return;
+    await addActivity(state.groupSessionId, target.name, name.trim(), Date.now(), false);
   });
 }
 

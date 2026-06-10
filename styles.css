@@ -2385,65 +2385,30 @@ div.admin-note-editable:empty::before {
   border-bottom: 1px solid var(--border);
 }
 
-.group-activity-card {
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  margin: .75rem .75rem 0;
-  overflow: hidden;
-}
-.group-activity-header {
-  background: #f5f3ff;
-  padding: .5rem .75rem;
-  font-weight: 600;
-  font-size: .9rem;
-  color: var(--primary-dark);
-  border-bottom: 1px solid #e0d9ff;
-}
-.group-student-rows { display: flex; flex-direction: column; }
-.group-student-row {
+.group-student-section {
   display: flex;
-  align-items: flex-start;
-  gap: .5rem;
-  padding: .55rem .75rem;
-  border-bottom: 1px solid var(--border);
+  flex-direction: column;
+  gap: .45rem;
 }
-.group-student-row:last-child { border-bottom: none; }
-.group-student-pending { background: #fafafe; }
-.group-student-label {
-  flex-shrink: 0;
-  min-width: 2rem;
+.group-student-name-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .5rem;
+}
+.group-student-name-label {
   font-weight: 700;
   font-size: .9rem;
   color: var(--primary-dark);
-  padding-top: .25rem;
 }
-.group-remark-area {
-  flex: 1;
-  display: flex;
-  align-items: flex-start;
-  gap: .35rem;
-  min-width: 0;
-}
-.group-remark-input {
-  flex: 1;
-  min-height: 2rem;
-  font-size: .88rem;
-}
-.group-trial-area {
-  flex-shrink: 0;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: .3rem;
-}
-.group-student-score {
-  flex-shrink: 0;
-  min-width: 3rem;
-  text-align: right;
+.group-student-score-chip {
   font-size: .85rem;
   font-weight: 700;
   color: var(--primary-dark);
-  padding-top: .25rem;
+  flex-shrink: 0;
+}
+.group-remark-input {
+  min-height: 2.4rem;
 }
 
 /* ── Sketch board button (pencil icon beside remark input) ── */
