@@ -53,7 +53,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "271";
+const APP_VERSION = "273";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -3912,7 +3912,7 @@ function showGroupChoice(group) {
     $("session-picker-list").querySelectorAll(".btn-date-quick").forEach(btn => {
       btn.addEventListener("click", () => {
         closeSessionPicker();
-        showGroupAttendancePicker(group, btn.dataset.date);
+        openGroupSession(group, btn.dataset.date, group.students);
       });
     });
     $("session-picker-list").querySelector(".btn-date-other").addEventListener("click", () => {
@@ -3925,7 +3925,7 @@ function showGroupChoice(group) {
         const d = input.value; cleanup();
         if (!d) return;
         closeSessionPicker();
-        showGroupAttendancePicker(group, d);
+        openGroupSession(group, d, group.students);
       });
       input.addEventListener("blur", () => setTimeout(cleanup, 500));
       try { input.showPicker(); } catch (_) { input.click(); }
@@ -3941,47 +3941,9 @@ function showGroupChoice(group) {
   });
 }
 
-// ── Attendance picker ────────────────────────────────────────
-function showGroupAttendancePicker(group, dateStr) {
-  if (!group.students?.length) {
-    alert("No students in this group. Add students first under Manage Group.");
-    return;
-  }
-  $("session-picker-title").textContent = "Attendance List";
-  const lastAttendees = new Set(group.lastAttendees || group.students);
-  const checkboxHtml = group.students.map((s, i) =>
-    `<label class="attendance-row">
-       <input type="checkbox" class="attendance-chk" data-idx="${i}" ${lastAttendees.has(s) ? "checked" : ""} />
-       <span>${escHtml(s)}</span>
-     </label>`
-  ).join("");
-  $("session-picker-list").innerHTML = `
-    <div class="attendance-sheet">
-      <p class="attendance-date">${formatDate(dateStr)}</p>
-      <div class="attendance-list">${checkboxHtml}</div>
-      <button class="btn-primary attendance-start-btn">Start Session →</button>
-    </div>`;
-  $("session-picker-modal").classList.remove("hidden");
-
-  $("session-picker-list").querySelector(".attendance-start-btn").addEventListener("click", () => {
-    const attendees = [...$("session-picker-list").querySelectorAll(".attendance-chk:checked")]
-      .map(chk => group.students[Number(chk.dataset.idx)]);
-    if (!attendees.length) { alert("Select at least one student."); return; }
-    closeSessionPicker();
-    openGroupSession(group, dateStr, attendees);
-  });
-}
-
 // ── Open group session ───────────────────────────────────────
 async function openGroupSession(group, dateStr, attendees) {
   if (state.fbGroupUnsubscribe) { state.fbGroupUnsubscribe(); state.fbGroupUnsubscribe = null; }
-  // Remember this attendance for next time
-  if (JSON.stringify(group.lastAttendees) !== JSON.stringify(attendees)) {
-    group.lastAttendees = attendees;
-    const gi = state.groups.findIndex(g => g.id === group.id);
-    if (gi >= 0) state.groups[gi] = group;
-    saveGroup(group).catch(() => {});
-  }
   state.currentGroup            = group;
   state.groupAttendees          = attendees;
   state.groupSessionId          = null;
@@ -4213,15 +4175,15 @@ function renderGroupStudentRow(studentName, remId, rem, target) {
   const trials = rem.trials || [];
   const maxPts = target.maxPoints || 3;
   const valid  = trials.filter(t => t !== -1);
-  const score  = valid.length > 0
-    ? Math.round(valid.reduce((a, b) => a + b, 0) / (valid.length * maxPts) * 100) + "%" : "—";
+  const scoreVal = valid.length > 0
+    ? Math.round(valid.reduce((a, b) => a + b, 0) / (valid.length * maxPts) * 100) + "%" : null;
   const badges = trials.map((t, i) =>
     `<span class="trial-badge">${t === -1 ? "—" : t}<button class="btn-trial-delete btn-group-trial-del" data-rem-id="${remId}" data-idx="${i}">×</button></span>`
   ).join("");
   return `<div class="group-student-section" data-rem-id="${remId}" data-student="${escHtml(studentName)}">
     <div class="group-student-name-row">
       <span class="group-student-name-label">${escHtml(studentName)}</span>
-      <span class="group-student-score-chip">${score}</span>
+      ${scoreVal ? `<span class="group-student-score-chip">${scoreVal}</span>` : ""}
       <button class="btn-icon btn-group-del-remark" data-rem-id="${remId}" title="Remove">🗑</button>
     </div>
     <div class="entry-field">
