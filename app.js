@@ -53,7 +53,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "274";
+const APP_VERSION = "275";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -4147,28 +4147,50 @@ function renderGroupActivityCard(actName, actId, target, data, attendees) {
     </div>`;
   }
 
-  // Expanded: at least one student has data → show all student rows
-  const sections = [];
+  // Expanded: group remarks into rounds paired by creation order
+  const byStudent = {};
   for (const studentName of attendees) {
-    const rems = Object.entries(data.remarks || {})
-      .filter(([, r]) => r.activityId === actId && r.studentName === studentName);
-    if (rems.length > 0) {
-      for (const [remId, rem] of rems) {
-        sections.push(renderGroupStudentRow(studentName, remId, rem, target));
-      }
-    } else {
-      sections.push(renderGroupStudentPendingRow(studentName, actId, actName, target));
-    }
+    byStudent[studentName] = Object.entries(data.remarks || {})
+      .filter(([, r]) => r.activityId === actId && r.studentName === studentName)
+      .sort(([, a], [, b]) => (a.order || 0) - (b.order || 0));
   }
-  const body = sections.map((s, i) => (i > 0 ? `<div class="entry-divider"></div>` : ``) + s).join("");
+  const maxRounds = Math.max(...Object.values(byStudent).map(arr => arr.length), 0);
+
+  const roundHtmls = [];
+  for (let i = 0; i < maxRounds; i++) {
+    const rows = [];
+    const roundRemIds = [];
+    for (const studentName of attendees) {
+      const entry = byStudent[studentName]?.[i] || null;
+      if (rows.length > 0) rows.push(`<div class="entry-divider"></div>`);
+      if (entry) {
+        const [remId, rem] = entry;
+        roundRemIds.push(remId);
+        rows.push(renderGroupStudentRow(studentName, remId, rem, target));
+      } else {
+        rows.push(renderGroupStudentPendingRow(studentName, actId, actName, target));
+      }
+    }
+    roundHtmls.push(`<div class="group-remark-round">
+      ${rows.join("")}
+      <div class="group-round-footer">
+        <button class="btn-icon btn-group-del-round"
+          data-rem-ids="${roundRemIds.join(",")}" title="Remove">🗑</button>
+      </div>
+    </div>`);
+  }
+
+  const roundsBody = roundHtmls.map((r, i) =>
+    (i > 0 ? `<div class="entry-divider entry-divider-round"></div>` : ``) + r
+  ).join("");
+
   return `<div class="entry-block entry-block-predefined" data-act-name="${escHtml(actName)}" data-act-id="${escHtml(actId || "")}">
     <div class="entry-field">
       <span class="field-label">Activity</span>
       <span class="field-value-fixed">${escHtml(actName)}</span>
-      <button class="btn-icon btn-group-collapse-card" data-act-id="${escHtml(actId || "")}" title="Remove all">🗑</button>
     </div>
     <div class="entry-divider"></div>
-    ${body}
+    ${roundsBody}
     <div class="entry-divider"></div>
     <button class="btn-add-remark btn-group-add-remark-more"
       data-act-id="${escHtml(actId || "")}"
@@ -4318,14 +4340,11 @@ function attachGroupTargetListeners(target) {
     });
   });
 
-  // Collapse whole activity card (delete ALL student remarks at once)
-  c.querySelectorAll(".btn-group-collapse-card").forEach(btn => {
+  // Delete one round of remarks (all students in that round)
+  c.querySelectorAll(".btn-group-del-round").forEach(btn => {
     btn.addEventListener("click", async () => {
-      const actId = btn.dataset.actId;
-      const toDelete = Object.entries(state.groupSessionData?.remarks || {})
-        .filter(([, r]) => r.activityId === actId && state.groupAttendees.includes(r.studentName))
-        .map(([id]) => id);
-      for (const remId of toDelete) await deleteRemark(state.groupSessionId, remId);
+      const remIds = btn.dataset.remIds.split(",").filter(Boolean);
+      for (const remId of remIds) await deleteRemark(state.groupSessionId, remId);
     });
   });
 

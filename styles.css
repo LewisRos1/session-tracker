@@ -2410,6 +2410,20 @@ div.admin-note-editable:empty::before {
 .group-remark-input {
   min-height: 2.4rem;
 }
+.group-remark-round {
+  display: flex;
+  flex-direction: column;
+}
+.group-round-footer {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: .3rem;
+}
+.entry-divider-round {
+  height: 2px;
+  background: var(--primary-light, #c7d2fe);
+  margin: .5rem 0;
+}
 
 /* ── Sketch board button (pencil icon beside remark input) ── */
 .btn-sketch {
