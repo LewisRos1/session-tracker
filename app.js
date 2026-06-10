@@ -55,7 +55,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "277";
+const APP_VERSION = "279";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -4099,9 +4099,12 @@ function renderGroupTargetContent() {
   const attendees = state.groupAttendees;
   const items = [];
 
-  // Predefined activities (with heading support)
+  // Predefined activities (with heading and note support)
   for (const pa of (target.predefinedActivities || [])) {
-    if (pa.isNote) continue;
+    if (pa.isNote) {
+      if (pa.text) items.push(`<div class="activity-note-heading">${noteToHtml(pa.text)}</div>`);
+      continue;
+    }
     if (pa.isHeading) {
       items.push(`<div class="activity-group-heading">${escHtml(pa.name)}</div>`);
       continue;

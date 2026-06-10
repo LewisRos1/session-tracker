@@ -2095,6 +2095,8 @@ div.admin-note-editable:empty::before {
   color: var(--text-muted);
   font-size: .88rem;
   padding: .35rem .1rem;
+  text-align: center;
+  width: 100%;
 }
 
 
