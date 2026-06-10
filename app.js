@@ -53,7 +53,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "267";
+const APP_VERSION = "268";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -2831,10 +2831,18 @@ function closeManageModal() {
     populateTargetDropdown(state.currentStudent.targets);
     if (state.currentSessionId) renderTargetContent();
   }
-  // Refresh group session dropdown if a group session is active
+  // Refresh group session dropdown / content if a group session is active
   if (state.currentGroup) {
     populateGroupTargetDropdown(state.currentGroup.targets);
-    if (state.groupSessionId) renderGroupTargetContent();
+    if (state.groupSessionId && state.groupSessionData && state.selectedGroupTargetName) {
+      autoFillGroupSession(
+        state.currentGroup, state.groupSessionId, state.groupSessionData,
+        state.selectedGroupTargetName, state.groupAttendees
+      ).then(filled => { if (filled === 0) renderGroupTargetContent(); })
+       .catch(() => renderGroupTargetContent());
+    } else if (state.groupSessionId) {
+      renderGroupTargetContent();
+    }
   }
   // Always refresh all home screen sections
   renderExistingStudentButtons();
@@ -4026,7 +4034,13 @@ function populateGroupTargetDropdown(targets) {
     `<option value="__add_target__">+ Add Target…</option>`;
 
   const manageBtn = $("btn-group-manage-targets");
-  if (manageBtn) manageBtn.classList.toggle("hidden", !state.selectedGroupTargetName);
+  if (manageBtn) {
+    manageBtn.classList.toggle("hidden", !state.selectedGroupTargetName);
+    manageBtn.onclick = () => {
+      const tgt = state.currentGroup?.targets.find(t => t.name === state.selectedGroupTargetName);
+      if (tgt) openGroupManageModal(state.currentGroup, tgt);
+    };
+  }
 
   // Wire change handler — same pattern as individual session's populateTargetDropdown
   sel.onchange = async () => {
