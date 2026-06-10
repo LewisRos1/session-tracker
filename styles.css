@@ -360,54 +360,68 @@ html, body {
 }
 .btn-edit-session-date {
   background: rgba(255,255,255,.18);
-  border: 1px solid rgba(255,255,255,.35);
+  border: 1px solid rgba(255,255,255,.4);
   border-radius: 6px;
-  padding: .25rem .65rem;
+  padding: .35rem .85rem;
   cursor: pointer;
-  font-size: .78rem;
+  font-size: .82rem;
   font-weight: 600;
-  line-height: 1;
   color: var(--white);
-  opacity: .9;
   white-space: nowrap;
   flex-shrink: 0;
+  min-height: 32px;
 }
-.btn-edit-session-date:hover { opacity: 1; background: rgba(255,255,255,.28); }
+.btn-edit-session-date:hover { background: rgba(255,255,255,.28); }
 
 .btn-delete-session {
   background: #ef4444;
   border: none;
   border-radius: 6px;
-  padding: .3rem .8rem;
+  padding: .35rem .85rem;
   cursor: pointer;
-  font-size: .78rem;
+  font-size: .82rem;
   font-weight: 700;
-  line-height: 1;
   color: #fff;
   white-space: nowrap;
   flex-shrink: 0;
-  margin-left: auto;
+  min-height: 32px;
 }
 .btn-delete-session:hover { background: #dc2626; }
 .btn-delete-session.hidden { display: none; }
 
+/* View session header — 3-column grid for reliable centering */
+.session-header-view {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: .5rem;
+}
+.view-header-left {
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+  min-width: 0;
+}
+.view-header-right {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+}
 .btn-goto-session {
-  position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
   background: rgba(255,255,255,.18);
   border: 1px solid rgba(255,255,255,.4);
   border-radius: 6px;
-  padding: .35rem .9rem;
+  padding: .35rem .85rem;
   cursor: pointer;
-  font-size: .85rem;
+  font-size: .82rem;
   font-weight: 600;
   color: #fff;
   white-space: nowrap;
+  min-height: 32px;
 }
 .btn-goto-session:hover { background: rgba(255,255,255,.28); }
 .btn-goto-session.hidden { display: none; }
-#view-session-meta { font-size: 1rem; font-weight: 700; opacity: 1; }
+#view-session-meta { font-size: 1rem; font-weight: 400; opacity: 1; }
 
 .session-list-current {
   border-color: var(--primary);

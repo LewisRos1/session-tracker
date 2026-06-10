@@ -149,14 +149,18 @@
        SESSION VIEW SCREEN (table-based view/edit)
        ══════════════════════════════════════════════════════ -->
   <div id="screen-session-view" class="screen hidden">
-    <header class="session-header">
-      <button class="btn-back" id="btn-view-back" aria-label="Back to home">←</button>
-      <div class="session-info">
-        <span class="session-student-name" id="view-student-name"></span>
-        <span class="session-meta"         id="view-session-meta"></span>
+    <header class="session-header session-header-view">
+      <div class="view-header-left">
+        <button class="btn-back" id="btn-view-back" aria-label="Back to home">←</button>
+        <div class="session-info">
+          <span class="session-student-name" id="view-student-name"></span>
+          <span class="session-meta"         id="view-session-meta"></span>
+        </div>
       </div>
       <button id="btn-goto-session" class="btn-goto-session hidden">Go To Another Session</button>
-      <button id="btn-delete-session" class="btn-delete-session hidden">Delete Session</button>
+      <div class="view-header-right">
+        <button id="btn-delete-session" class="btn-delete-session hidden">Delete Session</button>
+      </div>
     </header>
     <div class="session-view-body" id="session-view-body">
       <!-- populated by JS -->
