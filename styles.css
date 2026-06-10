@@ -2427,6 +2427,29 @@ div.admin-note-editable:empty::before {
   background: var(--primary-light, #c7d2fe);
   margin: .5rem 0;
 }
+.group-del-options {
+  display: flex;
+  flex-direction: column;
+  gap: .5rem;
+  padding: 1rem;
+}
+.group-del-option {
+  padding: .85rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  color: var(--text);
+  font-size: .95rem;
+  text-align: left;
+  cursor: pointer;
+  width: 100%;
+}
+.group-del-option:active { background: var(--surface); }
+.group-del-option-danger {
+  border-color: #ef4444;
+  color: #ef4444;
+  font-weight: 600;
+}
 
 /* ── Sketch board button (pencil icon beside remark input) ── */
 .btn-sketch {
