@@ -55,7 +55,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "300";
+const APP_VERSION = "301";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -652,14 +652,17 @@ async function showSessionPicker(student) {
   let sessions = [];
   try { sessions = await getRecentSessionsForStudent(student.id); } catch (_) {}
 
-  // Auto-delete sessions with no remarks for any currently existing target
+  // Auto-delete sessions with no meaningful data for any currently existing target
   const currentTargetNames = new Set((student.targets || []).map(t => t.name));
   const hasUsefulData = s => {
-    const remarks = Object.values(s.remarks || {});
-    if (!remarks.length) return false;
-    return remarks.some(r => {
+    if (Object.values(s.fedcComments || {}).some(c => (c || "").trim())) return true;
+    return Object.values(s.remarks || {}).some(r => {
       const act = (s.activities || {})[r.activityId];
-      return act && currentTargetNames.has(act.targetName);
+      if (!act || !currentTargetNames.has(act.targetName)) return false;
+      const hasText   = (r.text        || "").trim().length > 0;
+      const hasTrials = (r.trials      || []).some(t => t !== null && t !== -1);
+      const hasNote   = (r.masteryNote || "").trim().length > 0;
+      return hasText || hasTrials || hasNote;
     });
   };
   const emptySessions = sessions.filter(s => !hasUsefulData(s));
@@ -760,11 +763,14 @@ async function showGoToAnotherSession(student) {
 
   const currentTargetNames = new Set((student.targets || []).map(t => t.name));
   const hasUsefulData = s => {
-    const remarks = Object.values(s.remarks || {});
-    if (!remarks.length) return false;
-    return remarks.some(r => {
+    if (Object.values(s.fedcComments || {}).some(c => (c || "").trim())) return true;
+    return Object.values(s.remarks || {}).some(r => {
       const act = (s.activities || {})[r.activityId];
-      return act && currentTargetNames.has(act.targetName);
+      if (!act || !currentTargetNames.has(act.targetName)) return false;
+      const hasText   = (r.text        || "").trim().length > 0;
+      const hasTrials = (r.trials      || []).some(t => t !== null && t !== -1);
+      const hasNote   = (r.masteryNote || "").trim().length > 0;
+      return hasText || hasTrials || hasNote;
     });
   };
   // Don't auto-delete the session currently being viewed
