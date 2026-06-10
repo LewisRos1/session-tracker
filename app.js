@@ -35,7 +35,6 @@ import {
   addGroupRemark,
   addGroupRemarksBatch,
   deleteRemarksBatch,
-  clearRemark,
   setTrials,
   sanitizeKey,
   getTodayString,
@@ -56,7 +55,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "281";
+const APP_VERSION = "282";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -2858,37 +2857,6 @@ function closeManageModal() {
 $("manage-modal-close").addEventListener("click",    closeManageModal);
 $("manage-modal-backdrop").addEventListener("click", closeManageModal);
 
-// ── Group remark delete action sheet ─────────────────────────
-function openGroupDelSheet(allRemIds, studentPairs) {
-  const opts = $("group-del-sheet-options");
-  opts.innerHTML = "";
-  for (const { studentName, remId } of studentPairs) {
-    const btn = document.createElement("button");
-    btn.className = "group-del-option";
-    btn.textContent = `Clear ${studentName}'s remark & trials`;
-    btn.addEventListener("click", async () => {
-      closeGroupDelSheet();
-      await clearRemark(state.groupSessionId, remId);
-    });
-    opts.appendChild(btn);
-  }
-  if (studentPairs.length > 1) {
-    const btn = document.createElement("button");
-    btn.className = "group-del-option group-del-option-danger";
-    btn.textContent = "Delete & close both remarks";
-    btn.addEventListener("click", async () => {
-      closeGroupDelSheet();
-      await deleteRemarksBatch(state.groupSessionId, allRemIds);
-    });
-    opts.appendChild(btn);
-  }
-  $("group-del-sheet").classList.remove("hidden");
-}
-function closeGroupDelSheet() {
-  $("group-del-sheet").classList.add("hidden");
-}
-$("group-del-sheet-close").addEventListener("click",    closeGroupDelSheet);
-$("group-del-sheet-backdrop").addEventListener("click", closeGroupDelSheet);
 
 // ── Session-screen ⚙ button ───────────────────────────────────
 
@@ -4198,13 +4166,11 @@ function renderGroupActivityCard(actName, actId, target, data, attendees) {
   for (let i = 0; i < maxRounds; i++) {
     const rows = [];
     const roundRemIds = [];
-    const roundStudentPairs = []; // "encodedName:remId"
     for (const studentName of attendees) {
       const entry = byStudent[studentName]?.[i] || null;
       if (entry) {
         const [remId, rem] = entry;
         roundRemIds.push(remId);
-        roundStudentPairs.push(`${encodeURIComponent(studentName)}:${remId}`);
         rows.push(renderGroupStudentRow(studentName, remId, rem, target));
       } else {
         rows.push(renderGroupStudentPendingRow(studentName, actId, actName, target));
@@ -4214,8 +4180,7 @@ function renderGroupActivityCard(actName, actId, target, data, attendees) {
       ${rows.join("")}
       <div class="group-round-footer">
         <button class="btn-icon btn-group-del-round"
-          data-rem-ids="${roundRemIds.join(",")}"
-          data-rem-map="${roundStudentPairs.join("|")}" title="Remove">🗑</button>
+          data-rem-ids="${roundRemIds.join(",")}" title="Remove">🗑</button>
       </div>
     </div>`);
   }
@@ -4380,15 +4345,11 @@ function attachGroupTargetListeners(target) {
     });
   });
 
-  // Delete round — show action sheet with per-student options
+  // Delete round — remove all remarks in this set at once
   c.querySelectorAll(".btn-group-del-round").forEach(btn => {
-    btn.addEventListener("click", () => {
-      const allRemIds = btn.dataset.remIds.split(",").filter(Boolean);
-      const studentPairs = (btn.dataset.remMap || "").split("|").filter(Boolean).map(part => {
-        const colonIdx = part.lastIndexOf(":");
-        return { studentName: decodeURIComponent(part.slice(0, colonIdx)), remId: part.slice(colonIdx + 1) };
-      });
-      openGroupDelSheet(allRemIds, studentPairs);
+    btn.addEventListener("click", async () => {
+      const remIds = btn.dataset.remIds.split(",").filter(Boolean);
+      if (remIds.length) await deleteRemarksBatch(state.groupSessionId, remIds);
     });
   });
 
