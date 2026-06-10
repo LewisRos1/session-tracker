@@ -2239,8 +2239,8 @@ div.admin-note-editable:empty::before {
 }
 .view-remark-empty { height: 100%; }
 .vcol-trials { width: 260px; }
-.vcol-total  { width: 58px; text-align: center; white-space: nowrap; }
-.vcol-score  { width: 72px; text-align: center; font-weight: 600; white-space: nowrap; }
+.vcol-total  { width: 75px; text-align: center; white-space: nowrap; }
+.vcol-score  { width: 100px; text-align: center; font-weight: 600; white-space: nowrap; }
 
 .trial-cells {
   display: flex;
@@ -2389,13 +2389,6 @@ div.admin-note-editable:empty::before {
   min-height: 1.8rem;
   cursor: text;
 }
-/* Remark box always fills cell; text floats to vertical centre when idle, top on focus */
-.view-remark-edit {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-}
-.view-remark-edit:focus { justify-content: flex-start; }
 .view-remark-edit:focus,
 .view-comment-edit:focus { border-color: var(--primary); background: #fff; }
 
