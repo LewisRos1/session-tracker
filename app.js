@@ -53,7 +53,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "270";
+const APP_VERSION = "271";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -3948,9 +3948,10 @@ function showGroupAttendancePicker(group, dateStr) {
     return;
   }
   $("session-picker-title").textContent = "Attendance List";
+  const lastAttendees = new Set(group.lastAttendees || group.students);
   const checkboxHtml = group.students.map((s, i) =>
     `<label class="attendance-row">
-       <input type="checkbox" class="attendance-chk" data-idx="${i}" checked />
+       <input type="checkbox" class="attendance-chk" data-idx="${i}" ${lastAttendees.has(s) ? "checked" : ""} />
        <span>${escHtml(s)}</span>
      </label>`
   ).join("");
@@ -3974,6 +3975,13 @@ function showGroupAttendancePicker(group, dateStr) {
 // ── Open group session ───────────────────────────────────────
 async function openGroupSession(group, dateStr, attendees) {
   if (state.fbGroupUnsubscribe) { state.fbGroupUnsubscribe(); state.fbGroupUnsubscribe = null; }
+  // Remember this attendance for next time
+  if (JSON.stringify(group.lastAttendees) !== JSON.stringify(attendees)) {
+    group.lastAttendees = attendees;
+    const gi = state.groups.findIndex(g => g.id === group.id);
+    if (gi >= 0) state.groups[gi] = group;
+    saveGroup(group).catch(() => {});
+  }
   state.currentGroup            = group;
   state.groupAttendees          = attendees;
   state.groupSessionId          = null;
@@ -4159,11 +4167,29 @@ function renderGroupTargetContent() {
 }
 
 function renderGroupActivityCard(actName, actId, target, data, attendees) {
+  // Check if any attendee already has a remark for this activity
+  const anyExpanded = actId && Object.values(data.remarks || {})
+    .some(r => r.activityId === actId && attendees.includes(r.studentName));
+
+  // Collapsed: no data yet → single "+ Add Remark & Trials" button (like individual session)
+  if (!anyExpanded) {
+    return `<div class="entry-block entry-block-predefined" data-act-name="${escHtml(actName)}" data-act-id="${escHtml(actId || "")}">
+      <div class="entry-field">
+        <span class="field-label">Activity</span>
+        <span class="field-value-fixed">${escHtml(actName)}</span>
+      </div>
+      <button class="btn-add-remark btn-group-add-remark-all"
+        data-act-id="${escHtml(actId || "")}"
+        data-act-name="${escHtml(actName)}"
+        data-target="${escHtml(target.name)}">+ Add Remark &amp; Trials</button>
+    </div>`;
+  }
+
+  // Expanded: at least one student has data → show all student rows
   const sections = [];
   for (const studentName of attendees) {
-    const rems = actId
-      ? Object.entries(data.remarks || {}).filter(([, r]) => r.activityId === actId && r.studentName === studentName)
-      : [];
+    const rems = Object.entries(data.remarks || {})
+      .filter(([, r]) => r.activityId === actId && r.studentName === studentName);
     if (rems.length > 0) {
       for (const [remId, rem] of rems) {
         sections.push(renderGroupStudentRow(studentName, remId, rem, target));
@@ -4285,7 +4311,29 @@ function attachGroupTargetListeners(target) {
     });
   });
 
-  // + Add Remark & Trials (pending rows)
+  // + Add Remark & Trials (collapsed card — creates remarks for ALL attendees at once)
+  c.querySelectorAll(".btn-group-add-remark-all").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      btn.disabled = true;
+      btn.textContent = "Adding…";
+      const actName    = btn.dataset.actName;
+      const targetName = btn.dataset.target;
+      const data       = state.groupSessionData;
+      let actId = btn.dataset.actId || Object.entries(data.activities || {})
+        .find(([, a]) => a.targetName === targetName && a.activityName === actName)?.[0] || null;
+      if (!actId) {
+        actId = await addActivity(state.groupSessionId, targetName, actName, Date.now(), true);
+      }
+      for (const studentName of state.groupAttendees) {
+        const hasRemark = Object.values(data.remarks || {})
+          .some(r => r.activityId === actId && r.studentName === studentName);
+        if (!hasRemark) await addGroupRemark(state.groupSessionId, actId, studentName);
+      }
+      // Firestore listener will re-render
+    });
+  });
+
+  // + Add Remark & Trials (individual pending row — one student in an already-expanded card)
   c.querySelectorAll(".btn-group-add-remark-pending").forEach(btn => {
     btn.addEventListener("click", async () => {
       btn.disabled = true;
