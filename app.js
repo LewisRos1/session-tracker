@@ -35,6 +35,7 @@ import {
   addGroupRemark,
   addGroupRemarksBatch,
   deleteRemarksBatch,
+  clearRemark,
   setTrials,
   sanitizeKey,
   getTodayString,
@@ -55,7 +56,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "280";
+const APP_VERSION = "281";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -2864,17 +2865,17 @@ function openGroupDelSheet(allRemIds, studentPairs) {
   for (const { studentName, remId } of studentPairs) {
     const btn = document.createElement("button");
     btn.className = "group-del-option";
-    btn.textContent = `Delete ${studentName}'s remark & trials`;
+    btn.textContent = `Clear ${studentName}'s remark & trials`;
     btn.addEventListener("click", async () => {
       closeGroupDelSheet();
-      await deleteRemarksBatch(state.groupSessionId, [remId]);
+      await clearRemark(state.groupSessionId, remId);
     });
     opts.appendChild(btn);
   }
   if (studentPairs.length > 1) {
     const btn = document.createElement("button");
     btn.className = "group-del-option group-del-option-danger";
-    btn.textContent = "Delete both & close activity";
+    btn.textContent = "Delete & close both remarks";
     btn.addEventListener("click", async () => {
       closeGroupDelSheet();
       await deleteRemarksBatch(state.groupSessionId, allRemIds);

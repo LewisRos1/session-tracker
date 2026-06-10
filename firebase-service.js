@@ -522,3 +522,11 @@ export async function deleteRemarksBatch(sessionId, remIds) {
   for (const remId of remIds) updates[`remarks.${remId}`] = deleteField();
   await updateDoc(doc(db, "sessions", sessionId), updates);
 }
+
+/** Clear a remark's text and trials without removing the record (keeps the student row visible). */
+export async function clearRemark(sessionId, remId) {
+  await updateDoc(doc(db, "sessions", sessionId), {
+    [`remarks.${remId}.text`]: "",
+    [`remarks.${remId}.trials`]: []
+  });
+}
