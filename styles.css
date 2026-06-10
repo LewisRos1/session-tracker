@@ -387,7 +387,7 @@ html, body {
 .btn-delete-session:hover { background: #ef4444; }
 .btn-delete-session.hidden { display: none; }
 
-/* View session header — left takes remaining space, goto button is absolutely centred */
+/* View session header — left takes remaining space, goto button centred via full-width wrapper */
 .view-header-left {
   display: flex;
   align-items: center;
@@ -402,10 +402,17 @@ html, body {
   align-items: center;
   flex-shrink: 0;
 }
-.btn-goto-session {
+/* Full-header overlay so the goto button is always centred regardless of sidebar widths */
+.btn-goto-session-wrap {
   position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
+  inset: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  pointer-events: none;
+}
+.btn-goto-session {
+  pointer-events: auto;
   background: rgba(255,255,255,.12);
   border: 1px solid rgba(255,255,255,.28);
   border-radius: 5px;
@@ -415,7 +422,6 @@ html, body {
   font-weight: 500;
   color: rgba(255,255,255,.85);
   white-space: nowrap;
-  z-index: 1;
 }
 .btn-goto-session:hover { background: rgba(255,255,255,.22); color: #fff; }
 .btn-goto-session.hidden { display: none; }
