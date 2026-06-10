@@ -53,7 +53,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "269";
+const APP_VERSION = "270";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -4075,19 +4075,11 @@ async function autoFillGroupSession(group, sessionId, data, targetName, attendee
   let created = 0;
   const predefined = (target.predefinedActivities || []).filter(pa => !pa.isHeading && !pa.isNote);
   for (const pa of predefined) {
-    let actId = Object.entries(data.activities || {})
-      .find(([, a]) => a.targetName === targetName && a.activityName === pa.name)?.[0];
-    if (!actId) {
-      actId = await addActivity(sessionId, targetName, pa.name, Date.now(), true);
+    const hasActivity = Object.values(data.activities || {})
+      .some(a => a.targetName === targetName && a.activityName === pa.name);
+    if (!hasActivity) {
+      await addActivity(sessionId, targetName, pa.name, Date.now(), true);
       created++;
-    }
-    for (const studentName of attendees) {
-      const hasRemark = Object.values(data.remarks || {})
-        .some(r => r.activityId === actId && r.studentName === studentName);
-      if (!hasRemark) {
-        await addGroupRemark(sessionId, actId, studentName);
-        created++;
-      }
     }
   }
   return created;
@@ -4204,6 +4196,7 @@ function renderGroupStudentRow(studentName, remId, rem, target) {
     <div class="group-student-name-row">
       <span class="group-student-name-label">${escHtml(studentName)}</span>
       <span class="group-student-score-chip">${score}</span>
+      <button class="btn-icon btn-group-del-remark" data-rem-id="${remId}" title="Remove">🗑</button>
     </div>
     <div class="entry-field">
       <button class="btn-sketch btn-group-sketch" data-rem-id="${remId}" aria-label="Sketch">✏</button>
@@ -4307,6 +4300,13 @@ function attachGroupTargetListeners(target) {
       const remId = btn.dataset.remId;
       state.scorePicker = { open: true, remId, isGroup: true };
       openScorePicker(remId, target);
+    });
+  });
+
+  // Delete student remark row (collapses back to pending)
+  c.querySelectorAll(".btn-group-del-remark").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      await deleteRemark(state.groupSessionId, btn.dataset.remId);
     });
   });
 

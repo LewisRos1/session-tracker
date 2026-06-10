@@ -2393,13 +2393,13 @@ div.admin-note-editable:empty::before {
 .group-student-name-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: .5rem;
 }
 .group-student-name-label {
   font-weight: 700;
   font-size: .9rem;
   color: var(--primary-dark);
+  flex: 1;
 }
 .group-student-score-chip {
   font-size: .85rem;
