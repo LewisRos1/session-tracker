@@ -53,7 +53,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "273";
+const APP_VERSION = "274";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -4165,9 +4165,15 @@ function renderGroupActivityCard(actName, actId, target, data, attendees) {
     <div class="entry-field">
       <span class="field-label">Activity</span>
       <span class="field-value-fixed">${escHtml(actName)}</span>
+      <button class="btn-icon btn-group-collapse-card" data-act-id="${escHtml(actId || "")}" title="Remove all">🗑</button>
     </div>
     <div class="entry-divider"></div>
     ${body}
+    <div class="entry-divider"></div>
+    <button class="btn-add-remark btn-group-add-remark-more"
+      data-act-id="${escHtml(actId || "")}"
+      data-act-name="${escHtml(actName)}"
+      data-target="${escHtml(target.name)}">+ Add Remark &amp; Trials</button>
   </div>`;
 }
 
@@ -4184,7 +4190,6 @@ function renderGroupStudentRow(studentName, remId, rem, target) {
     <div class="group-student-name-row">
       <span class="group-student-name-label">${escHtml(studentName)}</span>
       ${scoreVal ? `<span class="group-student-score-chip">${scoreVal}</span>` : ""}
-      <button class="btn-icon btn-group-del-remark" data-rem-id="${remId}" title="Remove">🗑</button>
     </div>
     <div class="entry-field">
       <button class="btn-sketch btn-group-sketch" data-rem-id="${remId}" aria-label="Sketch">✏</button>
@@ -4313,10 +4318,26 @@ function attachGroupTargetListeners(target) {
     });
   });
 
-  // Delete student remark row (collapses back to pending)
-  c.querySelectorAll(".btn-group-del-remark").forEach(btn => {
+  // Collapse whole activity card (delete ALL student remarks at once)
+  c.querySelectorAll(".btn-group-collapse-card").forEach(btn => {
     btn.addEventListener("click", async () => {
-      await deleteRemark(state.groupSessionId, btn.dataset.remId);
+      const actId = btn.dataset.actId;
+      const toDelete = Object.entries(state.groupSessionData?.remarks || {})
+        .filter(([, r]) => r.activityId === actId && state.groupAttendees.includes(r.studentName))
+        .map(([id]) => id);
+      for (const remId of toDelete) await deleteRemark(state.groupSessionId, remId);
+    });
+  });
+
+  // + Add Remark & Trials (bottom of expanded card — always adds new remarks for all students)
+  c.querySelectorAll(".btn-group-add-remark-more").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      btn.disabled = true;
+      btn.textContent = "Adding…";
+      const actId = btn.dataset.actId;
+      for (const studentName of state.groupAttendees) {
+        await addGroupRemark(state.groupSessionId, actId, studentName);
+      }
     });
   });
 
