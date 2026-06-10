@@ -2413,6 +2413,7 @@ div.admin-note-editable:empty::before {
 .group-remark-round {
   display: flex;
   flex-direction: column;
+  gap: 1rem;
 }
 .group-round-footer {
   display: flex;

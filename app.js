@@ -53,7 +53,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "275";
+const APP_VERSION = "276";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -4162,7 +4162,6 @@ function renderGroupActivityCard(actName, actId, target, data, attendees) {
     const roundRemIds = [];
     for (const studentName of attendees) {
       const entry = byStudent[studentName]?.[i] || null;
-      if (rows.length > 0) rows.push(`<div class="entry-divider"></div>`);
       if (entry) {
         const [remId, rem] = entry;
         roundRemIds.push(remId);
