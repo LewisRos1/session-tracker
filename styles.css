@@ -2236,8 +2236,8 @@ div.admin-note-editable:empty::before {
    using min- so content taller than the row can still expand the row. */
 .vcol-rem > .view-remark-edit { min-height: 100%; }
 .vcol-trials { width: 155px; }
-.vcol-total  { width: 46px; text-align: center; white-space: nowrap; }
-.vcol-score  { width: 62px; text-align: center; font-weight: 600; white-space: nowrap; }
+.vcol-total  { width: 54px; text-align: center; white-space: nowrap; }
+.vcol-score  { width: 82px; text-align: center; font-weight: 600; white-space: nowrap; }
 
 .trial-cells {
   display: flex;
