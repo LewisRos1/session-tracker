@@ -50,12 +50,49 @@ async function buildStudentWorkbook(student, sessions) {
   const allTargets = getAllTargets(student);
   const wb = new ExcelJS.Workbook();
 
+  // ── Monthly Summary ──────────────────────────────────────────
   const summaryRows = buildSummarySheet(allTargets, sessions);
-  const summaryWs   = wb.addWorksheet("Summary");
+  const summaryWs   = wb.addWorksheet("Monthly Summary");
   summaryRows.forEach(row => summaryWs.addRow(row));
   summaryWs.getColumn(1).width = 30;
   for (let c = 2; c <= (summaryRows[0]?.length || 1); c++) {
     summaryWs.getColumn(c).width = 12;
+  }
+
+  // ── Detailed Summary ─────────────────────────────────────────
+  const { rows: detRows, monthHeaderRows: detMonthHdrs, colHeaderRows: detColHdrs, amberCells } =
+    buildDetailedSummarySheet(allTargets, sessions);
+  const detWs = wb.addWorksheet("Detailed Summary");
+  detRows.forEach(row => detWs.addRow(row));
+  detWs.getColumn(1).width = 30;
+  const detMaxCols = Math.max(...detRows.map(r => r.length), 1);
+  for (let c = 2; c <= detMaxCols; c++) detWs.getColumn(c).width = 12;
+  detWs.getColumn(1).alignment = { vertical: "middle" };
+  for (let c = 2; c <= detMaxCols; c++) {
+    detWs.getColumn(c).alignment = { horizontal: "center", vertical: "middle" };
+  }
+  for (const rowIdx of detMonthHdrs) {
+    const n = rowIdx + 1;
+    for (let c = 1; c <= detMaxCols; c++) {
+      const cell = detWs.getRow(n).getCell(c);
+      cell.fill = STYLE_MONTH.fill;
+      cell.font = STYLE_MONTH.font;
+    }
+  }
+  for (const rowIdx of detColHdrs) {
+    const n = rowIdx + 1;
+    for (let c = 1; c <= detMaxCols; c++) {
+      const cell = detWs.getRow(n).getCell(c);
+      cell.fill = STYLE_COL_HEADER.fill;
+      cell.font = STYLE_COL_HEADER.font;
+      cell.alignment = STYLE_COL_HEADER.alignment;
+    }
+  }
+  for (const { rowIdx, col } of amberCells) {
+    const cell = detWs.getRow(rowIdx + 1).getCell(col);
+    cell.fill = STYLE_DAILY_AVG.fill;
+    cell.font = STYLE_DAILY_AVG.font;
+    cell.alignment = { horizontal: "center" };
   }
 
   for (const target of allTargets) {
@@ -209,6 +246,61 @@ function buildSummarySheet(allTargets, sessions) {
   }
 
   return rows;
+}
+
+// ─── DETAILED SUMMARY SHEET ──────────────────────────────────
+// Rows = targets, columns = individual session dates (grouped by month).
+// Last column of each month block = Monthly Avg.
+
+function buildDetailedSummarySheet(allTargets, sessions) {
+  const months = [...new Set(sessions.map(s => s.month))].sort((a, b) => {
+    const [ma, ya] = parseMonth(a);
+    const [mb, yb] = parseMonth(b);
+    return ya !== yb ? ya - yb : ma - mb;
+  });
+
+  const rows = [];
+  const monthHeaderRows = new Set();
+  const colHeaderRows   = new Set();
+  const amberCells      = []; // {rowIdx, col} — Monthly Avg header + data cells
+
+  let firstMonth = true;
+  for (const month of months) {
+    const monthSessions = sessions
+      .filter(s => s.month === month)
+      .sort((a, b) => a.date.localeCompare(b.date));
+
+    if (!firstMonth) rows.push([]);
+    firstMonth = false;
+
+    monthHeaderRows.add(rows.length);
+    rows.push([month]);
+
+    const avgColIdx = 1 + monthSessions.length + 1; // 1-indexed column for Monthly Avg
+
+    colHeaderRows.add(rows.length);
+    amberCells.push({ rowIdx: rows.length, col: avgColIdx });
+    rows.push(["Target", ...monthSessions.map(s => fmtDate(s.date)), "Monthly Avg"]);
+
+    for (const target of allTargets) {
+      const sessionAvgs = monthSessions.map(session => {
+        const snap = (session.targetsSnapshot || []).find(t => t.name === target.name);
+        const eff  = snap ? { ...target, maxPoints: snap.maxPoints } : target;
+        return calcDailyAverage(session, eff);
+      });
+      const validAvgs  = sessionAvgs.filter(v => v !== null);
+      const monthlyAvg = validAvgs.length > 0 ? avg(validAvgs) : null;
+
+      amberCells.push({ rowIdx: rows.length, col: avgColIdx });
+      rows.push([
+        target.name,
+        ...sessionAvgs.map(v => v !== null ? pct(v) : ""),
+        monthlyAvg !== null ? pct(monthlyAvg) : ""
+      ]);
+    }
+  }
+
+  return { rows, monthHeaderRows, colHeaderRows, amberCells };
 }
 
 function parseMonth(monthStr) {
