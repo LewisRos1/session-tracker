@@ -2174,6 +2174,7 @@ div.admin-note-editable:empty::before {
 
 .view-table {
   width: 100%;
+  min-width: 920px;
   table-layout: fixed;
   border-collapse: collapse;
   font-size: .875rem;

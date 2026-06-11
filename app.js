@@ -55,7 +55,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "302";
+const APP_VERSION = "303";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -2366,6 +2366,14 @@ function calcViewDayAvg(data, target) {
   return avgs.length ? Math.round(avgs.reduce((a, b) => a + b, 0) / avgs.length) : null;
 }
 
+// Vertically centres text in a remark edit div by padding-top.
+// Called after blur; reset to ".3rem" on focus so typing stays top-left.
+function centreRemark(el) {
+  el.style.paddingTop = ".3rem";
+  const extra = el.clientHeight - el.scrollHeight;
+  if (extra > 1) el.style.paddingTop = `calc(.3rem + ${Math.floor(extra / 2)}px)`;
+}
+
 function attachViewListeners() {
   const body = $("session-view-body");
 
@@ -2416,7 +2424,9 @@ function attachViewListeners() {
     ta.addEventListener("keydown", e => {
       if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); ta.blur(); }
     });
+    ta.addEventListener("focus", () => { ta.style.paddingTop = ".3rem"; });
     ta.addEventListener("blur", async () => {
+      centreRemark(ta);
       const newText = ta.innerHTML;
       if (newText === orig) return;
       orig = newText;
@@ -2622,6 +2632,11 @@ function attachViewListeners() {
       if (ta.value === current) return;
       await updateFedcComment(state.viewSessionId, target.name, ta.value);
     });
+  });
+
+  // Centre pre-filled remark text once the browser has finished layout
+  requestAnimationFrame(() => {
+    body.querySelectorAll(".view-remark-edit:not(.view-remark-empty)").forEach(centreRemark);
   });
 }
 
