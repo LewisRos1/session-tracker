@@ -47,7 +47,7 @@ function getAllTargets(student) {
 }
 
 async function buildStudentWorkbook(student, sessions) {
-  const allTargets = getAllTargets(student);
+  const allTargets = getAllTargets(student).slice().sort((a, b) => a.name.localeCompare(b.name));
   const wb = new ExcelJS.Workbook();
 
   // ── Monthly Summary ──────────────────────────────────────────
