@@ -11,31 +11,33 @@ function stripRemarkHtml(s) {
 }
 
 // ─── STYLE CONSTANTS ─────────────────────────────────────────
-// Monthly header: deep indigo — top-level landmark
+// Monthly header: soft violet/lilac — whimsical top-level anchor
 const STYLE_MONTH = {
-  fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FF6366F1" } },
-  font: { bold: true, size: 12, color: { argb: "FFFFFFFF" } }
-};
-// Session header: warm amber-orange — primary structural marker
-const STYLE_SESSION = {
-  fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFF97316" } },
-  font: { bold: true, color: { argb: "FFFFFFFF" } }
-};
-// Column header (Activity / Remark / Trials / Avg): slate-gray, white text
-const STYLE_COL_HEADER = {
-  fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FF64748B" } },
-  font: { bold: true, color: { argb: "FFFFFFFF" } },
+  fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFA78BFA" } },
+  font: { bold: true, size: 12, color: { argb: "FFFFFFFF" } },
   alignment: { horizontal: "center", vertical: "middle" }
 };
-// Activity section heading: light orange tint, matching the session hierarchy
-const STYLE_ACT_HEADING = {
-  fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFF7ED" } },
-  font: { bold: true, color: { argb: "FF9A3412" } }
+// Session header: soft coral/rose — warm and friendly
+const STYLE_SESSION = {
+  fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFFCA5A5" } },
+  font: { bold: true, color: { argb: "FF7F1D1D" } },
+  alignment: { horizontal: "center", vertical: "middle" }
 };
-// Daily Average: palest gray — informational, not dominant
+// Column header: fresh mint/aqua — cheerful and clear
+const STYLE_COL_HEADER = {
+  fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FF5EEAD4" } },
+  font: { bold: true, color: { argb: "FF0F4C40" } },
+  alignment: { horizontal: "center", vertical: "middle" }
+};
+// Activity section heading: light lavender tint
+const STYLE_ACT_HEADING = {
+  fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFEDE9FE" } },
+  font: { bold: true, color: { argb: "FF4C1D95" } }
+};
+// Daily Average: soft sunny yellow — warm and subtle
 const STYLE_DAILY_AVG = {
-  fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFF1F5F9" } },
-  font: { bold: true, italic: true, color: { argb: "FF374151" } }
+  fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFFEF9C3" } },
+  font: { bold: true, italic: true, color: { argb: "FF713F12" } }
 };
 // Reference note: soft warm tint, italic
 const STYLE_NOTE = {
@@ -106,6 +108,7 @@ async function buildStudentWorkbook(student, sessions) {
     cell.font = STYLE_DAILY_AVG.font;
     cell.alignment = { horizontal: "center" };
   }
+  mergeAndCenterRows(detWs, detMonthHdrs, detMaxCols);
   applyBorders(detWs, detMaxCols);
 
   for (const target of allTargets) {
@@ -125,6 +128,8 @@ async function buildStudentWorkbook(student, sessions) {
     applyRowStyles(ws, monthHeaderRows,    STYLE_MONTH);
     applyRowStyles(ws, sessionHeaderRows,  STYLE_SESSION);
     applyRowStyles(ws, columnHeaderRows,   STYLE_COL_HEADER);
+    mergeAndCenterRows(ws, monthHeaderRows,  4);
+    mergeAndCenterRows(ws, sessionHeaderRows, 4);
 
     for (const rowIdx of activityHeadingRows) {
       const n = rowIdx + 1;
@@ -245,6 +250,17 @@ function applyBorders(ws, numCols) {
 function applySessionRowHeights(ws, sessionHeaderRowIndices) {
   for (const rowIdx of sessionHeaderRowIndices) {
     ws.getRow(rowIdx + 1).height = 22;
+  }
+}
+
+// Merge a set of rows across numCols columns and force centered alignment
+function mergeAndCenterRows(ws, rowIndices, numCols) {
+  const colLetter = String.fromCharCode(64 + numCols); // e.g. 4 → 'D'
+  for (const rowIdx of rowIndices) {
+    const n = rowIdx + 1;
+    try { ws.mergeCells(`A${n}:${colLetter}${n}`); } catch (_) {}
+    const cell = ws.getRow(n).getCell(1);
+    cell.alignment = { horizontal: "center", vertical: "middle", wrapText: false };
   }
 }
 
