@@ -55,7 +55,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "313";
+const APP_VERSION = "314";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -615,14 +615,18 @@ function showStudentChoice(student) {
       });
     });
 
-    $("session-picker-list").querySelector(".btn-date-other").addEventListener("click", async () => {
+    $("session-picker-list").querySelector(".btn-date-other").addEventListener("click", () => {
       const [ty, tm] = today.split("-").map(Number);
-      let takenDates = new Set();
-      try {
-        const sessions = await getRecentSessionsForStudent(student.id);
-        takenDates = new Set(sessions.map(s => s.date));
-      } catch (_) {}
-      renderStartSessionCalendar(student, today, `${ty}-${String(tm).padStart(2,"0")}-01`, takenDates);
+      const displayDate = `${ty}-${String(tm).padStart(2,"0")}-01`;
+      // Render immediately so iPad doesn't see a frozen UI while waiting for network
+      renderStartSessionCalendar(student, today, displayDate, new Set());
+      // Then load taken dates and re-render with blue dots
+      getRecentSessionsForStudent(student.id)
+        .then(sessions => {
+          const takenDates = new Set(sessions.map(s => s.date));
+          renderStartSessionCalendar(student, today, displayDate, takenDates);
+        })
+        .catch(() => {});
     });
   });
   $("session-picker-list").querySelector(".choice-other").addEventListener("click", () => {

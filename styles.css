@@ -1233,6 +1233,7 @@ html, body {
   padding: .6rem;
   max-height: 65vh;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   display: flex;
   flex-direction: column;
   gap: .4rem;
@@ -2042,9 +2043,11 @@ div.admin-note-editable:empty::before {
   background: var(--white);
   box-shadow: var(--shadow);
   overflow-y: auto;
-  max-height: 225px; /* ~5 items */
+  -webkit-overflow-scrolling: touch;
+  max-height: 225px;
   margin-bottom: .5rem;
 }
+.roster-item { cursor: pointer; }
 
 .roster-item {
   display: flex;
