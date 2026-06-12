@@ -22,22 +22,22 @@ function stripRemarkHtml(s) {
 //
 // All fonts dark navy for maximum readability on every light fill.
 //
-// Monthly header: light warm gray, dark charcoal text
+// Monthly header: light warm gray, pure black text
 const STYLE_MONTH = {
   fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFD9D9D9" } },
-  font: { bold: true, size: 12, color: { argb: "FF1E1E1E" } },
+  font: { bold: true, size: 12, color: { argb: "FF000000" } },
   alignment: { horizontal: "center", vertical: "middle" }
 };
-// Session header: medium periwinkle, dark navy text
+// Session header: medium periwinkle, pure black text
 const STYLE_SESSION = {
   fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFA8C8E8" } },
-  font: { bold: true, color: { argb: "FF1A2E4A" } },
+  font: { bold: true, color: { argb: "FF000000" } },
   alignment: { horizontal: "center", vertical: "middle" }
 };
-// Column header: light periwinkle, dark navy text
+// Column header: light periwinkle, pure black text
 const STYLE_COL_HEADER = {
   fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFC8DFF2" } },
-  font: { bold: true, color: { argb: "FF1A2E4A" } },
+  font: { bold: true, color: { argb: "FF000000" } },
   alignment: { horizontal: "center", vertical: "middle" }
 };
 // Activity section heading: pale periwinkle, muted navy text
