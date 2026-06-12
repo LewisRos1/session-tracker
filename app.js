@@ -55,7 +55,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "324";
+const APP_VERSION = "325";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -518,6 +518,7 @@ function renderExportButtons() {
 
   $("btn-export-all").addEventListener("click", async () => {
     const btn = $("btn-export-all");
+    btn.style.width = btn.offsetWidth + "px";
     btn.disabled = true;
     btn.textContent = "Generating…";
     try {
@@ -527,6 +528,7 @@ function renderExportButtons() {
     } finally {
       btn.disabled = false;
       btn.textContent = "Export All (ZIP)";
+      btn.style.width = "";
     }
   });
 
@@ -535,6 +537,7 @@ function renderExportButtons() {
       const student = state.students.find(s => s.id === btn.dataset.id);
       if (!student) return;
       const orig = btn.textContent;
+      btn.style.width = btn.offsetWidth + "px";
       btn.disabled = true;
       btn.textContent = "Generating…";
       try {
@@ -544,6 +547,7 @@ function renderExportButtons() {
       } finally {
         btn.disabled = false;
         btn.textContent = orig;
+        btn.style.width = "";
       }
     });
   });
