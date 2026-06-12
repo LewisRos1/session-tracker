@@ -11,48 +11,52 @@ function stripRemarkHtml(s) {
 }
 
 // ─── STYLE CONSTANTS ─────────────────────────────────────────
-// Palette: single-hue soft blue family — calm, therapeutic, clean on print.
-//   Anchor ──► medium ──► light ──► near-white ──► white
+// Palette: Lavender Dust & Warm Gray — comfort, calm, therapeutic
+//   Monthly  ──► Muted Lavender  #C3B1E1  (richest, most prominent)
+//   Session  ──► Soft Lavender   #D9CEEE  (lighter section break)
+//   Col hdr  ──► Soft Taupe      #E6DFD9  (warm neutral accent)
+//   Act hdg  ──► Warm Alabaster  #EDEBE6  (barely-warm white)
+//   Daily avg──► Warm Alabaster  #F7F5F0  (unobtrusive summary)
 //
-// Monthly header: medium-deep calm blue — clear top-level anchor
+// Monthly header: muted lavender — grounding top-level anchor
 const STYLE_MONTH = {
-  fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FF3B6CB5" } },
-  font: { bold: true, size: 12, color: { argb: "FFFFFFFF" } },
+  fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFC3B1E1" } },
+  font: { bold: true, size: 12, color: { argb: "FF3D2E5A" } },
   alignment: { horizontal: "center", vertical: "middle" }
 };
-// Session header: light sky blue — soft section break
+// Session header: lighter lavender — gentle section break
 const STYLE_SESSION = {
-  fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFCFE2F3" } },
-  font: { bold: true, color: { argb: "FF1A3A5C" } },
+  fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFD9CEEE" } },
+  font: { bold: true, color: { argb: "FF4A3F5C" } },
   alignment: { horizontal: "center", vertical: "middle" }
 };
-// Column header: pale blue-gray — neutral, professional
+// Column header: soft taupe — warm neutral, clear label
 const STYLE_COL_HEADER = {
-  fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFE8EEF4" } },
-  font: { bold: true, color: { argb: "FF2C3E50" } },
+  fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFE6DFD9" } },
+  font: { bold: true, color: { argb: "FF5C5048" } },
   alignment: { horizontal: "center", vertical: "middle" }
 };
-// Activity section heading: barely-blue white — very subtle
+// Activity section heading: warm alabaster — very subtle warmth
 const STYLE_ACT_HEADING = {
-  fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFF0F5FA" } },
-  font: { bold: true, color: { argb: "FF3B6CB5" } }
+  fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFEDEBE6" } },
+  font: { bold: true, color: { argb: "FF6B5F7A" } }
 };
-// Daily Average: warm off-white — unobtrusive summary row
+// Daily Average: lightest warm alabaster — unobtrusive summary row
 const STYLE_DAILY_AVG = {
-  fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFF7F9FC" } },
-  font: { bold: true, italic: true, color: { argb: "FF4A5568" } }
+  fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFF7F5F0" } },
+  font: { bold: true, italic: true, color: { argb: "FF7A7068" } }
 };
 // Reference note: soft warm cream, italic
 const STYLE_NOTE = {
   fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFFBEB" } },
-  font: { italic: true, color: { argb: "FF92400E" } }
+  font: { italic: true, color: { argb: "FF7A5C3A" } }
 };
-// Thin border applied to every data cell for print clarity
+// Thin border: warm taupe-gray for print clarity
 const CELL_BORDER = {
-  top:    { style: "thin", color: { argb: "FFD1D5DB" } },
-  left:   { style: "thin", color: { argb: "FFD1D5DB" } },
-  bottom: { style: "thin", color: { argb: "FFD1D5DB" } },
-  right:  { style: "thin", color: { argb: "FFD1D5DB" } },
+  top:    { style: "thin", color: { argb: "FFD1C9C0" } },
+  left:   { style: "thin", color: { argb: "FFD1C9C0" } },
+  bottom: { style: "thin", color: { argb: "FFD1C9C0" } },
+  right:  { style: "thin", color: { argb: "FFD1C9C0" } },
 };
 
 // ─── PUBLIC ENTRY POINT ──────────────────────────────────────
@@ -121,11 +125,11 @@ async function buildStudentWorkbook(student, sessions) {
     rows.forEach(row => ws.addRow(row));
     ws.getColumn(1).width     = 45;
     ws.getColumn(2).width     = 52;
-    ws.getColumn(3).width     = 22;
+    ws.getColumn(3).width     = 16;
     ws.getColumn(4).width     = 10;
     ws.getColumn(1).alignment = { wrapText: true, vertical: "top" };
     ws.getColumn(2).alignment = { wrapText: true, vertical: "top" };
-    ws.getColumn(3).alignment = { horizontal: "center", vertical: "top" };
+    ws.getColumn(3).alignment = { horizontal: "center", vertical: "top", wrapText: true };
     ws.getColumn(4).alignment = { horizontal: "center", vertical: "top" };
 
     applyRowStyles(ws, monthHeaderRows,    STYLE_MONTH);
