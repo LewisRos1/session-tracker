@@ -55,7 +55,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "307";
+const APP_VERSION = "308";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -616,21 +616,8 @@ function showStudentChoice(student) {
     });
 
     $("session-picker-list").querySelector(".btn-date-other").addEventListener("click", () => {
-      const input = document.createElement("input");
-      input.type = "date";
-      input.max = today;
-      input.style.cssText = "position:fixed;opacity:0;top:0;left:0;width:1px;height:1px;";
-      document.body.appendChild(input);
-      const cleanup = () => { if (document.body.contains(input)) document.body.removeChild(input); };
-      input.addEventListener("change", () => {
-        const d = input.value;
-        cleanup();
-        if (!d || d > today) return;
-        closeSessionPicker();
-        openSession(student, null, d);
-      });
-      input.addEventListener("blur", () => setTimeout(cleanup, 500));
-      try { input.showPicker(); } catch (_) { input.click(); }
+      const [ty, tm] = today.split("-").map(Number);
+      renderStartSessionCalendar(student, today, `${ty}-${String(tm).padStart(2,"0")}-01`);
     });
   });
   $("session-picker-list").querySelector(".choice-other").addEventListener("click", () => {
@@ -866,6 +853,59 @@ async function showEditDatePicker() {
     sessions.filter(s => s.id !== state.viewSessionId).map(s => s.date)
   );
   renderDatePickerCalendar(currentDate, takenDates, getTodayString(), currentDate);
+}
+
+function renderStartSessionCalendar(student, today, displayDate) {
+  const [y, m] = displayDate.split("-").map(Number);
+  const monthLabel = new Date(y, m - 1, 1)
+    .toLocaleString("default", { month: "long", year: "numeric" });
+  const [ty, tm] = today.split("-").map(Number);
+  const canNext = y < ty || (y === ty && m < tm);
+  const pad = n => String(n).padStart(2, "0");
+  const prevM = m === 1  ? `${y - 1}-12-01` : `${y}-${pad(m - 1)}-01`;
+  const nextM = m === 12 ? `${y + 1}-01-01` : `${y}-${pad(m + 1)}-01`;
+  const firstDow  = new Date(y, m - 1, 1).getDay();
+  const daysInMon = new Date(y, m, 0).getDate();
+
+  let html = `<div class="date-picker-wrap"><div class="date-picker-row"><div class="date-picker-cal">
+    <div class="date-picker-nav">
+      <button class="btn-date-prev">‹</button>
+      <span class="date-picker-month-label">${escHtml(monthLabel)}</span>
+      <button class="btn-date-next"${canNext ? "" : " disabled"}>›</button>
+    </div>
+    <div class="date-picker-day-headers">
+      <span>Su</span><span>Mo</span><span>Tu</span><span>We</span>
+      <span>Th</span><span>Fr</span><span>Sa</span>
+    </div>
+    <div class="date-picker-grid">`;
+
+  for (let cell = 0; cell < 42; cell++) {
+    const d = cell - firstDow + 1;
+    if (d < 1 || d > daysInMon) { html += `<span></span>`; continue; }
+    const ds    = `${y}-${pad(m)}-${pad(d)}`;
+    const isFut = ds > today;
+    const cls   = "date-picker-day" + (isFut ? " date-picker-day-future" : "");
+    html += `<button class="${cls}" data-date="${ds}"${isFut ? " disabled" : ""}><span class="day-num">${d}</span><span class="day-dot-spacer"></span></button>`;
+  }
+  html += `</div></div></div></div>`;
+
+  $("session-picker-title").textContent = "Pick a date";
+  $("session-picker-list").innerHTML = html;
+
+  $("session-picker-list").querySelector(".btn-date-prev").addEventListener("click", () => {
+    renderStartSessionCalendar(student, today, prevM);
+  });
+  if (canNext) {
+    $("session-picker-list").querySelector(".btn-date-next").addEventListener("click", () => {
+      renderStartSessionCalendar(student, today, nextM);
+    });
+  }
+  $("session-picker-list").querySelectorAll(".date-picker-day:not([disabled])").forEach(btn => {
+    btn.addEventListener("click", () => {
+      closeSessionPicker();
+      openSession(student, null, btn.dataset.date);
+    });
+  });
 }
 
 function renderDatePickerCalendar(displayDate, takenDates, today, currentDate) {
