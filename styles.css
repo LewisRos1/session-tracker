@@ -2235,6 +2235,10 @@ div.admin-note-editable:empty::before {
 .vcol-total  { width: 54px; text-align: center; white-space: nowrap; }
 .vcol-score  { width: 82px; text-align: center; font-weight: 600; white-space: nowrap; }
 
+@media (min-width: 900px) {
+  .vcol-act { width: 312px; }
+}
+
 .trial-cells {
   display: flex;
   align-items: center;
