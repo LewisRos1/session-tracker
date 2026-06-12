@@ -11,33 +11,43 @@ function stripRemarkHtml(s) {
 }
 
 // ─── STYLE CONSTANTS ─────────────────────────────────────────
+// Monthly header: deep indigo — top-level landmark
 const STYLE_MONTH = {
   fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FF6366F1" } },
+  font: { bold: true, size: 12, color: { argb: "FFFFFFFF" } }
+};
+// Session header: warm amber-orange — primary structural marker
+const STYLE_SESSION = {
+  fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFF97316" } },
   font: { bold: true, color: { argb: "FFFFFFFF" } }
 };
-const STYLE_SESSION = {
-  fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFE5E7EB" } },
-  font: { bold: true }
-};
+// Column header (Activity / Remark / Trials / Avg): slate-gray, white text
 const STYLE_COL_HEADER = {
-  fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFF3F4F6" } },
-  font: { bold: true },
+  fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FF64748B" } },
+  font: { bold: true, color: { argb: "FFFFFFFF" } },
   alignment: { horizontal: "center", vertical: "middle" }
 };
-// Activity section heading: light indigo tint, bold, merged across all columns
+// Activity section heading: light orange tint, matching the session hierarchy
 const STYLE_ACT_HEADING = {
-  fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFE0E7FF" } },
-  font: { bold: true }
+  fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFF7ED" } },
+  font: { bold: true, color: { argb: "FF9A3412" } }
 };
-// Daily Average: bright amber, bold
+// Daily Average: palest gray — informational, not dominant
 const STYLE_DAILY_AVG = {
-  fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFFBBF24" } },
-  font: { bold: true }
+  fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFF1F5F9" } },
+  font: { bold: true, italic: true, color: { argb: "FF374151" } }
 };
-// Reference note: soft amber tint, italic
+// Reference note: soft warm tint, italic
 const STYLE_NOTE = {
   fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFFBEB" } },
   font: { italic: true, color: { argb: "FF92400E" } }
+};
+// Thin border applied to every data cell for print clarity
+const CELL_BORDER = {
+  top:    { style: "thin", color: { argb: "FFD1D5DB" } },
+  left:   { style: "thin", color: { argb: "FFD1D5DB" } },
+  bottom: { style: "thin", color: { argb: "FFD1D5DB" } },
+  right:  { style: "thin", color: { argb: "FFD1D5DB" } },
 };
 
 // ─── PUBLIC ENTRY POINT ──────────────────────────────────────
@@ -55,9 +65,11 @@ async function buildStudentWorkbook(student, sessions) {
   const summaryWs   = wb.addWorksheet("Monthly Summary");
   summaryRows.forEach(row => summaryWs.addRow(row));
   summaryWs.getColumn(1).width = 30;
-  for (let c = 2; c <= (summaryRows[0]?.length || 1); c++) {
+  const summaryMaxCols = summaryRows[0]?.length || 1;
+  for (let c = 2; c <= summaryMaxCols; c++) {
     summaryWs.getColumn(c).width = 12;
   }
+  applyBorders(summaryWs, summaryMaxCols);
 
   // ── Detailed Summary ─────────────────────────────────────────
   const { rows: detRows, monthHeaderRows: detMonthHdrs, colHeaderRows: detColHdrs, amberCells } =
@@ -94,6 +106,7 @@ async function buildStudentWorkbook(student, sessions) {
     cell.font = STYLE_DAILY_AVG.font;
     cell.alignment = { horizontal: "center" };
   }
+  applyBorders(detWs, detMaxCols);
 
   for (const target of allTargets) {
     const { rows, monthHeaderRows, sessionHeaderRows, columnHeaderRows, activityHeadingRows, noteRows, dailyAvgRows } =
@@ -135,6 +148,8 @@ async function buildStudentWorkbook(student, sessions) {
     }
 
     applyRowStyles(ws, dailyAvgRows, STYLE_DAILY_AVG);
+    applySessionRowHeights(ws, sessionHeaderRows);
+    applyBorders(ws, 4);
   }
 
   return wb.xlsx.writeBuffer();
@@ -205,14 +220,31 @@ export async function exportAllStudents(students) {
 
 // ─── STYLE HELPER ────────────────────────────────────────────
 
-function applyRowStyles(ws, rowIndices, style) {
+function applyRowStyles(ws, rowIndices, style, numCols = 4) {
   for (const rowIdx of rowIndices) {
-    for (let c = 1; c <= 4; c++) {
-      const cell = ws.getRow(rowIdx + 1).getCell(c);
+    const row = ws.getRow(rowIdx + 1);
+    for (let c = 1; c <= numCols; c++) {
+      const cell = row.getCell(c);
       if (style.fill)      cell.fill      = style.fill;
       if (style.font)      cell.font      = style.font;
       if (style.alignment) cell.alignment = style.alignment;
     }
+  }
+}
+
+// Apply thin borders to every cell in the used range for print readability
+function applyBorders(ws, numCols) {
+  ws.eachRow(row => {
+    for (let c = 1; c <= numCols; c++) {
+      row.getCell(c).border = CELL_BORDER;
+    }
+  });
+}
+
+// Give session header rows a slightly taller height so they stand out
+function applySessionRowHeights(ws, sessionHeaderRowIndices) {
+  for (const rowIdx of sessionHeaderRowIndices) {
+    ws.getRow(rowIdx + 1).height = 22;
   }
 }
 
