@@ -11,35 +11,38 @@ function stripRemarkHtml(s) {
 }
 
 // ─── STYLE CONSTANTS ─────────────────────────────────────────
-// Monthly header: soft violet/lilac — whimsical top-level anchor
+// Palette: single-hue soft blue family — calm, therapeutic, clean on print.
+//   Anchor ──► medium ──► light ──► near-white ──► white
+//
+// Monthly header: medium-deep calm blue — clear top-level anchor
 const STYLE_MONTH = {
-  fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFA78BFA" } },
+  fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FF3B6CB5" } },
   font: { bold: true, size: 12, color: { argb: "FFFFFFFF" } },
   alignment: { horizontal: "center", vertical: "middle" }
 };
-// Session header: soft coral/rose — warm and friendly
+// Session header: light sky blue — soft section break
 const STYLE_SESSION = {
-  fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFFCA5A5" } },
-  font: { bold: true, color: { argb: "FF7F1D1D" } },
+  fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFCFE2F3" } },
+  font: { bold: true, color: { argb: "FF1A3A5C" } },
   alignment: { horizontal: "center", vertical: "middle" }
 };
-// Column header: fresh mint/aqua — cheerful and clear
+// Column header: pale blue-gray — neutral, professional
 const STYLE_COL_HEADER = {
-  fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FF5EEAD4" } },
-  font: { bold: true, color: { argb: "FF0F4C40" } },
+  fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFE8EEF4" } },
+  font: { bold: true, color: { argb: "FF2C3E50" } },
   alignment: { horizontal: "center", vertical: "middle" }
 };
-// Activity section heading: light lavender tint
+// Activity section heading: barely-blue white — very subtle
 const STYLE_ACT_HEADING = {
-  fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFEDE9FE" } },
-  font: { bold: true, color: { argb: "FF4C1D95" } }
+  fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFF0F5FA" } },
+  font: { bold: true, color: { argb: "FF3B6CB5" } }
 };
-// Daily Average: soft sunny yellow — warm and subtle
+// Daily Average: warm off-white — unobtrusive summary row
 const STYLE_DAILY_AVG = {
-  fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFFEF9C3" } },
-  font: { bold: true, italic: true, color: { argb: "FF713F12" } }
+  fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFF7F9FC" } },
+  font: { bold: true, italic: true, color: { argb: "FF4A5568" } }
 };
-// Reference note: soft warm tint, italic
+// Reference note: soft warm cream, italic
 const STYLE_NOTE = {
   fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFFBEB" } },
   font: { italic: true, color: { argb: "FF92400E" } }
