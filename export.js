@@ -11,56 +11,56 @@ function stripRemarkHtml(s) {
 }
 
 // ─── STYLE CONSTANTS ─────────────────────────────────────────
-// Palette: Soft Mint & Warm Peach — calm, clean, pediatric/therapy warmth
+// Palette: Bright Periwinkle — cheerful, child-friendly, single-hue graduated
 //
-// Visual hierarchy (dark → light):
-//   Monthly  ──► Medium teal-mint  #7AB5A4  ← clear top anchor
-//   Session  ──► Light mint        #C5E0DA  ← gentle section break
-//   Col hdr  ──► Warm peach-cream  #EDD8CC  ← accent contrast to mint
-//   Act hdg  ──► Barely mint       #EEF6F4  ← very subtle
-//   Daily avg──► Near-white mint   #F6FAF9  ← unobtrusive summary
+// Visual hierarchy (saturated → near-white):
+//   Monthly  ──► Bright periwinkle  #5B8EC4  ← clear top anchor
+//   Session  ──► Medium periwinkle  #A8C8E8  ← section break
+//   Col hdr  ──► Light periwinkle   #C8DFF2  ← label row
+//   Act hdg  ──► Pale periwinkle    #E4F0F8  ← subtle section
+//   Daily avg──► Near-white blue    #F2F7FC  ← unobtrusive summary
 //
-// All font colors are dark for guaranteed readability on light fills.
+// All fonts dark navy for maximum readability on every light fill.
 //
-// Monthly header: medium teal-mint, dark forest text
+// Monthly header: bright periwinkle, dark navy text
 const STYLE_MONTH = {
-  fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FF7AB5A4" } },
-  font: { bold: true, size: 12, color: { argb: "FF1A3830" } },
+  fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FF5B8EC4" } },
+  font: { bold: true, size: 12, color: { argb: "FF0F2340" } },
   alignment: { horizontal: "center", vertical: "middle" }
 };
-// Session header: light mint, dark teal text
+// Session header: medium periwinkle, dark navy text
 const STYLE_SESSION = {
-  fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFC5E0DA" } },
-  font: { bold: true, color: { argb: "FF1C3C36" } },
+  fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFA8C8E8" } },
+  font: { bold: true, color: { argb: "FF1A2E4A" } },
   alignment: { horizontal: "center", vertical: "middle" }
 };
-// Column header: warm peach-cream, dark warm brown text
+// Column header: light periwinkle, dark navy text
 const STYLE_COL_HEADER = {
-  fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFECD8CC" } },
-  font: { bold: true, color: { argb: "FF5A3020" } },
+  fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFC8DFF2" } },
+  font: { bold: true, color: { argb: "FF1A2E4A" } },
   alignment: { horizontal: "center", vertical: "middle" }
 };
-// Activity section heading: barely mint, muted dark teal text
+// Activity section heading: pale periwinkle, muted navy text
 const STYLE_ACT_HEADING = {
-  fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFEEF6F4" } },
-  font: { bold: true, color: { argb: "FF2A4A42" } }
+  fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFE4F0F8" } },
+  font: { bold: true, color: { argb: "FF2A4060" } }
 };
-// Daily Average: near-white mint, soft teal-gray text
+// Daily Average: near-white blue, soft navy text
 const STYLE_DAILY_AVG = {
-  fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFF6FAF9" } },
-  font: { bold: true, italic: true, color: { argb: "FF4A6A62" } }
+  fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFF2F7FC" } },
+  font: { bold: true, italic: true, color: { argb: "FF3A5470" } }
 };
 // Reference note: soft warm cream, warm amber text
 const STYLE_NOTE = {
   fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFF8ED" } },
   font: { italic: true, color: { argb: "FF7A5030" } }
 };
-// Thin border: soft mint-gray for clean print separation
+// Thin border: soft periwinkle-gray for clean print separation
 const CELL_BORDER = {
-  top:    { style: "thin", color: { argb: "FFBBD5CE" } },
-  left:   { style: "thin", color: { argb: "FFBBD5CE" } },
-  bottom: { style: "thin", color: { argb: "FFBBD5CE" } },
-  right:  { style: "thin", color: { argb: "FFBBD5CE" } },
+  top:    { style: "thin", color: { argb: "FFB0C8E0" } },
+  left:   { style: "thin", color: { argb: "FFB0C8E0" } },
+  bottom: { style: "thin", color: { argb: "FFB0C8E0" } },
+  right:  { style: "thin", color: { argb: "FFB0C8E0" } },
 };
 
 // ─── PUBLIC ENTRY POINT ──────────────────────────────────────
