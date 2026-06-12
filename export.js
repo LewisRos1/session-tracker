@@ -22,10 +22,10 @@ function stripRemarkHtml(s) {
 //
 // All fonts dark navy for maximum readability on every light fill.
 //
-// Monthly header: bright periwinkle, dark navy text
+// Monthly header: light warm gray, dark charcoal text
 const STYLE_MONTH = {
-  fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FF5B8EC4" } },
-  font: { bold: true, size: 12, color: { argb: "FF0F2340" } },
+  fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFD9D9D9" } },
+  font: { bold: true, size: 12, color: { argb: "FF1E1E1E" } },
   alignment: { horizontal: "center", vertical: "middle" }
 };
 // Session header: medium periwinkle, dark navy text
