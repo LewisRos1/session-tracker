@@ -55,7 +55,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "309";
+const APP_VERSION = "310";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -646,14 +646,15 @@ async function showSessionPicker(student) {
 
   // Auto-delete sessions with no meaningful data for any currently existing target
   const currentTargetNames = new Set((student.targets || []).map(t => t.name));
+  const stripEmpty = s => (s || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").replace(/ /g, " ").trim();
   const hasUsefulData = s => {
-    if (Object.values(s.fedcComments || {}).some(c => (c || "").trim())) return true;
+    if (Object.values(s.fedcComments || {}).some(c => stripEmpty(c).length > 0)) return true;
     return Object.values(s.remarks || {}).some(r => {
       const act = (s.activities || {})[r.activityId];
       if (!act || !currentTargetNames.has(act.targetName)) return false;
-      const hasText   = (r.text        || "").trim().length > 0;
+      const hasText   = stripEmpty(r.text).length > 0;
       const hasTrials = (r.trials      || []).some(t => t !== null && t !== -1);
-      const hasNote   = (r.masteryNote || "").trim().length > 0;
+      const hasNote   = stripEmpty(r.masteryNote).length > 0;
       return hasText || hasTrials || hasNote;
     });
   };
@@ -754,14 +755,15 @@ async function showGoToAnotherSession(student) {
   try { sessions = await getRecentSessionsForStudent(student.id); } catch (_) {}
 
   const currentTargetNames = new Set((student.targets || []).map(t => t.name));
+  const stripEmpty = s => (s || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").replace(/ /g, " ").trim();
   const hasUsefulData = s => {
-    if (Object.values(s.fedcComments || {}).some(c => (c || "").trim())) return true;
+    if (Object.values(s.fedcComments || {}).some(c => stripEmpty(c).length > 0)) return true;
     return Object.values(s.remarks || {}).some(r => {
       const act = (s.activities || {})[r.activityId];
       if (!act || !currentTargetNames.has(act.targetName)) return false;
-      const hasText   = (r.text        || "").trim().length > 0;
+      const hasText   = stripEmpty(r.text).length > 0;
       const hasTrials = (r.trials      || []).some(t => t !== null && t !== -1);
-      const hasNote   = (r.masteryNote || "").trim().length > 0;
+      const hasNote   = stripEmpty(r.masteryNote).length > 0;
       return hasText || hasTrials || hasNote;
     });
   };
@@ -1070,17 +1072,22 @@ function leaveSession() {
   state.renderPending      = false;
 
   if (sessionId && data) {
-    // Clean up empty remarks/activities across all targets (fire-and-forget)
-    const allTargetNames = new Set(Object.values(data.activities || {}).map(a => a.targetName));
-    allTargetNames.forEach(name => cleanupEmptyEntries(sessionId, data, name).catch(() => {}));
-
+    const stripEmpty = s => (s || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").replace(/ /g, " ").trim();
     const currentTargetNames = new Set((student?.targets || []).map(t => t.name));
-    const remarks = Object.values(data.remarks || {});
-    const hasUsefulData = remarks.some(r => {
+    const fedcHasData = Object.values(data.fedcComments || {}).some(c => stripEmpty(c).length > 0);
+    const remarkHasData = Object.values(data.remarks || {}).some(r => {
       const act = (data.activities || {})[r.activityId];
-      return act && currentTargetNames.has(act.targetName);
+      if (!act || !currentTargetNames.has(act.targetName)) return false;
+      return stripEmpty(r.text).length > 0
+        || (r.trials || []).some(t => t !== null && t !== -1)
+        || stripEmpty(r.masteryNote).length > 0;
     });
-    if (!hasUsefulData) deleteSession(sessionId).catch(() => {});
+    if (!fedcHasData && !remarkHasData) {
+      deleteSession(sessionId).catch(() => {});
+    } else {
+      const allTargetNames = new Set(Object.values(data.activities || {}).map(a => a.targetName));
+      allTargetNames.forEach(name => cleanupEmptyEntries(sessionId, data, name).catch(() => {}));
+    }
   }
 
   showHome();
@@ -2080,13 +2087,17 @@ function leaveSessionView() {
   state.viewRenderPending = false;
 
   if (sessionId && data) {
+    const stripEmpty = s => (s || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").replace(/ /g, " ").trim();
     const currentTargetNames = new Set((student?.targets || []).map(t => t.name));
-    const remarks = Object.values(data.remarks || {});
-    const hasUsefulData = remarks.some(r => {
+    const fedcHasData = Object.values(data.fedcComments || {}).some(c => stripEmpty(c).length > 0);
+    const remarkHasData = Object.values(data.remarks || {}).some(r => {
       const act = (data.activities || {})[r.activityId];
-      return act && currentTargetNames.has(act.targetName);
+      if (!act || !currentTargetNames.has(act.targetName)) return false;
+      return stripEmpty(r.text).length > 0
+        || (r.trials || []).some(t => t !== null && t !== -1)
+        || stripEmpty(r.masteryNote).length > 0;
     });
-    if (!hasUsefulData) deleteSession(sessionId).catch(() => {});
+    if (!fedcHasData && !remarkHasData) deleteSession(sessionId).catch(() => {});
   }
 
   showHome();
