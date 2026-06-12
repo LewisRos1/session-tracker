@@ -2236,7 +2236,22 @@ div.admin-note-editable:empty::before {
 .vcol-score  { width: 82px; text-align: center; font-weight: 600; white-space: nowrap; }
 
 @media (min-width: 900px) {
-  .vcol-act { width: 312px; }
+  .vcol-act { width: 390px; }
+}
+
+@media (max-width: 767px) {
+  /* Give remark a real width on mobile so it's readable with horizontal scroll */
+  .vcol-rem    { width: 180px; }
+  .view-table  { min-width: 760px; }
+
+  /* Drop "Go To Another Session" onto its own row below the title/delete buttons */
+  .session-header-view  { flex-wrap: wrap; }
+  .btn-goto-session-wrap {
+    position: static;
+    width: 100%;
+    padding: .2rem 0 0;
+    pointer-events: auto;
+  }
 }
 
 .trial-cells {
