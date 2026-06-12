@@ -55,7 +55,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "308";
+const APP_VERSION = "309";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -615,9 +615,14 @@ function showStudentChoice(student) {
       });
     });
 
-    $("session-picker-list").querySelector(".btn-date-other").addEventListener("click", () => {
+    $("session-picker-list").querySelector(".btn-date-other").addEventListener("click", async () => {
       const [ty, tm] = today.split("-").map(Number);
-      renderStartSessionCalendar(student, today, `${ty}-${String(tm).padStart(2,"0")}-01`);
+      let takenDates = new Set();
+      try {
+        const sessions = await getRecentSessionsForStudent(student.id);
+        takenDates = new Set(sessions.map(s => s.date));
+      } catch (_) {}
+      renderStartSessionCalendar(student, today, `${ty}-${String(tm).padStart(2,"0")}-01`, takenDates);
     });
   });
   $("session-picker-list").querySelector(".choice-other").addEventListener("click", () => {
@@ -855,7 +860,7 @@ async function showEditDatePicker() {
   renderDatePickerCalendar(currentDate, takenDates, getTodayString(), currentDate);
 }
 
-function renderStartSessionCalendar(student, today, displayDate) {
+function renderStartSessionCalendar(student, today, displayDate, takenDates = new Set()) {
   const [y, m] = displayDate.split("-").map(Number);
   const monthLabel = new Date(y, m - 1, 1)
     .toLocaleString("default", { month: "long", year: "numeric" });
@@ -867,37 +872,43 @@ function renderStartSessionCalendar(student, today, displayDate) {
   const firstDow  = new Date(y, m - 1, 1).getDay();
   const daysInMon = new Date(y, m, 0).getDate();
 
-  let html = `<div class="date-picker-wrap"><div class="date-picker-row"><div class="date-picker-cal">
-    <div class="date-picker-nav">
-      <button class="btn-date-prev">‹</button>
-      <span class="date-picker-month-label">${escHtml(monthLabel)}</span>
-      <button class="btn-date-next"${canNext ? "" : " disabled"}>›</button>
-    </div>
-    <div class="date-picker-day-headers">
-      <span>Su</span><span>Mo</span><span>Tu</span><span>We</span>
-      <span>Th</span><span>Fr</span><span>Sa</span>
-    </div>
-    <div class="date-picker-grid">`;
+  let html = `<div class="date-picker-wrap">
+    <p class="date-picker-legend"><span class="date-taken-dot"></span> Session exists on this day</p>
+    <div class="date-picker-cal">
+      <div class="date-picker-nav">
+        <button class="btn-date-prev">‹</button>
+        <span class="date-picker-month-label">${escHtml(monthLabel)}</span>
+        <button class="btn-date-next"${canNext ? "" : " disabled"}>›</button>
+      </div>
+      <div class="date-picker-day-headers">
+        <span>Su</span><span>Mo</span><span>Tu</span><span>We</span>
+        <span>Th</span><span>Fr</span><span>Sa</span>
+      </div>
+      <div class="date-picker-grid">`;
 
   for (let cell = 0; cell < 42; cell++) {
     const d = cell - firstDow + 1;
     if (d < 1 || d > daysInMon) { html += `<span></span>`; continue; }
-    const ds    = `${y}-${pad(m)}-${pad(d)}`;
-    const isFut = ds > today;
-    const cls   = "date-picker-day" + (isFut ? " date-picker-day-future" : "");
-    html += `<button class="${cls}" data-date="${ds}"${isFut ? " disabled" : ""}><span class="day-num">${d}</span><span class="day-dot-spacer"></span></button>`;
+    const ds      = `${y}-${pad(m)}-${pad(d)}`;
+    const isFut   = ds > today;
+    const isTaken = takenDates.has(ds);
+    let cls = "date-picker-day";
+    if (isFut)   cls += " date-picker-day-future";
+    if (isTaken) cls += " date-picker-day-taken";
+    const dotCls = isTaken ? "date-taken-dot" : "day-dot-spacer";
+    html += `<button class="${cls}" data-date="${ds}"${isFut ? " disabled" : ""}><span class="day-num">${d}</span><span class="${dotCls}"></span></button>`;
   }
-  html += `</div></div></div></div>`;
+  html += `</div></div></div>`;
 
   $("session-picker-title").textContent = "Pick a date";
   $("session-picker-list").innerHTML = html;
 
   $("session-picker-list").querySelector(".btn-date-prev").addEventListener("click", () => {
-    renderStartSessionCalendar(student, today, prevM);
+    renderStartSessionCalendar(student, today, prevM, takenDates);
   });
   if (canNext) {
     $("session-picker-list").querySelector(".btn-date-next").addEventListener("click", () => {
-      renderStartSessionCalendar(student, today, nextM);
+      renderStartSessionCalendar(student, today, nextM, takenDates);
     });
   }
   $("session-picker-list").querySelectorAll(".date-picker-day:not([disabled])").forEach(btn => {
@@ -924,18 +935,18 @@ function renderDatePickerCalendar(displayDate, takenDates, today, currentDate) {
 
   let html = `<div class="date-picker-wrap">
     <p class="date-picker-subtitle">Select a new date</p>
-    <div class="date-picker-row">
-      <div class="date-picker-cal">
-        <div class="date-picker-nav">
-          <button class="btn-date-prev">‹</button>
-          <span class="date-picker-month-label">${escHtml(monthLabel)}</span>
-          <button class="btn-date-next"${canNext ? "" : " disabled"}>›</button>
-        </div>
-        <div class="date-picker-day-headers">
-          <span>Su</span><span>Mo</span><span>Tu</span><span>We</span>
-          <span>Th</span><span>Fr</span><span>Sa</span>
-        </div>
-        <div class="date-picker-grid">`;
+    <p class="date-picker-legend"><span class="date-taken-dot"></span> Session exists on this day</p>
+    <div class="date-picker-cal">
+      <div class="date-picker-nav">
+        <button class="btn-date-prev">‹</button>
+        <span class="date-picker-month-label">${escHtml(monthLabel)}</span>
+        <button class="btn-date-next"${canNext ? "" : " disabled"}>›</button>
+      </div>
+      <div class="date-picker-day-headers">
+        <span>Su</span><span>Mo</span><span>Tu</span><span>We</span>
+        <span>Th</span><span>Fr</span><span>Sa</span>
+      </div>
+      <div class="date-picker-grid">`;
 
   // Always render 42 cells (6 rows) so height never changes between months
   for (let cell = 0; cell < 42; cell++) {
@@ -953,13 +964,7 @@ function renderDatePickerCalendar(displayDate, takenDates, today, currentDate) {
     const dotCls = (isTaken || isCur) ? "date-taken-dot" : "day-dot-spacer";
     html += `<button class="${cls}" data-date="${ds}"${dis ? " disabled" : ""}><span class="day-num">${d}</span><span class="${dotCls}"></span></button>`;
   }
-  html += `</div><!-- grid -->
-      </div><!-- cal -->
-      <div class="date-picker-aside">
-        <span class="date-taken-dot"></span> Session exists on this day
-      </div>
-    </div><!-- row -->
-  </div><!-- wrap -->`;
+  html += `</div></div></div>`;
 
   $("session-picker-title").textContent = "Edit Date";
   $("session-picker-list").innerHTML = html;

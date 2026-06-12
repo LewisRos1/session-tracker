@@ -435,6 +435,18 @@ html, body {
 .date-picker-wrap {
   width: 100%;
   padding: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.date-picker-legend {
+  display: flex;
+  align-items: center;
+  gap: .35rem;
+  font-size: .82rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  margin: 0 0 .6rem;
 }
 .date-picker-nav {
   display: flex;
@@ -523,24 +535,8 @@ html, body {
   text-align: center;
   margin: 0 0 .4rem;
 }
-.date-picker-row {
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
-  align-items: center;
-}
-.date-picker-cal {
-  grid-column: 2;
-}
 .date-picker-aside {
-  grid-column: 3;
-  display: flex;
-  align-items: center;
-  gap: .35rem;
-  font-size: .82rem;
-  font-weight: 500;
-  color: var(--text-muted);
-  white-space: nowrap;
-  padding-left: 1rem;
+  display: none;
 }
 
 .session-date-step {
