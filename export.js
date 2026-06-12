@@ -79,8 +79,17 @@ async function buildStudentWorkbook(student, sessions) {
   summaryRows.forEach(row => summaryWs.addRow(row));
   summaryWs.getColumn(1).width = 30;
   const summaryMaxCols = summaryRows[0]?.length || 1;
+  for (let c = 2; c <= summaryMaxCols; c++) summaryWs.getColumn(c).width = 12;
+  summaryWs.getColumn(1).alignment = { vertical: "middle" };
   for (let c = 2; c <= summaryMaxCols; c++) {
-    summaryWs.getColumn(c).width = 12;
+    summaryWs.getColumn(c).alignment = { horizontal: "center", vertical: "middle" };
+  }
+  // Style header row (row 1: Target | Month names)
+  for (let c = 1; c <= summaryMaxCols; c++) {
+    const cell = summaryWs.getRow(1).getCell(c);
+    cell.fill      = STYLE_COL_HEADER.fill;
+    cell.font      = STYLE_COL_HEADER.font;
+    cell.alignment = STYLE_COL_HEADER.alignment;
   }
   applyBorders(summaryWs, summaryMaxCols);
 
@@ -338,7 +347,6 @@ function buildDetailedSummarySheet(allTargets, sessions) {
     const avgColIdx = 1 + monthSessions.length + 1; // 1-indexed column for Monthly Avg
 
     colHeaderRows.add(rows.length);
-    amberCells.push({ rowIdx: rows.length, col: avgColIdx });
     rows.push(["Target", ...monthSessions.map(s => fmtDate(s.date)), "Monthly Avg"]);
 
     for (const target of allTargets) {
