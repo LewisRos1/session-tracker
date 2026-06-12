@@ -11,52 +11,52 @@ function stripRemarkHtml(s) {
 }
 
 // ─── STYLE CONSTANTS ─────────────────────────────────────────
-// Palette: Lavender Dust & Warm Gray — comfort, calm, therapeutic
-//   Monthly  ──► Muted Lavender  #C3B1E1  (richest, most prominent)
-//   Session  ──► Soft Lavender   #D9CEEE  (lighter section break)
-//   Col hdr  ──► Soft Taupe      #E6DFD9  (warm neutral accent)
-//   Act hdg  ──► Warm Alabaster  #EDEBE6  (barely-warm white)
-//   Daily avg──► Warm Alabaster  #F7F5F0  (unobtrusive summary)
+// Palette: Sage & Eucalyptus — grounding, natural, restorative
+//   Monthly  ──► Muted Eucalyptus #A3B899  (richest, most prominent)
+//   Session  ──► Soft Eucalyptus  #C2D4BC  (lighter section break)
+//   Col hdr  ──► Earthy Clay      #D3B8AE  (warm accent)
+//   Act hdg  ──► Soft Sage        #E2ECE9  (barely-sage)
+//   Daily avg──► Lightest Sage    #EEF4F2  (unobtrusive summary)
 //
-// Monthly header: muted lavender — grounding top-level anchor
+// Monthly header: muted eucalyptus — grounding top-level anchor
 const STYLE_MONTH = {
-  fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFC3B1E1" } },
-  font: { bold: true, size: 12, color: { argb: "FF3D2E5A" } },
+  fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFA3B899" } },
+  font: { bold: true, size: 12, color: { argb: "FF1F3626" } },
   alignment: { horizontal: "center", vertical: "middle" }
 };
-// Session header: lighter lavender — gentle section break
+// Session header: soft eucalyptus — gentle section break
 const STYLE_SESSION = {
-  fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFD9CEEE" } },
-  font: { bold: true, color: { argb: "FF4A3F5C" } },
+  fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFC2D4BC" } },
+  font: { bold: true, color: { argb: "FF2D4A35" } },
   alignment: { horizontal: "center", vertical: "middle" }
 };
-// Column header: soft taupe — warm neutral, clear label
+// Column header: earthy clay — warm accent, clear label
 const STYLE_COL_HEADER = {
-  fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFE6DFD9" } },
-  font: { bold: true, color: { argb: "FF5C5048" } },
+  fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFD3B8AE" } },
+  font: { bold: true, color: { argb: "FF5C3A30" } },
   alignment: { horizontal: "center", vertical: "middle" }
 };
-// Activity section heading: warm alabaster — very subtle warmth
+// Activity section heading: soft sage — natural, very subtle
 const STYLE_ACT_HEADING = {
-  fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFEDEBE6" } },
-  font: { bold: true, color: { argb: "FF6B5F7A" } }
+  fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFE2ECE9" } },
+  font: { bold: true, color: { argb: "FF3D5848" } }
 };
-// Daily Average: lightest warm alabaster — unobtrusive summary row
+// Daily Average: lightest sage — unobtrusive summary row
 const STYLE_DAILY_AVG = {
-  fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFF7F5F0" } },
-  font: { bold: true, italic: true, color: { argb: "FF7A7068" } }
+  fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFEEF4F2" } },
+  font: { bold: true, italic: true, color: { argb: "FF5A7060" } }
 };
 // Reference note: soft warm cream, italic
 const STYLE_NOTE = {
   fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFFBEB" } },
   font: { italic: true, color: { argb: "FF7A5C3A" } }
 };
-// Thin border: warm taupe-gray for print clarity
+// Thin border: sage-tinted gray for print clarity
 const CELL_BORDER = {
-  top:    { style: "thin", color: { argb: "FFD1C9C0" } },
-  left:   { style: "thin", color: { argb: "FFD1C9C0" } },
-  bottom: { style: "thin", color: { argb: "FFD1C9C0" } },
-  right:  { style: "thin", color: { argb: "FFD1C9C0" } },
+  top:    { style: "thin", color: { argb: "FFC0CFC8" } },
+  left:   { style: "thin", color: { argb: "FFC0CFC8" } },
+  bottom: { style: "thin", color: { argb: "FFC0CFC8" } },
+  right:  { style: "thin", color: { argb: "FFC0CFC8" } },
 };
 
 // ─── PUBLIC ENTRY POINT ──────────────────────────────────────
