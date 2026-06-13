@@ -55,7 +55,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "342";
+const APP_VERSION = "345";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -2053,6 +2053,7 @@ function getViewEffectiveTargets() {
 }
 
 async function openSessionView(student, sessionId) {
+  commitTextEditorSheet();
   state.viewStudent        = student;
   state.viewSessionId      = sessionId;
   state.viewSessionData    = null;

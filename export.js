@@ -148,7 +148,9 @@ async function buildStudentWorkbook(student, sessions) {
   mergeAndCenterRows(detWs, detMonthHdrs, detMaxCols);
   applyBorders(detWs, detMaxCols);
 
-  const sortedSessions = sessions.slice().sort((a, b) => a.date.localeCompare(b.date));
+  const sortedSessions = sessions
+    .filter(s => Object.keys(s.activities || {}).length > 0)
+    .sort((a, b) => a.date.localeCompare(b.date));
 
   // ── Baseline vs Current ─────────────────────────────────────
   if (sortedSessions.length >= 2 &&
@@ -595,6 +597,7 @@ function buildTargetSheet(target, sessions) {
     rows.push(["Date", "Activity", "Remark", "Trials", "Score", "Avg Score"]);
 
     for (const session of monthSessions) {
+      if (Object.keys(session.activities || {}).length === 0) continue;
       const snap = (session.targetsSnapshot || []).find(t => t.name === target.name);
       const effectiveTarget = snap ? { ...target, maxPoints: snap.maxPoints } : target;
       appendSessionRows(rows, sessionDateBlocks, activityHeadingRows, noteRows, session, effectiveTarget);
@@ -806,6 +809,7 @@ function formatDateRange(dates) {
 }
 
 function renderTargetChart(targetName, yValues, dateRange) {
+  const SCALE   = 3;
   const canvas  = document.createElement("canvas");
   canvas.width  = 480;
   canvas.height = 300;
@@ -879,8 +883,9 @@ function renderTargetChart(targetName, yValues, dateRange) {
       ]
     },
     options: {
-      animation:  false,
-      responsive: false,
+      animation:        false,
+      responsive:       false,
+      devicePixelRatio: SCALE,
       layout: { padding: { top: 10, left: 4, right: 22, bottom: 6 } },
       plugins: {
         title: {
