@@ -301,20 +301,20 @@ async function buildStudentWorkbook(student, sessions) {
       }
     }
 
-    // Activity heading rows: merge B:F
+    // Activity heading rows: merge B:E (leave F free for the avg-score column merge)
     for (const rowIdx of activityHeadingRows) {
       const n = rowIdx + 1;
-      try { ws.mergeCells(`B${n}:F${n}`); } catch (_) {}
+      try { ws.mergeCells(`B${n}:E${n}`); } catch (_) {}
       const cell = ws.getRow(n).getCell(2);
       cell.fill      = STYLE_ACT_HEADING.fill;
       cell.font      = STYLE_ACT_HEADING.font;
       cell.alignment = { vertical: "top" };
     }
 
-    // Note rows: merge B:F
+    // Note rows: merge B:E (leave F free for the avg-score column merge)
     for (const rowIdx of noteRows) {
       const n = rowIdx + 1;
-      try { ws.mergeCells(`B${n}:F${n}`); } catch (_) {}
+      try { ws.mergeCells(`B${n}:E${n}`); } catch (_) {}
       const cell = ws.getRow(n).getCell(2);
       cell.fill      = STYLE_NOTE.fill;
       cell.font      = STYLE_NOTE.font;
