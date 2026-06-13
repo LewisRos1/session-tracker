@@ -132,49 +132,84 @@ async function buildStudentWorkbook(student, sessions) {
   applyBorders(detWs, detMaxCols);
 
   for (const target of allTargets) {
-    const { rows, monthHeaderRows, sessionHeaderRows, columnHeaderRows, activityHeadingRows, noteRows, dailyAvgRows } =
+    const { rows, monthHeaderRows, colHeaderRows, activityHeadingRows, noteRows, dailyAvgRows, sessionBlocks } =
       buildTargetSheet(target, sessions);
     const ws = wb.addWorksheet(target.name.slice(0, 31));
     rows.forEach(row => ws.addRow(row));
-    ws.getColumn(1).width     = 45;
-    ws.getColumn(2).width     = 52;
-    ws.getColumn(3).width     = 16;
-    ws.getColumn(4).width     = 10;
-    ws.getColumn(1).alignment = { wrapText: true, vertical: "top" };
+
+    // Col A = session label (narrow, vertical text), B = activity, C = remark, D = trials, E = avg
+    ws.getColumn(1).width     = 12;
+    ws.getColumn(2).width     = 40;
+    ws.getColumn(3).width     = 52;
+    ws.getColumn(4).width     = 16;
+    ws.getColumn(5).width     = 10;
+    ws.getColumn(1).alignment = { horizontal: "center", vertical: "middle" };
     ws.getColumn(2).alignment = { wrapText: true, vertical: "top" };
-    ws.getColumn(3).alignment = { horizontal: "center", vertical: "top", wrapText: true };
-    ws.getColumn(4).alignment = { horizontal: "center", vertical: "top" };
+    ws.getColumn(3).alignment = { wrapText: true, vertical: "top" };
+    ws.getColumn(4).alignment = { horizontal: "center", vertical: "top", wrapText: true };
+    ws.getColumn(5).alignment = { horizontal: "center", vertical: "top" };
 
-    applyRowStyles(ws, monthHeaderRows,    STYLE_MONTH);
-    applyRowStyles(ws, sessionHeaderRows,  STYLE_SESSION);
-    applyRowStyles(ws, columnHeaderRows,   STYLE_COL_HEADER);
-    mergeAndCenterRows(ws, monthHeaderRows,  4);
-    mergeAndCenterRows(ws, sessionHeaderRows, 4);
+    // Month headers: fill all 5 cols then merge A:E
+    applyRowStyles(ws, monthHeaderRows, STYLE_MONTH, 5);
+    mergeAndCenterRows(ws, monthHeaderRows, 5);
 
-    for (const rowIdx of activityHeadingRows) {
+    // Column headers: style all 5 cells individually
+    for (const rowIdx of colHeaderRows) {
       const n = rowIdx + 1;
-      ws.mergeCells(`A${n}:D${n}`);
-      const cell = ws.getRow(n).getCell(1);
-      cell.fill = STYLE_ACT_HEADING.fill;
-      cell.font = STYLE_ACT_HEADING.font;
+      for (let c = 1; c <= 5; c++) {
+        const cell = ws.getRow(n).getCell(c);
+        cell.fill      = STYLE_COL_HEADER.fill;
+        cell.font      = STYLE_COL_HEADER.font;
+        cell.alignment = STYLE_COL_HEADER.alignment;
+      }
     }
 
+    // Activity heading rows: merge B:E (col A belongs to session merge)
+    for (const rowIdx of activityHeadingRows) {
+      const n = rowIdx + 1;
+      try { ws.mergeCells(`B${n}:E${n}`); } catch (_) {}
+      const cell = ws.getRow(n).getCell(2);
+      cell.fill = STYLE_ACT_HEADING.fill;
+      cell.font = STYLE_ACT_HEADING.font;
+      cell.alignment = { vertical: "top" };
+    }
+
+    // Note rows: merge B:E
     for (const rowIdx of noteRows) {
       const n = rowIdx + 1;
-      ws.mergeCells(`A${n}:D${n}`);
-      const cell = ws.getRow(n).getCell(1);
+      try { ws.mergeCells(`B${n}:E${n}`); } catch (_) {}
+      const cell = ws.getRow(n).getCell(2);
       cell.fill = STYLE_NOTE.fill;
       cell.font = STYLE_NOTE.font;
       cell.alignment = { wrapText: true, vertical: "top" };
       const text = (cell.value || "").toString();
       const visLines = text.split("\n").reduce((sum, seg) =>
-        sum + Math.max(1, Math.ceil((seg.length || 1) / 52)), 0);
+        sum + Math.max(1, Math.ceil((seg.length || 1) / 90)), 0);
       ws.getRow(n).height = Math.max(18, visLines * 15);
     }
 
-    applyRowStyles(ws, dailyAvgRows, STYLE_DAILY_AVG);
-    applySessionRowHeights(ws, sessionHeaderRows);
-    applyBorders(ws, 4);
+    // Daily average rows
+    applyRowStyles(ws, dailyAvgRows, STYLE_DAILY_AVG, 5);
+
+    // Session blocks: merge col A vertically, set label + 90° rotation
+    for (const { startRow, endRow, label } of sessionBlocks) {
+      const startN = startRow + 1;
+      const endN   = endRow + 1;
+      if (startN < endN) {
+        try { ws.mergeCells(`A${startN}:A${endN}`); } catch (_) {}
+      }
+      const cell = ws.getRow(startN).getCell(1);
+      cell.value = label;
+      cell.fill  = STYLE_SESSION.fill;
+      cell.font  = { bold: true, size: 9, color: { argb: "FF000000" } };
+      cell.alignment = { textRotation: 90, horizontal: "center", vertical: "middle" };
+    }
+
+    // Printed header: target name (centre, bold); footer: ZORA left, page right
+    ws.headerFooter.oddHeader = `&C&B${target.name}&B`;
+    ws.headerFooter.oddFooter = `&LZORA&RPage &P of &N`;
+
+    applyBorders(ws, 5);
   }
 
   return wb.xlsx.writeBuffer();
@@ -386,13 +421,13 @@ function buildTargetSheet(target, sessions) {
     byMonth.get(s.month).push(s);
   }
 
-  const rows = [];
-  const monthHeaderRows     = new Set();
-  const sessionHeaderRows   = new Set();
-  const columnHeaderRows    = new Set();
+  const rows              = [];
+  const monthHeaderRows   = new Set();
+  const colHeaderRows     = new Set();
   const activityHeadingRows = new Set();
-  const noteRows            = new Set();
-  const dailyAvgRows        = new Set();
+  const noteRows          = new Set();
+  const dailyAvgRows      = new Set();
+  const sessionBlocks     = []; // { startRow, endRow, label } for vertical col-A merge
   let firstMonth = true;
 
   for (const [month, monthSessions] of byMonth) {
@@ -407,43 +442,45 @@ function buildTargetSheet(target, sessions) {
       .filter(v => v !== null);
     const monthlyAvg = dailyAvgsForMonth.length > 0 ? avg(dailyAvgsForMonth) : null;
 
-    if (!firstMonth) rows.push([]);
+    if (!firstMonth) rows.push(["", "", "", "", ""]);
     firstMonth = false;
 
+    // Header row includes target name so printed pages are self-identifying
     monthHeaderRows.add(rows.length);
-    rows.push([`${month}  —  Monthly Average: ${monthlyAvg !== null ? pct(monthlyAvg) : "N/A"}`]);
-    rows.push([]);
+    rows.push([`${target.name}  —  ${month}  —  Monthly Average: ${monthlyAvg !== null ? pct(monthlyAvg) : "N/A"}`, "", "", "", ""]);
+
+    // Column headers appear once per month block (not repeated per session)
+    colHeaderRows.add(rows.length);
+    rows.push(["Session", "Activity", "Remark", "Trials", "Avg"]);
 
     for (const session of monthSessions) {
       const snap = (session.targetsSnapshot || []).find(t => t.name === target.name);
       const effectiveTarget = snap ? { ...target, maxPoints: snap.maxPoints } : target;
-      appendSessionRows(rows, sessionHeaderRows, columnHeaderRows, activityHeadingRows, noteRows, dailyAvgRows, session, effectiveTarget);
+      appendSessionRows(rows, sessionBlocks, activityHeadingRows, noteRows, dailyAvgRows, session, effectiveTarget);
     }
   }
 
-  return { rows, monthHeaderRows, sessionHeaderRows, columnHeaderRows, activityHeadingRows, noteRows, dailyAvgRows };
+  return { rows, monthHeaderRows, colHeaderRows, activityHeadingRows, noteRows, dailyAvgRows, sessionBlocks };
 }
 
 // ─── SESSION ROWS ────────────────────────────────────────────
 
-function appendSessionRows(rows, sessionHeaderRows, columnHeaderRows, activityHeadingRows, noteRows, dailyAvgRows, session, target) {
-  const monthName = session.month.split(" ")[0];
+function appendSessionRows(rows, sessionBlocks, activityHeadingRows, noteRows, dailyAvgRows, session, target) {
+  const [, m, d] = session.date.split("-").map(Number);
+  const shortMonths = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const sessionLabel = `Session ${session.sessionNumber}\n${d} ${shortMonths[m - 1]}`;
 
-  sessionHeaderRows.add(rows.length);
-  rows.push([`Session ${session.sessionNumber} of ${monthName}  —  ${fmtDate(session.date)}`]);
-
-  columnHeaderRows.add(rows.length);
-  rows.push(["Activity", "Remark", "Trials", "Avg"]);
+  const startRow = rows.length;
 
   const activities = getAllActivitiesForTarget(session, target);
 
   if (activities.length === 0) {
-    rows.push(["(no data recorded)", "", "", ""]);
+    rows.push(["", "(no data recorded)", "", "", ""]);
   } else {
     for (const act of activities) {
       if (act.isHeading) {
         activityHeadingRows.add(rows.length);
-        rows.push([act.activityName, "", "", ""]);
+        rows.push(["", act.activityName, "", "", ""]);
         continue;
       }
 
@@ -457,12 +494,12 @@ function appendSessionRows(rows, sessionHeaderRows, columnHeaderRows, activityHe
           .replace(/\*\*/g, "")
           .replace(/\n{3,}/g, "\n\n")
           .trim();
-        rows.push([noteText, "", "", ""]);
+        rows.push(["", noteText, "", "", ""]);
         continue;
       }
 
       if (act.empty) {
-        rows.push([act.activityName, "", "", ""]);
+        rows.push(["", act.activityName, "", "", ""]);
         continue;
       }
 
@@ -472,7 +509,7 @@ function appendSessionRows(rows, sessionHeaderRows, columnHeaderRows, activityHe
       )?.sentenceStarter || null;
 
       if (remarks.length === 0) {
-        rows.push([act.activityName, "", "", ""]);
+        rows.push(["", act.activityName, "", "", ""]);
         continue;
       }
 
@@ -484,6 +521,7 @@ function appendSessionRows(rows, sessionHeaderRows, columnHeaderRows, activityHe
         const baseText    = starter ? `${starter} ${stripRemarkHtml(rem.text)}`.trim() : stripRemarkHtml(rem.text);
         const remarkText  = masteryNote ? `${baseText} — ${masteryNote}` : baseText;
         rows.push([
+          "",
           firstRemark ? act.activityName : "",
           remarkText,
           validTrials.join(", "),
@@ -495,16 +533,18 @@ function appendSessionRows(rows, sessionHeaderRows, columnHeaderRows, activityHe
 
     if (target.hasComment) {
       const commentText = (session.fedcComments || {})[sanitizeKey(target.name)] || "";
-      if (commentText) rows.push(["Comment", commentText, "", ""]);
+      if (commentText) rows.push(["", "Comment", commentText, "", ""]);
     }
   }
 
-  // Daily Average always present; empty if no trial data
   const daily = calcDailyAverage(session, target);
   dailyAvgRows.add(rows.length);
-  rows.push(["Daily Average", "", "", daily !== null ? pct(daily) : ""]);
+  rows.push(["", "Daily Average", "", "", daily !== null ? pct(daily) : ""]);
 
-  rows.push([]);
+  // Record session block for vertical col-A merge
+  sessionBlocks.push({ startRow, endRow: rows.length - 1, label: sessionLabel });
+
+  rows.push(["", "", "", "", ""]); // blank separator between sessions
 }
 
 // ─── DATA HELPERS ────────────────────────────────────────────
