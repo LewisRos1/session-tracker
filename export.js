@@ -148,6 +148,36 @@ async function buildStudentWorkbook(student, sessions) {
   mergeAndCenterRows(detWs, detMonthHdrs, detMaxCols);
   applyBorders(detWs, detMaxCols);
 
+  // ── Charts ──────────────────────────────────────────────────
+  if (typeof Chart !== "undefined") {
+    const chartsWs       = wb.addWorksheet("Charts");
+    const sortedSessions = sessions.slice().sort((a, b) => a.date.localeCompare(b.date));
+    let chartIdx = 0;
+
+    for (const target of allTargets) {
+      const yValues = [];
+      for (const session of sortedSessions) {
+        const snap  = (session.targetsSnapshot || []).find(t => t.name === target.name);
+        const eff   = snap ? { ...target, maxPoints: snap.maxPoints } : target;
+        const score = calcDailyAverage(session, eff);
+        if (score !== null) yValues.push(Math.round(score));
+      }
+      if (yValues.length < 2) { chartIdx++; continue; }
+
+      const base64 = renderTargetChart(target.name, yValues);
+      const imgId  = wb.addImage({ base64, extension: "png" });
+
+      const chartRow = Math.floor(chartIdx / 2) * 16;
+      const chartCol = (chartIdx % 2) * 9;
+
+      chartsWs.addImage(imgId, {
+        tl:  { col: chartCol, row: chartRow },
+        ext: { width: 480, height: 280 }
+      });
+      chartIdx++;
+    }
+  }
+
   for (const target of allTargets) {
     const { rows, monthHeaderRows, colHeaderRows, activityHeadingRows, noteRows, sessionDateBlocks, spacerRows } =
       buildTargetSheet(target, sessions);
@@ -660,4 +690,95 @@ function fmtDate(dateStr) {
   const [y, m, d] = dateStr.split("-").map(Number);
   const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
   return `${d} ${months[m - 1]} ${y}`;
+}
+
+// ─── CHART HELPERS ───────────────────────────────────────────
+
+function linearRegressionValues(yValues) {
+  const n = yValues.length;
+  if (n < 2) return yValues.slice();
+  const xMean = (n + 1) / 2;
+  const yMean = yValues.reduce((a, b) => a + b, 0) / n;
+  let num = 0, den = 0;
+  yValues.forEach((y, i) => {
+    const x = i + 1;
+    num += (x - xMean) * (y - yMean);
+    den += (x - xMean) ** 2;
+  });
+  const slope = den !== 0 ? num / den : 0;
+  const intercept = yMean - slope * xMean;
+  return yValues.map((_, i) => {
+    const val = slope * (i + 1) + intercept;
+    return Math.max(0, Math.min(100, val));
+  });
+}
+
+function renderTargetChart(targetName, yValues) {
+  const canvas  = document.createElement("canvas");
+  canvas.width  = 480;
+  canvas.height = 280;
+  const ctx    = canvas.getContext("2d");
+  const labels = yValues.map((_, i) => String(i + 1));
+  const trend  = linearRegressionValues(yValues);
+
+  const chart = new Chart(ctx, {
+    type: "line",
+    data: {
+      labels,
+      datasets: [
+        {
+          data:                yValues,
+          borderColor:         "#3B6CB5",
+          backgroundColor:     "rgba(59,108,181,0.08)",
+          pointBackgroundColor: "#3B6CB5",
+          pointRadius:         5,
+          tension:             0,
+          fill:                false
+        },
+        {
+          data:        trend,
+          borderColor: "rgba(59,108,181,0.45)",
+          borderDash:  [6, 4],
+          pointRadius: 0,
+          tension:     0,
+          fill:        false
+        }
+      ]
+    },
+    options: {
+      animation:  false,
+      responsive: false,
+      plugins: {
+        title: {
+          display: true,
+          text:    targetName,
+          font:    { size: 13, weight: "bold" },
+          color:   "#1A2E4A"
+        },
+        legend: { display: false }
+      },
+      scales: {
+        x: {
+          title: { display: true, text: "Sessions", color: "#555" },
+          ticks: { color: "#555" },
+          grid:  { color: "rgba(0,0,0,0.07)" }
+        },
+        y: {
+          min:   0,
+          max:   100,
+          title: { display: true, text: "Score", color: "#555" },
+          ticks: {
+            stepSize: 10,
+            callback: v => v + "%",
+            color:    "#555"
+          },
+          grid: { color: "rgba(0,0,0,0.07)" }
+        }
+      }
+    }
+  });
+
+  const base64 = canvas.toDataURL("image/png").split(",")[1];
+  chart.destroy();
+  return base64;
 }
