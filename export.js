@@ -55,12 +55,29 @@ const STYLE_NOTE = {
   fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFF8ED" } },
   font: { italic: true, color: { argb: "FF7A5030" } }
 };
-// Thin border: soft periwinkle-gray for clean print separation
+// Thin border: soft periwinkle-gray for summary sheets
 const CELL_BORDER = {
   top:    { style: "thin", color: { argb: "FFB0C8E0" } },
   left:   { style: "thin", color: { argb: "FFB0C8E0" } },
   bottom: { style: "thin", color: { argb: "FFB0C8E0" } },
   right:  { style: "thin", color: { argb: "FFB0C8E0" } },
+};
+// Target sheet palette: neutral gray matching user's Excel theme (White Darker 25% / 15%)
+const STYLE_TARGET_MONTH = {
+  fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFBFBFBF" } },
+  font: { bold: true, size: 12, color: { argb: "FF000000" } },
+  alignment: { horizontal: "center", vertical: "middle" }
+};
+const STYLE_TARGET_COLHDR = {
+  fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFD9D9D9" } },
+  font: { bold: true, color: { argb: "FF000000" } },
+  alignment: { horizontal: "center", vertical: "middle" }
+};
+const TARGET_CELL_BORDER = {
+  top:    { style: "thin", color: { argb: "FFD9D9D9" } },
+  left:   { style: "thin", color: { argb: "FFD9D9D9" } },
+  bottom: { style: "thin", color: { argb: "FFD9D9D9" } },
+  right:  { style: "thin", color: { argb: "FFD9D9D9" } },
 };
 
 // ─── PUBLIC ENTRY POINT ──────────────────────────────────────
@@ -132,55 +149,63 @@ async function buildStudentWorkbook(student, sessions) {
   applyBorders(detWs, detMaxCols);
 
   for (const target of allTargets) {
-    const { rows, monthHeaderRows, colHeaderRows, activityHeadingRows, noteRows, dailyAvgRows, sessionBlocks } =
+    const { rows, monthHeaderRows, colHeaderRows, activityHeadingRows, noteRows, sessionDateBlocks } =
       buildTargetSheet(target, sessions);
     const ws = wb.addWorksheet(target.name.slice(0, 31));
     rows.forEach(row => ws.addRow(row));
 
-    // Col A = session label (horizontal), B = activity, C = remark, D = trials, E = avg
-    ws.getColumn(1).width     = 15;
-    ws.getColumn(2).width     = 40;
-    ws.getColumn(3).width     = 52;
-    ws.getColumn(4).width     = 16;
-    ws.getColumn(5).width     = 10;
-    ws.getColumn(1).alignment = { horizontal: "center", vertical: "middle" };
+    // Col widths: Date | Activity | Remark | Trials | Score | Avg Score
+    ws.getColumn(1).width     = 6.33;
+    ws.getColumn(2).width     = 34.56;
+    ws.getColumn(3).width     = 51.22;
+    ws.getColumn(4).width     = 11.33;
+    ws.getColumn(5).width     = 6.78;
+    ws.getColumn(6).width     = 8.56;
+    ws.getColumn(1).alignment = { horizontal: "center", vertical: "top" };
     ws.getColumn(2).alignment = { wrapText: true, vertical: "top" };
     ws.getColumn(3).alignment = { wrapText: true, vertical: "top" };
     ws.getColumn(4).alignment = { horizontal: "center", vertical: "top", wrapText: true };
     ws.getColumn(5).alignment = { horizontal: "center", vertical: "top" };
+    ws.getColumn(6).alignment = { horizontal: "center", vertical: "middle" };
 
-    // Month headers: fill all 5 cols then merge A:E
-    applyRowStyles(ws, monthHeaderRows, STYLE_MONTH, 5);
-    mergeAndCenterRows(ws, monthHeaderRows, 5);
+    // Month headers: merge A:F, White Darker 25%, bold black
+    for (const rowIdx of monthHeaderRows) {
+      const n = rowIdx + 1;
+      try { ws.mergeCells(`A${n}:F${n}`); } catch (_) {}
+      const cell = ws.getRow(n).getCell(1);
+      cell.fill      = STYLE_TARGET_MONTH.fill;
+      cell.font      = STYLE_TARGET_MONTH.font;
+      cell.alignment = STYLE_TARGET_MONTH.alignment;
+    }
 
-    // Column headers: style all 5 cells individually
+    // Column headers: White Darker 15%, bold black
     for (const rowIdx of colHeaderRows) {
       const n = rowIdx + 1;
-      for (let c = 1; c <= 5; c++) {
+      for (let c = 1; c <= 6; c++) {
         const cell = ws.getRow(n).getCell(c);
-        cell.fill      = STYLE_COL_HEADER.fill;
-        cell.font      = STYLE_COL_HEADER.font;
-        cell.alignment = STYLE_COL_HEADER.alignment;
+        cell.fill      = STYLE_TARGET_COLHDR.fill;
+        cell.font      = STYLE_TARGET_COLHDR.font;
+        cell.alignment = STYLE_TARGET_COLHDR.alignment;
       }
     }
 
-    // Activity heading rows: merge B:E (col A belongs to session merge)
+    // Activity heading rows: merge B:F
     for (const rowIdx of activityHeadingRows) {
       const n = rowIdx + 1;
-      try { ws.mergeCells(`B${n}:E${n}`); } catch (_) {}
+      try { ws.mergeCells(`B${n}:F${n}`); } catch (_) {}
       const cell = ws.getRow(n).getCell(2);
-      cell.fill = STYLE_ACT_HEADING.fill;
-      cell.font = STYLE_ACT_HEADING.font;
+      cell.fill      = STYLE_ACT_HEADING.fill;
+      cell.font      = STYLE_ACT_HEADING.font;
       cell.alignment = { vertical: "top" };
     }
 
-    // Note rows: merge B:E
+    // Note rows: merge B:F
     for (const rowIdx of noteRows) {
       const n = rowIdx + 1;
-      try { ws.mergeCells(`B${n}:E${n}`); } catch (_) {}
+      try { ws.mergeCells(`B${n}:F${n}`); } catch (_) {}
       const cell = ws.getRow(n).getCell(2);
-      cell.fill = STYLE_NOTE.fill;
-      cell.font = STYLE_NOTE.font;
+      cell.fill      = STYLE_NOTE.fill;
+      cell.font      = STYLE_NOTE.font;
       cell.alignment = { wrapText: true, vertical: "top" };
       const text = (cell.value || "").toString();
       const visLines = text.split("\n").reduce((sum, seg) =>
@@ -188,27 +213,31 @@ async function buildStudentWorkbook(student, sessions) {
       ws.getRow(n).height = Math.max(18, visLines * 15);
     }
 
-    // Daily average rows
-    applyRowStyles(ws, dailyAvgRows, STYLE_DAILY_AVG, 5);
-
-    // Session blocks: merge col A vertically, set label + 90° rotation
-    for (const { startRow, endRow, label } of sessionBlocks) {
+    // Session date blocks: col A = date (top+center), col F = avg score (middle+center)
+    for (const { startRow, endRow, dateLabel, avgScore } of sessionDateBlocks) {
       const startN = startRow + 1;
       const endN   = endRow + 1;
       if (startN < endN) {
         try { ws.mergeCells(`A${startN}:A${endN}`); } catch (_) {}
+        try { ws.mergeCells(`F${startN}:F${endN}`); } catch (_) {}
       }
-      const cell = ws.getRow(startN).getCell(1);
-      cell.value = label;
-      cell.fill  = STYLE_SESSION.fill;
-      cell.font  = { bold: true, size: 9, color: { argb: "FF000000" } };
-      cell.alignment = { horizontal: "center", vertical: "middle", wrapText: false };
+      const dateCell = ws.getRow(startN).getCell(1);
+      dateCell.value     = dateLabel;
+      dateCell.alignment = { horizontal: "center", vertical: "top" };
+
+      const avgCell = ws.getRow(startN).getCell(6);
+      avgCell.value     = avgScore;
+      avgCell.font      = { bold: true, italic: true, color: { argb: "FF3A5470" } };
+      avgCell.alignment = { horizontal: "center", vertical: "middle" };
     }
 
     // Footer: company left | target name centre | page number right
     ws.headerFooter.oddFooter = `&LZORA Behavioural Intervention&C${target.name}&R&P`;
 
-    applyBorders(ws, 5);
+    // Borders: White Darker 15% (#D9D9D9)
+    ws.eachRow(row => {
+      for (let c = 1; c <= 6; c++) row.getCell(c).border = TARGET_CELL_BORDER;
+    });
   }
 
   return wb.xlsx.writeBuffer();
@@ -425,8 +454,7 @@ function buildTargetSheet(target, sessions) {
   const colHeaderRows     = new Set();
   const activityHeadingRows = new Set();
   const noteRows          = new Set();
-  const dailyAvgRows      = new Set();
-  const sessionBlocks     = []; // { startRow, endRow, label } for vertical col-A merge
+  const sessionDateBlocks = []; // { startRow, endRow, dateLabel, avgScore }
   let firstMonth = true;
 
   for (const [month, monthSessions] of byMonth) {
@@ -441,46 +469,44 @@ function buildTargetSheet(target, sessions) {
       .filter(v => v !== null);
     const monthlyAvg = dailyAvgsForMonth.length > 0 ? avg(dailyAvgsForMonth) : null;
 
-    if (!firstMonth) rows.push(["", "", "", "", ""]);
+    if (!firstMonth) rows.push(["", "", "", "", "", ""]);
     firstMonth = false;
 
-    // Header row includes target name so printed pages are self-identifying
     monthHeaderRows.add(rows.length);
-    rows.push([`${target.name}  —  ${month}  —  Monthly Average: ${monthlyAvg !== null ? pct(monthlyAvg) : "N/A"}`, "", "", "", ""]);
-    rows.push(["", "", "", "", ""]); // blank spacer between header and column labels
+    rows.push([`${target.name}  —  ${month}  —  Monthly Average: ${monthlyAvg !== null ? pct(monthlyAvg) : "N/A"}`, "", "", "", "", ""]);
+    rows.push(["", "", "", "", "", ""]); // blank spacer
 
-    // Column headers appear once per month block (not repeated per session)
     colHeaderRows.add(rows.length);
-    rows.push(["Session", "Activity", "Remark", "Trials", "Avg"]);
+    rows.push(["Date", "Activity", "Remark", "Trials", "Score", "Avg Score"]);
 
     for (const session of monthSessions) {
       const snap = (session.targetsSnapshot || []).find(t => t.name === target.name);
       const effectiveTarget = snap ? { ...target, maxPoints: snap.maxPoints } : target;
-      appendSessionRows(rows, sessionBlocks, activityHeadingRows, noteRows, dailyAvgRows, session, effectiveTarget);
+      appendSessionRows(rows, sessionDateBlocks, activityHeadingRows, noteRows, session, effectiveTarget);
     }
   }
 
-  return { rows, monthHeaderRows, colHeaderRows, activityHeadingRows, noteRows, dailyAvgRows, sessionBlocks };
+  return { rows, monthHeaderRows, colHeaderRows, activityHeadingRows, noteRows, sessionDateBlocks };
 }
 
 // ─── SESSION ROWS ────────────────────────────────────────────
 
-function appendSessionRows(rows, sessionBlocks, activityHeadingRows, noteRows, dailyAvgRows, session, target) {
+function appendSessionRows(rows, sessionDateBlocks, activityHeadingRows, noteRows, session, target) {
   const [, m, d] = session.date.split("-").map(Number);
   const shortMonths = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-  const sessionLabel = `(${session.sessionNumber}) ${d} ${shortMonths[m - 1]}`;
+  const dateLabel = `${d} ${shortMonths[m - 1]}`;
 
   const startRow = rows.length;
 
   const activities = getAllActivitiesForTarget(session, target);
 
   if (activities.length === 0) {
-    rows.push(["", "(no data recorded)", "", "", ""]);
+    rows.push(["", "(no data recorded)", "", "", "", ""]);
   } else {
     for (const act of activities) {
       if (act.isHeading) {
         activityHeadingRows.add(rows.length);
-        rows.push(["", act.activityName, "", "", ""]);
+        rows.push(["", act.activityName, "", "", "", ""]);
         continue;
       }
 
@@ -494,12 +520,12 @@ function appendSessionRows(rows, sessionBlocks, activityHeadingRows, noteRows, d
           .replace(/\*\*/g, "")
           .replace(/\n{3,}/g, "\n\n")
           .trim();
-        rows.push(["", noteText, "", "", ""]);
+        rows.push(["", noteText, "", "", "", ""]);
         continue;
       }
 
       if (act.empty) {
-        rows.push(["", act.activityName, "", "", ""]);
+        rows.push(["", act.activityName, "", "", "", ""]);
         continue;
       }
 
@@ -509,7 +535,7 @@ function appendSessionRows(rows, sessionBlocks, activityHeadingRows, noteRows, d
       )?.sentenceStarter || null;
 
       if (remarks.length === 0) {
-        rows.push(["", act.activityName, "", "", ""]);
+        rows.push(["", act.activityName, "", "", "", ""]);
         continue;
       }
 
@@ -525,7 +551,8 @@ function appendSessionRows(rows, sessionBlocks, activityHeadingRows, noteRows, d
           firstRemark ? act.activityName : "",
           remarkText,
           validTrials.join(", "),
-          remarkAvg !== null ? pct(remarkAvg) : ""
+          remarkAvg !== null ? pct(remarkAvg) : "",
+          ""
         ]);
         firstRemark = false;
       }
@@ -533,18 +560,18 @@ function appendSessionRows(rows, sessionBlocks, activityHeadingRows, noteRows, d
 
     if (target.hasComment) {
       const commentText = (session.fedcComments || {})[sanitizeKey(target.name)] || "";
-      if (commentText) rows.push(["", "Comment", commentText, "", ""]);
+      if (commentText) rows.push(["", "Comment", commentText, "", "", ""]);
     }
   }
 
   const daily = calcDailyAverage(session, target);
-  dailyAvgRows.add(rows.length);
-  rows.push(["", "Daily Average", "", "", daily !== null ? pct(daily) : ""]);
-
-  // Record session block for vertical col-A merge
-  sessionBlocks.push({ startRow, endRow: rows.length - 1, label: sessionLabel });
-
-  rows.push(["", "", "", "", ""]); // blank separator between sessions
+  sessionDateBlocks.push({
+    startRow,
+    endRow: rows.length - 1,
+    dateLabel,
+    avgScore: daily !== null ? pct(daily) : ""
+  });
+  // Sessions flow directly — no blank separator
 }
 
 // ─── DATA HELPERS ────────────────────────────────────────────
