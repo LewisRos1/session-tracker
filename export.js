@@ -750,19 +750,31 @@ function renderTargetChart(targetName, yValues, dateRange) {
     dirColor = "#C0392B";
   }
 
-  const titleLines = dateRange ? [targetName, dateRange] : [targetName];
+  const titleText = dateRange ? `${targetName}  (${dateRange})` : targetName;
 
   const chart = new Chart(ctx, {
     type: "line",
-    plugins: [{
-      id: "whiteBg",
-      beforeDraw(c) {
-        c.ctx.save();
-        c.ctx.fillStyle = "#ffffff";
-        c.ctx.fillRect(0, 0, c.width, c.height);
-        c.ctx.restore();
+    plugins: [
+      {
+        id: "whiteBg",
+        beforeDraw(c) {
+          c.ctx.save();
+          c.ctx.fillStyle = "#ffffff";
+          c.ctx.fillRect(0, 0, c.width, c.height);
+          c.ctx.restore();
+        }
+      },
+      {
+        id: "chartBorder",
+        afterDraw(c) {
+          c.ctx.save();
+          c.ctx.strokeStyle = "#000000";
+          c.ctx.lineWidth   = 1;
+          c.ctx.strokeRect(0.5, 0.5, c.width - 1, c.height - 1);
+          c.ctx.restore();
+        }
       }
-    }],
+    ],
     data: {
       labels,
       datasets: [
@@ -789,11 +801,11 @@ function renderTargetChart(targetName, yValues, dateRange) {
     options: {
       animation:  false,
       responsive: false,
-      layout: { padding: { top: 10 } },
+      layout: { padding: { top: 10, left: 16, right: 16, bottom: 6 } },
       plugins: {
         title: {
           display: true,
-          text:    titleLines,
+          text:    titleText,
           font:    { size: 13, weight: "bold" },
           color:   "#1A2E4A"
         },
@@ -808,14 +820,14 @@ function renderTargetChart(targetName, yValues, dateRange) {
       },
       scales: {
         x: {
-          title: { display: true, text: "Session", color: "#555" },
+          title: { display: true, text: "Session", color: "#555", font: { weight: "bold" } },
           ticks: { color: "#555" },
           grid:  { color: "rgba(0,0,0,0.07)" }
         },
         y: {
           min:   0,
           max:   100,
-          title: { display: true, text: "Score", color: "#555" },
+          title: { display: true, text: "Score", color: "#555", font: { weight: "bold" } },
           ticks: {
             stepSize: 10,
             callback: v => v + "%",
