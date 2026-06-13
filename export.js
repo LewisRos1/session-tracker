@@ -137,8 +137,8 @@ async function buildStudentWorkbook(student, sessions) {
     const ws = wb.addWorksheet(target.name.slice(0, 31));
     rows.forEach(row => ws.addRow(row));
 
-    // Col A = session label (narrow, vertical text), B = activity, C = remark, D = trials, E = avg
-    ws.getColumn(1).width     = 12;
+    // Col A = session label (horizontal), B = activity, C = remark, D = trials, E = avg
+    ws.getColumn(1).width     = 15;
     ws.getColumn(2).width     = 40;
     ws.getColumn(3).width     = 52;
     ws.getColumn(4).width     = 16;
@@ -202,12 +202,11 @@ async function buildStudentWorkbook(student, sessions) {
       cell.value = label;
       cell.fill  = STYLE_SESSION.fill;
       cell.font  = { bold: true, size: 9, color: { argb: "FF000000" } };
-      cell.alignment = { textRotation: 90, horizontal: "center", vertical: "middle" };
+      cell.alignment = { horizontal: "center", vertical: "middle", wrapText: false };
     }
 
-    // Printed header: target name (centre, bold); footer: ZORA left, page right
-    ws.headerFooter.oddHeader = `&C&B${target.name}&B`;
-    ws.headerFooter.oddFooter = `&LZORA&RPage &P of &N`;
+    // Footer: company left | target name centre | page number right
+    ws.headerFooter.oddFooter = `&LZORA Behavioural Intervention&C${target.name}&R&P`;
 
     applyBorders(ws, 5);
   }
@@ -448,6 +447,7 @@ function buildTargetSheet(target, sessions) {
     // Header row includes target name so printed pages are self-identifying
     monthHeaderRows.add(rows.length);
     rows.push([`${target.name}  —  ${month}  —  Monthly Average: ${monthlyAvg !== null ? pct(monthlyAvg) : "N/A"}`, "", "", "", ""]);
+    rows.push(["", "", "", "", ""]); // blank spacer between header and column labels
 
     // Column headers appear once per month block (not repeated per session)
     colHeaderRows.add(rows.length);
@@ -468,7 +468,7 @@ function buildTargetSheet(target, sessions) {
 function appendSessionRows(rows, sessionBlocks, activityHeadingRows, noteRows, dailyAvgRows, session, target) {
   const [, m, d] = session.date.split("-").map(Number);
   const shortMonths = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-  const sessionLabel = `Session ${session.sessionNumber}\n${d} ${shortMonths[m - 1]}`;
+  const sessionLabel = `(${session.sessionNumber}) ${d} ${shortMonths[m - 1]}`;
 
   const startRow = rows.length;
 
