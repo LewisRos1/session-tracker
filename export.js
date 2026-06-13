@@ -156,23 +156,25 @@ async function buildStudentWorkbook(student, sessions) {
 
     for (const target of allTargets) {
       const yValues = [];
+      const datesWithData = [];
       for (const session of sortedSessions) {
         const snap  = (session.targetsSnapshot || []).find(t => t.name === target.name);
         const eff   = snap ? { ...target, maxPoints: snap.maxPoints } : target;
         const score = calcDailyAverage(session, eff);
-        if (score !== null) yValues.push(Math.round(score));
+        if (score !== null) { yValues.push(Math.round(score)); datesWithData.push(session.date); }
       }
       if (yValues.length < 2) { chartIdx++; continue; }
 
-      const base64 = renderTargetChart(target.name, yValues);
+      const dateRange = formatDateRange(datesWithData);
+      const base64 = renderTargetChart(target.name, yValues, dateRange);
       const imgId  = wb.addImage({ base64, extension: "png" });
 
-      const chartRow = Math.floor(chartIdx / 2) * 16;
+      const chartRow = Math.floor(chartIdx / 2) * 17;
       const chartCol = (chartIdx % 2) * 9;
 
       chartsWs.addImage(imgId, {
         tl:  { col: chartCol, row: chartRow },
-        ext: { width: 480, height: 280 }
+        ext: { width: 480, height: 300 }
       });
       chartIdx++;
     }
@@ -713,27 +715,66 @@ function linearRegressionValues(yValues) {
   });
 }
 
-function renderTargetChart(targetName, yValues) {
+function formatDateRange(dates) {
+  if (dates.length === 0) return "";
+  const mo = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const [fy, fm] = dates[0].split("-").map(Number);
+  const [ly, lm] = dates[dates.length - 1].split("-").map(Number);
+  if (fy === ly && fm === lm) return `${mo[fm - 1]} ${fy}`;
+  if (fy === ly)               return `${mo[fm - 1]} – ${mo[lm - 1]} ${fy}`;
+  return                              `${mo[fm - 1]} ${fy} – ${mo[lm - 1]} ${ly}`;
+}
+
+function renderTargetChart(targetName, yValues, dateRange) {
   const canvas  = document.createElement("canvas");
   canvas.width  = 480;
-  canvas.height = 280;
+  canvas.height = 300;
   const ctx    = canvas.getContext("2d");
   const labels = yValues.map((_, i) => String(i + 1));
   const trend  = linearRegressionValues(yValues);
 
+  // Direction indicator from trendline slope
+  const slopePerSession = trend.length >= 2
+    ? (trend[trend.length - 1] - trend[0]) / (trend.length - 1)
+    : 0;
+  const totalDelta = Math.round(Math.abs(trend[trend.length - 1] - trend[0]));
+  let dirText, dirColor;
+  if (Math.abs(slopePerSession) <= 1.5) {
+    dirText  = "→  Stable";
+    dirColor = "#888888";
+  } else if (slopePerSession > 0) {
+    dirText  = `↑  Trending Up  (+${totalDelta}pp)`;
+    dirColor = "#2A7A3B";
+  } else {
+    dirText  = `↓  Trending Down  (−${totalDelta}pp)`;
+    dirColor = "#C0392B";
+  }
+
+  const titleLines = dateRange ? [targetName, dateRange] : [targetName];
+
   const chart = new Chart(ctx, {
     type: "line",
+    plugins: [{
+      id: "whiteBg",
+      beforeDraw(c) {
+        c.ctx.save();
+        c.ctx.fillStyle = "#ffffff";
+        c.ctx.fillRect(0, 0, c.width, c.height);
+        c.ctx.restore();
+      }
+    }],
     data: {
       labels,
       datasets: [
         {
-          data:                yValues,
-          borderColor:         "#3B6CB5",
-          backgroundColor:     "rgba(59,108,181,0.08)",
+          data:                 yValues,
+          borderColor:          "#3B6CB5",
+          backgroundColor:      "rgba(59,108,181,0.08)",
           pointBackgroundColor: "#3B6CB5",
-          pointRadius:         5,
-          tension:             0,
-          fill:                false
+          pointRadius:          5,
+          tension:              0,
+          fill:                 false,
+          clip:                 false
         },
         {
           data:        trend,
@@ -748,18 +789,26 @@ function renderTargetChart(targetName, yValues) {
     options: {
       animation:  false,
       responsive: false,
+      layout: { padding: { top: 10 } },
       plugins: {
         title: {
           display: true,
-          text:    targetName,
+          text:    titleLines,
           font:    { size: 13, weight: "bold" },
           color:   "#1A2E4A"
+        },
+        subtitle: {
+          display: true,
+          text:    dirText,
+          color:   dirColor,
+          font:    { size: 11, style: "italic" },
+          padding: { bottom: 6 }
         },
         legend: { display: false }
       },
       scales: {
         x: {
-          title: { display: true, text: "Sessions", color: "#555" },
+          title: { display: true, text: "Session", color: "#555" },
           ticks: { color: "#555" },
           grid:  { color: "rgba(0,0,0,0.07)" }
         },
