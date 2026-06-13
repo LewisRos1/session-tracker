@@ -148,10 +148,90 @@ async function buildStudentWorkbook(student, sessions) {
   mergeAndCenterRows(detWs, detMonthHdrs, detMaxCols);
   applyBorders(detWs, detMaxCols);
 
+  const sortedSessions = sessions.slice().sort((a, b) => a.date.localeCompare(b.date));
+
+  // ── Baseline vs Current ─────────────────────────────────────
+  if (sortedSessions.length >= 2 &&
+      sortedSessions[0].date !== sortedSessions[sortedSessions.length - 1].date) {
+    const firstSession = sortedSessions[0];
+    const lastSession  = sortedSessions[sortedSessions.length - 1];
+    const firstLabel   = fmtDate(firstSession.date);
+    const lastLabel    = fmtDate(lastSession.date);
+
+    const bvcRows    = [];
+    const bvcTargets = [];
+
+    bvcRows.push([`${student.name}: Baseline vs Current`, "", ""]);
+    bvcRows.push(["Target", firstLabel, lastLabel]);
+
+    for (const target of allTargets) {
+      const snapF  = (firstSession.targetsSnapshot || []).find(t => t.name === target.name);
+      const effF   = snapF ? { ...target, maxPoints: snapF.maxPoints } : target;
+      const snapL  = (lastSession.targetsSnapshot  || []).find(t => t.name === target.name);
+      const effL   = snapL ? { ...target, maxPoints: snapL.maxPoints } : target;
+      const scoreF = calcDailyAverage(firstSession, effF);
+      const scoreL = calcDailyAverage(lastSession,  effL);
+
+      bvcRows.push([
+        target.name,
+        scoreF !== null ? pct(scoreF) : "",
+        scoreL !== null ? pct(scoreL) : ""
+      ]);
+      bvcTargets.push({
+        name:  target.name,
+        first: scoreF !== null ? Math.round(scoreF) : null,
+        last:  scoreL !== null ? Math.round(scoreL) : null
+      });
+    }
+
+    const bvcWs = wb.addWorksheet("Baseline vs Current");
+    bvcRows.forEach(row => bvcWs.addRow(row));
+
+    bvcWs.getColumn(1).width     = 30;
+    bvcWs.getColumn(2).width     = 14;
+    bvcWs.getColumn(3).width     = 14;
+    bvcWs.getColumn(1).alignment = { vertical: "middle" };
+    bvcWs.getColumn(2).alignment = { horizontal: "center", vertical: "middle" };
+    bvcWs.getColumn(3).alignment = { horizontal: "center", vertical: "middle" };
+
+    try { bvcWs.mergeCells("A1:C1"); } catch (_) {}
+    const bvcTitle     = bvcWs.getRow(1).getCell(1);
+    bvcTitle.fill      = STYLE_SESSION.fill;
+    bvcTitle.font      = STYLE_SESSION.font;
+    bvcTitle.alignment = { horizontal: "center", vertical: "middle" };
+
+    for (let c = 1; c <= 3; c++) {
+      const cell     = bvcWs.getRow(2).getCell(c);
+      cell.fill      = STYLE_COL_HEADER.fill;
+      cell.font      = STYLE_COL_HEADER.font;
+      cell.alignment = STYLE_COL_HEADER.alignment;
+    }
+
+    applyBorders(bvcWs, 3);
+
+    if (typeof Chart !== "undefined") {
+      const chartTargets = bvcTargets.filter(t => t.first !== null || t.last !== null);
+      if (chartTargets.length > 0) {
+        const bvcBase64 = renderBaselineChart(
+          `${student.name}: Baseline vs Current`,
+          chartTargets.map(t => wrapLabel(t.name)),
+          chartTargets.map(t => t.first),
+          chartTargets.map(t => t.last),
+          firstLabel,
+          lastLabel
+        );
+        const bvcImgId = wb.addImage({ base64: bvcBase64, extension: "png" });
+        bvcWs.addImage(bvcImgId, {
+          tl:  { col: 0, row: bvcRows.length + 1 },
+          ext: { width: 700, height: 380 }
+        });
+      }
+    }
+  }
+
   // ── Charts ──────────────────────────────────────────────────
   if (typeof Chart !== "undefined") {
-    const chartsWs       = wb.addWorksheet("Charts");
-    const sortedSessions = sessions.slice().sort((a, b) => a.date.localeCompare(b.date));
+    const chartsWs = wb.addWorksheet("Charts");
     let chartIdx = 0;
 
     for (const target of allTargets) {
@@ -801,7 +881,7 @@ function renderTargetChart(targetName, yValues, dateRange) {
     options: {
       animation:  false,
       responsive: false,
-      layout: { padding: { top: 10, left: 16, right: 16, bottom: 6 } },
+      layout: { padding: { top: 10, left: 4, right: 22, bottom: 6 } },
       plugins: {
         title: {
           display: true,
@@ -823,6 +903,135 @@ function renderTargetChart(targetName, yValues, dateRange) {
           title: { display: true, text: "Session", color: "#555", font: { weight: "bold" } },
           ticks: { color: "#555" },
           grid:  { color: "rgba(0,0,0,0.07)" }
+        },
+        y: {
+          min:   0,
+          max:   100,
+          title: { display: true, text: "Score", color: "#555", font: { weight: "bold" } },
+          ticks: {
+            stepSize: 10,
+            callback: v => v + "%",
+            color:    "#555"
+          },
+          grid: { color: "rgba(0,0,0,0.07)" }
+        }
+      }
+    }
+  });
+
+  const base64 = canvas.toDataURL("image/png").split(",")[1];
+  chart.destroy();
+  return base64;
+}
+
+// ─── BASELINE VS CURRENT CHART HELPERS ──────────────────────
+
+function wrapLabel(text, maxChars = 14) {
+  if (text.length <= maxChars) return text;
+  const words = text.split(" ");
+  const lines = [];
+  let current = "";
+  for (const word of words) {
+    if (current && (current + " " + word).length > maxChars) {
+      lines.push(current);
+      current = word;
+    } else {
+      current = current ? current + " " + word : word;
+    }
+  }
+  if (current) lines.push(current);
+  return lines;
+}
+
+function renderBaselineChart(title, labels, baselineData, currentData, baselineLabel, currentLabel) {
+  const canvas  = document.createElement("canvas");
+  canvas.width  = 700;
+  canvas.height = 380;
+  const ctx     = canvas.getContext("2d");
+
+  const chart = new Chart(ctx, {
+    type: "bar",
+    plugins: [
+      {
+        id: "whiteBg",
+        beforeDraw(c) {
+          c.ctx.save();
+          c.ctx.fillStyle = "#ffffff";
+          c.ctx.fillRect(0, 0, c.width, c.height);
+          c.ctx.restore();
+        }
+      },
+      {
+        id: "chartBorder",
+        afterDraw(c) {
+          c.ctx.save();
+          c.ctx.strokeStyle = "#000000";
+          c.ctx.lineWidth   = 1;
+          c.ctx.strokeRect(0.5, 0.5, c.width - 1, c.height - 1);
+          c.ctx.restore();
+        }
+      },
+      {
+        id: "barLabels",
+        afterDatasetsDraw(c) {
+          const { ctx: cx, data } = c;
+          data.datasets.forEach((dataset, i) => {
+            const meta = c.getDatasetMeta(i);
+            meta.data.forEach((bar, j) => {
+              const value = dataset.data[j];
+              if (value === null || value === undefined) return;
+              cx.save();
+              cx.fillStyle    = "#333333";
+              cx.font         = "bold 10px sans-serif";
+              cx.textAlign    = "center";
+              cx.textBaseline = "bottom";
+              cx.fillText(value + "%", bar.x, bar.y - 2);
+              cx.restore();
+            });
+          });
+        }
+      }
+    ],
+    data: {
+      labels,
+      datasets: [
+        {
+          label:           baselineLabel,
+          data:            baselineData,
+          backgroundColor: "#BBBBBB",
+          borderColor:     "#999999",
+          borderWidth:     1
+        },
+        {
+          label:           currentLabel,
+          data:            currentData,
+          backgroundColor: "#5B9BD5",
+          borderColor:     "#3B6CB5",
+          borderWidth:     1
+        }
+      ]
+    },
+    options: {
+      animation:  false,
+      responsive: false,
+      layout: { padding: { top: 10, left: 4, right: 22, bottom: 6 } },
+      plugins: {
+        title: {
+          display: true,
+          text:    title,
+          font:    { size: 14, weight: "bold" },
+          color:   "#1A2E4A"
+        },
+        legend: {
+          display:  true,
+          position: "bottom",
+          labels:   { color: "#333", font: { size: 11 } }
+        }
+      },
+      scales: {
+        x: {
+          ticks: { color: "#555", maxRotation: 0, font: { size: 11 } },
+          grid:  { display: false }
         },
         y: {
           min:   0,
