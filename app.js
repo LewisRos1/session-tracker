@@ -55,7 +55,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "341";
+const APP_VERSION = "342";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
