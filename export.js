@@ -278,7 +278,7 @@ async function buildStudentWorkbook(student, sessions) {
     ws.getColumn(3).alignment = { wrapText: true, vertical: "top" };
     ws.getColumn(4).alignment = { horizontal: "center", vertical: "top", wrapText: true };
     ws.getColumn(5).alignment = { horizontal: "center", vertical: "top" };
-    ws.getColumn(6).alignment = { horizontal: "center", vertical: "middle" };
+    ws.getColumn(6).alignment = { horizontal: "center", vertical: "top" };
 
     // Month headers: merge A:F, White Darker 25%, bold black
     for (const rowIdx of monthHeaderRows) {
@@ -340,7 +340,7 @@ async function buildStudentWorkbook(student, sessions) {
       const avgCell = ws.getRow(startN).getCell(6);
       avgCell.value     = avgScore;
       avgCell.font      = { color: { argb: "FF000000" } };
-      avgCell.alignment = { horizontal: "center", vertical: "middle" };
+      avgCell.alignment = { horizontal: "center", vertical: "top" };
     }
 
     // Footer: company left | target name centre | page number right
@@ -949,6 +949,9 @@ function renderBaselineChart(title, labels, baselineData, currentData, baselineL
   canvas.height = 380;
   const ctx     = canvas.getContext("2d");
 
+  const allValues  = [...baselineData, ...currentData].filter(v => v !== null && v !== undefined);
+  const hasHundred = allValues.some(v => v >= 100);
+
   const chart = new Chart(ctx, {
     type: "bar",
     plugins: [
@@ -996,25 +999,29 @@ function renderBaselineChart(title, labels, baselineData, currentData, baselineL
       labels,
       datasets: [
         {
-          label:           baselineLabel,
-          data:            baselineData,
-          backgroundColor: "#BBBBBB",
-          borderColor:     "#999999",
-          borderWidth:     1
+          label:            baselineLabel,
+          data:             baselineData,
+          backgroundColor:  "#C8C8C8",
+          borderColor:      "#AAAAAA",
+          borderWidth:      1,
+          barPercentage:    1.0,
+          categoryPercentage: 0.72
         },
         {
-          label:           currentLabel,
-          data:            currentData,
-          backgroundColor: "#5B9BD5",
-          borderColor:     "#3B6CB5",
-          borderWidth:     1
+          label:            currentLabel,
+          data:             currentData,
+          backgroundColor:  "#80BCEC",
+          borderColor:      "#52A0D8",
+          borderWidth:      1,
+          barPercentage:    1.0,
+          categoryPercentage: 0.72
         }
       ]
     },
     options: {
       animation:  false,
       responsive: false,
-      layout: { padding: { top: 10, left: 4, right: 22, bottom: 6 } },
+      layout: { padding: { top: hasHundred ? 30 : 10, left: 4, right: 22, bottom: 6 } },
       plugins: {
         title: {
           display: true,
@@ -1025,7 +1032,7 @@ function renderBaselineChart(title, labels, baselineData, currentData, baselineL
         legend: {
           display:  true,
           position: "bottom",
-          labels:   { color: "#333", font: { size: 11 } }
+          labels:   { color: "#333", font: { size: 11 }, boxWidth: 12, boxHeight: 12 }
         }
       },
       scales: {
@@ -1036,13 +1043,9 @@ function renderBaselineChart(title, labels, baselineData, currentData, baselineL
         y: {
           min:   0,
           max:   100,
-          title: { display: true, text: "Score", color: "#555", font: { weight: "bold" } },
-          ticks: {
-            stepSize: 10,
-            callback: v => v + "%",
-            color:    "#555"
-          },
-          grid: { color: "rgba(0,0,0,0.07)" }
+          title: { display: false },
+          ticks: { display: false },
+          grid:  { color: "rgba(0,0,0,0.07)" }
         }
       }
     }
