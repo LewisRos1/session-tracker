@@ -149,7 +149,7 @@ async function buildStudentWorkbook(student, sessions) {
   applyBorders(detWs, detMaxCols);
 
   for (const target of allTargets) {
-    const { rows, monthHeaderRows, colHeaderRows, activityHeadingRows, noteRows, sessionDateBlocks } =
+    const { rows, monthHeaderRows, colHeaderRows, activityHeadingRows, noteRows, sessionDateBlocks, spacerRows } =
       buildTargetSheet(target, sessions);
     const ws = wb.addWorksheet(target.name.slice(0, 31));
     rows.forEach(row => ws.addRow(row));
@@ -227,15 +227,16 @@ async function buildStudentWorkbook(student, sessions) {
 
       const avgCell = ws.getRow(startN).getCell(6);
       avgCell.value     = avgScore;
-      avgCell.font      = { bold: true, italic: true, color: { argb: "FF3A5470" } };
+      avgCell.font      = { color: { argb: "FF000000" } };
       avgCell.alignment = { horizontal: "center", vertical: "middle" };
     }
 
     // Footer: company left | target name centre | page number right
-    ws.headerFooter.oddFooter = `&LZORA Behavioural Intervention&C${target.name}&R&P`;
+    ws.headerFooter.oddFooter = `&LZORA Behavioural Intervention&C${target.name}  —  ${student.name}&R&P`;
 
-    // Borders: White Darker 15% (#D9D9D9)
-    ws.eachRow(row => {
+    // Borders: White Darker 15% (#D9D9D9) — skip blank spacer rows
+    ws.eachRow((row, rowNumber) => {
+      if (spacerRows.has(rowNumber - 1)) return;
       for (let c = 1; c <= 6; c++) row.getCell(c).border = TARGET_CELL_BORDER;
     });
   }
@@ -455,6 +456,7 @@ function buildTargetSheet(target, sessions) {
   const activityHeadingRows = new Set();
   const noteRows          = new Set();
   const sessionDateBlocks = []; // { startRow, endRow, dateLabel, avgScore }
+  const spacerRows        = new Set(); // blank rows that should have no borders
   let firstMonth = true;
 
   for (const [month, monthSessions] of byMonth) {
@@ -469,11 +471,12 @@ function buildTargetSheet(target, sessions) {
       .filter(v => v !== null);
     const monthlyAvg = dailyAvgsForMonth.length > 0 ? avg(dailyAvgsForMonth) : null;
 
-    if (!firstMonth) rows.push(["", "", "", "", "", ""]);
+    if (!firstMonth) { spacerRows.add(rows.length); rows.push(["", "", "", "", "", ""]); }
     firstMonth = false;
 
     monthHeaderRows.add(rows.length);
     rows.push([`${target.name}  —  ${month}  —  Monthly Average: ${monthlyAvg !== null ? pct(monthlyAvg) : "N/A"}`, "", "", "", "", ""]);
+    spacerRows.add(rows.length);
     rows.push(["", "", "", "", "", ""]); // blank spacer
 
     colHeaderRows.add(rows.length);
@@ -486,7 +489,7 @@ function buildTargetSheet(target, sessions) {
     }
   }
 
-  return { rows, monthHeaderRows, colHeaderRows, activityHeadingRows, noteRows, sessionDateBlocks };
+  return { rows, monthHeaderRows, colHeaderRows, activityHeadingRows, noteRows, sessionDateBlocks, spacerRows };
 }
 
 // ─── SESSION ROWS ────────────────────────────────────────────
