@@ -87,6 +87,10 @@ function getAllTargets(student) {
 }
 
 async function buildStudentWorkbook(student, sessions) {
+  // Drop ghost sessions: activities are auto-created on target selection even without data entry.
+  // A session only counts as real once at least one remark (which carries trial scores) exists.
+  sessions = sessions.filter(s => Object.keys(s.remarks || {}).length > 0);
+
   const allTargets = getAllTargets(student).slice().sort((a, b) => a.name.localeCompare(b.name));
   const wb = new ExcelJS.Workbook();
 
@@ -148,9 +152,7 @@ async function buildStudentWorkbook(student, sessions) {
   mergeAndCenterRows(detWs, detMonthHdrs, detMaxCols);
   applyBorders(detWs, detMaxCols);
 
-  const sortedSessions = sessions
-    .filter(s => Object.keys(s.activities || {}).length > 0)
-    .sort((a, b) => a.date.localeCompare(b.date));
+  const sortedSessions = sessions.slice().sort((a, b) => a.date.localeCompare(b.date));
 
   // ── Baseline vs Current ─────────────────────────────────────
   if (sortedSessions.length >= 2 &&
@@ -597,7 +599,16 @@ function buildTargetSheet(target, sessions) {
     rows.push(["Date", "Activity", "Remark", "Trials", "Score", "Avg Score"]);
 
     for (const session of monthSessions) {
-      if (Object.keys(session.activities || {}).length === 0) continue;
+      // Skip if this target has no remarks in this session (activity was auto-created but never used)
+      const targetActIds = new Set(
+        Object.entries(session.activities || {})
+          .filter(([, a]) => a.targetName === target.name)
+          .map(([id]) => id)
+      );
+      const hasTargetRemarks = Object.values(session.remarks || {})
+        .some(r => targetActIds.has(r.activityId));
+      if (!hasTargetRemarks) continue;
+
       const snap = (session.targetsSnapshot || []).find(t => t.name === target.name);
       const effectiveTarget = snap ? { ...target, maxPoints: snap.maxPoints } : target;
       appendSessionRows(rows, sessionDateBlocks, activityHeadingRows, noteRows, session, effectiveTarget);
