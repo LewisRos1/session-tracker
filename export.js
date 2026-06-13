@@ -268,8 +268,8 @@ async function buildStudentWorkbook(student, sessions) {
 
     // Col widths: Date | Activity | Remark | Trials | Score | Avg Score
     ws.getColumn(1).width     = 6.33;
-    ws.getColumn(2).width     = 34.56;
-    ws.getColumn(3).width     = 51.22;
+    ws.getColumn(2).width     = 40.89;
+    ws.getColumn(3).width     = 56.22;
     ws.getColumn(4).width     = 11.33;
     ws.getColumn(5).width     = 6.78;
     ws.getColumn(6).width     = 8.56;
