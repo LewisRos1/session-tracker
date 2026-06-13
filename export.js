@@ -223,7 +223,7 @@ async function buildStudentWorkbook(student, sessions) {
         const bvcImgId = wb.addImage({ base64: bvcBase64, extension: "png" });
         bvcWs.addImage(bvcImgId, {
           tl:  { col: 0, row: bvcRows.length + 1 },
-          ext: { width: 700, height: 380 }
+          ext: { width: 525, height: 285 }
         });
       }
     }
@@ -945,8 +945,8 @@ function wrapLabel(text, maxChars = 14) {
 
 function renderBaselineChart(title, labels, baselineData, currentData, baselineLabel, currentLabel) {
   const canvas  = document.createElement("canvas");
-  canvas.width  = 700;
-  canvas.height = 380;
+  canvas.width  = 525;
+  canvas.height = 285;
   const ctx     = canvas.getContext("2d");
 
   const allValues  = [...baselineData, ...currentData].filter(v => v !== null && v !== undefined);
@@ -1021,13 +1021,14 @@ function renderBaselineChart(title, labels, baselineData, currentData, baselineL
     options: {
       animation:  false,
       responsive: false,
-      layout: { padding: { top: hasHundred ? 30 : 10, left: 4, right: 22, bottom: 6 } },
+      layout: { padding: { top: 10, left: 4, right: 22, bottom: 6 } },
       plugins: {
         title: {
-          display: true,
-          text:    title,
-          font:    { size: 14, weight: "bold" },
-          color:   "#1A2E4A"
+          display:  true,
+          text:     title,
+          font:     { size: 14, weight: "bold" },
+          color:    "#1A2E4A",
+          padding:  { top: 4, bottom: hasHundred ? 32 : 8 }
         },
         legend: {
           display:  true,
