@@ -250,7 +250,7 @@ async function buildStudentWorkbook(student, sessions) {
       if (yValues.length < 2) { chartIdx++; continue; }
 
       const dateRange = formatDateRange(datesWithData);
-      const base64 = renderTargetChart(target.name, yValues, dateRange);
+      const base64 = renderTargetChart(target.name, yValues, dateRange, datesWithData);
       const imgId  = wb.addImage({ base64, extension: "png" });
 
       const chartRow = Math.floor(chartIdx / 2) * 19;
@@ -819,13 +819,17 @@ function formatDateRange(dates) {
   return                              `${mo[fm - 1]} ${fy} – ${mo[lm - 1]} ${ly}`;
 }
 
-function renderTargetChart(targetName, yValues, dateRange) {
+function renderTargetChart(targetName, yValues, dateRange, dates) {
   const SCALE   = 3;
   const canvas  = document.createElement("canvas");
   canvas.width  = 605;
   canvas.height = 340;
   const ctx    = canvas.getContext("2d");
-  const labels = yValues.map((_, i) => String(i + 1));
+  const shortMonths = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const labels = dates.map(d => {
+    const [, m, day] = d.split("-").map(Number);
+    return `${day} ${shortMonths[m - 1]}`;
+  });
   const trend  = linearRegressionValues(yValues);
 
   // Direction indicator from trendline slope
@@ -868,6 +872,24 @@ function renderTargetChart(targetName, yValues, dateRange) {
           c.ctx.strokeRect(0.5, 0.5, c.width - 1, c.height - 1);
           c.ctx.restore();
         }
+      },
+      {
+        id: "pointLabels",
+        afterDatasetsDraw(c) {
+          const { ctx: cx, data } = c;
+          const meta = c.getDatasetMeta(0);
+          meta.data.forEach((point, i) => {
+            const value = data.datasets[0].data[i];
+            if (value === null || value === undefined) return;
+            cx.save();
+            cx.fillStyle    = "#000000";
+            cx.font         = "bold 11px sans-serif";
+            cx.textAlign    = "center";
+            cx.textBaseline = "bottom";
+            cx.fillText(value + "%", point.x, point.y - 8);
+            cx.restore();
+          });
+        }
       }
     ],
     data: {
@@ -897,7 +919,7 @@ function renderTargetChart(targetName, yValues, dateRange) {
       animation:        false,
       responsive:       false,
       devicePixelRatio: SCALE,
-      layout: { padding: { top: 10, left: 4, right: 22, bottom: 6 } },
+      layout: { padding: { top: 22, left: 4, right: 22, bottom: 6 } },
       plugins: {
         title: {
           display: true,
@@ -916,20 +938,16 @@ function renderTargetChart(targetName, yValues, dateRange) {
       },
       scales: {
         x: {
-          title: { display: true, text: "Session", color: "#000000", font: { size: 13, weight: "bold" } },
+          title: { display: true, text: "Date", color: "#000000", font: { size: 13, weight: "bold" } },
           ticks: { color: "#000000", font: { size: 13 } },
           grid:  { color: "rgba(0,0,0,0.07)" }
         },
         y: {
           min:   0,
           max:   100,
-          title: { display: true, text: "Score", color: "#555", font: { weight: "bold" } },
-          ticks: {
-            stepSize: 10,
-            callback: v => v + "%",
-            color:    "#555"
-          },
-          grid: { color: "rgba(0,0,0,0.07)" }
+          title: { display: false },
+          ticks: { display: false },
+          grid:  { color: "rgba(0,0,0,0.07)" }
         }
       }
     }
@@ -1002,7 +1020,7 @@ function renderBaselineChart(title, labels, baselineData, currentData, baselineL
               if (value === null || value === undefined) return;
               cx.save();
               cx.fillStyle    = "#333333";
-              cx.font         = "bold 10px sans-serif";
+              cx.font         = "bold 11px sans-serif";
               cx.textAlign    = "center";
               cx.textBaseline = "bottom";
               cx.fillText(value + "%", bar.x, bar.y - 2);
