@@ -902,8 +902,8 @@ function renderTargetChart(targetName, yValues, dateRange) {
         title: {
           display: true,
           text:    titleText,
-          font:    { size: 13, weight: "bold" },
-          color:   "#1A2E4A"
+          font:    { size: 15, weight: "bold" },
+          color:   "#000000"
         },
         subtitle: {
           display: true,
@@ -916,8 +916,8 @@ function renderTargetChart(targetName, yValues, dateRange) {
       },
       scales: {
         x: {
-          title: { display: true, text: "Session", color: "#555", font: { weight: "bold" } },
-          ticks: { color: "#555" },
+          title: { display: true, text: "Session", color: "#000000", font: { size: 13, weight: "bold" } },
+          ticks: { color: "#000000", font: { size: 13 } },
           grid:  { color: "rgba(0,0,0,0.07)" }
         },
         y: {
@@ -1044,19 +1044,19 @@ function renderBaselineChart(title, labels, baselineData, currentData, baselineL
         title: {
           display:  true,
           text:     title,
-          font:     { size: 14, weight: "bold" },
-          color:    "#1A2E4A",
+          font:     { size: 16, weight: "bold" },
+          color:    "#000000",
           padding:  { top: 4, bottom: hasHundred ? 32 : 8 }
         },
         legend: {
           display:  true,
           position: "bottom",
-          labels:   { color: "#333", font: { size: 11 }, boxWidth: 12, boxHeight: 12 }
+          labels:   { color: "#000000", font: { size: 13 }, boxWidth: 12, boxHeight: 12 }
         }
       },
       scales: {
         x: {
-          ticks: { color: "#555", maxRotation: 0, font: { size: 11 } },
+          ticks: { color: "#000000", maxRotation: 0, font: { size: 13 } },
           grid:  { display: false }
         },
         y: {

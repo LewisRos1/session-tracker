@@ -55,7 +55,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "350";
+const APP_VERSION = "352";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -512,13 +512,29 @@ function renderExportButtons() {
   const filteredGroups = (qGroup ? (state.groups || []).filter(g => g.name.toLowerCase().includes(qGroup)) : (state.groups || []))
     .slice().sort(sortByName);
 
+  const studentRosterHtml = filteredStudents.length
+    ? `<div class="roster-list">` +
+        filteredStudents.map(s => `
+          <button class="roster-item" data-id="${s.id}">
+            <span class="roster-item-name">${escHtml(s.name)}</span>
+          </button>
+        `).join("") +
+      `</div>`
+    : `<p class="empty-hint">${qIndiv ? "No matches." : "No students yet."}</p>`;
+
   indivContainer.innerHTML = `
     <button class="export-btn export-btn-all" id="btn-export-all">Export All (ZIP)</button>
-    ${filteredStudents.map(s => `<button class="export-btn" data-id="${s.id}">${escHtml(s.name)}</button>`).join("")}`;
+    ${studentRosterHtml}`;
 
   groupContainer.innerHTML = filteredGroups.length
-    ? filteredGroups.map(g => `<button class="export-btn export-btn-group-item" data-group-id="${g.id}">${escHtml(g.name)}</button>`).join("")
-    : `<p class="empty-hint" style="padding:.4rem 0">No groups added yet.</p>`;
+    ? `<div class="roster-list">` +
+        filteredGroups.map(g => `
+          <button class="roster-item" data-group-id="${g.id}">
+            <span class="roster-item-name">${escHtml(g.name)}</span>
+          </button>
+        `).join("") +
+      `</div>`
+    : `<p class="empty-hint">${qGroup ? "No matches." : "No groups added yet."}</p>`;
 
   $("btn-export-all").addEventListener("click", async () => {
     const btn = $("btn-export-all");
@@ -536,12 +552,11 @@ function renderExportButtons() {
     }
   });
 
-  indivContainer.querySelectorAll(".export-btn[data-id]").forEach(btn => {
+  indivContainer.querySelectorAll(".roster-item[data-id]").forEach(btn => {
     btn.addEventListener("click", async () => {
       const student = state.students.find(s => s.id === btn.dataset.id);
       if (!student) return;
       const orig = btn.textContent;
-      btn.style.width = btn.offsetWidth + "px";
       btn.disabled = true;
       btn.textContent = "Generating…";
       try {
@@ -551,12 +566,11 @@ function renderExportButtons() {
       } finally {
         btn.disabled = false;
         btn.textContent = orig;
-        btn.style.width = "";
       }
     });
   });
 
-  groupContainer.querySelectorAll(".export-btn-group-item").forEach(btn => {
+  groupContainer.querySelectorAll(".roster-item[data-group-id]").forEach(btn => {
     btn.addEventListener("click", () => {
       alert("Group session export is coming soon!");
     });

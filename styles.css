@@ -283,6 +283,7 @@ html, body {
   color: #fff;
   border-color: var(--primary);
   font-weight: 700;
+  margin-bottom: .6rem;
 }
 .export-btn-all:hover { background: var(--primary-dark, #4338ca); border-color: var(--primary-dark, #4338ca); }
 
