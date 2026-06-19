@@ -55,7 +55,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "348";
+const APP_VERSION = "349";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -67,6 +67,7 @@ const state = {
   searchAssessment:   "",
   searchTemplate:     "",
   searchExport:       "",
+  searchExportGroup:  "",
   currentStudent:     null,
   currentSessionId:   null,
   sessionData:        null,
@@ -308,8 +309,8 @@ async function showHome() {
   if (verEl) verEl.textContent = `Made by Lewis · Version ${APP_VERSION}`;
   // Clear section searches when returning home
   state.searchExisting = ""; state.searchAssessment = ""; state.searchTemplate = "";
-  state.searchExport = ""; state.searchGroup = "";
-  [$("search-existing"), $("search-assessment"), $("search-template"), $("search-export"), $("search-group")]
+  state.searchExport = ""; state.searchExportGroup = ""; state.searchGroup = "";
+  [$("search-existing"), $("search-assessment"), $("search-template"), $("search-export"), $("search-export-group"), $("search-group")]
     .forEach(el => { if (el) el.value = ""; });
   renderExistingStudentButtons();
   renderGroupButtons();
@@ -342,6 +343,10 @@ $("search-template").addEventListener("input", e => {
 });
 $("search-export").addEventListener("input", e => {
   state.searchExport = e.target.value;
+  renderExportButtons();
+});
+$("search-export-group").addEventListener("input", e => {
+  state.searchExportGroup = e.target.value;
   renderExportButtons();
 });
 
@@ -493,31 +498,27 @@ function renderTemplateButtons() {
 }
 
 function renderExportButtons() {
-  const container = $("export-buttons");
-  if (!container) return;
-  const q = (state.searchExport || "").toLowerCase();
+  const indivContainer = $("export-individual-buttons");
+  const groupContainer = $("export-group-buttons");
+  if (!indivContainer || !groupContainer) return;
+
   const sortByName = (a, b) => a.name.localeCompare(b.name);
-  const filteredStudents = (q ? state.students.filter(s => s.name.toLowerCase().includes(q)) : state.students)
-    .slice().sort(sortByName);
-  const filteredGroups   = (q ? (state.groups || []).filter(g => g.name.toLowerCase().includes(q)) : (state.groups || []))
+
+  const qIndiv = (state.searchExport || "").toLowerCase();
+  const filteredStudents = (qIndiv ? state.students.filter(s => s.name.toLowerCase().includes(qIndiv)) : state.students)
     .slice().sort(sortByName);
 
-  const groupButtons = filteredGroups.length
+  const qGroup = (state.searchExportGroup || "").toLowerCase();
+  const filteredGroups = (qGroup ? (state.groups || []).filter(g => g.name.toLowerCase().includes(qGroup)) : (state.groups || []))
+    .slice().sort(sortByName);
+
+  indivContainer.innerHTML = `
+    <button class="export-btn export-btn-all" id="btn-export-all">Export All (ZIP)</button>
+    ${filteredStudents.map(s => `<button class="export-btn" data-id="${s.id}">${escHtml(s.name)}</button>`).join("")}`;
+
+  groupContainer.innerHTML = filteredGroups.length
     ? filteredGroups.map(g => `<button class="export-btn export-btn-group-item" data-group-id="${g.id}">${escHtml(g.name)}</button>`).join("")
     : `<p class="empty-hint" style="padding:.4rem 0">No groups added yet.</p>`;
-
-  container.innerHTML = `
-    <div class="export-sub-section">
-      <div class="export-sub-header">Individual Sessions</div>
-      <div class="export-sub-buttons">
-        <button class="export-btn export-btn-all" id="btn-export-all">Export All (ZIP)</button>
-        ${filteredStudents.map(s => `<button class="export-btn" data-id="${s.id}">${escHtml(s.name)}</button>`).join("")}
-      </div>
-    </div>
-    <div class="export-sub-section">
-      <div class="export-sub-header">Group Sessions</div>
-      <div class="export-sub-buttons">${groupButtons}</div>
-    </div>`;
 
   $("btn-export-all").addEventListener("click", async () => {
     const btn = $("btn-export-all");
@@ -535,7 +536,7 @@ function renderExportButtons() {
     }
   });
 
-  container.querySelectorAll(".export-btn[data-id]").forEach(btn => {
+  indivContainer.querySelectorAll(".export-btn[data-id]").forEach(btn => {
     btn.addEventListener("click", async () => {
       const student = state.students.find(s => s.id === btn.dataset.id);
       if (!student) return;
@@ -555,7 +556,7 @@ function renderExportButtons() {
     });
   });
 
-  container.querySelectorAll(".export-btn-group-item").forEach(btn => {
+  groupContainer.querySelectorAll(".export-btn-group-item").forEach(btn => {
     btn.addEventListener("click", () => {
       alert("Group session export is coming soon!");
     });

@@ -261,14 +261,6 @@ html, body {
 
 
 /* ─── EXPORT BUTTONS ─────────────────────────────────────── */
-.export-buttons {
-  display: flex;
-  flex-direction: column;
-  gap: .6rem;
-  max-height: 285px; /* ~5 items */
-  overflow-y: auto;
-}
-
 .export-btn {
   padding: .85rem 1.25rem;
   background: var(--white);
@@ -293,18 +285,6 @@ html, body {
   font-weight: 700;
 }
 .export-btn-all:hover { background: var(--primary-dark, #4338ca); border-color: var(--primary-dark, #4338ca); }
-.export-sub-section { margin-bottom: 1.25rem; }
-.export-sub-header {
-  font-size: .72rem;
-  font-weight: 700;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: .07em;
-  padding-bottom: .4rem;
-  border-bottom: 1px solid var(--border);
-  margin-bottom: .6rem;
-}
-.export-sub-buttons { display: flex; flex-direction: column; gap: .5rem; }
 
 /* ============================================================
    SESSION SCREEN
