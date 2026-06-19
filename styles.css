@@ -304,7 +304,7 @@ html, body {
   border-bottom: 1px solid var(--border);
   margin-bottom: .6rem;
 }
-.export-sub-buttons { display: flex; flex-wrap: wrap; gap: .5rem; }
+.export-sub-buttons { display: flex; flex-direction: column; gap: .5rem; }
 
 /* ============================================================
    SESSION SCREEN
