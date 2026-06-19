@@ -885,8 +885,8 @@ function renderTargetChart(targetName, yValues, dateRange, dates) {
             cx.fillStyle    = "#000000";
             cx.font         = "bold 11px sans-serif";
             cx.textAlign    = "center";
-            cx.textBaseline = "bottom";
-            cx.fillText(value + "%", point.x, point.y - 8);
+            cx.textBaseline = "top";
+            cx.fillText(value + "%", point.x, point.y + 8);
             cx.restore();
           });
         }
@@ -919,7 +919,7 @@ function renderTargetChart(targetName, yValues, dateRange, dates) {
       animation:        false,
       responsive:       false,
       devicePixelRatio: SCALE,
-      layout: { padding: { top: 22, left: 4, right: 22, bottom: 6 } },
+      layout: { padding: { top: 10, left: 4, right: 22, bottom: 20 } },
       plugins: {
         title: {
           display: true,
@@ -931,7 +931,7 @@ function renderTargetChart(targetName, yValues, dateRange, dates) {
           display: true,
           text:    dirText,
           color:   dirColor,
-          font:    { size: 11, style: "italic" },
+          font:    { size: 12, style: "italic" },
           padding: { bottom: 6 }
         },
         legend: { display: false }
