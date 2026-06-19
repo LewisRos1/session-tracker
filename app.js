@@ -55,7 +55,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "347";
+const APP_VERSION = "348";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -496,11 +496,14 @@ function renderExportButtons() {
   const container = $("export-buttons");
   if (!container) return;
   const q = (state.searchExport || "").toLowerCase();
-  const filteredStudents = q ? state.students.filter(s => s.name.toLowerCase().includes(q)) : state.students;
-  const filteredGroups   = q ? (state.groups || []).filter(g => g.name.toLowerCase().includes(q)) : (state.groups || []);
+  const sortByName = (a, b) => a.name.localeCompare(b.name);
+  const filteredStudents = (q ? state.students.filter(s => s.name.toLowerCase().includes(q)) : state.students)
+    .slice().sort(sortByName);
+  const filteredGroups   = (q ? (state.groups || []).filter(g => g.name.toLowerCase().includes(q)) : (state.groups || []))
+    .slice().sort(sortByName);
 
   const groupButtons = filteredGroups.length
-    ? filteredGroups.map(g => `<button class="export-btn export-btn-group-item" data-group-id="${g.id}">Export ${escHtml(g.name)}</button>`).join("")
+    ? filteredGroups.map(g => `<button class="export-btn export-btn-group-item" data-group-id="${g.id}">${escHtml(g.name)}</button>`).join("")
     : `<p class="empty-hint" style="padding:.4rem 0">No groups added yet.</p>`;
 
   container.innerHTML = `
@@ -508,7 +511,7 @@ function renderExportButtons() {
       <div class="export-sub-header">Individual Sessions</div>
       <div class="export-sub-buttons">
         <button class="export-btn export-btn-all" id="btn-export-all">Export All (ZIP)</button>
-        ${filteredStudents.map(s => `<button class="export-btn" data-id="${s.id}">Export ${escHtml(s.name)}</button>`).join("")}
+        ${filteredStudents.map(s => `<button class="export-btn" data-id="${s.id}">${escHtml(s.name)}</button>`).join("")}
       </div>
     </div>
     <div class="export-sub-section">
