@@ -947,7 +947,7 @@ function renderTargetChart(targetName, yValues, dateRange, dates) {
           max:   100,
           title: { display: false },
           ticks: { display: false },
-          grid:  { color: "rgba(0,0,0,0.07)" }
+          grid:  { color: "rgba(0,0,0,0.16)" }
         }
       }
     }
@@ -1082,7 +1082,7 @@ function renderBaselineChart(title, labels, baselineData, currentData, baselineL
           max:   100,
           title: { display: false },
           ticks: { display: false },
-          grid:  { color: "rgba(0,0,0,0.07)" }
+          grid:  { color: "rgba(0,0,0,0.16)" }
         }
       }
     }
