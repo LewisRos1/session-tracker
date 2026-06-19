@@ -227,7 +227,7 @@ async function buildStudentWorkbook(student, sessions) {
         const bvcImgId = wb.addImage({ base64: bvcBase64, extension: "png" });
         bvcWs.addImage(bvcImgId, {
           tl:  { col: 0, row: bvcRows.length + 1 },
-          ext: { width: 525, height: 285 }
+          ext: { width: 605, height: 340 } // 16cm x 9cm at 96dpi
         });
       }
     }
@@ -253,12 +253,12 @@ async function buildStudentWorkbook(student, sessions) {
       const base64 = renderTargetChart(target.name, yValues, dateRange);
       const imgId  = wb.addImage({ base64, extension: "png" });
 
-      const chartRow = Math.floor(chartIdx / 2) * 17;
-      const chartCol = (chartIdx % 2) * 9;
+      const chartRow = Math.floor(chartIdx / 2) * 19;
+      const chartCol = (chartIdx % 2) * 11;
 
       chartsWs.addImage(imgId, {
         tl:  { col: chartCol, row: chartRow },
-        ext: { width: 480, height: 300 }
+        ext: { width: 605, height: 340 } // 16cm x 9cm at 96dpi
       });
       chartIdx++;
     }
@@ -822,8 +822,8 @@ function formatDateRange(dates) {
 function renderTargetChart(targetName, yValues, dateRange) {
   const SCALE   = 3;
   const canvas  = document.createElement("canvas");
-  canvas.width  = 480;
-  canvas.height = 300;
+  canvas.width  = 605;
+  canvas.height = 340;
   const ctx    = canvas.getContext("2d");
   const labels = yValues.map((_, i) => String(i + 1));
   const trend  = linearRegressionValues(yValues);
@@ -962,8 +962,8 @@ function wrapLabel(text, maxChars = 14) {
 function renderBaselineChart(title, labels, baselineData, currentData, baselineLabel, currentLabel) {
   const SCALE   = 3;
   const canvas  = document.createElement("canvas");
-  canvas.width  = 525;
-  canvas.height = 285;
+  canvas.width  = 605;
+  canvas.height = 340;
   const ctx     = canvas.getContext("2d");
 
   const allValues  = [...baselineData, ...currentData].filter(v => v !== null && v !== undefined);
