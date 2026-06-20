@@ -1004,7 +1004,7 @@ html, body {
 }
 
 .btn-icon:hover { background: var(--bg); color: var(--text); }
-.btn-delete-activity:hover, .btn-delete-remark:hover { color: var(--danger); }
+.btn-delete-activity:hover, .btn-delete-remark:hover, .btn-group-del-student-remark:hover { color: var(--danger); }
 
 .pending-remark-actions {
   display: flex;
@@ -1667,6 +1667,12 @@ div.admin-note-editable:empty::before {
   color: #fff;
   font-size: .8rem;
   margin-bottom: .3rem;
+}
+
+.layout-info-desc {
+  color: #b7bcc8;
+  font-size: .74rem;
+  margin-bottom: .4rem;
 }
 
 .layout-info-example {

@@ -55,7 +55,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "362";
+const APP_VERSION = "365";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -2183,7 +2183,12 @@ function leaveSessionView() {
         || (r.trials || []).some(t => t !== null && t !== -1)
         || stripEmpty(r.masteryNote).length > 0;
     });
-    if (!fedcHasData && !remarkHasData) deleteSession(sessionId).catch(() => {});
+    if (!fedcHasData && !remarkHasData) {
+      deleteSession(sessionId).catch(() => {});
+    } else {
+      const allTargetNames = new Set(Object.values(data.activities || {}).map(a => a.targetName));
+      allTargetNames.forEach(name => cleanupEmptyEntries(sessionId, data, name).catch(() => {}));
+    }
   }
 
   showHome();
@@ -3530,9 +3535,11 @@ function renderTargetManageContent(student, target) {
         <span class="layout-info-icon" tabindex="0">ⓘ What is this?
           <div class="layout-info-tooltip">
             <strong>Group students together</strong>
-            <div class="layout-info-example">Activity 1<br>&nbsp;&nbsp;• Student 1<br>&nbsp;&nbsp;• Student 2<br><br>Activity 2<br>&nbsp;&nbsp;• Student 1<br>&nbsp;&nbsp;• Student 2</div>
+            <div class="layout-info-desc">Each activity becomes a heading. Every student's entry for that activity is listed underneath it.</div>
+            <div class="layout-info-example">Antecedent<br>&nbsp;&nbsp;• Peter<br>&nbsp;&nbsp;• Mary<br><br>Behaviours<br>&nbsp;&nbsp;• Peter<br>&nbsp;&nbsp;• Mary<br><br>Consequence<br>&nbsp;&nbsp;• Peter<br>&nbsp;&nbsp;• Mary</div>
             <strong>Group activities together</strong>
-            <div class="layout-info-example">Student 1<br>&nbsp;&nbsp;• Activity 1<br>&nbsp;&nbsp;• Activity 2<br><br>Student 2<br>&nbsp;&nbsp;• Activity 1<br>&nbsp;&nbsp;• Activity 2</div>
+            <div class="layout-info-desc">Each student becomes a heading. All of their activities are listed underneath, one after another.</div>
+            <div class="layout-info-example">Peter<br>&nbsp;&nbsp;• Antecedent<br>&nbsp;&nbsp;• Behaviours<br>&nbsp;&nbsp;• Consequence<br><br>Mary<br>&nbsp;&nbsp;• Antecedent<br>&nbsp;&nbsp;• Behaviours<br>&nbsp;&nbsp;• Consequence</div>
           </div>
         </span>
       </div>
@@ -4224,7 +4231,7 @@ function populateGroupTargetDropdown(targets) {
     const prevTarget = state.selectedGroupTargetName;
     state.selectedGroupTargetName = sel.value || null;
     if (prevTarget && prevTarget !== sel.value) {
-      // cleanup empty entries for prev target (fire-and-forget)
+      cleanupEmptyEntries(state.groupSessionId, state.groupSessionData, prevTarget).catch(() => {});
     }
     if (!state.selectedGroupTargetName) { renderGroupTargetContent(); return; }
     const data = state.groupSessionData;
@@ -4275,7 +4282,12 @@ function leaveGroupSession() {
       const strip = s => (s || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim();
       return strip(r.text).length > 0 || (r.trials || []).some(t => t !== -1);
     });
-    if (!hasData) deleteSession(sessionId).catch(() => {});
+    if (!hasData) {
+      deleteSession(sessionId).catch(() => {});
+    } else {
+      const allTargetNames = new Set(Object.values(data.activities || {}).map(a => a.targetName));
+      allTargetNames.forEach(name => cleanupEmptyEntries(sessionId, data, name).catch(() => {}));
+    }
   }
   showHome();
 }
@@ -4383,57 +4395,43 @@ function renderGroupStudentActivityCard(studentName, actName, actId, target, dat
         .sort(([, a], [, b]) => (a.order || 0) - (b.order || 0))
     : [];
 
-  if (remarksForThisStudent.length === 0) {
-    return `<div class="entry-block entry-block-predefined" data-act-name="${escHtml(actName)}" data-act-id="${escHtml(actId || "")}">
-      <div class="entry-field">
-        <span class="field-label">Activity</span>
-        <span class="field-value-fixed">${escHtml(actName)}</span>
-      </div>
-      <button class="btn-add-remark btn-group-add-remark-pending"
-        data-student="${escHtml(studentName)}"
-        data-act-id="${escHtml(actId || "")}"
-        data-act-name="${escHtml(actName)}"
-        data-target="${escHtml(target.name)}">+ Add Remark &amp; Trials</button>
-    </div>`;
-  }
-
-  const roundHtmls = remarksForThisStudent.map(([remId, rem]) => renderGroupStudentRowCompact(remId, rem, target));
-  const roundsBody = roundHtmls.map((r, i) =>
-    (i > 0 ? `<div class="entry-divider entry-divider-round"></div>` : ``) + r
-  ).join("");
-
-  return `<div class="entry-block entry-block-predefined" data-act-name="${escHtml(actName)}" data-act-id="${escHtml(actId || "")}">
+  let html = `<div class="entry-block entry-block-predefined" data-act-name="${escHtml(actName)}" data-act-id="${escHtml(actId || "")}">
     <div class="entry-field">
       <span class="field-label">Activity</span>
       <span class="field-value-fixed">${escHtml(actName)}</span>
-    </div>
-    <div class="entry-divider"></div>
-    ${roundsBody}
-    <div class="entry-divider"></div>
-    <button class="btn-add-remark btn-group-add-remark-student-more"
-      data-act-id="${escHtml(actId || "")}"
-      data-student="${escHtml(studentName)}">+ Add Remark &amp; Trials</button>
-  </div>`;
+    </div>`;
+
+  for (const [remId, rem] of remarksForThisStudent) {
+    html += renderGroupStudentRowCompact(remId, rem, target);
+  }
+
+  html += remarksForThisStudent.length === 0
+    ? `<button class="btn-add-remark btn-group-add-remark-pending"
+        data-student="${escHtml(studentName)}"
+        data-act-id="${escHtml(actId || "")}"
+        data-act-name="${escHtml(actName)}"
+        data-target="${escHtml(target.name)}">+ Add Remark &amp; Trials</button>`
+    : `<button class="btn-add-remark btn-group-add-remark-student-more"
+        data-act-id="${escHtml(actId || "")}"
+        data-student="${escHtml(studentName)}">+ Add Remark &amp; Trials</button>`;
+
+  html += `</div>`;
+  return html;
 }
 
 function renderGroupStudentRowCompact(remId, rem, target) {
   const trials = rem.trials || [];
-  const maxPts = target.maxPoints || 3;
-  const valid  = trials.filter(t => t !== -1);
-  const scoreVal = valid.length > 0
-    ? Math.round(valid.reduce((a, b) => a + b, 0) / (valid.length * maxPts) * 100) + "%" : null;
   const badges = trials.map((t, i) =>
     `<span class="trial-badge">${t === -1 ? "—" : t}<button class="btn-trial-delete btn-group-trial-del" data-rem-id="${remId}" data-idx="${i}">×</button></span>`
   ).join("");
-  return `<div class="group-student-section" data-rem-id="${remId}">
-    <div class="group-student-name-row">
-      ${scoreVal ? `<span class="group-student-score-chip">${scoreVal}</span>` : `<span></span>`}
-      <button class="btn-icon btn-group-del-student-remark" data-rem-id="${remId}" title="Remove" style="margin-left:auto">🗑</button>
-    </div>
+  return `
+    <div class="entry-divider"></div>
     <div class="entry-field">
-      <button class="btn-sketch btn-group-sketch" data-rem-id="${remId}" aria-label="Sketch">✏</button>
+      <span class="field-label">Remark</span>
+      <button class="btn-sketch btn-group-sketch" data-rem-id="${remId}" aria-label="Open sketch board">✏</button>
       <div class="field-input group-remark-input" contenteditable="true"
         data-rem-id="${remId}" data-placeholder="Remark…">${remarkToHtml(rem.text)}</div>
+      <button class="btn-icon btn-group-del-student-remark" data-rem-id="${remId}" title="Delete remark">🗑</button>
     </div>
     <div class="entry-field">
       <span class="field-label">Trials</span>
@@ -4442,8 +4440,7 @@ function renderGroupStudentRowCompact(remId, rem, target) {
         <button class="btn-primary-sm btn-add-trial btn-group-add-trial"
           data-rem-id="${remId}" data-target="${escHtml(target.name)}">+ Trial</button>
       </div>
-    </div>
-  </div>`;
+    </div>`;
 }
 
 function renderGroupActivityCard(actName, actId, target, data, attendees) {
