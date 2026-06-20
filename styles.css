@@ -1647,6 +1647,9 @@ div.admin-note-editable:empty::before {
   left: 0;
   margin-top: .4rem;
   width: 250px;
+  max-height: min(320px, 60vh);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   background: #1f2430;
   color: #fff;
   font-size: .78rem;
