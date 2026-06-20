@@ -3,7 +3,7 @@
 // One .xlsx per student: a Summary sheet + one sheet per target.
 // ============================================================
 
-import { getAllSessionsForStudent, sanitizeKey } from "./firebase-service.js";
+import { getAllSessionsForStudent, getAllSessionsForGroup, sanitizeKey } from "./firebase-service.js";
 
 // Strip HTML tags from remark text (stored as HTML for visual bold support)
 function stripRemarkHtml(s) {
@@ -86,14 +86,9 @@ function getAllTargets(student) {
   return student.targets || [];
 }
 
-async function buildStudentWorkbook(student, sessions) {
-  // Drop ghost sessions: activities are auto-created on target selection even without data entry.
-  // A session only counts as real once at least one remark (which carries trial scores) exists.
-  sessions = sessions.filter(s => Object.keys(s.remarks || {}).length > 0);
+// ── Shared sheets (entity-agnostic: work identically for a student or a group) ──
 
-  const allTargets = getAllTargets(student).slice().sort((a, b) => a.name.localeCompare(b.name));
-  const wb = new ExcelJS.Workbook();
-
+function addSummarySheets(wb, allTargets, sessions) {
   // ── Monthly Summary ──────────────────────────────────────────
   const summaryRows = buildSummarySheet(allTargets, sessions);
   const summaryWs   = wb.addWorksheet("Monthly Summary");
@@ -151,136 +146,234 @@ async function buildStudentWorkbook(student, sessions) {
   }
   mergeAndCenterRows(detWs, detMonthHdrs, detMaxCols);
   applyBorders(detWs, detMaxCols);
+}
 
-  const sortedSessions = sessions.slice().sort((a, b) => a.date.localeCompare(b.date));
+function addBaselineVsCurrentSheet(wb, entityName, allTargets, sortedSessions) {
+  if (sortedSessions.length < 2 ||
+      sortedSessions[0].date === sortedSessions[sortedSessions.length - 1].date) return;
 
-  // ── Baseline vs Current ─────────────────────────────────────
-  if (sortedSessions.length >= 2 &&
-      sortedSessions[0].date !== sortedSessions[sortedSessions.length - 1].date) {
-    const firstSession = sortedSessions[0];
-    const lastSession  = sortedSessions[sortedSessions.length - 1];
-    const firstLabel   = fmtDate(firstSession.date);
-    const lastLabel    = fmtDate(lastSession.date);
+  const firstSession = sortedSessions[0];
+  const lastSession  = sortedSessions[sortedSessions.length - 1];
+  const firstLabel   = fmtDate(firstSession.date);
+  const lastLabel    = fmtDate(lastSession.date);
 
-    const bvcRows    = [];
-    const bvcTargets = [];
+  const bvcRows    = [];
+  const bvcTargets = [];
 
-    bvcRows.push([`${student.name}: Baseline vs Current`, "", ""]);
-    bvcRows.push(["Target", firstLabel, lastLabel]);
+  bvcRows.push([`${entityName}: Baseline vs Current`, "", ""]);
+  bvcRows.push(["Target", firstLabel, lastLabel]);
 
-    for (const target of allTargets) {
-      const snapF  = (firstSession.targetsSnapshot || []).find(t => t.name === target.name);
-      const effF   = snapF ? { ...target, maxPoints: snapF.maxPoints } : target;
-      const snapL  = (lastSession.targetsSnapshot  || []).find(t => t.name === target.name);
-      const effL   = snapL ? { ...target, maxPoints: snapL.maxPoints } : target;
-      const scoreF = calcDailyAverage(firstSession, effF);
-      const scoreL = calcDailyAverage(lastSession,  effL);
+  for (const target of allTargets) {
+    const snapF  = (firstSession.targetsSnapshot || []).find(t => t.name === target.name);
+    const effF   = snapF ? { ...target, maxPoints: snapF.maxPoints } : target;
+    const snapL  = (lastSession.targetsSnapshot  || []).find(t => t.name === target.name);
+    const effL   = snapL ? { ...target, maxPoints: snapL.maxPoints } : target;
+    const scoreF = calcDailyAverage(firstSession, effF);
+    const scoreL = calcDailyAverage(lastSession,  effL);
 
-      bvcRows.push([
-        target.name,
-        scoreF !== null ? pct(scoreF) : "",
-        scoreL !== null ? pct(scoreL) : ""
-      ]);
-      bvcTargets.push({
-        name:  target.name,
-        first: scoreF !== null ? Math.round(scoreF) : null,
-        last:  scoreL !== null ? Math.round(scoreL) : null
-      });
-    }
-
-    const bvcWs = wb.addWorksheet("Baseline vs Current");
-    bvcRows.forEach(row => bvcWs.addRow(row));
-
-    bvcWs.getColumn(1).width     = 30;
-    bvcWs.getColumn(2).width     = 14;
-    bvcWs.getColumn(3).width     = 14;
-    bvcWs.getColumn(1).alignment = { vertical: "middle" };
-    bvcWs.getColumn(2).alignment = { horizontal: "center", vertical: "middle" };
-    bvcWs.getColumn(3).alignment = { horizontal: "center", vertical: "middle" };
-
-    try { bvcWs.mergeCells("A1:C1"); } catch (_) {}
-    const bvcTitle     = bvcWs.getRow(1).getCell(1);
-    bvcTitle.fill      = STYLE_SESSION.fill;
-    bvcTitle.font      = STYLE_SESSION.font;
-    bvcTitle.alignment = { horizontal: "center", vertical: "middle" };
-
-    for (let c = 1; c <= 3; c++) {
-      const cell     = bvcWs.getRow(2).getCell(c);
-      cell.fill      = STYLE_COL_HEADER.fill;
-      cell.font      = STYLE_COL_HEADER.font;
-      cell.alignment = STYLE_COL_HEADER.alignment;
-    }
-
-    applyBorders(bvcWs, 3);
-
-    if (typeof Chart !== "undefined") {
-      const chartTargets = bvcTargets.filter(t => t.first !== null || t.last !== null);
-      if (chartTargets.length > 0) {
-        const bvcBase64 = renderBaselineChart(
-          `${student.name}: Baseline vs Current`,
-          chartTargets.map(t => wrapLabel(t.name)),
-          chartTargets.map(t => t.first),
-          chartTargets.map(t => t.last),
-          firstLabel,
-          lastLabel
-        );
-        const bvcImgId = wb.addImage({ base64: bvcBase64, extension: "png" });
-        bvcWs.addImage(bvcImgId, {
-          tl:  { col: 0, row: bvcRows.length + 1 },
-          ext: { width: 605, height: 340 } // 16cm x 9cm at 96dpi
-        });
-      }
-    }
+    bvcRows.push([
+      target.name,
+      scoreF !== null ? pct(scoreF) : "",
+      scoreL !== null ? pct(scoreL) : ""
+    ]);
+    bvcTargets.push({
+      name:  target.name,
+      first: scoreF !== null ? Math.round(scoreF) : null,
+      last:  scoreL !== null ? Math.round(scoreL) : null
+    });
   }
 
-  // ── Charts ──────────────────────────────────────────────────
+  const bvcWs = wb.addWorksheet("Baseline vs Current");
+  bvcRows.forEach(row => bvcWs.addRow(row));
+
+  bvcWs.getColumn(1).width     = 30;
+  bvcWs.getColumn(2).width     = 14;
+  bvcWs.getColumn(3).width     = 14;
+  bvcWs.getColumn(1).alignment = { vertical: "middle" };
+  bvcWs.getColumn(2).alignment = { horizontal: "center", vertical: "middle" };
+  bvcWs.getColumn(3).alignment = { horizontal: "center", vertical: "middle" };
+
+  try { bvcWs.mergeCells("A1:C1"); } catch (_) {}
+  const bvcTitle     = bvcWs.getRow(1).getCell(1);
+  bvcTitle.fill      = STYLE_SESSION.fill;
+  bvcTitle.font      = STYLE_SESSION.font;
+  bvcTitle.alignment = { horizontal: "center", vertical: "middle" };
+
+  for (let c = 1; c <= 3; c++) {
+    const cell     = bvcWs.getRow(2).getCell(c);
+    cell.fill      = STYLE_COL_HEADER.fill;
+    cell.font      = STYLE_COL_HEADER.font;
+    cell.alignment = STYLE_COL_HEADER.alignment;
+  }
+
+  applyBorders(bvcWs, 3);
+
   if (typeof Chart !== "undefined") {
-    const chartsWs = wb.addWorksheet("Charts");
-    let chartIdx = 0;
-
-    for (const target of allTargets) {
-      const yValues = [];
-      const datesWithData = [];
-      for (const session of sortedSessions) {
-        const snap  = (session.targetsSnapshot || []).find(t => t.name === target.name);
-        const eff   = snap ? { ...target, maxPoints: snap.maxPoints } : target;
-        const score = calcDailyAverage(session, eff);
-        if (score !== null) { yValues.push(Math.round(score)); datesWithData.push(session.date); }
-      }
-      if (yValues.length < 2) { chartIdx++; continue; }
-
-      const dateRange = formatDateRange(datesWithData);
-      const base64 = renderTargetChart(target.name, yValues, dateRange, datesWithData);
-      const imgId  = wb.addImage({ base64, extension: "png" });
-
-      const chartRow = Math.floor(chartIdx / 2) * 19;
-      const chartCol = (chartIdx % 2) * 11;
-
-      chartsWs.addImage(imgId, {
-        tl:  { col: chartCol, row: chartRow },
+    const chartTargets = bvcTargets.filter(t => t.first !== null || t.last !== null);
+    if (chartTargets.length > 0) {
+      const bvcBase64 = renderBaselineChart(
+        `${entityName}: Baseline vs Current`,
+        chartTargets.map(t => wrapLabel(t.name)),
+        chartTargets.map(t => t.first),
+        chartTargets.map(t => t.last),
+        firstLabel,
+        lastLabel
+      );
+      const bvcImgId = wb.addImage({ base64: bvcBase64, extension: "png" });
+      bvcWs.addImage(bvcImgId, {
+        tl:  { col: 0, row: bvcRows.length + 1 },
         ext: { width: 605, height: 340 } // 16cm x 9cm at 96dpi
       });
-      chartIdx++;
     }
   }
+}
 
+function addChartsSheet(wb, allTargets, sortedSessions) {
+  if (typeof Chart === "undefined") return;
+
+  const chartsWs = wb.addWorksheet("Charts");
+  let chartIdx = 0;
+
+  for (const target of allTargets) {
+    const yValues = [];
+    const datesWithData = [];
+    for (const session of sortedSessions) {
+      const snap  = (session.targetsSnapshot || []).find(t => t.name === target.name);
+      const eff   = snap ? { ...target, maxPoints: snap.maxPoints } : target;
+      const score = calcDailyAverage(session, eff);
+      if (score !== null) { yValues.push(Math.round(score)); datesWithData.push(session.date); }
+    }
+    if (yValues.length < 2) { chartIdx++; continue; }
+
+    const dateRange = formatDateRange(datesWithData);
+    const base64 = renderTargetChart(target.name, yValues, dateRange, datesWithData);
+    const imgId  = wb.addImage({ base64, extension: "png" });
+
+    const chartRow = Math.floor(chartIdx / 2) * 19;
+    const chartCol = (chartIdx % 2) * 11;
+
+    chartsWs.addImage(imgId, {
+      tl:  { col: chartCol, row: chartRow },
+      ext: { width: 605, height: 340 } // 16cm x 9cm at 96dpi
+    });
+    chartIdx++;
+  }
+}
+
+function addIndividualTargetSheets(wb, allTargets, sessions, studentName) {
   for (const target of allTargets) {
     const { rows, monthHeaderRows, colHeaderRows, activityHeadingRows, noteRows, sessionDateBlocks, spacerRows } =
       buildTargetSheet(target, sessions);
     const ws = wb.addWorksheet(target.name.slice(0, 31));
     rows.forEach(row => ws.addRow(row));
 
-    // Col widths: Date | Activity | Remark | Trials | Score | Avg Score
+    // Col widths: Date | Activity | Remark | Score | Avg Score
     ws.getColumn(1).width     = 6.33;
     ws.getColumn(2).width     = 40.89;
     ws.getColumn(3).width     = 56.22;
-    ws.getColumn(4).width     = 11.33;
+    ws.getColumn(4).width     = 6.78;
+    ws.getColumn(5).width     = 8.56;
+    ws.getColumn(1).alignment = { horizontal: "center", vertical: "top" };
+    ws.getColumn(2).alignment = { wrapText: true, vertical: "top" };
+    ws.getColumn(3).alignment = { wrapText: true, vertical: "top" };
+    ws.getColumn(4).alignment = { horizontal: "center", vertical: "top" };
+    ws.getColumn(5).alignment = { horizontal: "center", vertical: "top" };
+
+    // Month headers: merge A:E, White Darker 25%, bold black
+    for (const rowIdx of monthHeaderRows) {
+      const n = rowIdx + 1;
+      try { ws.mergeCells(`A${n}:E${n}`); } catch (_) {}
+      const cell = ws.getRow(n).getCell(1);
+      cell.fill      = STYLE_TARGET_MONTH.fill;
+      cell.font      = STYLE_TARGET_MONTH.font;
+      cell.alignment = STYLE_TARGET_MONTH.alignment;
+    }
+
+    // Column headers: White Darker 15%, bold black
+    for (const rowIdx of colHeaderRows) {
+      const n = rowIdx + 1;
+      for (let c = 1; c <= 5; c++) {
+        const cell = ws.getRow(n).getCell(c);
+        cell.fill      = STYLE_TARGET_COLHDR.fill;
+        cell.font      = STYLE_TARGET_COLHDR.font;
+        cell.alignment = STYLE_TARGET_COLHDR.alignment;
+      }
+    }
+
+    // Activity heading rows: merge B:D (leave E free for the avg-score column merge)
+    for (const rowIdx of activityHeadingRows) {
+      const n = rowIdx + 1;
+      try { ws.mergeCells(`B${n}:D${n}`); } catch (_) {}
+      const cell = ws.getRow(n).getCell(2);
+      cell.fill      = STYLE_ACT_HEADING.fill;
+      cell.font      = STYLE_ACT_HEADING.font;
+      cell.alignment = { vertical: "top" };
+    }
+
+    // Note rows: merge B:D (leave E free for the avg-score column merge)
+    for (const rowIdx of noteRows) {
+      const n = rowIdx + 1;
+      try { ws.mergeCells(`B${n}:D${n}`); } catch (_) {}
+      const cell = ws.getRow(n).getCell(2);
+      cell.fill      = STYLE_NOTE.fill;
+      cell.font      = STYLE_NOTE.font;
+      cell.alignment = { wrapText: true, vertical: "top" };
+      const text = (cell.value || "").toString();
+      const visLines = text.split("\n").reduce((sum, seg) =>
+        sum + Math.max(1, Math.ceil((seg.length || 1) / 90)), 0);
+      ws.getRow(n).height = Math.max(18, visLines * 15);
+    }
+
+    // Session date blocks: col A = date (top+center), col E = avg score (middle+center)
+    for (const { startRow, endRow, dateLabel, avgScore } of sessionDateBlocks) {
+      const startN = startRow + 1;
+      const endN   = endRow + 1;
+      if (startN < endN) {
+        try { ws.mergeCells(`A${startN}:A${endN}`); } catch (_) {}
+        try { ws.mergeCells(`E${startN}:E${endN}`); } catch (_) {}
+      }
+      const dateCell = ws.getRow(startN).getCell(1);
+      dateCell.value     = dateLabel;
+      dateCell.alignment = { horizontal: "center", vertical: "top" };
+
+      const avgCell = ws.getRow(startN).getCell(5);
+      avgCell.value     = avgScore;
+      avgCell.font      = { color: { argb: "FF000000" } };
+      avgCell.alignment = { horizontal: "center", vertical: "top" };
+    }
+
+    // Footer: company left | target name centre | page number right
+    ws.headerFooter.oddFooter = `&LZORA Behavioural Intervention&C${target.name}  —  ${studentName}&R&P`;
+
+    // Borders: White Darker 15% (#D9D9D9) — skip blank spacer rows
+    ws.eachRow((row, rowNumber) => {
+      if (spacerRows.has(rowNumber - 1)) return;
+      for (let c = 1; c <= 5; c++) row.getCell(c).border = TARGET_CELL_BORDER;
+    });
+  }
+}
+
+// ── Group target sheets: adds a "Student" column, and merges the Remark cell
+// across a round's rows when that activity's "Combine Remarks" toggle was on ──
+
+function addGroupTargetSheets(wb, allTargets, sessions, groupName) {
+  for (const target of allTargets) {
+    const { rows, monthHeaderRows, colHeaderRows, activityHeadingRows, noteRows, sessionDateBlocks, spacerRows, combinedMergeCells } =
+      buildGroupTargetSheet(target, sessions);
+    const ws = wb.addWorksheet(target.name.slice(0, 31));
+    rows.forEach(row => ws.addRow(row));
+
+    // Col widths: Date | Activity | Student | Remark | Score | Avg Score
+    ws.getColumn(1).width     = 6.33;
+    ws.getColumn(2).width     = 40.89;
+    ws.getColumn(3).width     = 14;
+    ws.getColumn(4).width     = 56.22;
     ws.getColumn(5).width     = 6.78;
     ws.getColumn(6).width     = 8.56;
     ws.getColumn(1).alignment = { horizontal: "center", vertical: "top" };
     ws.getColumn(2).alignment = { wrapText: true, vertical: "top" };
-    ws.getColumn(3).alignment = { wrapText: true, vertical: "top" };
-    ws.getColumn(4).alignment = { horizontal: "center", vertical: "top", wrapText: true };
+    ws.getColumn(3).alignment = { horizontal: "center", vertical: "top" };
+    ws.getColumn(4).alignment = { wrapText: true, vertical: "top" };
     ws.getColumn(5).alignment = { horizontal: "center", vertical: "top" };
     ws.getColumn(6).alignment = { horizontal: "center", vertical: "top" };
 
@@ -329,7 +422,18 @@ async function buildStudentWorkbook(student, sessions) {
       ws.getRow(n).height = Math.max(18, visLines * 15);
     }
 
-    // Session date blocks: col A = date (top+center), col F = avg score (middle+center)
+    // Combined-remark merges: when an activity's "Combine Remarks" toggle was on for a round,
+    // every student's Remark cell in that round shares one merged cell (same text already in each cell).
+    for (const { startRow, endRow, col } of combinedMergeCells) {
+      const startN = startRow + 1;
+      const endN   = endRow + 1;
+      const colLetter = String.fromCharCode(64 + col);
+      try { ws.mergeCells(`${colLetter}${startN}:${colLetter}${endN}`); } catch (_) {}
+      const cell = ws.getRow(startN).getCell(col);
+      cell.alignment = { wrapText: true, vertical: "top" };
+    }
+
+    // Session date blocks: col A = date (top+center), col F = avg score (top+center)
     for (const { startRow, endRow, dateLabel, avgScore } of sessionDateBlocks) {
       const startN = startRow + 1;
       const endN   = endRow + 1;
@@ -348,7 +452,7 @@ async function buildStudentWorkbook(student, sessions) {
     }
 
     // Footer: company left | target name centre | page number right
-    ws.headerFooter.oddFooter = `&LZORA Behavioural Intervention&C${target.name}  —  ${student.name}&R&P`;
+    ws.headerFooter.oddFooter = `&LZORA Behavioural Intervention&C${target.name}  —  ${groupName}&R&P`;
 
     // Borders: White Darker 15% (#D9D9D9) — skip blank spacer rows
     ws.eachRow((row, rowNumber) => {
@@ -356,6 +460,37 @@ async function buildStudentWorkbook(student, sessions) {
       for (let c = 1; c <= 6; c++) row.getCell(c).border = TARGET_CELL_BORDER;
     });
   }
+}
+
+async function buildStudentWorkbook(student, sessions) {
+  // Drop ghost sessions: activities are auto-created on target selection even without data entry.
+  // A session only counts as real once at least one remark (which carries trial scores) exists.
+  sessions = sessions.filter(s => Object.keys(s.remarks || {}).length > 0);
+
+  const allTargets = getAllTargets(student).slice().sort((a, b) => a.name.localeCompare(b.name));
+  const wb = new ExcelJS.Workbook();
+  const sortedSessions = sessions.slice().sort((a, b) => a.date.localeCompare(b.date));
+
+  addSummarySheets(wb, allTargets, sessions);
+  addBaselineVsCurrentSheet(wb, student.name, allTargets, sortedSessions);
+  addChartsSheet(wb, allTargets, sortedSessions);
+  addIndividualTargetSheets(wb, allTargets, sessions, student.name);
+
+  return wb.xlsx.writeBuffer();
+}
+
+async function buildGroupWorkbook(group, sessions) {
+  // Drop ghost sessions: activities are auto-created on target selection even without data entry.
+  sessions = sessions.filter(s => Object.keys(s.remarks || {}).length > 0);
+
+  const allTargets = getAllTargets(group).slice().sort((a, b) => a.name.localeCompare(b.name));
+  const wb = new ExcelJS.Workbook();
+  const sortedSessions = sessions.slice().sort((a, b) => a.date.localeCompare(b.date));
+
+  addSummarySheets(wb, allTargets, sessions);
+  addBaselineVsCurrentSheet(wb, group.name, allTargets, sortedSessions);
+  addChartsSheet(wb, allTargets, sortedSessions);
+  addGroupTargetSheets(wb, allTargets, sessions, group.name);
 
   return wb.xlsx.writeBuffer();
 }
@@ -386,6 +521,26 @@ export async function exportStudentData(student) {
   const a      = document.createElement("a");
   a.href       = url;
   a.download   = makeFilename(student.name, now);
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+export async function exportGroupData(group) {
+  if (!group) return;
+
+  const sessions = await getAllSessionsForGroup(group.id);
+  if (sessions.length === 0) {
+    alert("No session data found for " + group.name);
+    return;
+  }
+
+  const now    = new Date();
+  const buffer = await buildGroupWorkbook(group, sessions);
+  const blob   = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  const url    = URL.createObjectURL(blob);
+  const a      = document.createElement("a");
+  a.href       = url;
+  a.download   = makeFilename(group.name, now);
   a.click();
   URL.revokeObjectURL(url);
 }
@@ -587,16 +742,16 @@ function buildTargetSheet(target, sessions) {
       .filter(v => v !== null);
     const monthlyAvg = dailyAvgsForMonth.length > 0 ? avg(dailyAvgsForMonth) : null;
 
-    if (!firstMonth) { spacerRows.add(rows.length); rows.push(["", "", "", "", "", ""]); }
+    if (!firstMonth) { spacerRows.add(rows.length); rows.push(["", "", "", "", ""]); }
     firstMonth = false;
 
     monthHeaderRows.add(rows.length);
-    rows.push([`${target.name}  —  ${month}  —  Monthly Average: ${monthlyAvg !== null ? pct(monthlyAvg) : "N/A"}`, "", "", "", "", ""]);
+    rows.push([`${target.name}  —  ${month}  —  Monthly Average: ${monthlyAvg !== null ? pct(monthlyAvg) : "N/A"}`, "", "", "", ""]);
     spacerRows.add(rows.length);
-    rows.push(["", "", "", "", "", ""]); // blank spacer
+    rows.push(["", "", "", "", ""]); // blank spacer
 
     colHeaderRows.add(rows.length);
-    rows.push(["Date", "Activity", "Remark", "Trials", "Score", "Avg Score"]);
+    rows.push(["Date", "Activity", "Remark", "Score", "Avg Score"]);
 
     for (const session of monthSessions) {
       // Skip if this target has no remarks in this session (activity was auto-created but never used)
@@ -621,6 +776,153 @@ function buildTargetSheet(target, sessions) {
 // ─── SESSION ROWS ────────────────────────────────────────────
 
 function appendSessionRows(rows, sessionDateBlocks, activityHeadingRows, noteRows, session, target) {
+  const [, m, d] = session.date.split("-").map(Number);
+  const shortMonths = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const dateLabel = `${d} ${shortMonths[m - 1]}`;
+
+  const startRow = rows.length;
+
+  const activities = getAllActivitiesForTarget(session, target);
+
+  if (activities.length === 0) {
+    rows.push(["", "(no data recorded)", "", "", ""]);
+  } else {
+    for (const act of activities) {
+      if (act.isHeading) {
+        activityHeadingRows.add(rows.length);
+        rows.push(["", act.activityName, "", "", ""]);
+        continue;
+      }
+
+      if (act.isNote) {
+        noteRows.add(rows.length);
+        const noteText = (act.activityName || "")
+          .replace(/<br\s*\/?>/gi, "\n")
+          .replace(/<\/div>/gi, "\n").replace(/<div>/gi, "")
+          .replace(/<\/p>/gi, "\n").replace(/<p>/gi, "")
+          .replace(/<[^>]*>/g, "")
+          .replace(/\*\*/g, "")
+          .replace(/\n{3,}/g, "\n\n")
+          .trim();
+        rows.push(["", noteText, "", "", ""]);
+        continue;
+      }
+
+      if (act.empty) {
+        rows.push(["", act.activityName, "", "", ""]);
+        continue;
+      }
+
+      const remarks = getRemarksForActivity(session, act.id);
+      const starter = (target.predefinedActivities || []).find(
+        p => !p.isHeading && !p.isNote && p.name === act.activityName
+      )?.sentenceStarter || null;
+
+      if (remarks.length === 0) {
+        rows.push(["", act.activityName, "", "", ""]);
+        continue;
+      }
+
+      let firstRemark = true;
+      for (const rem of remarks) {
+        const validTrials = (rem.trials || []).filter(t => t !== -1);
+        const remarkAvg   = calcRemarkAvg(validTrials, target.maxPoints);
+        const masteryNote = stripRemarkHtml(rem.masteryNote || "");
+        const baseText    = starter ? `${starter} ${stripRemarkHtml(rem.text)}`.trim() : stripRemarkHtml(rem.text);
+        const remarkText  = masteryNote ? `${baseText} — ${masteryNote}` : baseText;
+        rows.push([
+          "",
+          firstRemark ? act.activityName : "",
+          remarkText,
+          remarkAvg !== null ? pct(remarkAvg) : "",
+          ""
+        ]);
+        firstRemark = false;
+      }
+    }
+
+    if (target.hasComment) {
+      const commentText = (session.fedcComments || {})[sanitizeKey(target.name)] || "";
+      if (commentText) rows.push(["", "Comment", commentText, "", ""]);
+    }
+  }
+
+  const daily = calcDailyAverage(session, target);
+  sessionDateBlocks.push({
+    startRow,
+    endRow: rows.length - 1,
+    dateLabel,
+    avgScore: daily !== null ? pct(daily) : ""
+  });
+  // Sessions flow directly — no blank separator
+}
+
+// ─── GROUP TARGET DETAIL SHEET ───────────────────────────────
+// Same shape as buildTargetSheet, but adds a "Student" column and tracks
+// merge ranges for activities whose "Combine Remarks" toggle was on for a round.
+
+function buildGroupTargetSheet(target, sessions) {
+  const byMonth = new Map();
+  for (const s of sessions) {
+    if (!byMonth.has(s.month)) byMonth.set(s.month, []);
+    byMonth.get(s.month).push(s);
+  }
+
+  const rows                = [];
+  const monthHeaderRows     = new Set();
+  const colHeaderRows       = new Set();
+  const activityHeadingRows = new Set();
+  const noteRows            = new Set();
+  const sessionDateBlocks   = []; // { startRow, endRow, dateLabel, avgScore }
+  const spacerRows          = new Set();
+  const combinedMergeCells  = []; // { startRow, endRow, col } — 0-indexed rows, 1-indexed col
+  let firstMonth = true;
+
+  for (const [month, monthSessions] of byMonth) {
+    const dailyAvgsForMonth = monthSessions
+      .map(s => {
+        const snap = (s.targetsSnapshot || []).find(t => t.name === target.name);
+        const eff  = snap
+          ? { ...target, maxPoints: snap.maxPoints, predefinedActivities: snap.predefinedActivities || target.predefinedActivities || [] }
+          : target;
+        return calcDailyAverage(s, eff);
+      })
+      .filter(v => v !== null);
+    const monthlyAvg = dailyAvgsForMonth.length > 0 ? avg(dailyAvgsForMonth) : null;
+
+    if (!firstMonth) { spacerRows.add(rows.length); rows.push(["", "", "", "", "", ""]); }
+    firstMonth = false;
+
+    monthHeaderRows.add(rows.length);
+    rows.push([`${target.name}  —  ${month}  —  Monthly Average: ${monthlyAvg !== null ? pct(monthlyAvg) : "N/A"}`, "", "", "", "", ""]);
+    spacerRows.add(rows.length);
+    rows.push(["", "", "", "", "", ""]); // blank spacer
+
+    colHeaderRows.add(rows.length);
+    rows.push(["Date", "Activity", "Student", "Remark", "Score", "Avg Score"]);
+
+    for (const session of monthSessions) {
+      // Skip if this target has no remarks in this session (activity was auto-created but never used)
+      const targetActIds = new Set(
+        Object.entries(session.activities || {})
+          .filter(([, a]) => a.targetName === target.name)
+          .map(([id]) => id)
+      );
+      const hasTargetRemarks = Object.values(session.remarks || {})
+        .some(r => targetActIds.has(r.activityId));
+      if (!hasTargetRemarks) continue;
+
+      const snap = (session.targetsSnapshot || []).find(t => t.name === target.name);
+      const effectiveTarget = snap ? { ...target, maxPoints: snap.maxPoints } : target;
+      const attendees = session.attendees || [];
+      appendGroupSessionRows(rows, sessionDateBlocks, activityHeadingRows, noteRows, combinedMergeCells, session, effectiveTarget, attendees);
+    }
+  }
+
+  return { rows, monthHeaderRows, colHeaderRows, activityHeadingRows, noteRows, sessionDateBlocks, spacerRows, combinedMergeCells };
+}
+
+function appendGroupSessionRows(rows, sessionDateBlocks, activityHeadingRows, noteRows, combinedMergeCells, session, target, attendees) {
   const [, m, d] = session.date.split("-").map(Number);
   const shortMonths = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
   const dateLabel = `${d} ${shortMonths[m - 1]}`;
@@ -658,38 +960,50 @@ function appendSessionRows(rows, sessionDateBlocks, activityHeadingRows, noteRow
         continue;
       }
 
-      const remarks = getRemarksForActivity(session, act.id);
-      const starter = (target.predefinedActivities || []).find(
-        p => !p.isHeading && !p.isNote && p.name === act.activityName
-      )?.sentenceStarter || null;
-
-      if (remarks.length === 0) {
+      const rounds = getRoundsForActivity(session, act.id, attendees);
+      if (rounds.length === 0) {
         rows.push(["", act.activityName, "", "", "", ""]);
         continue;
       }
 
-      let firstRemark = true;
-      for (const rem of remarks) {
-        const validTrials = (rem.trials || []).filter(t => t !== -1);
-        const remarkAvg   = calcRemarkAvg(validTrials, target.maxPoints);
-        const masteryNote = stripRemarkHtml(rem.masteryNote || "");
-        const baseText    = starter ? `${starter} ${stripRemarkHtml(rem.text)}`.trim() : stripRemarkHtml(rem.text);
-        const remarkText  = masteryNote ? `${baseText} — ${masteryNote}` : baseText;
-        rows.push([
-          "",
-          firstRemark ? act.activityName : "",
-          remarkText,
-          validTrials.join(", "),
-          remarkAvg !== null ? pct(remarkAvg) : "",
-          ""
-        ]);
-        firstRemark = false;
+      const combineFlag = !!act.combineRemarks;
+      const starter = (target.predefinedActivities || []).find(
+        p => !p.isHeading && !p.isNote && p.name === act.activityName
+      )?.sentenceStarter || null;
+
+      let firstRowOfActivity = true;
+      for (const round of rounds) {
+        if (round.length === 0) continue;
+        const roundStartRow = rows.length;
+
+        const sharedRemarkText = combineFlag && round.length > 1 ? formatRemarkText(round[0], starter) : null;
+
+        for (const entry of round) {
+          const validTrials = (entry.trials || []).filter(t => t !== -1);
+          const remarkAvg   = calcRemarkAvg(validTrials, target.maxPoints);
+          rows.push([
+            "",
+            firstRowOfActivity ? act.activityName : "",
+            entry.studentName,
+            sharedRemarkText !== null ? sharedRemarkText : formatRemarkText(entry, starter),
+            remarkAvg !== null ? pct(remarkAvg) : "",
+            ""
+          ]);
+          firstRowOfActivity = false;
+        }
+
+        if (sharedRemarkText !== null) {
+          const roundEndRow = rows.length - 1;
+          if (roundEndRow > roundStartRow) {
+            combinedMergeCells.push({ startRow: roundStartRow, endRow: roundEndRow, col: 4 });
+          }
+        }
       }
     }
 
     if (target.hasComment) {
       const commentText = (session.fedcComments || {})[sanitizeKey(target.name)] || "";
-      if (commentText) rows.push(["", "Comment", commentText, "", "", ""]);
+      if (commentText) rows.push(["", "Comment", "", commentText, "", ""]);
     }
   }
 
@@ -700,7 +1014,35 @@ function appendSessionRows(rows, sessionDateBlocks, activityHeadingRows, noteRow
     dateLabel,
     avgScore: daily !== null ? pct(daily) : ""
   });
-  // Sessions flow directly — no blank separator
+}
+
+function formatRemarkText(rem, starter) {
+  const masteryNote = stripRemarkHtml(rem.masteryNote || "");
+  const baseText    = starter ? `${starter} ${stripRemarkHtml(rem.text)}`.trim() : stripRemarkHtml(rem.text);
+  return masteryNote ? `${baseText} — ${masteryNote}` : baseText;
+}
+
+// Pairs each attending student's remarks for one activity into "rounds" by creation order
+// (mirrors the live group-session UI's round pairing in renderGroupActivityCard).
+function getRoundsForActivity(session, actId, attendees) {
+  const byStudent = {};
+  for (const studentName of attendees) {
+    byStudent[studentName] = Object.entries(session.remarks || {})
+      .filter(([, r]) => r.activityId === actId && r.studentName === studentName)
+      .sort(([, a], [, b]) => (a.order || 0) - (b.order || 0))
+      .map(([id, r]) => ({ id, ...r }));
+  }
+  const maxRounds = Math.max(...Object.values(byStudent).map(arr => arr.length), 0);
+  const rounds = [];
+  for (let i = 0; i < maxRounds; i++) {
+    const round = [];
+    for (const studentName of attendees) {
+      const rem = byStudent[studentName][i];
+      if (rem) round.push({ studentName, ...rem });
+    }
+    rounds.push(round);
+  }
+  return rounds;
 }
 
 // ─── DATA HELPERS ────────────────────────────────────────────

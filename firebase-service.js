@@ -382,6 +382,15 @@ export async function getAllSessionsForStudent(studentId) {
   return snap.docs.map(d => ({ id: d.id, ...d.data() }));
 }
 
+export async function getAllSessionsForGroup(groupId) {
+  const snap = await getDocs(
+    query(collection(db, "sessions"),
+      where("groupId", "==", groupId),
+      orderBy("date", "asc"))
+  );
+  return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+}
+
 /** Fetch today's unfinished session IDs, keyed by studentId. */
 export async function getTodayUnfinishedStudentIds() {
   const today = getTodayString();

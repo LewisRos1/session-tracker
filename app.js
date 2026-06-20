@@ -44,7 +44,7 @@ import {
   updateSessionDate,
   deleteTargetDataFromSessions
 } from "./firebase-service.js";
-import { exportStudentData, exportAllStudents } from "./export.js";
+import { exportStudentData, exportAllStudents, exportGroupData } from "./export.js";
 
 // ── SW update detection — must run at parse time, before DOMContentLoaded,
 //   so the listener is in place before the new SW can fire controllerchange.
@@ -56,7 +56,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "370";
+const APP_VERSION = "372";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -572,8 +572,20 @@ function renderExportButtons() {
   });
 
   groupContainer.querySelectorAll(".roster-item[data-group-id]").forEach(btn => {
-    btn.addEventListener("click", () => {
-      alert("Group session export is coming soon!");
+    btn.addEventListener("click", async () => {
+      const group = state.groups.find(g => g.id === btn.dataset.groupId);
+      if (!group) return;
+      const orig = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = "Generating…";
+      try {
+        await exportGroupData(group);
+      } catch (err) {
+        alert("Export failed: " + err.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = orig;
+      }
     });
   });
 }
@@ -4781,7 +4793,50 @@ function attachGroupTargetListeners(target) {
   c.querySelectorAll(".btn-combine-toggle").forEach(btn => {
     btn.addEventListener("click", async () => {
       const actId = btn.dataset.actId;
-      const current = !!state.groupSessionData?.activities?.[actId]?.combineRemarks;
+      const data = state.groupSessionData;
+      const current = !!data?.activities?.[actId]?.combineRemarks;
+
+      if (!current) {
+        // Turning ON: any round where 2+ students already have their OWN separate text
+        // will collapse to the first student's text — confirm before discarding the rest.
+        const attendees = state.groupAttendees || [];
+        const byStudent = {};
+        for (const studentName of attendees) {
+          byStudent[studentName] = Object.entries(data.remarks || {})
+            .filter(([, r]) => r.activityId === actId && r.studentName === studentName)
+            .sort(([, a], [, b]) => (a.order || 0) - (b.order || 0))
+            .map(([id, r]) => ({ id, ...r }));
+        }
+        const maxRounds = Math.max(...Object.values(byStudent).map(arr => arr.length), 0);
+        const stripEmpty = s => (s || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").replace(/ /g, " ").trim();
+
+        const remIdsToClear = [];
+        let conflict = null;
+        for (let i = 0; i < maxRounds; i++) {
+          const present = attendees
+            .map(name => ({ name, rem: byStudent[name][i] }))
+            .filter(e => e.rem);
+          if (present.length < 2) continue;
+          const [kept, ...others] = present;
+          const keptHasText = stripEmpty(kept.rem.text).length > 0;
+          for (const other of others) {
+            if (keptHasText && stripEmpty(other.rem.text).length > 0) {
+              if (!conflict) conflict = { keptName: kept.name, clearedName: other.name };
+              remIdsToClear.push(other.rem.id);
+            }
+          }
+        }
+
+        if (remIdsToClear.length > 0) {
+          const ok = confirm(
+            `${conflict.clearedName}'s remark will be deleted and ${conflict.keptName}'s remark will be kept after combining. Continue?`
+          );
+          if (!ok) return;
+          btn.disabled = true;
+          for (const remId of remIdsToClear) await updateRemarkText(state.groupSessionId, remId, "");
+        }
+      }
+
       btn.disabled = true;
       await updateActivityCombineRemarks(state.groupSessionId, actId, !current);
     });
