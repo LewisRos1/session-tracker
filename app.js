@@ -55,7 +55,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "356";
+const APP_VERSION = "359";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -500,7 +500,8 @@ function renderTemplateButtons() {
 function renderExportButtons() {
   const indivContainer = $("export-individual-buttons");
   const groupContainer = $("export-group-buttons");
-  if (!indivContainer || !groupContainer) return;
+  const exportAllContainer = $("export-all-button");
+  if (!indivContainer || !groupContainer || !exportAllContainer) return;
 
   const sortByName = (a, b) => a.name.localeCompare(b.name);
 
@@ -522,9 +523,8 @@ function renderExportButtons() {
       `</div>`
     : `<p class="empty-hint">${qIndiv ? "No matches." : "No students yet."}</p>`;
 
-  indivContainer.innerHTML = `
-    <button class="export-btn export-btn-all" id="btn-export-all">Export All (ZIP)</button>
-    ${studentRosterHtml}`;
+  indivContainer.innerHTML = studentRosterHtml;
+  exportAllContainer.innerHTML = `<button class="export-btn export-btn-all" id="btn-export-all">Export All (ZIP)</button>`;
 
   groupContainer.innerHTML = filteredGroups.length
     ? `<div class="roster-list">` +
@@ -943,6 +943,65 @@ function renderStartSessionCalendar(student, today, displayDate, takenDates = ne
     btn.addEventListener("click", () => {
       closeSessionPicker();
       openSession(student, null, btn.dataset.date);
+    });
+  });
+}
+
+function renderGroupStartSessionCalendar(group, today, displayDate, takenDates = new Set()) {
+  const [y, m] = displayDate.split("-").map(Number);
+  const monthLabel = new Date(y, m - 1, 1)
+    .toLocaleString("default", { month: "long", year: "numeric" });
+  const [ty, tm] = today.split("-").map(Number);
+  const canNext = y < ty || (y === ty && m < tm);
+  const pad = n => String(n).padStart(2, "0");
+  const prevM = m === 1  ? `${y - 1}-12-01` : `${y}-${pad(m - 1)}-01`;
+  const nextM = m === 12 ? `${y + 1}-01-01` : `${y}-${pad(m + 1)}-01`;
+  const firstDow  = new Date(y, m - 1, 1).getDay();
+  const daysInMon = new Date(y, m, 0).getDate();
+
+  let html = `<div class="date-picker-wrap">
+    <p class="date-picker-legend"><span class="date-taken-dot"></span> Session exists on this day</p>
+    <div class="date-picker-cal">
+      <div class="date-picker-nav">
+        <button class="btn-date-prev">‹</button>
+        <span class="date-picker-month-label">${escHtml(monthLabel)}</span>
+        <button class="btn-date-next"${canNext ? "" : " disabled"}>›</button>
+      </div>
+      <div class="date-picker-day-headers">
+        <span>Su</span><span>Mo</span><span>Tu</span><span>We</span>
+        <span>Th</span><span>Fr</span><span>Sa</span>
+      </div>
+      <div class="date-picker-grid">`;
+
+  for (let cell = 0; cell < 42; cell++) {
+    const d = cell - firstDow + 1;
+    if (d < 1 || d > daysInMon) { html += `<span></span>`; continue; }
+    const ds      = `${y}-${pad(m)}-${pad(d)}`;
+    const isFut   = ds > today;
+    const isTaken = takenDates.has(ds);
+    let cls = "date-picker-day";
+    if (isFut)   cls += " date-picker-day-future";
+    if (isTaken) cls += " date-picker-day-taken";
+    const dotCls = isTaken ? "date-taken-dot" : "day-dot-spacer";
+    html += `<button class="${cls}" data-date="${ds}"${isFut ? " disabled" : ""}><span class="day-num">${d}</span><span class="${dotCls}"></span></button>`;
+  }
+  html += `</div></div></div>`;
+
+  $("session-picker-title").textContent = "Pick a date";
+  $("session-picker-list").innerHTML = html;
+
+  $("session-picker-list").querySelector(".btn-date-prev").addEventListener("click", () => {
+    renderGroupStartSessionCalendar(group, today, prevM, takenDates);
+  });
+  if (canNext) {
+    $("session-picker-list").querySelector(".btn-date-next").addEventListener("click", () => {
+      renderGroupStartSessionCalendar(group, today, nextM, takenDates);
+    });
+  }
+  $("session-picker-list").querySelectorAll(".date-picker-day:not([disabled])").forEach(btn => {
+    btn.addEventListener("click", () => {
+      closeSessionPicker();
+      openGroupSession(group, btn.dataset.date, group.students);
     });
   });
 }
@@ -4032,19 +4091,17 @@ function showGroupChoice(group) {
       });
     });
     $("session-picker-list").querySelector(".btn-date-other").addEventListener("click", () => {
-      const input = document.createElement("input");
-      input.type = "date"; input.max = today;
-      input.style.cssText = "position:fixed;opacity:0;top:0;left:0;width:1px;height:1px;";
-      document.body.appendChild(input);
-      const cleanup = () => { if (document.body.contains(input)) document.body.removeChild(input); };
-      input.addEventListener("change", () => {
-        const d = input.value; cleanup();
-        if (!d) return;
-        closeSessionPicker();
-        openGroupSession(group, d, group.students);
-      });
-      input.addEventListener("blur", () => setTimeout(cleanup, 500));
-      try { input.showPicker(); } catch (_) { input.click(); }
+      const [ty, tm] = today.split("-").map(Number);
+      const displayDate = `${ty}-${String(tm).padStart(2,"0")}-01`;
+      // Render immediately so iPad doesn't see a frozen UI while waiting for network
+      renderGroupStartSessionCalendar(group, today, displayDate, new Set());
+      // Then load taken dates and re-render with blue dots
+      getRecentGroupSessions(group.id)
+        .then(sessions => {
+          const takenDates = new Set(sessions.map(s => s.date));
+          renderGroupStartSessionCalendar(group, today, displayDate, takenDates);
+        })
+        .catch(() => {});
     });
   });
   $("session-picker-list").querySelector(".choice-other").addEventListener("click", () => {
