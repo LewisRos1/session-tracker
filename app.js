@@ -55,7 +55,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "360";
+const APP_VERSION = "361";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -3525,7 +3525,17 @@ function renderTargetManageContent(student, target) {
     </div>
     ${_groupForTargetEdit ? `
     <div class="admin-section">
-      <label class="admin-label">Layout</label>
+      <div class="admin-label-row">
+        <label class="admin-label">Layout</label>
+        <span class="layout-info-icon" tabindex="0">ⓘ What is this?
+          <div class="layout-info-tooltip">
+            <strong>Group students together</strong>
+            <div class="layout-info-example">Activity 1<br>&nbsp;&nbsp;• Student 1<br>&nbsp;&nbsp;• Student 2<br><br>Activity 2<br>&nbsp;&nbsp;• Student 1<br>&nbsp;&nbsp;• Student 2</div>
+            <strong>Group activities together</strong>
+            <div class="layout-info-example">Student 1<br>&nbsp;&nbsp;• Activity 1<br>&nbsp;&nbsp;• Activity 2<br><br>Student 2<br>&nbsp;&nbsp;• Activity 1<br>&nbsp;&nbsp;• Activity 2</div>
+          </div>
+        </span>
+      </div>
       <div class="admin-toggle-group">
         <button class="admin-toggle-btn mn-grouplayout-btn ${(target.groupLayout || "byActivity") === "byActivity" ? "active" : ""}" data-layout="byActivity">Group students together</button>
         <button class="admin-toggle-btn mn-grouplayout-btn ${target.groupLayout === "byStudent" ? "active" : ""}" data-layout="byStudent">Group activities together</button>

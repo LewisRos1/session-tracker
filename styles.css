@@ -1624,6 +1624,61 @@ div.admin-note-editable:empty::before {
   color: var(--primary-dark);
 }
 
+.admin-label-row {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+}
+
+.layout-info-icon {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  font-size: .78rem;
+  font-weight: 600;
+  color: var(--primary);
+  cursor: help;
+}
+
+.layout-info-tooltip {
+  display: none;
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: .4rem;
+  width: 250px;
+  background: #1f2430;
+  color: #fff;
+  font-size: .78rem;
+  font-weight: 400;
+  line-height: 1.5;
+  padding: .75rem .85rem;
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-lg);
+  z-index: 50;
+  white-space: normal;
+}
+
+.layout-info-tooltip strong {
+  display: block;
+  color: #fff;
+  font-size: .8rem;
+  margin-bottom: .3rem;
+}
+
+.layout-info-example {
+  margin-bottom: .7rem;
+  padding-left: .15rem;
+  color: #d8dbe3;
+}
+.layout-info-example:last-child { margin-bottom: 0; }
+
+.layout-info-icon:hover .layout-info-tooltip,
+.layout-info-icon:focus .layout-info-tooltip,
+.layout-info-icon:focus-within .layout-info-tooltip {
+  display: block;
+}
+
 /* ─── Activity list item (two stacked inputs + actions) ───── */
 .admin-act-item { align-items: flex-start; }
 
