@@ -56,7 +56,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "373";
+const APP_VERSION = "374";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -4580,7 +4580,7 @@ function renderGroupActivityCard(actName, actId, target, data, attendees, actNot
   const combineToggle = actId
     ? `<button class="btn-combine-toggle ${combineRemarks ? "active" : ""}" data-act-id="${escHtml(actId)}"
         title="${combineRemarks ? "Split back into separate remark boxes" : "Share one remark box for everyone in this activity"}">
-        ${combineRemarks ? "🔗 Combined Remarks" : "🔓 Separate Remarks"}
+        ${combineRemarks ? "Combined Remarks" : "Separate Remarks"}
       </button>`
     : "";
 
