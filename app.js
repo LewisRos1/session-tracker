@@ -42,6 +42,7 @@ import {
   getOrCreateSessionForDate,
   deleteSession,
   updateSessionDate,
+  updateGroupSessionDate,
   deleteTargetDataFromSessions
 } from "./firebase-service.js";
 import { exportStudentData, exportAllStudents, exportGroupData } from "./export.js";
@@ -56,7 +57,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "374";
+const APP_VERSION = "376";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -96,6 +97,13 @@ const state = {
   fbGroupUnsubscribe:      null,
   groupRenderPending:      false,
   selectedGroupTargetName: null,
+  // Group session view (table-based view/edit of a past group session)
+  viewGroup:              null,
+  viewGroupSessionId:     null,
+  viewGroupSessionData:   null,
+  fbViewGroupUnsubscribe: null,
+  viewGroupRenderPending: false,
+  viewGroupPickerTargetName: null,
 };
 
 const $ = id => document.getElementById(id);
@@ -2806,6 +2814,942 @@ function attachViewListeners() {
 }
 
 // ============================================================
+// GROUP SESSION VIEW (table-based view/edit of a past group session)
+// Mirrors the individual screen-session-view above, with an added
+// Student column and "Combine/Separate Remarks" support per activity.
+// ============================================================
+
+function getViewGroupEffectiveTargets() {
+  return state.viewGroup?.targets || [];
+}
+
+async function openGroupSessionView(group, sessionId) {
+  commitTextEditorSheet();
+  state.viewGroup              = group;
+  state.viewGroupSessionId     = sessionId;
+  state.viewGroupSessionData   = null;
+  state.viewGroupRenderPending = false;
+
+  showScreen("screen-group-session-view");
+  $("group-view-group-name").textContent = group.name;
+  $("group-view-session-meta").textContent = "";
+  $("group-session-view-body").innerHTML = `<div class="loading">Loading…</div>`;
+
+  if (state.fbViewGroupUnsubscribe) { state.fbViewGroupUnsubscribe(); state.fbViewGroupUnsubscribe = null; }
+
+  try {
+    state.fbViewGroupUnsubscribe = listenToSession(sessionId, data => {
+      state.viewGroupSessionData = data;
+      const active = document.activeElement;
+      const busy   = active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA");
+      if (busy) { state.viewGroupRenderPending = true; }
+      else      { renderGroupSessionView(); }
+    });
+  } catch (err) {
+    $("group-session-view-body").innerHTML =
+      `<div class="error-msg">Could not load session.<br>${escHtml(err.message)}</div>`;
+  }
+}
+
+function leaveGroupSessionView() {
+  commitTextEditorSheet();
+  $("text-editor-sheet").classList.add("hidden");
+  $("btn-group-delete-session")?.classList.add("hidden");
+  $("btn-group-goto-session")?.classList.add("hidden");
+  state.viewGroupPickerTargetName = null;
+  if (state.fbViewGroupUnsubscribe) { state.fbViewGroupUnsubscribe(); state.fbViewGroupUnsubscribe = null; }
+  const sessionId = state.viewGroupSessionId;
+  const data      = state.viewGroupSessionData;
+  const group     = state.viewGroup;
+  state.viewGroupSessionId     = null;
+  state.viewGroupSessionData   = null;
+  state.viewGroup               = null;
+  state.viewGroupRenderPending = false;
+
+  if (sessionId && data) {
+    const stripEmpty = s => (s || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").replace(/ /g, " ").trim();
+    const currentTargetNames = new Set((group?.targets || []).map(t => t.name));
+    const fedcHasData = Object.values(data.fedcComments || {}).some(c => stripEmpty(c).length > 0);
+    const remarkHasData = Object.values(data.remarks || {}).some(r => {
+      const act = (data.activities || {})[r.activityId];
+      if (!act || !currentTargetNames.has(act.targetName)) return false;
+      return stripEmpty(r.text).length > 0
+        || (r.trials || []).some(t => t !== null && t !== -1)
+        || stripEmpty(r.masteryNote).length > 0;
+    });
+    if (!fedcHasData && !remarkHasData) {
+      deleteSession(sessionId).catch(() => {});
+    } else {
+      const allTargetNames = new Set(Object.values(data.activities || {}).map(a => a.targetName));
+      allTargetNames.forEach(name => cleanupEmptyEntries(sessionId, data, name).catch(() => {}));
+    }
+  }
+
+  showHome();
+}
+
+$("btn-group-view-back").addEventListener("click", leaveGroupSessionView);
+
+function renderGroupSessionView() {
+  const data  = state.viewGroupSessionData;
+  const group = state.viewGroup;
+  if (!data || !group) return;
+
+  $("group-view-session-meta").innerHTML =
+    `Session ${data.sessionNumber}: ${formatDate(data.date)}`
+    + ` <button class="btn-edit-session-date">Edit Date</button>`;
+
+  const delBtn = $("btn-group-delete-session");
+  if (delBtn) delBtn.classList.remove("hidden");
+
+  $("group-view-session-meta").querySelector(".btn-edit-session-date").addEventListener("click", () => {
+    showEditGroupDatePicker();
+  });
+
+  const gotoBtn = $("btn-group-goto-session");
+  if (gotoBtn) {
+    gotoBtn.classList.remove("hidden");
+    gotoBtn.onclick = () => showGoToAnotherGroupSession(state.viewGroup);
+  }
+
+  // Wire delete button (static element in header — re-attach each time)
+  const _delBtn = $("btn-group-delete-session");
+  if (_delBtn) {
+    const newDelBtn = _delBtn.cloneNode(true); // remove old listeners
+    newDelBtn.classList.remove("hidden");
+    _delBtn.replaceWith(newDelBtn);
+    newDelBtn.addEventListener("click", async () => {
+      const typed = prompt(`Delete Session ${data.sessionNumber} of ${data.month.split(" ")[0]} (${formatDate(data.date)})?\n\nThis cannot be undone. Type DELETE to confirm:`);
+      if (typed !== "DELETE") return;
+      const sid = state.viewGroupSessionId;
+      leaveGroupSessionView();
+      await deleteSession(sid).catch(() => {});
+    });
+  }
+
+  const attendees = data.attendees || group.students || [];
+  const targets   = getViewGroupEffectiveTargets();
+  const sorted    = [...targets].sort((a, b) => a.name.localeCompare(b.name));
+
+  $("group-session-view-body").innerHTML = sorted.length
+    ? sorted.map(t => buildGroupTargetViewTable(t, data, attendees)).join("")
+    : `<p style="color:var(--text-muted);padding:1rem">No targets recorded.</p>`;
+
+  attachGroupViewListeners();
+}
+
+// Pairs each attending student's remarks for one activity into "rounds" by creation order,
+// with a { studentName, pending: true } placeholder for any attendee with no entry yet in that round.
+function viewGroupGetRounds(data, actId, attendees) {
+  const byStudent = {};
+  for (const studentName of attendees) {
+    byStudent[studentName] = Object.entries(data.remarks || {})
+      .filter(([, r]) => r.activityId === actId && r.studentName === studentName)
+      .sort(([, a], [, b]) => (a.order || 0) - (b.order || 0))
+      .map(([id, r]) => ({ id, ...r }));
+  }
+  const maxRounds = Math.max(...Object.values(byStudent).map(arr => arr.length), 0);
+  const rounds = [];
+  for (let i = 0; i < maxRounds; i++) {
+    rounds.push(attendees.map(studentName => {
+      const rem = byStudent[studentName][i];
+      return rem ? { studentName, ...rem } : { studentName, pending: true };
+    }));
+  }
+  return rounds;
+}
+
+function buildGroupTargetViewTable(target, data, attendees) {
+  const dayAvg = calcViewDayAvg(data, target);
+
+  let rows = "";
+  if (target.predefinedActivities?.length > 0) {
+    let no = 0;
+    for (const pa of target.predefinedActivities) {
+      if (pa.isHeading) {
+        rows += `<tr class="view-heading-row"><td colspan="7">${escHtml(pa.name)}</td></tr>`;
+        continue;
+      }
+      if (pa.isNote) {
+        rows += `<tr class="view-note-row"><td colspan="7">${noteToHtml(pa.text)}</td></tr>`;
+        continue;
+      }
+      no++;
+      const entry = Object.entries(data.activities || {})
+        .find(([, a]) => a.targetName === target.name && a.activityName === pa.name);
+      rows += viewGroupActivityRows(no, pa.name, entry?.[0] || null, data, target, attendees, true);
+    }
+    Object.entries(data.activities || {})
+      .filter(([, a]) => a.targetName === target.name && !a.isPredefined)
+      .sort(([, a], [, b]) => (a.order || 0) - (b.order || 0))
+      .forEach(([actId, act]) => {
+        no++;
+        rows += viewGroupActivityRows(no, act.activityName, actId, data, target, attendees, false);
+      });
+  } else {
+    let no = 0;
+    Object.entries(data.activities || {})
+      .filter(([, a]) => a.targetName === target.name)
+      .sort(([, a], [, b]) => (a.order || 0) - (b.order || 0))
+      .forEach(([actId, act]) => {
+        no++;
+        rows += viewGroupActivityRows(no, act.activityName, actId, data, target, attendees, false);
+      });
+  }
+
+  rows += `<tr class="view-add-activity-row">
+    <td colspan="7">
+      <button class="btn-view-add-activity" data-target-name="${escHtml(target.name)}">＋ Activity</button>
+      <button class="btn-view-add-remark" data-target-name="${escHtml(target.name)}">＋ Remark</button>
+    </td>
+  </tr>`;
+
+  if (state.viewGroupPickerTargetName === target.name) {
+    const actList = buildViewActList(target, data);
+    rows += `<tr class="view-act-picker-row">
+      <td colspan="7">
+        <div class="view-act-picker">
+          <span class="view-act-picker-label">Add remark to:</span>
+          ${actList.map((a, i) => `<button class="btn-view-act-pick" data-idx="${i}" data-target-name="${escHtml(target.name)}">${a.no} ${escHtml(a.name)}</button>`).join("")}
+          <button class="btn-view-cancel-picker">Cancel</button>
+        </div>
+      </td>
+    </tr>`;
+  }
+
+  if (target.hasComment) {
+    const key     = sanitizeKey(target.name);
+    const comment = (data.fedcComments || {})[key] || "";
+    rows += `<tr class="view-comment-row">
+      <td colspan="3" class="view-comment-label">Comment</td>
+      <td colspan="4">
+        <textarea class="view-comment-edit" data-target-key="${escHtml(key)}" rows="3"
+        >${escHtml(comment)}</textarea>
+      </td>
+    </tr>`;
+  }
+
+  if (dayAvg !== null) {
+    rows += `<tr class="view-dayavg-row">
+      <td colspan="6" style="text-align:right">Day's Average</td>
+      <td class="vcol-score">${dayAvg}%</td>
+    </tr>`;
+  }
+
+  return `<div class="target-view-section">
+    <div class="target-view-header">
+      <span class="target-view-name">${escHtml(target.name)}</span>
+      ${dayAvg !== null ? `<span class="target-view-avg">${dayAvg}%</span>` : ""}
+    </div>
+    <div class="view-table-wrapper">
+      <table class="view-table">
+        <thead><tr>
+          <th class="vcol-no">No.</th>
+          <th class="vcol-act">Activity</th>
+          <th class="vcol-student">Student</th>
+          <th class="vcol-rem">Remark</th>
+          <th class="vcol-trials">Trials</th>
+          <th class="vcol-total">Total</th>
+          <th class="vcol-score">% Score</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+  </div>`;
+}
+
+function viewGroupActivityRows(no, actName, actId, data, target, attendees, isPredefined = true) {
+  const rounds = actId ? viewGroupGetRounds(data, actId, attendees) : [];
+  const combineFlagForAct = !!(actId && data.activities?.[actId]?.combineRemarks);
+
+  const paEntry = isPredefined
+    ? target.predefinedActivities?.find(pa => pa.name === actName)
+    : null;
+
+  const actCell = isPredefined
+    ? escHtml(actName) + (paEntry?.actNote?.trim() ? `<div class="view-act-note">${escHtml(paEntry.actNote)}</div>` : "")
+    : `<div style="display:flex;align-items:center;gap:.3rem">
+        <input class="view-act-edit" type="text" value="${escHtml(actName)}"
+          data-act-id="${escHtml(actId || "")}" data-original="${escHtml(actName)}" />
+        <button class="view-act-del" data-act-id="${escHtml(actId || "")}"
+          data-target-name="${escHtml(target.name)}" title="Delete activity">×</button>
+       </div>`;
+
+  const combineToggle = actId
+    ? `<button class="btn-combine-toggle${combineFlagForAct ? " active" : ""}" data-act-id="${escHtml(actId)}">
+        ${combineFlagForAct ? "Combined Remarks" : "Separate Remarks"}
+      </button>`
+    : "";
+  const actCellWithToggle = `<div class="view-act-cell-row"><span>${actCell}</span>${combineToggle}</div>`;
+
+  const inlineOptions   = paEntry ? getActivityInlineOptions(paEntry) : null;
+  const sentenceStarter = paEntry?.sentenceStarter || null;
+  const multiSelect     = paEntry?.optionsMulti || false;
+  const isMastery       = paEntry?.isMastery || false;
+
+  if (rounds.length === 0) {
+    return `<tr>
+      <td class="vcol-no">${no}</td>
+      <td class="vcol-act">${actCellWithToggle}</td>
+      <td class="vcol-student"></td>
+      <td class="vcol-rem">
+        <button class="btn-view-group-add-remark-all" data-act-id="${escHtml(actId || "")}"
+          data-act-name="${escHtml(actName)}" data-target-name="${escHtml(target.name)}">+ Add Remark &amp; Trials</button>
+      </td>
+      <td class="vcol-trials"></td>
+      <td class="vcol-total"></td>
+      <td class="vcol-score"></td>
+    </tr>`;
+  }
+
+  let firstRowOverall = true;
+  let html = "";
+  for (const round of rounds) {
+    const presentEntries  = round.filter(e => !e.pending);
+    const combineThisRound = combineFlagForAct && presentEntries.length > 1;
+    const sharedRemIds     = combineThisRound ? presentEntries.map(e => e.id) : null;
+    const sharedText       = combineThisRound ? presentEntries[0].text : null;
+    let usedRowspanCell    = false;
+
+    for (const entry of round) {
+      const noVal  = firstRowOverall ? no : null;
+      const actVal = firstRowOverall ? actCellWithToggle : null;
+
+      if (entry.pending) {
+        html += `<tr>
+          <td class="vcol-no">${noVal !== null ? noVal : ""}</td>
+          <td class="vcol-act">${actVal !== null ? actVal : ""}</td>
+          <td class="vcol-student">${escHtml(entry.studentName)}</td>
+          <td class="vcol-rem">
+            <button class="btn-view-group-add-remark-pending" data-act-id="${escHtml(actId || "")}"
+              data-student="${escHtml(entry.studentName)}">+ Add Remark &amp; Trials</button>
+          </td>
+          <td class="vcol-trials"></td>
+          <td class="vcol-total"></td>
+          <td class="vcol-score"></td>
+        </tr>`;
+        firstRowOverall = false;
+        continue;
+      }
+
+      const combineOpts = !combineThisRound ? null
+        : usedRowspanCell
+          ? { skipRemarkCell: true }
+          : { rowspan: presentEntries.length, combinedRemIds: sharedRemIds, sharedText };
+      if (combineThisRound) usedRowspanCell = true;
+
+      html += viewGroupRemarkRow(
+        noVal, actVal, entry.studentName, entry, target,
+        inlineOptions, sentenceStarter, multiSelect, isMastery, combineOpts
+      );
+      firstRowOverall = false;
+    }
+  }
+  return html;
+}
+
+function viewGroupRemarkRow(no, actName, studentName, rem, target, inlineOptions = null, sentenceStarter = null, multiSelect = false, isMastery = false, combineOpts = null) {
+  const allTrials   = rem.trials || [];
+  const maxPts      = target.maxPoints || 3;
+  const validTrials = allTrials.filter(t => t !== -1);
+  const total       = validTrials.reduce((a, b) => a + b, 0);
+  const scorePct    = validTrials.length > 0
+    ? Math.round(total / (validTrials.length * maxPts) * 100) + "%" : "";
+
+  const trialCells = allTrials.map((t, ti) => `
+    <span class="trial-cell">
+      <select class="view-trial-select" data-rem-id="${escHtml(rem.id)}" data-trial-idx="${ti}">
+        <option value="-1"${t === -1 ? " selected" : ""}>—</option>
+        ${Array.from({ length: maxPts + 1 }, (_, i) => maxPts - i)
+          .map(v => `<option value="${v}"${v === t ? " selected" : ""}>${v}</option>`).join("")}
+      </select>
+      <button class="view-trial-del" data-rem-id="${escHtml(rem.id)}" data-trial-idx="${ti}">×</button>
+    </span>`).join("") +
+    `<button class="view-add-trial" data-rem-id="${escHtml(rem.id)}">+</button>`;
+
+  let remarkTd = "";
+  if (!combineOpts?.skipRemarkCell) {
+    if (combineOpts) {
+      // Combined round — one shared plain-text box across remIds (mirrors the live
+      // group session editor's "Combined Remarks" mode, which is free-text only).
+      const idList = combineOpts.combinedRemIds.join(",");
+      remarkTd = `<td class="vcol-rem" rowspan="${combineOpts.rowspan}">
+        <div class="view-remark-edit group-remark-input-combined" contenteditable="true"
+          data-rem-ids="${idList}">${remarkToHtml(combineOpts.sharedText)}</div>
+      </td>`;
+    } else {
+      const opts = parseOpts(inlineOptions);
+
+      const makeViewOpts = (remId, remText) => {
+        if (opts.length === 0) return null;
+        if (multiSelect) {
+          const sel = (remText || "").split(", ").map(s => s.trim()).filter(Boolean);
+          return `<div class="view-remark-multi-opts">${opts.map(opt =>
+            `<button class="view-remark-multi-btn${sel.includes(opt) ? " active" : ""}"
+              data-rem-id="${escHtml(remId)}" data-opt="${escHtml(opt)}">${escHtml(opt)}</button>`
+          ).join("")}</div>`;
+        }
+        return `<select class="view-remark-preset-select" data-rem-id="${escHtml(remId)}">
+            <option value="">— select —</option>
+            ${opts.map(opt =>
+              `<option value="${escHtml(opt)}"${remText === opt ? " selected" : ""}>${escHtml(opt)}</option>`
+            ).join("")}
+           </select>`;
+      };
+
+      const optSelect = isMastery
+        ? `<div class="mastery-remark-wrap">
+            <div class="remark-mastery-opts view-mastery-opts" data-rem-id="${rem.id}">
+              ${["In Progress", "Mastered", "Maintain"].map(v =>
+                `<button class="btn-mastery${rem.text === v ? " active" : ""}" data-rem-id="${escHtml(rem.id)}" data-val="${v}">${v}</button>`
+              ).join("")}
+            </div>
+            <div class="mastery-note-row">
+              <div class="view-mastery-note" contenteditable="true"
+                data-rem-id="${escHtml(rem.id)}" data-placeholder="Notes…">${rem.masteryNote || ""}</div>
+            </div>
+          </div>`
+        : (makeViewOpts(rem.id, rem.text)
+            || `<div class="view-remark-edit" contenteditable="true" data-rem-id="${escHtml(rem.id)}">${remarkToHtml(rem.text)}</div>`);
+
+      let remarkCell;
+      if (sentenceStarter) {
+        remarkCell = `<div class="view-starter-wrap">
+          <span class="view-starter-prefix">${escHtml(sentenceStarter)}</span>
+          ${makeViewOpts(rem.id, rem.text)
+            || `<input type="text" class="view-starter-input" data-rem-id="${escHtml(rem.id)}"
+                value="${escHtml(rem.text || "")}">`
+          }
+        </div>`;
+      } else {
+        remarkCell = optSelect;
+      }
+      remarkTd = `<td class="vcol-rem">${remarkCell}</td>`;
+    }
+  }
+
+  return `<tr>
+    <td class="vcol-no">${no !== null ? no : ""}</td>
+    <td class="vcol-act">${actName !== null ? actName : ""}</td>
+    <td class="vcol-student">${escHtml(studentName)}</td>
+    ${remarkTd}
+    <td class="vcol-trials"><div class="trial-cells">${trialCells}</div></td>
+    <td class="vcol-total">${validTrials.length > 0 ? total : ""}</td>
+    <td class="vcol-score">
+      <div style="display:flex;align-items:center;gap:.3rem;justify-content:flex-end">
+        <span>${scorePct}</span>
+        <button class="view-rem-del" data-rem-id="${escHtml(rem.id)}" title="Delete remark">×</button>
+      </div>
+    </td>
+  </tr>`;
+}
+
+function attachGroupViewListeners() {
+  const body = $("group-session-view-body");
+  const sid  = () => state.viewGroupSessionId;
+
+  body.querySelectorAll(".view-trial-select").forEach(sel => {
+    sel.addEventListener("change", async () => {
+      const rem = state.viewGroupSessionData?.remarks?.[sel.dataset.remId];
+      if (!rem) return;
+      const trials = [...(rem.trials || [])];
+      trials[Number(sel.dataset.trialIdx)] = Number(sel.value);
+      await setTrials(sid(), sel.dataset.remId, trials);
+    });
+  });
+
+  body.querySelectorAll(".view-trial-del").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const rem = state.viewGroupSessionData?.remarks?.[btn.dataset.remId];
+      if (!rem) return;
+      const trials = (rem.trials || []).filter((_, i) => i !== Number(btn.dataset.trialIdx));
+      await setTrials(sid(), btn.dataset.remId, trials);
+    });
+  });
+
+  body.querySelectorAll(".view-add-trial").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const rem = state.viewGroupSessionData?.remarks?.[btn.dataset.remId];
+      if (!rem) return;
+      await setTrials(sid(), btn.dataset.remId, [...(rem.trials || []), -1]);
+    });
+  });
+
+  // ── Sketch board buttons (group view screen) ────────────────
+  body.querySelectorAll(".btn-sketch[data-rem-id]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const id = btn.dataset.remId;
+      const field = body.querySelector(`.view-remark-edit[data-rem-id="${id}"]`)
+                 || body.querySelector(`.view-mastery-note[data-rem-id="${id}"]`);
+      if (field) openTextEditorSheet(field);
+    });
+  });
+
+  body.querySelectorAll(".view-remark-edit:not(.view-remark-empty):not(.group-remark-input-combined)").forEach(ta => {
+    let orig = ta.innerHTML;
+    ta.addEventListener("blur", async () => {
+      const newText = ta.innerHTML;
+      if (newText === orig) return;
+      orig = newText;
+      await updateRemarkText(sid(), ta.dataset.remId, newText);
+    });
+  });
+
+  // Combined remark box (shared across all students in a round) — blur-save writes to every remId
+  body.querySelectorAll(".group-remark-input-combined").forEach(div => {
+    let orig = div.innerHTML;
+    div.addEventListener("blur", async () => {
+      const newText = div.innerHTML;
+      if (newText === orig) return;
+      orig = newText;
+      const remIds = div.dataset.remIds.split(",").filter(Boolean);
+      await Promise.all(remIds.map(remId => updateRemarkText(sid(), remId, newText)));
+    });
+  });
+
+  // Combine/Separate remarks toggle (mirrors the live group session editor's confirm logic)
+  body.querySelectorAll(".btn-combine-toggle").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const actId = btn.dataset.actId;
+      const data  = state.viewGroupSessionData;
+      const current = !!data?.activities?.[actId]?.combineRemarks;
+
+      if (!current) {
+        const attendees = data.attendees || state.viewGroup?.students || [];
+        const byStudent = {};
+        for (const studentName of attendees) {
+          byStudent[studentName] = Object.entries(data.remarks || {})
+            .filter(([, r]) => r.activityId === actId && r.studentName === studentName)
+            .sort(([, a], [, b]) => (a.order || 0) - (b.order || 0))
+            .map(([id, r]) => ({ id, ...r }));
+        }
+        const maxRounds = Math.max(...Object.values(byStudent).map(arr => arr.length), 0);
+        const stripEmpty = s => (s || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").replace(/ /g, " ").trim();
+
+        const remIdsToClear = [];
+        let conflict = null;
+        for (let i = 0; i < maxRounds; i++) {
+          const present = attendees
+            .map(name => ({ name, rem: byStudent[name][i] }))
+            .filter(e => e.rem);
+          if (present.length < 2) continue;
+          const [kept, ...others] = present;
+          const keptHasText = stripEmpty(kept.rem.text).length > 0;
+          for (const other of others) {
+            if (keptHasText && stripEmpty(other.rem.text).length > 0) {
+              if (!conflict) conflict = { keptName: kept.name, clearedName: other.name };
+              remIdsToClear.push(other.rem.id);
+            }
+          }
+        }
+
+        if (remIdsToClear.length > 0) {
+          const ok = confirm(
+            `${conflict.clearedName}'s remark will be deleted and ${conflict.keptName}'s remark will be kept after combining. Continue?`
+          );
+          if (!ok) return;
+          btn.disabled = true;
+          for (const remId of remIdsToClear) await updateRemarkText(sid(), remId, "");
+        }
+      }
+
+      btn.disabled = true;
+      await updateActivityCombineRemarks(sid(), actId, !current);
+    });
+  });
+
+  // Empty remark cells — create activity + remark on first input
+  body.querySelectorAll(".view-remark-empty").forEach(div => {
+    div.addEventListener("blur", async () => {
+      const strip = s => (s || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").replace(/ /g, " ").trim();
+      const text = div.innerHTML;
+      if (!strip(text)) return;
+      let actId = div.dataset.actId;
+      if (!actId) {
+        actId = await addActivity(
+          sid(), div.dataset.target,
+          div.dataset.actName, Date.now(),
+          div.dataset.isPredefined === "true"
+        );
+      }
+      const remId = await addRemark(sid(), actId, "");
+      await updateRemarkText(sid(), remId, text);
+    });
+  });
+
+  body.querySelectorAll(".view-mastery-note").forEach(div => {
+    let orig = div.innerHTML;
+    div.addEventListener("blur", async () => {
+      const newNote = div.innerHTML;
+      if (newNote === orig) return;
+      orig = newNote;
+      await updateRemarkNote(sid(), div.dataset.remId, newNote);
+    });
+  });
+
+  body.querySelectorAll(".view-mastery-opts .btn-mastery").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const container  = btn.closest(".remark-mastery-opts");
+      const currentVal = container?.querySelector(".btn-mastery.active")?.dataset.val || "";
+      const isActive   = btn.classList.contains("active");
+      const newVal     = isActive ? "" : btn.dataset.val;
+      if (currentVal === newVal) return;
+      if (!confirm(`Change mastery level from "${currentVal || "none"}" to "${newVal || "none"}"?`)) return;
+      container?.querySelectorAll(".btn-mastery").forEach(b => b.classList.remove("active"));
+      if (!isActive) btn.classList.add("active");
+      await updateRemarkText(sid(), btn.dataset.remId, newVal);
+    });
+  });
+
+  body.querySelectorAll(".view-remark-preset-select").forEach(sel => {
+    sel.addEventListener("change", async () => {
+      if (!sel.value) return;
+      await updateRemarkText(sid(), sel.dataset.remId, sel.value);
+    });
+  });
+
+  body.querySelectorAll(".view-remark-multi-btn").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      btn.classList.toggle("active");
+      const container = btn.closest(".view-remark-multi-opts");
+      const selected = [...container.querySelectorAll(".view-remark-multi-btn.active")].map(b => b.dataset.opt);
+      await updateRemarkText(sid(), btn.dataset.remId, selected.join(", "));
+    });
+  });
+
+  body.querySelectorAll(".view-starter-input").forEach(input => {
+    input.addEventListener("blur", async () => {
+      const rem = state.viewGroupSessionData?.remarks?.[input.dataset.remId];
+      if (!rem || input.value === (rem.text || "")) return;
+      await updateRemarkText(sid(), input.dataset.remId, input.value);
+    });
+  });
+
+  body.querySelectorAll(".btn-view-add-activity").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const name = prompt("Activity name:");
+      if (!name?.trim()) return;
+      await addActivity(sid(), btn.dataset.targetName, name.trim(), Date.now(), false);
+    });
+  });
+
+  // "+ Add Remark & Trials" on a brand-new (round-less) activity — adds one remark for every attendee
+  body.querySelectorAll(".btn-view-group-add-remark-all").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      btn.disabled = true;
+      const data       = state.viewGroupSessionData;
+      const targetName = btn.dataset.targetName;
+      const attendees  = data.attendees || state.viewGroup?.students || [];
+      let actId = btn.dataset.actId || Object.entries(data.activities || {})
+        .find(([, a]) => a.targetName === targetName && a.activityName === btn.dataset.actName)?.[0] || null;
+      if (!actId) actId = await addActivity(sid(), targetName, btn.dataset.actName, Date.now(), true);
+      const entries = attendees
+        .filter(studentName => !Object.values(data.remarks || {})
+          .some(r => r.activityId === actId && r.studentName === studentName))
+        .map(studentName => ({ actId, studentName }));
+      if (entries.length) await addGroupRemarksBatch(sid(), entries);
+    });
+  });
+
+  // "+ Add Remark & Trials" on a pending (missing) student within an existing round
+  body.querySelectorAll(".btn-view-group-add-remark-pending").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      btn.disabled = true;
+      await addGroupRemark(sid(), btn.dataset.actId, btn.dataset.student);
+    });
+  });
+
+  body.querySelectorAll(".btn-view-add-remark").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const targetName = btn.dataset.targetName;
+      const target = getViewGroupEffectiveTargets().find(t => t.name === targetName);
+      const actList = buildViewActList(target, state.viewGroupSessionData);
+      if (actList.length === 0) { alert("Add an activity first."); return; }
+
+      state.viewGroupPickerTargetName = targetName;
+      body.querySelectorAll(".view-act-picker-row").forEach(r => r.remove());
+
+      const pickerRow = document.createElement("tr");
+      pickerRow.className = "view-act-picker-row";
+      pickerRow.innerHTML = `<td colspan="7">
+        <div class="view-act-picker">
+          <span class="view-act-picker-label">Add remark to:</span>
+          ${actList.map((a, i) => `<button class="btn-view-act-pick" data-idx="${i}" data-target-name="${escHtml(targetName)}">${a.no} ${escHtml(a.name)}</button>`).join("")}
+          <button class="btn-view-cancel-picker">Cancel</button>
+        </div>
+      </td>`;
+      btn.closest("tr").after(pickerRow);
+
+      pickerRow.querySelectorAll(".btn-view-act-pick").forEach(pickBtn => {
+        pickBtn.addEventListener("click", async () => {
+          const chosen = actList[Number(pickBtn.dataset.idx)];
+          state.viewGroupPickerTargetName = null;
+          pickerRow.remove();
+          let actId = chosen.actId;
+          if (!actId) actId = await addActivity(sid(), targetName, chosen.name, Date.now(), chosen.isPredefined);
+          const attendees = state.viewGroupSessionData.attendees || state.viewGroup?.students || [];
+          await addGroupRemarksBatch(sid(), attendees.map(studentName => ({ actId, studentName })));
+        });
+      });
+
+      pickerRow.querySelector(".btn-view-cancel-picker").addEventListener("click", () => {
+        state.viewGroupPickerTargetName = null;
+        pickerRow.remove();
+      });
+    });
+  });
+
+  // Handles picker buttons rebuilt by Firebase re-renders (state-driven)
+  body.querySelectorAll(".btn-view-act-pick").forEach(pickBtn => {
+    pickBtn.addEventListener("click", async () => {
+      const targetName = pickBtn.dataset.targetName;
+      const target = getViewGroupEffectiveTargets().find(t => t.name === targetName);
+      const actList = buildViewActList(target, state.viewGroupSessionData);
+      const chosen = actList[Number(pickBtn.dataset.idx)];
+      state.viewGroupPickerTargetName = null;
+      let actId = chosen.actId;
+      if (!actId) actId = await addActivity(sid(), targetName, chosen.name, Date.now(), chosen.isPredefined);
+      const attendees = state.viewGroupSessionData.attendees || state.viewGroup?.students || [];
+      await addGroupRemarksBatch(sid(), attendees.map(studentName => ({ actId, studentName })));
+    });
+  });
+
+  body.querySelectorAll(".btn-view-cancel-picker").forEach(btn => {
+    btn.addEventListener("click", () => {
+      state.viewGroupPickerTargetName = null;
+      renderGroupSessionView();
+    });
+  });
+
+  body.querySelectorAll(".view-act-edit").forEach(input => {
+    input.addEventListener("blur", async () => {
+      const newName = input.value.trim();
+      if (!newName || newName === input.dataset.original) return;
+      if (!input.dataset.actId) return;
+      input.dataset.original = newName;
+      await updateActivityName(sid(), input.dataset.actId, newName);
+    });
+    input.addEventListener("keydown", e => {
+      if (e.key === "Enter") { e.preventDefault(); input.blur(); }
+    });
+  });
+
+  body.querySelectorAll(".view-act-del").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      if (!confirm("Delete this activity and all its remarks?")) return;
+      const actId = btn.dataset.actId;
+      if (!actId) return;
+      const remIds = viewGetRemarks(state.viewGroupSessionData, actId).map(r => r.id);
+      await deleteActivity(sid(), actId, remIds);
+    });
+  });
+
+  body.querySelectorAll(".view-rem-del").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      if (!confirm("Delete this remark?")) return;
+      await deleteRemark(sid(), btn.dataset.remId);
+    });
+  });
+
+  body.querySelectorAll(".view-comment-edit").forEach(ta => {
+    ta.addEventListener("blur", async () => {
+      const key    = ta.dataset.targetKey;
+      const target = getViewGroupEffectiveTargets().find(t => sanitizeKey(t.name) === key);
+      if (!target) return;
+      const current = (state.viewGroupSessionData?.fedcComments || {})[key] || "";
+      if (ta.value === current) return;
+      await updateFedcComment(sid(), target.name, ta.value);
+    });
+  });
+}
+
+// ── Go To Another (group) Session ─────────────────────────────
+async function showGoToAnotherGroupSession(group) {
+  $("session-picker-title").textContent = group.name;
+  $("session-picker-list").innerHTML = `<div class="session-picker-loading">Loading sessions…</div>`;
+  $("session-picker-modal").classList.remove("hidden");
+
+  let sessions = [];
+  try { sessions = await getRecentGroupSessions(group.id); } catch (_) {}
+
+  const currentTargetNames = new Set((group.targets || []).map(t => t.name));
+  const stripEmpty = s => (s || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").replace(/ /g, " ").trim();
+  const hasUsefulData = s => {
+    if (Object.values(s.fedcComments || {}).some(c => stripEmpty(c).length > 0)) return true;
+    return Object.values(s.remarks || {}).some(r => {
+      const act = (s.activities || {})[r.activityId];
+      if (!act || !currentTargetNames.has(act.targetName)) return false;
+      const hasText   = stripEmpty(r.text).length > 0;
+      const hasTrials = (r.trials      || []).some(t => t !== null && t !== -1);
+      const hasNote   = stripEmpty(r.masteryNote).length > 0;
+      return hasText || hasTrials || hasNote;
+    });
+  };
+  // Don't auto-delete the session currently being viewed
+  const empties = sessions.filter(s => s.id !== state.viewGroupSessionId && !hasUsefulData(s));
+  empties.forEach(s => deleteSession(s.id).catch(() => {}));
+  sessions = sessions.filter(s => !empties.some(e => e.id === s.id));
+
+  const today = getTodayString();
+  const byMonth = new Map();
+  for (const s of sessions) {
+    if (!byMonth.has(s.month)) byMonth.set(s.month, []);
+    byMonth.get(s.month).push(s);
+  }
+
+  if (byMonth.size === 0) {
+    $("session-picker-list").innerHTML = `<div class="session-picker-loading">No sessions found.</div>`;
+    return;
+  }
+
+  const currentMonth = state.viewGroupSessionData?.month;
+  if (currentMonth && byMonth.has(currentMonth)) {
+    renderGoToGroupSessionsForMonth(group, currentMonth, byMonth.get(currentMonth), byMonth, today);
+  } else {
+    renderGoToGroupMonthGrid(group, byMonth, today);
+  }
+}
+
+function renderGoToGroupMonthGrid(group, byMonth, today) {
+  $("session-picker-title").textContent = group.name;
+  let html = `<div class="month-grid">`;
+  for (const month of byMonth.keys()) {
+    const [name, year] = month.split(" ");
+    html += `<button class="month-grid-btn" data-month="${escHtml(month)}">
+      <span class="mgb-month">${escHtml(name.slice(0, 3))}</span>
+      <span class="mgb-year">${escHtml(year)}</span>
+    </button>`;
+  }
+  html += `</div>`;
+  $("session-picker-list").innerHTML = html;
+  $("session-picker-list").querySelectorAll(".month-grid-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const month = btn.dataset.month;
+      renderGoToGroupSessionsForMonth(group, month, byMonth.get(month), byMonth, today);
+    });
+  });
+}
+
+function renderGoToGroupSessionsForMonth(group, month, monthSessions, byMonth, today) {
+  $("session-picker-title").textContent = month;
+  const sorted    = [...monthSessions].sort((a, b) => a.date.localeCompare(b.date));
+  const display   = [...sorted].reverse();
+  const yesterday = getYesterdayString();
+  let html = `<button class="btn-picker-back">← Back</button>`;
+  for (const s of display) {
+    const num       = sorted.findIndex(x => x.id === s.id) + 1;
+    const isCurrent = s.id === state.viewGroupSessionId;
+    const cls       = `session-list-item${isCurrent ? " session-list-current" : ""}`;
+    const label     = sessionDateLabel(s.date, today, yesterday, isCurrent);
+    html += `<div class="${cls}" data-session-id="${s.id}">
+      <div class="session-list-meta">
+        <div class="session-list-label"><strong>Session ${num}</strong>: ${formatDate(s.date)}${label}</div>
+      </div>
+    </div>`;
+  }
+  const list = $("session-picker-list");
+  list.innerHTML = html;
+  list.querySelector(".btn-picker-back").addEventListener("click", () => {
+    renderGoToGroupMonthGrid(group, byMonth, today);
+  });
+  list.querySelectorAll(".session-list-item").forEach(item => {
+    item.addEventListener("click", () => {
+      const sid = item.dataset.sessionId;
+      closeSessionPicker();
+      if (sid !== state.viewGroupSessionId) openGroupSessionView(group, sid);
+    });
+  });
+}
+
+// ── Edit Date (group view) ─────────────────────────────────────
+async function showEditGroupDatePicker() {
+  const group       = state.viewGroup;
+  const currentDate = state.viewGroupSessionData.date;
+
+  $("session-picker-title").textContent = "Edit Date";
+  $("session-picker-list").innerHTML = `<div class="session-picker-loading">Loading…</div>`;
+  $("session-picker-modal").classList.remove("hidden");
+
+  let sessions = [];
+  try { sessions = await getRecentGroupSessions(group.id); } catch (_) {}
+  const takenDates = new Set(
+    sessions.filter(s => s.id !== state.viewGroupSessionId).map(s => s.date)
+  );
+  renderGroupDatePickerCalendar(currentDate, takenDates, getTodayString(), currentDate);
+}
+
+function renderGroupDatePickerCalendar(displayDate, takenDates, today, currentDate) {
+  const [y, m] = displayDate.split("-").map(Number);
+  const monthLabel = new Date(y, m - 1, 1)
+    .toLocaleString("default", { month: "long", year: "numeric" });
+  const [ty, tm] = today.split("-").map(Number);
+  const canNext = y < ty || (y === ty && m < tm);
+
+  const pad = n => String(n).padStart(2, "0");
+  const prevM = m === 1  ? `${y - 1}-12-01` : `${y}-${pad(m - 1)}-01`;
+  const nextM = m === 12 ? `${y + 1}-01-01` : `${y}-${pad(m + 1)}-01`;
+
+  const firstDow  = new Date(y, m - 1, 1).getDay();
+  const daysInMon = new Date(y, m, 0).getDate();
+
+  let html = `<div class="date-picker-wrap">
+    <p class="date-picker-subtitle">Select a new date</p>
+    <p class="date-picker-legend"><span class="date-taken-dot"></span> Session exists on this day</p>
+    <div class="date-picker-cal">
+      <div class="date-picker-nav">
+        <button class="btn-date-prev">‹</button>
+        <span class="date-picker-month-label">${escHtml(monthLabel)}</span>
+        <button class="btn-date-next"${canNext ? "" : " disabled"}>›</button>
+      </div>
+      <div class="date-picker-day-headers">
+        <span>Su</span><span>Mo</span><span>Tu</span><span>We</span>
+        <span>Th</span><span>Fr</span><span>Sa</span>
+      </div>
+      <div class="date-picker-grid">`;
+
+  for (let cell = 0; cell < 42; cell++) {
+    const d = cell - firstDow + 1;
+    if (d < 1 || d > daysInMon) { html += `<span></span>`; continue; }
+    const ds      = `${y}-${pad(m)}-${pad(d)}`;
+    const isCur   = ds === currentDate;
+    const isFut   = ds > today;
+    const isTaken = takenDates.has(ds);
+    const dis     = isFut || isTaken;
+    let cls = "date-picker-day";
+    if (isCur)   cls += " date-picker-day-current";
+    if (isFut)   cls += " date-picker-day-future";
+    if (isTaken) cls += " date-picker-day-taken";
+    const dotCls = (isTaken || isCur) ? "date-taken-dot" : "day-dot-spacer";
+    html += `<button class="${cls}" data-date="${ds}"${dis ? " disabled" : ""}><span class="day-num">${d}</span><span class="${dotCls}"></span></button>`;
+  }
+  html += `</div></div></div>`;
+
+  $("session-picker-title").textContent = "Edit Date";
+  $("session-picker-list").innerHTML = html;
+
+  $("session-picker-list").querySelector(".btn-date-prev").addEventListener("click", () => {
+    renderGroupDatePickerCalendar(prevM, takenDates, today, currentDate);
+  });
+  if (canNext) {
+    $("session-picker-list").querySelector(".btn-date-next").addEventListener("click", () => {
+      renderGroupDatePickerCalendar(nextM, takenDates, today, currentDate);
+    });
+  }
+  $("session-picker-list").querySelectorAll(".date-picker-day:not([disabled])").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const newDate = btn.dataset.date;
+      closeSessionPicker();
+      if (newDate === currentDate) return;
+      try {
+        await updateGroupSessionDate(state.viewGroupSessionId, newDate, state.viewGroup.id);
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+  });
+}
+
+// ============================================================
 // MANAGE MODAL (inline student / target / template config editing)
 // ============================================================
 
@@ -5051,9 +5995,8 @@ function renderGroupSessionsForMonth(group, month, monthSessions, byMonth) {
   $("session-picker-list").querySelectorAll(".session-list-item").forEach(item => {
     item.addEventListener("click", () => {
       closeSessionPicker();
-      // Reopen the group session for the chosen date
-      const s = monthSessions.find(x => x.id === item.dataset.sessionId);
-      if (s) openGroupSession(group, s.date, s.attendees || group.students);
+      // Open the table-based view/edit screen for the chosen past session
+      openGroupSessionView(group, item.dataset.sessionId);
     });
   });
 }

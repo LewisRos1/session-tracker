@@ -214,6 +214,35 @@ export async function updateSessionDate(sessionId, newDateStr, studentId) {
   await updateDoc(doc(db, "sessions", sessionId), { date: newDateStr, month, sessionNumber });
 }
 
+/** Change the date (and recalculate month + session number) of an existing group session. */
+export async function updateGroupSessionDate(sessionId, newDateStr, groupId) {
+  const month = getMonthString(newDateStr);
+
+  // Conflict check — another session for same group on that date
+  const conflictSnap = await getDocs(
+    query(collection(db, "sessions"),
+      where("groupId", "==", groupId),
+      where("date",    "==", newDateStr))
+  );
+  if (conflictSnap.docs.some(d => d.id !== sessionId)) {
+    throw new Error("There is already a session on that date for this group.");
+  }
+
+  // Recalculate session number within the target month
+  const monthSnap = await getDocs(
+    query(collection(db, "sessions"),
+      where("groupId", "==", groupId),
+      where("month",   "==", month))
+  );
+  const dates = new Set(
+    monthSnap.docs.filter(d => d.id !== sessionId).map(d => d.data().date)
+  );
+  dates.add(newDateStr);
+  const sessionNumber = [...dates].sort().indexOf(newDateStr) + 1;
+
+  await updateDoc(doc(db, "sessions", sessionId), { date: newDateStr, month, sessionNumber });
+}
+
 // ─── ACTIVITY OPERATIONS ─────────────────────────────────────
 
 export async function addActivity(sessionId, targetName, activityName, order, isPredefined = false) {
@@ -384,11 +413,11 @@ export async function getAllSessionsForStudent(studentId) {
 
 export async function getAllSessionsForGroup(groupId) {
   const snap = await getDocs(
-    query(collection(db, "sessions"),
-      where("groupId", "==", groupId),
-      orderBy("date", "asc"))
+    query(collection(db, "sessions"), where("groupId", "==", groupId))
   );
-  return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  return snap.docs
+    .map(d => ({ id: d.id, ...d.data() }))
+    .sort((a, b) => a.date.localeCompare(b.date));
 }
 
 /** Fetch today's unfinished session IDs, keyed by studentId. */

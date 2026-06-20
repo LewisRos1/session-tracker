@@ -211,6 +211,30 @@
   </div>
 
   <!-- ══════════════════════════════════════════════════════
+       GROUP SESSION VIEW SCREEN (table-based view/edit)
+       ══════════════════════════════════════════════════════ -->
+  <div id="screen-group-session-view" class="screen hidden">
+    <header class="session-header session-header-view">
+      <div class="view-header-left">
+        <button class="btn-back" id="btn-group-view-back" aria-label="Back to home">←</button>
+        <div class="session-info">
+          <span class="session-student-name" id="group-view-group-name"></span>
+          <span class="session-meta"         id="group-view-session-meta"></span>
+        </div>
+      </div>
+      <div class="btn-goto-session-wrap">
+        <button id="btn-group-goto-session" class="btn-goto-session hidden">🚀 Go To Another Session</button>
+      </div>
+      <div class="view-header-right">
+        <button id="btn-group-delete-session" class="btn-delete-session hidden">Delete Session</button>
+      </div>
+    </header>
+    <div class="session-view-body" id="group-session-view-body">
+      <!-- populated by JS -->
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════
        SCORE PICKER MODAL (bottom sheet)
        ══════════════════════════════════════════════════════ -->
   <div id="score-modal" class="modal hidden" role="dialog" aria-modal="true"
