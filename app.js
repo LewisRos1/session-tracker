@@ -56,7 +56,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "372";
+const APP_VERSION = "373";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -109,6 +109,16 @@ let _sheetOriginEl = null;
 let _groupForTargetEdit = null;
 // Tracks a newly-created group ID so it can be auto-deleted if closed with no students.
 let _newGroupId = null;
+// When the Edit Target/Template modal is open, holds { acts, save } so closeManageModal
+// can strip out activities/notes/headings the boss never typed anything into.
+let _pendingActsCleanup = null;
+
+// An activity/note/heading with no text is meaningless — drop it instead of saving it.
+function isEmptyActItem(a) {
+  const strip = s => (s || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").replace(/ /g, " ").trim();
+  if (a.isNote) return strip(a.text).length === 0;
+  return strip(a.name).length === 0;
+}
 
 function openTextEditorSheet(originEl) {
   _sheetOriginEl = originEl;
@@ -2821,6 +2831,7 @@ function openManageModal(student, targetOrNull, templateOrNull = null, remarkPre
 // ── Group Add Target picker ───────────────────────────────────
 
 function showGroupAddTargetPicker(group) {
+  _pendingActsCleanup = null;
   $("manage-modal-title").textContent = "Add Target";
   $("manage-modal").classList.remove("hidden");
 
@@ -3015,6 +3026,19 @@ function showGroupDupFromTemplate(group) {
 function closeManageModal() {
   $("manage-modal").classList.add("hidden");
   _groupForTargetEdit = null;
+
+  if (_pendingActsCleanup) {
+    const { acts, save } = _pendingActsCleanup;
+    _pendingActsCleanup = null;
+    const before = acts.length;
+    for (let i = acts.length - 1; i >= 0; i--) {
+      if (isEmptyActItem(acts[i])) acts.splice(i, 1);
+    }
+    if (acts.length !== before) {
+      acts.forEach((a, i) => a.order = i);
+      save().catch(() => {});
+    }
+  }
   // If a brand-new group was being created but has no students, remove it
   if (_newGroupId) {
     const g = state.groups.find(x => x.id === _newGroupId);
@@ -3068,6 +3092,7 @@ $("btn-manage-targets").addEventListener("click", () => {
 // ── Add Target picker (replaces confirm/prompt flow) ──────────
 
 function showAddTargetPicker(student) {
+  _pendingActsCleanup = null;
   $("manage-modal-title").textContent = "Add Target";
   $("manage-modal").classList.remove("hidden");
 
@@ -3332,6 +3357,7 @@ function showDupFromTemplate(student) {
 // ── Student management content ────────────────────────────────
 
 function renderStudentManageContent(student) {
+  _pendingActsCleanup = null;
   $("manage-modal-title").textContent = student.name;
   const isAssessment = student.type === "assessment";
 
@@ -3578,14 +3604,14 @@ function renderTargetManageContent(student, target) {
       html += `<div class="admin-list-item mn-heading-item" data-idx="${idx}">
         <span class="drag-handle">⠿</span>
         <textarea class="admin-input mn-heading-input" id="mn-act-name-${idx}" data-idx="${idx}"
-          rows="1" placeholder="Section heading name (Enter = new line · Ctrl+Enter = save)" style="flex:1">${escHtml(a.name || "")}</textarea>
+          rows="1" placeholder="Enter Section Heading" style="flex:1">${escHtml(a.name || "")}</textarea>
         <button class="btn-adm-del mn-del-act" data-idx="${idx}">🗑</button>
       </div>`;
     } else if (a.isNote) {
       html += `<div class="admin-list-item admin-note-item" data-idx="${idx}">
         <span class="drag-handle">⠿</span>
         <textarea class="admin-input" id="mn-act-name-${idx}" data-idx="${idx}"
-          rows="1" placeholder="Note"
+          rows="1" placeholder="Enter Note"
           style="flex:1;overflow-y:hidden;resize:none">${escHtml(stripNoteHtml(a.text || ""))}</textarea>
         <button class="btn-adm-del mn-del-act" data-idx="${idx}">🗑</button>
       </div>`;
@@ -3610,14 +3636,14 @@ function renderTargetManageContent(student, target) {
           style="${type === "fixed" || type === "fixed_multi" || type === "starter_fixed" || type === "starter_fixed_multi" ? "" : "display:none"}">`;
       const noteRow = a.actNote !== undefined
         ? `<textarea class="admin-input mn-act-note-input" id="mn-act-note-${idx}" data-idx="${idx}"
-            rows="1" placeholder="Note shown under this activity (Enter = new line · Ctrl+Enter = save)"
+            rows="1" placeholder="Enter Note"
             style="overflow-y:hidden;resize:none">${escHtml(a.actNote || "")}</textarea>`
         : "";
       html += `<div class="admin-list-item" data-idx="${idx}">
         <span class="drag-handle">⠿</span>
         <div style="flex:1;display:flex;flex-direction:column;gap:.3rem">
           <textarea class="admin-input" id="mn-act-name-${idx}" data-idx="${idx}"
-            rows="1" placeholder="Activity name (Enter = new line · Ctrl+Enter = save)">${escHtml(a.name || "")}</textarea>
+            rows="1" placeholder="Enter Activity">${escHtml(a.name || "")}</textarea>
           ${noteRow}
           <div style="display:flex;align-items:center;gap:.5rem">
             <span style="font-size:.75rem;color:#6b7280;white-space:nowrap;font-weight:600">Remark Type:</span>
@@ -3658,6 +3684,8 @@ function renderTargetManageContent(student, target) {
       await saveStudent(student);
     }
   };
+
+  _pendingActsCleanup = { acts, save: saveTarget };
 
   initDragSort($("mn-act-list"), async newOrder => {
     const reordered = newOrder.map(oldIdx => acts[oldIdx]);
@@ -3767,21 +3795,21 @@ function renderTargetManageContent(student, target) {
   });
 
   $("btn-mn-add-act").addEventListener("click", async () => {
-    acts.push({ id: cfgId("a"), name: "New Activity", order: acts.length });
+    acts.push({ id: cfgId("a"), name: "", order: acts.length });
     target.predefinedActivities = acts;
     await saveTarget();
     renderTargetManageContent(student, target);
   });
 
   $("btn-mn-add-act-note").addEventListener("click", async () => {
-    acts.push({ id: cfgId("a"), name: "New Activity", actNote: "", order: acts.length });
+    acts.push({ id: cfgId("a"), name: "", actNote: "", order: acts.length });
     target.predefinedActivities = acts;
     await saveTarget();
     renderTargetManageContent(student, target);
   });
 
   $("btn-mn-add-heading").addEventListener("click", async () => {
-    acts.push({ id: cfgId("h"), isHeading: true, name: "Section Heading", order: acts.length });
+    acts.push({ id: cfgId("h"), isHeading: true, name: "", order: acts.length });
     target.predefinedActivities = acts;
     await saveTarget();
     renderTargetManageContent(student, target);
@@ -3895,14 +3923,14 @@ function renderTemplateManageContent(template) {
       html += `<div class="admin-list-item mn-heading-item" data-idx="${idx}">
         <span class="drag-handle">⠿</span>
         <textarea class="admin-input mn-heading-input" id="mn-act-name-${idx}" data-idx="${idx}"
-          rows="1" placeholder="Section heading name (Enter = new line · Ctrl+Enter = save)" style="flex:1">${escHtml(a.name || "")}</textarea>
+          rows="1" placeholder="Enter Section Heading" style="flex:1">${escHtml(a.name || "")}</textarea>
         <button class="btn-adm-del mn-del-act" data-idx="${idx}">🗑</button>
       </div>`;
     } else if (a.isNote) {
       html += `<div class="admin-list-item admin-note-item" data-idx="${idx}">
         <span class="drag-handle">⠿</span>
         <textarea class="admin-input" id="mn-act-name-${idx}" data-idx="${idx}"
-          rows="1" placeholder="Note"
+          rows="1" placeholder="Enter Note"
           style="flex:1;overflow-y:hidden;resize:none">${escHtml(stripNoteHtml(a.text || ""))}</textarea>
         <button class="btn-adm-del mn-del-act" data-idx="${idx}">🗑</button>
       </div>`;
@@ -3927,14 +3955,14 @@ function renderTemplateManageContent(template) {
           style="${type === "fixed" || type === "fixed_multi" || type === "starter_fixed" || type === "starter_fixed_multi" ? "" : "display:none"}">`;
       const noteRow = a.actNote !== undefined
         ? `<textarea class="admin-input mn-act-note-input" id="mn-act-note-${idx}" data-idx="${idx}"
-            rows="1" placeholder="Note shown under this activity (Enter = new line · Ctrl+Enter = save)"
+            rows="1" placeholder="Enter Note"
             style="overflow-y:hidden;resize:none">${escHtml(a.actNote || "")}</textarea>`
         : "";
       html += `<div class="admin-list-item" data-idx="${idx}">
         <span class="drag-handle">⠿</span>
         <div style="flex:1;display:flex;flex-direction:column;gap:.3rem">
           <textarea class="admin-input" id="mn-act-name-${idx}" data-idx="${idx}"
-            rows="1" placeholder="Activity name (Enter = new line · Ctrl+Enter = save)">${escHtml(a.name || "")}</textarea>
+            rows="1" placeholder="Enter Activity">${escHtml(a.name || "")}</textarea>
           ${noteRow}
           <div style="display:flex;align-items:center;gap:.5rem">
             <span style="font-size:.75rem;color:#6b7280;white-space:nowrap;font-weight:600">Remark Type:</span>
@@ -3969,6 +3997,8 @@ function renderTemplateManageContent(template) {
     await syncTemplateToStudents(template);
     showAutosaved();
   };
+
+  _pendingActsCleanup = { acts, save: saveTemplateFn };
 
   initDragSort($("mn-act-list"), async newOrder => {
     const reordered = newOrder.map(oldIdx => acts[oldIdx]);
@@ -4066,21 +4096,21 @@ function renderTemplateManageContent(template) {
   });
 
   $("btn-mn-add-act").addEventListener("click", async () => {
-    acts.push({ id: cfgId("a"), name: "New Activity", order: acts.length });
+    acts.push({ id: cfgId("a"), name: "", order: acts.length });
     template.predefinedActivities = acts;
     await saveTemplateFn();
     renderTemplateManageContent(template);
   });
 
   $("btn-mn-add-act-note").addEventListener("click", async () => {
-    acts.push({ id: cfgId("a"), name: "New Activity", actNote: "", order: acts.length });
+    acts.push({ id: cfgId("a"), name: "", actNote: "", order: acts.length });
     template.predefinedActivities = acts;
     await saveTemplateFn();
     renderTemplateManageContent(template);
   });
 
   $("btn-mn-add-heading").addEventListener("click", async () => {
-    acts.push({ id: cfgId("h"), isHeading: true, name: "Section Heading", order: acts.length });
+    acts.push({ id: cfgId("h"), isHeading: true, name: "", order: acts.length });
     template.predefinedActivities = acts;
     await saveTemplateFn();
     renderTemplateManageContent(template);
@@ -5041,6 +5071,7 @@ function openGroupManageModal(group, target = null) {
 }
 
 function renderGroupManageContent(group) {
+  _pendingActsCleanup = null;
   $("manage-modal-title").textContent = group.name || "New Group";
 
   // 3 fixed student rows — always show exactly 3

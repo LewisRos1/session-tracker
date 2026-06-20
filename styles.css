@@ -805,7 +805,7 @@ html, body {
 /* fixed (non-editable) note configured under an activity in Edit Target */
 .field-value-note {
   flex: 1;
-  padding: .1rem 0 .5rem;
+  padding: .5rem 0;
   font-size: .85rem;
   font-weight: 500;
   font-style: italic;

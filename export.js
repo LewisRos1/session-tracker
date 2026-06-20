@@ -804,8 +804,16 @@ function appendSessionRows(rows, sessionDateBlocks, activityHeadingRows, noteRow
           .replace(/\*\*/g, "")
           .replace(/\n{3,}/g, "\n\n")
           .trim();
-        rows.push(["", noteText, "", "", ""]);
+        rows.push(["", `Note: ${noteText}`, "", "", ""]);
         continue;
+      }
+
+      const actNoteText = (target.predefinedActivities || []).find(
+        p => !p.isHeading && !p.isNote && p.name === act.activityName
+      )?.actNote;
+      if (actNoteText && actNoteText.trim()) {
+        noteRows.add(rows.length);
+        rows.push(["", `Note: ${actNoteText.trim()}`, "", "", ""]);
       }
 
       if (act.empty) {
@@ -951,8 +959,16 @@ function appendGroupSessionRows(rows, sessionDateBlocks, activityHeadingRows, no
           .replace(/\*\*/g, "")
           .replace(/\n{3,}/g, "\n\n")
           .trim();
-        rows.push(["", noteText, "", "", "", ""]);
+        rows.push(["", `Note: ${noteText}`, "", "", "", ""]);
         continue;
+      }
+
+      const actNoteText = (target.predefinedActivities || []).find(
+        p => !p.isHeading && !p.isNote && p.name === act.activityName
+      )?.actNote;
+      if (actNoteText && actNoteText.trim()) {
+        noteRows.add(rows.length);
+        rows.push(["", `Note: ${actNoteText.trim()}`, "", "", "", ""]);
       }
 
       if (act.empty) {
