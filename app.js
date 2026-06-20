@@ -57,7 +57,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "376";
+const APP_VERSION = "378";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -86,7 +86,6 @@ const state = {
   viewSessionData:    null,
   fbViewUnsubscribe:    null,
   viewRenderPending:    false,
-  viewPickerTargetName: null,
   // Group sessions
   groups:                  [],
   searchGroup:             "",
@@ -103,7 +102,6 @@ const state = {
   viewGroupSessionData:   null,
   fbViewGroupUnsubscribe: null,
   viewGroupRenderPending: false,
-  viewGroupPickerTargetName: null,
 };
 
 const $ = id => document.getElementById(id);
@@ -2200,7 +2198,6 @@ function leaveSessionView() {
   $("text-editor-sheet").classList.add("hidden");
   $("btn-delete-session")?.classList.add("hidden");
   $("btn-goto-session")?.classList.add("hidden");
-  state.viewPickerTargetName = null;
   if (state.fbViewUnsubscribe) { state.fbViewUnsubscribe(); state.fbViewUnsubscribe = null; }
   const sessionId = state.viewSessionId;
   const data      = state.viewSessionData;
@@ -2281,27 +2278,6 @@ function renderSessionView() {
   attachViewListeners();
 }
 
-function buildViewActList(target, data) {
-  const actList = [];
-  const targetName = target.name;
-  let no = 0;
-  if (target.predefinedActivities?.length > 0) {
-    target.predefinedActivities.filter(pa => !pa.isHeading).forEach(pa => {
-      no++;
-      const entry = Object.entries(data.activities || {}).find(([, a]) => a.targetName === targetName && a.activityName === pa.name);
-      actList.push({ name: pa.name, actId: entry?.[0] || null, isPredefined: true, no });
-    });
-  }
-  Object.entries(data.activities || {})
-    .filter(([, a]) => a.targetName === targetName && !a.isPredefined)
-    .sort(([, a], [, b]) => (a.order || 0) - (b.order || 0))
-    .forEach(([actId, act]) => {
-      no++;
-      actList.push({ name: act.activityName, actId, isPredefined: false, no });
-    });
-  return actList;
-}
-
 function buildTargetViewTable(target, data) {
   const dayAvg = calcViewDayAvg(data, target);
 
@@ -2344,22 +2320,8 @@ function buildTargetViewTable(target, data) {
   rows += `<tr class="view-add-activity-row">
     <td colspan="6">
       <button class="btn-view-add-activity" data-target-name="${escHtml(target.name)}">＋ Activity</button>
-      <button class="btn-view-add-remark" data-target-name="${escHtml(target.name)}">＋ Remark</button>
     </td>
   </tr>`;
-
-  if (state.viewPickerTargetName === target.name) {
-    const actList = buildViewActList(target, data);
-    rows += `<tr class="view-act-picker-row">
-      <td colspan="6">
-        <div class="view-act-picker">
-          <span class="view-act-picker-label">Add remark to:</span>
-          ${actList.map((a, i) => `<button class="btn-view-act-pick" data-idx="${i}" data-target-name="${escHtml(target.name)}">${a.no} ${escHtml(a.name)}</button>`).join("")}
-          <button class="btn-view-cancel-picker">Cancel</button>
-        </div>
-      </td>
-    </tr>`;
-  }
 
   if (target.hasComment) {
     const key     = sanitizeKey(target.name);
@@ -2689,66 +2651,6 @@ function attachViewListeners() {
     });
   });
 
-  body.querySelectorAll(".btn-view-add-remark").forEach(btn => {
-    btn.addEventListener("click", () => {
-      const targetName = btn.dataset.targetName;
-      const target = getViewEffectiveTargets().find(t => t.name === targetName);
-      const actList = buildViewActList(target, state.viewSessionData);
-      if (actList.length === 0) { alert("Add an activity first."); return; }
-
-      state.viewPickerTargetName = targetName;
-      body.querySelectorAll(".view-act-picker-row").forEach(r => r.remove());
-
-      const pickerRow = document.createElement("tr");
-      pickerRow.className = "view-act-picker-row";
-      pickerRow.innerHTML = `<td colspan="6">
-        <div class="view-act-picker">
-          <span class="view-act-picker-label">Add remark to:</span>
-          ${actList.map((a, i) => `<button class="btn-view-act-pick" data-idx="${i}" data-target-name="${escHtml(targetName)}">${a.no} ${escHtml(a.name)}</button>`).join("")}
-          <button class="btn-view-cancel-picker">Cancel</button>
-        </div>
-      </td>`;
-      btn.closest("tr").after(pickerRow);
-
-      pickerRow.querySelectorAll(".btn-view-act-pick").forEach(pickBtn => {
-        pickBtn.addEventListener("click", async () => {
-          const chosen = actList[Number(pickBtn.dataset.idx)];
-          state.viewPickerTargetName = null;
-          pickerRow.remove();
-          let actId = chosen.actId;
-          if (!actId) actId = await addActivity(state.viewSessionId, targetName, chosen.name, Date.now(), chosen.isPredefined);
-          await addRemark(state.viewSessionId, actId, "", null);
-        });
-      });
-
-      pickerRow.querySelector(".btn-view-cancel-picker").addEventListener("click", () => {
-        state.viewPickerTargetName = null;
-        pickerRow.remove();
-      });
-    });
-  });
-
-  // Handles picker buttons rebuilt by Firebase re-renders (state-driven)
-  body.querySelectorAll(".btn-view-act-pick").forEach(pickBtn => {
-    pickBtn.addEventListener("click", async () => {
-      const targetName = pickBtn.dataset.targetName;
-      const target = getViewEffectiveTargets().find(t => t.name === targetName);
-      const actList = buildViewActList(target, state.viewSessionData);
-      const chosen = actList[Number(pickBtn.dataset.idx)];
-      state.viewPickerTargetName = null;
-      let actId = chosen.actId;
-      if (!actId) actId = await addActivity(state.viewSessionId, targetName, chosen.name, Date.now(), chosen.isPredefined);
-      await addRemark(state.viewSessionId, actId, "", null);
-    });
-  });
-
-  body.querySelectorAll(".btn-view-cancel-picker").forEach(btn => {
-    btn.addEventListener("click", () => {
-      state.viewPickerTargetName = null;
-      renderSessionView();
-    });
-  });
-
   body.querySelectorAll(".view-remark-new").forEach(ta => {
     ta.addEventListener("blur", async () => {
       const text = ta.value.trim();
@@ -2856,7 +2758,6 @@ function leaveGroupSessionView() {
   $("text-editor-sheet").classList.add("hidden");
   $("btn-group-delete-session")?.classList.add("hidden");
   $("btn-group-goto-session")?.classList.add("hidden");
-  state.viewGroupPickerTargetName = null;
   if (state.fbViewGroupUnsubscribe) { state.fbViewGroupUnsubscribe(); state.fbViewGroupUnsubscribe = null; }
   const sessionId = state.viewGroupSessionId;
   const data      = state.viewGroupSessionData;
@@ -3000,22 +2901,8 @@ function buildGroupTargetViewTable(target, data, attendees) {
   rows += `<tr class="view-add-activity-row">
     <td colspan="7">
       <button class="btn-view-add-activity" data-target-name="${escHtml(target.name)}">＋ Activity</button>
-      <button class="btn-view-add-remark" data-target-name="${escHtml(target.name)}">＋ Remark</button>
     </td>
   </tr>`;
-
-  if (state.viewGroupPickerTargetName === target.name) {
-    const actList = buildViewActList(target, data);
-    rows += `<tr class="view-act-picker-row">
-      <td colspan="7">
-        <div class="view-act-picker">
-          <span class="view-act-picker-label">Add remark to:</span>
-          ${actList.map((a, i) => `<button class="btn-view-act-pick" data-idx="${i}" data-target-name="${escHtml(target.name)}">${a.no} ${escHtml(a.name)}</button>`).join("")}
-          <button class="btn-view-cancel-picker">Cancel</button>
-        </div>
-      </td>
-    </tr>`;
-  }
 
   if (target.hasComment) {
     const key     = sanitizeKey(target.name);
@@ -3456,68 +3343,6 @@ function attachGroupViewListeners() {
     btn.addEventListener("click", async () => {
       btn.disabled = true;
       await addGroupRemark(sid(), btn.dataset.actId, btn.dataset.student);
-    });
-  });
-
-  body.querySelectorAll(".btn-view-add-remark").forEach(btn => {
-    btn.addEventListener("click", () => {
-      const targetName = btn.dataset.targetName;
-      const target = getViewGroupEffectiveTargets().find(t => t.name === targetName);
-      const actList = buildViewActList(target, state.viewGroupSessionData);
-      if (actList.length === 0) { alert("Add an activity first."); return; }
-
-      state.viewGroupPickerTargetName = targetName;
-      body.querySelectorAll(".view-act-picker-row").forEach(r => r.remove());
-
-      const pickerRow = document.createElement("tr");
-      pickerRow.className = "view-act-picker-row";
-      pickerRow.innerHTML = `<td colspan="7">
-        <div class="view-act-picker">
-          <span class="view-act-picker-label">Add remark to:</span>
-          ${actList.map((a, i) => `<button class="btn-view-act-pick" data-idx="${i}" data-target-name="${escHtml(targetName)}">${a.no} ${escHtml(a.name)}</button>`).join("")}
-          <button class="btn-view-cancel-picker">Cancel</button>
-        </div>
-      </td>`;
-      btn.closest("tr").after(pickerRow);
-
-      pickerRow.querySelectorAll(".btn-view-act-pick").forEach(pickBtn => {
-        pickBtn.addEventListener("click", async () => {
-          const chosen = actList[Number(pickBtn.dataset.idx)];
-          state.viewGroupPickerTargetName = null;
-          pickerRow.remove();
-          let actId = chosen.actId;
-          if (!actId) actId = await addActivity(sid(), targetName, chosen.name, Date.now(), chosen.isPredefined);
-          const attendees = state.viewGroupSessionData.attendees || state.viewGroup?.students || [];
-          await addGroupRemarksBatch(sid(), attendees.map(studentName => ({ actId, studentName })));
-        });
-      });
-
-      pickerRow.querySelector(".btn-view-cancel-picker").addEventListener("click", () => {
-        state.viewGroupPickerTargetName = null;
-        pickerRow.remove();
-      });
-    });
-  });
-
-  // Handles picker buttons rebuilt by Firebase re-renders (state-driven)
-  body.querySelectorAll(".btn-view-act-pick").forEach(pickBtn => {
-    pickBtn.addEventListener("click", async () => {
-      const targetName = pickBtn.dataset.targetName;
-      const target = getViewGroupEffectiveTargets().find(t => t.name === targetName);
-      const actList = buildViewActList(target, state.viewGroupSessionData);
-      const chosen = actList[Number(pickBtn.dataset.idx)];
-      state.viewGroupPickerTargetName = null;
-      let actId = chosen.actId;
-      if (!actId) actId = await addActivity(sid(), targetName, chosen.name, Date.now(), chosen.isPredefined);
-      const attendees = state.viewGroupSessionData.attendees || state.viewGroup?.students || [];
-      await addGroupRemarksBatch(sid(), attendees.map(studentName => ({ actId, studentName })));
-    });
-  });
-
-  body.querySelectorAll(".btn-view-cancel-picker").forEach(btn => {
-    btn.addEventListener("click", () => {
-      state.viewGroupPickerTargetName = null;
-      renderGroupSessionView();
     });
   });
 
