@@ -45,7 +45,7 @@ import {
   updateGroupSessionDate,
   deleteTargetDataFromSessions
 } from "./firebase-service.js";
-import { exportStudentData, exportAllStudents, exportGroupData } from "./export.js";
+import { exportStudentData, exportAllStudents, exportGroupMemberData } from "./export.js";
 
 // ── SW update detection — must run at parse time, before DOMContentLoaded,
 //   so the listener is in place before the new SW can fire controllerchange.
@@ -57,7 +57,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "378";
+const APP_VERSION = "379";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -526,9 +526,20 @@ function renderExportButtons() {
   const filteredStudents = (qIndiv ? state.students.filter(s => s.name.toLowerCase().includes(qIndiv)) : state.students)
     .slice().sort(sortByName);
 
+  // Flatten all groups into one roster entry per unique student name, each
+  // carrying every group that student belongs to (a student can be in >1 group).
+  const groupsByStudent = new Map();
+  for (const g of (state.groups || [])) {
+    for (const name of (g.students || [])) {
+      if (!groupsByStudent.has(name)) groupsByStudent.set(name, []);
+      groupsByStudent.get(name).push(g);
+    }
+  }
+  const groupMembers = Array.from(groupsByStudent.entries()).map(([name, groups]) => ({ name, groups }));
+
   const qGroup = (state.searchExportGroup || "").toLowerCase();
-  const filteredGroups = (qGroup ? (state.groups || []).filter(g => g.name.toLowerCase().includes(qGroup)) : (state.groups || []))
-    .slice().sort(sortByName);
+  const filteredGroupMembers = (qGroup ? groupMembers.filter(m => m.name.toLowerCase().includes(qGroup)) : groupMembers)
+    .slice().sort((a, b) => a.name.localeCompare(b.name));
 
   const studentRosterHtml = filteredStudents.length
     ? `<div class="roster-list">` +
@@ -543,11 +554,11 @@ function renderExportButtons() {
   indivContainer.innerHTML = studentRosterHtml;
   exportAllContainer.innerHTML = `<button class="export-btn export-btn-all" id="btn-export-all">Export All (ZIP)</button>`;
 
-  groupContainer.innerHTML = filteredGroups.length
+  groupContainer.innerHTML = filteredGroupMembers.length
     ? `<div class="roster-list">` +
-        filteredGroups.map(g => `
-          <button class="roster-item" data-group-id="${g.id}">
-            <span class="roster-item-name">${escHtml(g.name)}</span>
+        filteredGroupMembers.map(m => `
+          <button class="roster-item" data-member-name="${escHtml(m.name)}">
+            <span class="roster-item-name">${escHtml(m.name)} (Group)</span>
           </button>
         `).join("") +
       `</div>`
@@ -587,15 +598,15 @@ function renderExportButtons() {
     });
   });
 
-  groupContainer.querySelectorAll(".roster-item[data-group-id]").forEach(btn => {
+  groupContainer.querySelectorAll(".roster-item[data-member-name]").forEach(btn => {
     btn.addEventListener("click", async () => {
-      const group = state.groups.find(g => g.id === btn.dataset.groupId);
-      if (!group) return;
+      const member = groupMembers.find(m => m.name === btn.dataset.memberName);
+      if (!member) return;
       const orig = btn.textContent;
       btn.disabled = true;
       btn.textContent = "Generating…";
       try {
-        await exportGroupData(group);
+        await exportGroupMemberData(member.name, member.groups);
       } catch (err) {
         alert("Export failed: " + err.message);
       } finally {
