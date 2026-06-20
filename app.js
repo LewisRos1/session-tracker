@@ -9,6 +9,7 @@ import {
   addActivity,
   deleteActivity,
   updateActivityName,
+  updateActivityCombineRemarks,
   addRemark,
   updateRemarkText,
   updateRemarkNote,
@@ -55,7 +56,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "365";
+const APP_VERSION = "370";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -1315,6 +1316,13 @@ function renderFedcTarget(target) {
         <span class="field-value-fixed">${escHtml(pa.name)}</span>
       </div>`;
 
+    if (pa.actNote && pa.actNote.trim()) {
+      html += `<div class="entry-field">
+        <span class="field-label">Note</span>
+        <span class="field-value-note">${escHtml(pa.actNote)}</span>
+      </div>`;
+    }
+
     // Reference notes (a, b, c… sub-items)
     if (pa.note && pa.note.length > 0) {
       const noteHtml = pa.note.map((line, i) =>
@@ -2366,8 +2374,12 @@ function buildTargetViewTable(target, data) {
 function viewActivityRows(no, actName, actId, data, target, isPredefined = true) {
   const remarks = actId ? viewGetRemarks(data, actId) : [];
 
+  const paEntry = isPredefined
+    ? target.predefinedActivities?.find(pa => pa.name === actName)
+    : null;
+
   const actCell = isPredefined
-    ? escHtml(actName)
+    ? escHtml(actName) + (paEntry?.actNote?.trim() ? `<div class="view-act-note">${escHtml(paEntry.actNote)}</div>` : "")
     : `<div style="display:flex;align-items:center;gap:.3rem">
         <input class="view-act-edit" type="text" value="${escHtml(actName)}"
           data-act-id="${escHtml(actId || "")}" data-original="${escHtml(actName)}" />
@@ -2375,9 +2387,6 @@ function viewActivityRows(no, actName, actId, data, target, isPredefined = true)
           data-target-name="${escHtml(target.name)}" title="Delete activity">×</button>
        </div>`;
 
-  const paEntry = isPredefined
-    ? target.predefinedActivities?.find(pa => pa.name === actName)
-    : null;
   const inlineOptions   = paEntry ? getActivityInlineOptions(paEntry) : null;
   const sentenceStarter = paEntry?.sentenceStarter || null;
   const multiSelect     = paEntry?.optionsMulti || false;
@@ -3587,11 +3596,17 @@ function renderTargetManageContent(student, target) {
           placeholder="Options separated by /  e.g. Low/Medium/High"
           value="${escHtml(a.inlineOptions || (a.remarkPresetId ? (state.remarkPresets.find(p=>p.id===a.remarkPresetId)?.options||[]).join("/") : ""))}"
           style="${type === "fixed" || type === "fixed_multi" || type === "starter_fixed" || type === "starter_fixed_multi" ? "" : "display:none"}">`;
+      const noteRow = a.actNote !== undefined
+        ? `<textarea class="admin-input mn-act-note-input" id="mn-act-note-${idx}" data-idx="${idx}"
+            rows="1" placeholder="Note shown under this activity (Enter = new line · Ctrl+Enter = save)"
+            style="overflow-y:hidden;resize:none">${escHtml(a.actNote || "")}</textarea>`
+        : "";
       html += `<div class="admin-list-item" data-idx="${idx}">
         <span class="drag-handle">⠿</span>
         <div style="flex:1;display:flex;flex-direction:column;gap:.3rem">
           <textarea class="admin-input" id="mn-act-name-${idx}" data-idx="${idx}"
             rows="1" placeholder="Activity name (Enter = new line · Ctrl+Enter = save)">${escHtml(a.name || "")}</textarea>
+          ${noteRow}
           <div style="display:flex;align-items:center;gap:.5rem">
             <span style="font-size:.75rem;color:#6b7280;white-space:nowrap;font-weight:600">Remark Type:</span>
             ${remarkTypeSelect}
@@ -3605,6 +3620,7 @@ function renderTargetManageContent(student, target) {
   html += `</div>
     <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.25rem">
       <button class="btn-admin-add" id="btn-mn-add-act" style="flex:1">+ Add Activity</button>
+      <button class="btn-admin-add" id="btn-mn-add-act-note" style="flex:1">+ Add Activity &amp; Note</button>
       <button class="btn-admin-add" id="btn-mn-add-heading" style="flex:1">+ Add Section Heading</button>
       <button class="btn-admin-add" id="btn-mn-add-note" style="flex:1">+ Add Note</button>
     </div>
@@ -3701,6 +3717,25 @@ function renderTargetManageContent(student, target) {
       flashSaved(input);
     });
     if (!a.isNote) input?.addEventListener("input", () => autoResizeTextarea(input));
+
+    const noteInput = $(`mn-act-note-${idx}`);
+    if (noteInput) {
+      const resize = () => { noteInput.style.height = "auto"; noteInput.style.height = noteInput.scrollHeight + "px"; };
+      resize();
+      let actNoteTimer;
+      noteInput.addEventListener("input", () => {
+        resize();
+        a.actNote = noteInput.value;
+        clearTimeout(actNoteTimer);
+        actNoteTimer = setTimeout(async () => { await saveTarget(); }, 800);
+      });
+      noteInput.addEventListener("blur", async () => {
+        if (noteInput.value === (a.actNote || "")) return;
+        a.actNote = noteInput.value;
+        await saveTarget();
+        flashSaved(noteInput);
+      });
+    }
   });
 
   $("manage-modal-body").querySelectorAll(".mn-del-act").forEach(btn => {
@@ -3721,6 +3756,13 @@ function renderTargetManageContent(student, target) {
 
   $("btn-mn-add-act").addEventListener("click", async () => {
     acts.push({ id: cfgId("a"), name: "New Activity", order: acts.length });
+    target.predefinedActivities = acts;
+    await saveTarget();
+    renderTargetManageContent(student, target);
+  });
+
+  $("btn-mn-add-act-note").addEventListener("click", async () => {
+    acts.push({ id: cfgId("a"), name: "New Activity", actNote: "", order: acts.length });
     target.predefinedActivities = acts;
     await saveTarget();
     renderTargetManageContent(student, target);
@@ -3871,11 +3913,17 @@ function renderTemplateManageContent(template) {
           placeholder="Options separated by /  e.g. Low/Medium/High"
           value="${escHtml(a.inlineOptions || (a.remarkPresetId ? (state.remarkPresets.find(p=>p.id===a.remarkPresetId)?.options||[]).join("/") : ""))}"
           style="${type === "fixed" || type === "fixed_multi" || type === "starter_fixed" || type === "starter_fixed_multi" ? "" : "display:none"}">`;
+      const noteRow = a.actNote !== undefined
+        ? `<textarea class="admin-input mn-act-note-input" id="mn-act-note-${idx}" data-idx="${idx}"
+            rows="1" placeholder="Note shown under this activity (Enter = new line · Ctrl+Enter = save)"
+            style="overflow-y:hidden;resize:none">${escHtml(a.actNote || "")}</textarea>`
+        : "";
       html += `<div class="admin-list-item" data-idx="${idx}">
         <span class="drag-handle">⠿</span>
         <div style="flex:1;display:flex;flex-direction:column;gap:.3rem">
           <textarea class="admin-input" id="mn-act-name-${idx}" data-idx="${idx}"
             rows="1" placeholder="Activity name (Enter = new line · Ctrl+Enter = save)">${escHtml(a.name || "")}</textarea>
+          ${noteRow}
           <div style="display:flex;align-items:center;gap:.5rem">
             <span style="font-size:.75rem;color:#6b7280;white-space:nowrap;font-weight:600">Remark Type:</span>
             ${remarkTypeSelect}
@@ -3889,6 +3937,7 @@ function renderTemplateManageContent(template) {
   html += `</div>
     <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.25rem">
       <button class="btn-admin-add" id="btn-mn-add-act" style="flex:1">+ Add Activity</button>
+      <button class="btn-admin-add" id="btn-mn-add-act-note" style="flex:1">+ Add Activity &amp; Note</button>
       <button class="btn-admin-add" id="btn-mn-add-heading" style="flex:1">+ Add Section Heading</button>
       <button class="btn-admin-add" id="btn-mn-add-note" style="flex:1">+ Add Note</button>
     </div>
@@ -3967,6 +4016,25 @@ function renderTemplateManageContent(template) {
       flashSaved(input);
     });
     if (!a.isNote) input?.addEventListener("input", () => autoResizeTextarea(input));
+
+    const noteInput = $(`mn-act-note-${idx}`);
+    if (noteInput) {
+      const resize = () => { noteInput.style.height = "auto"; noteInput.style.height = noteInput.scrollHeight + "px"; };
+      resize();
+      let actNoteTimer;
+      noteInput.addEventListener("input", () => {
+        resize();
+        a.actNote = noteInput.value;
+        clearTimeout(actNoteTimer);
+        actNoteTimer = setTimeout(async () => { await saveTemplateFn(); }, 800);
+      });
+      noteInput.addEventListener("blur", async () => {
+        if (noteInput.value === (a.actNote || "")) return;
+        a.actNote = noteInput.value;
+        await saveTemplateFn();
+        flashSaved(noteInput);
+      });
+    }
   });
 
   $("manage-modal-body").querySelectorAll(".mn-del-act").forEach(btn => {
@@ -3987,6 +4055,13 @@ function renderTemplateManageContent(template) {
 
   $("btn-mn-add-act").addEventListener("click", async () => {
     acts.push({ id: cfgId("a"), name: "New Activity", order: acts.length });
+    template.predefinedActivities = acts;
+    await saveTemplateFn();
+    renderTemplateManageContent(template);
+  });
+
+  $("btn-mn-add-act-note").addEventListener("click", async () => {
+    acts.push({ id: cfgId("a"), name: "New Activity", actNote: "", order: acts.length });
     template.predefinedActivities = acts;
     await saveTemplateFn();
     renderTemplateManageContent(template);
@@ -4336,7 +4411,7 @@ function buildGroupItemsByActivity(target, data, attendees) {
     }
     const actId = Object.entries(data.activities || {})
       .find(([, a]) => a.targetName === target.name && a.activityName === pa.name)?.[0] || null;
-    items.push(renderGroupActivityCard(pa.name, actId, target, data, attendees));
+    items.push(renderGroupActivityCard(pa.name, actId, target, data, attendees, pa.actNote));
   }
 
   // Manually added (non-predefined) activities
@@ -4370,7 +4445,7 @@ function renderGroupStudentBlock(studentName, target, data) {
     if (pa.isNote || pa.isHeading || !pa.name) continue;
     const actId = Object.entries(data.activities || {})
       .find(([, a]) => a.targetName === target.name && a.activityName === pa.name)?.[0] || null;
-    activityEntries.push({ actId, actName: pa.name });
+    activityEntries.push({ actId, actName: pa.name, actNote: pa.actNote });
   }
   Object.entries(data.activities || {})
     .filter(([, a]) => a.targetName === target.name && !a.isPredefined)
@@ -4378,8 +4453,8 @@ function renderGroupStudentBlock(studentName, target, data) {
     .forEach(([actId, act]) => activityEntries.push({ actId, actName: act.activityName }));
 
   const cards = activityEntries.length
-    ? activityEntries.map(({ actId, actName }) =>
-        renderGroupStudentActivityCard(studentName, actName, actId, target, data)).join("")
+    ? activityEntries.map(({ actId, actName, actNote }) =>
+        renderGroupStudentActivityCard(studentName, actName, actId, target, data, actNote)).join("")
     : `<p class="empty-hint" style="padding:1rem">No activities yet. Add them under Edit Target.</p>`;
 
   return `<div class="group-by-student-block" data-student="${escHtml(studentName)}">
@@ -4388,18 +4463,26 @@ function renderGroupStudentBlock(studentName, target, data) {
   </div>`;
 }
 
-function renderGroupStudentActivityCard(studentName, actName, actId, target, data) {
+function renderGroupStudentActivityCard(studentName, actName, actId, target, data, actNote = null) {
   const remarksForThisStudent = actId
     ? Object.entries(data.remarks || {})
         .filter(([, r]) => r.activityId === actId && r.studentName === studentName)
         .sort(([, a], [, b]) => (a.order || 0) - (b.order || 0))
     : [];
 
+  const noteRow = actNote && actNote.trim()
+    ? `<div class="entry-field">
+        <span class="field-label">Note</span>
+        <span class="field-value-note">${escHtml(actNote)}</span>
+      </div>`
+    : "";
+
   let html = `<div class="entry-block entry-block-predefined" data-act-name="${escHtml(actName)}" data-act-id="${escHtml(actId || "")}">
     <div class="entry-field">
       <span class="field-label">Activity</span>
       <span class="field-value-fixed">${escHtml(actName)}</span>
-    </div>`;
+    </div>
+    ${noteRow}`;
 
   for (const [remId, rem] of remarksForThisStudent) {
     html += renderGroupStudentRowCompact(remId, rem, target);
@@ -4443,7 +4526,22 @@ function renderGroupStudentRowCompact(remId, rem, target) {
     </div>`;
 }
 
-function renderGroupActivityCard(actName, actId, target, data, attendees) {
+function renderGroupActivityCard(actName, actId, target, data, attendees, actNote = null) {
+  const noteRow = actNote && actNote.trim()
+    ? `<div class="entry-field">
+        <span class="field-label">Note</span>
+        <span class="field-value-note">${escHtml(actNote)}</span>
+      </div>`
+    : "";
+
+  const combineRemarks = !!(actId && data.activities?.[actId]?.combineRemarks);
+  const combineToggle = actId
+    ? `<button class="btn-combine-toggle ${combineRemarks ? "active" : ""}" data-act-id="${escHtml(actId)}"
+        title="${combineRemarks ? "Split back into separate remark boxes" : "Share one remark box for everyone in this activity"}">
+        ${combineRemarks ? "🔗 Combined Remarks" : "🔓 Separate Remarks"}
+      </button>`
+    : "";
+
   // Check if any attendee already has a remark for this activity
   const anyExpanded = actId && Object.values(data.remarks || {})
     .some(r => r.activityId === actId && attendees.includes(r.studentName));
@@ -4454,7 +4552,9 @@ function renderGroupActivityCard(actName, actId, target, data, attendees) {
       <div class="entry-field">
         <span class="field-label">Activity</span>
         <span class="field-value-fixed">${escHtml(actName)}</span>
+        ${combineToggle}
       </div>
+      ${noteRow}
       <button class="btn-add-remark btn-group-add-remark-all"
         data-act-id="${escHtml(actId || "")}"
         data-act-name="${escHtml(actName)}"
@@ -4473,20 +4573,34 @@ function renderGroupActivityCard(actName, actId, target, data, attendees) {
 
   const roundHtmls = [];
   for (let i = 0; i < maxRounds; i++) {
-    const rows = [];
-    const roundRemIds = [];
+    const presentEntries = [];
+    const pendingNames = [];
     for (const studentName of attendees) {
       const entry = byStudent[studentName]?.[i] || null;
-      if (entry) {
-        const [remId, rem] = entry;
-        roundRemIds.push(remId);
-        rows.push(renderGroupStudentRow(studentName, remId, rem, target));
-      } else {
-        rows.push(renderGroupStudentPendingRow(studentName, actId, actName, target));
-      }
+      if (entry) presentEntries.push([studentName, entry[0], entry[1]]);
+      else pendingNames.push(studentName);
     }
+    const roundRemIds = presentEntries.map(([, remId]) => remId);
+
+    let bodyHtml;
+    if (combineRemarks && presentEntries.length > 0) {
+      const sharedText = presentEntries[0][2].text;
+      bodyHtml = renderGroupCombinedRemarkRow(roundRemIds, sharedText)
+        + presentEntries.map(([studentName, remId, rem]) =>
+            renderGroupStudentTrialsOnlyRow(studentName, remId, rem, target)).join("")
+        + pendingNames.map(studentName =>
+            renderGroupStudentPendingRow(studentName, actId, actName, target)).join("");
+    } else {
+      bodyHtml = attendees.map(studentName => {
+        const entry = byStudent[studentName]?.[i] || null;
+        return entry
+          ? renderGroupStudentRow(studentName, entry[0], entry[1], target)
+          : renderGroupStudentPendingRow(studentName, actId, actName, target);
+      }).join("");
+    }
+
     roundHtmls.push(`<div class="group-remark-round">
-      ${rows.join("")}
+      ${bodyHtml}
       <div class="group-round-footer">
         <button class="btn-icon btn-group-del-round"
           data-rem-ids="${roundRemIds.join(",")}" title="Remove">🗑</button>
@@ -4502,7 +4616,9 @@ function renderGroupActivityCard(actName, actId, target, data, attendees) {
     <div class="entry-field">
       <span class="field-label">Activity</span>
       <span class="field-value-fixed">${escHtml(actName)}</span>
+      ${combineToggle}
     </div>
+    ${noteRow}
     <div class="entry-divider"></div>
     ${roundsBody}
     <div class="entry-divider"></div>
@@ -4513,21 +4629,49 @@ function renderGroupActivityCard(actName, actId, target, data, attendees) {
   </div>`;
 }
 
-function renderGroupStudentRow(studentName, remId, rem, target) {
+// Shared remark box used by all students in a round when "Combine" is active
+function renderGroupCombinedRemarkRow(remIds, text) {
+  const idList = remIds.join(",");
+  return `<div class="entry-field">
+    <span class="field-label">Remark</span>
+    <button class="btn-sketch btn-group-sketch-combined" data-rem-ids="${idList}" aria-label="Open sketch board">✏</button>
+    <div class="field-input group-remark-input-combined" contenteditable="true"
+      data-rem-ids="${idList}" data-placeholder="Remark…">${remarkToHtml(text)}</div>
+  </div>`;
+}
+
+// Per-student name + trials only (remark is shared, rendered separately above)
+function renderGroupStudentTrialsOnlyRow(studentName, remId, rem, target) {
   const trials = rem.trials || [];
-  const maxPts = target.maxPoints || 3;
-  const valid  = trials.filter(t => t !== -1);
-  const scoreVal = valid.length > 0
-    ? Math.round(valid.reduce((a, b) => a + b, 0) / (valid.length * maxPts) * 100) + "%" : null;
   const badges = trials.map((t, i) =>
     `<span class="trial-badge">${t === -1 ? "—" : t}<button class="btn-trial-delete btn-group-trial-del" data-rem-id="${remId}" data-idx="${i}">×</button></span>`
   ).join("");
   return `<div class="group-student-section" data-rem-id="${remId}" data-student="${escHtml(studentName)}">
     <div class="group-student-name-row">
       <span class="group-student-name-label">${escHtml(studentName)}</span>
-      ${scoreVal ? `<span class="group-student-score-chip">${scoreVal}</span>` : ""}
     </div>
     <div class="entry-field">
+      <span class="field-label">Trials</span>
+      <div class="trials-row">
+        <div class="trials-badges">${badges}</div>
+        <button class="btn-primary-sm btn-add-trial btn-group-add-trial"
+          data-rem-id="${remId}" data-target="${escHtml(target.name)}">+ Trial</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderGroupStudentRow(studentName, remId, rem, target) {
+  const trials = rem.trials || [];
+  const badges = trials.map((t, i) =>
+    `<span class="trial-badge">${t === -1 ? "—" : t}<button class="btn-trial-delete btn-group-trial-del" data-rem-id="${remId}" data-idx="${i}">×</button></span>`
+  ).join("");
+  return `<div class="group-student-section" data-rem-id="${remId}" data-student="${escHtml(studentName)}">
+    <div class="group-student-name-row">
+      <span class="group-student-name-label">${escHtml(studentName)}</span>
+    </div>
+    <div class="entry-field">
+      <span class="field-label">Remark</span>
       <button class="btn-sketch btn-group-sketch" data-rem-id="${remId}" aria-label="Sketch">✏</button>
       <div class="field-input group-remark-input" contenteditable="true"
         data-rem-id="${remId}" data-placeholder="Remark…">${remarkToHtml(rem.text)}</div>
@@ -4611,6 +4755,35 @@ function attachGroupTargetListeners(target) {
     btn.addEventListener("click", () => {
       const field = c.querySelector(`.group-remark-input[data-rem-id="${btn.dataset.remId}"]`);
       if (field) openTextEditorSheet(field);
+    });
+  });
+
+  // Combined remark box (shared across all students in a round) — blur-save writes to every remId
+  c.querySelectorAll(".group-remark-input-combined").forEach(div => {
+    let orig = div.innerHTML;
+    div.addEventListener("blur", async () => {
+      const newText = div.innerHTML;
+      if (newText === orig) return;
+      orig = newText;
+      const remIds = div.dataset.remIds.split(",").filter(Boolean);
+      await Promise.all(remIds.map(remId => updateRemarkText(state.groupSessionId, remId, newText)));
+    });
+  });
+
+  c.querySelectorAll(".btn-group-sketch-combined").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const field = c.querySelector(`.group-remark-input-combined[data-rem-ids="${btn.dataset.remIds}"]`);
+      if (field) openTextEditorSheet(field);
+    });
+  });
+
+  // Combine/Separate remarks toggle (per activity, this session only)
+  c.querySelectorAll(".btn-combine-toggle").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const actId = btn.dataset.actId;
+      const current = !!state.groupSessionData?.activities?.[actId]?.combineRemarks;
+      btn.disabled = true;
+      await updateActivityCombineRemarks(state.groupSessionId, actId, !current);
     });
   });
 

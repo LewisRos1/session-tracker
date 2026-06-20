@@ -262,6 +262,12 @@ export async function updateActivityName(sessionId, actId, name) {
   });
 }
 
+export async function updateActivityCombineRemarks(sessionId, actId, combine) {
+  await updateDoc(doc(db, "sessions", sessionId), {
+    [`activities.${actId}.combineRemarks`]: combine
+  });
+}
+
 export async function deleteRemark(sessionId, remId) {
   await updateDoc(doc(db, "sessions", sessionId), {
     [`remarks.${remId}`]: deleteField()
