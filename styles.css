@@ -1599,6 +1599,31 @@ div.admin-note-editable:empty::before {
   color: var(--primary-dark);
 }
 
+.admin-toggle-group {
+  display: flex;
+  flex-direction: column;
+  gap: .5rem;
+}
+
+.admin-toggle-btn {
+  width: 100%;
+  padding: .65rem .9rem;
+  border: 2px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--white);
+  font-size: .88rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color .12s, background .12s, color .12s;
+}
+.admin-toggle-btn.active {
+  border-color: var(--primary);
+  background: var(--primary-light);
+  color: var(--primary-dark);
+}
+
 /* ─── Activity list item (two stacked inputs + actions) ───── */
 .admin-act-item { align-items: flex-start; }
 
