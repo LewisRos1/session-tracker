@@ -1067,7 +1067,13 @@ function getAllActivitiesForTarget(session, target) {
   }
 
   for (const act of sessionActs) {
-    if (!usedIds.has(act.id)) result.push(act);
+    if (usedIds.has(act.id)) continue;
+    // Orphaned predefined activity (renamed/converted/deleted from the target's
+    // current setup since this session was recorded) with no actual remark data —
+    // a ghost left behind by editing the target, not real session content. Skip it.
+    // (Orphans that DO have remarks are kept — that's genuine historical data.)
+    if (act.isPredefined && getRemarksForActivity(session, act.id).length === 0) continue;
+    result.push(act);
   }
 
   return result;
