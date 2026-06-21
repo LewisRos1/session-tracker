@@ -60,7 +60,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "381";
+const APP_VERSION = "385";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -544,19 +544,19 @@ function showStudentChoice(student) {
   $("session-picker-list").innerHTML = `
     <div class="choice-list">
       <button class="choice-btn choice-today">
-        <span class="choice-icon">▶</span>
+        <span class="choice-icon">▶️</span>
         <div class="choice-text">
           <div class="choice-label">Start Session</div>
         </div>
       </button>
       <button class="choice-btn choice-other">
-        <span class="choice-icon">🗂</span>
+        <span class="choice-icon">🗂️</span>
         <div class="choice-text">
           <div class="choice-label">View/Edit Past Sessions</div>
         </div>
       </button>
       <button class="choice-btn choice-manage">
-        <span class="choice-icon">✏</span>
+        <span class="choice-icon">✏️</span>
         <div class="choice-text">
           <div class="choice-label">Manage Student</div>
         </div>
@@ -564,7 +564,7 @@ function showStudentChoice(student) {
       <button class="choice-btn choice-export">
         <span class="choice-icon">📤</span>
         <div class="choice-text">
-          <div class="choice-label">Export Notes to Excel</div>
+          <div class="choice-label">Export to Excel</div>
         </div>
       </button>
     </div>`;
@@ -753,11 +753,11 @@ function showExportChoiceGeneric(entityLabel, onExportAll, getSessions, onExport
     <div class="choice-list">
       <button class="choice-btn choice-export-all">
         <span class="choice-icon">📊</span>
-        <div class="choice-text"><div class="choice-label">Export All Sessions</div></div>
+        <div class="choice-text"><div class="choice-label">Export All Session Notes</div></div>
       </button>
       <button class="choice-btn choice-export-one">
         <span class="choice-icon">📅</span>
-        <div class="choice-text"><div class="choice-label">Export One Session Only</div></div>
+        <div class="choice-text"><div class="choice-label">Export 1 Session Note Only</div></div>
       </button>
     </div>`;
   $("session-picker-modal").classList.remove("hidden");
@@ -5107,20 +5107,20 @@ function showGroupChoice(group) {
   $("session-picker-list").innerHTML = `
     <div class="choice-list">
       <button class="choice-btn choice-today">
-        <span class="choice-icon">▶</span>
+        <span class="choice-icon">▶️</span>
         <div class="choice-text"><div class="choice-label">Start Session</div></div>
       </button>
       <button class="choice-btn choice-other">
-        <span class="choice-icon">🗂</span>
+        <span class="choice-icon">🗂️</span>
         <div class="choice-text"><div class="choice-label">View/Edit Past Sessions</div></div>
       </button>
       <button class="choice-btn choice-manage">
-        <span class="choice-icon">✏</span>
+        <span class="choice-icon">✏️</span>
         <div class="choice-text"><div class="choice-label">Manage Group</div></div>
       </button>
       <button class="choice-btn choice-export">
         <span class="choice-icon">📤</span>
-        <div class="choice-text"><div class="choice-label">Export Notes to Excel</div></div>
+        <div class="choice-text"><div class="choice-label">Export to Excel</div></div>
       </button>
     </div>`;
   $("session-picker-modal").classList.remove("hidden");
