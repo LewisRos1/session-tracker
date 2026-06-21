@@ -148,6 +148,63 @@ function addSummarySheets(wb, allTargets, sessions) {
   applyBorders(detWs, detMaxCols);
 }
 
+// ── Single-session export: Daily Summary (Target + that day's score only) ──
+function addDailySummarySheet(wb, entityName, allTargets, session) {
+  const rows = [
+    [`${entityName}: Daily Summary — ${fmtDate(session.date)}`, ""],
+    ["Target", "Score"]
+  ];
+  for (const target of allTargets) {
+    const snap   = (session.targetsSnapshot || []).find(t => t.name === target.name);
+    const eff    = snap ? { ...target, maxPoints: snap.maxPoints } : target;
+    const dayAvg = calcDailyAverage(session, eff);
+    rows.push([target.name, dayAvg !== null ? pct(dayAvg) : ""]);
+  }
+
+  const ws = wb.addWorksheet("Daily Summary");
+  rows.forEach(row => ws.addRow(row));
+  ws.getColumn(1).width     = 30;
+  ws.getColumn(2).width     = 14;
+  ws.getColumn(1).alignment = { vertical: "middle" };
+  ws.getColumn(2).alignment = { horizontal: "center", vertical: "middle" };
+
+  try { ws.mergeCells("A1:B1"); } catch (_) {}
+  const title     = ws.getRow(1).getCell(1);
+  title.fill      = STYLE_SESSION.fill;
+  title.font      = STYLE_SESSION.font;
+  title.alignment = { horizontal: "center", vertical: "middle" };
+
+  for (let c = 1; c <= 2; c++) {
+    const cell     = ws.getRow(2).getCell(c);
+    cell.fill      = STYLE_COL_HEADER.fill;
+    cell.font      = STYLE_COL_HEADER.font;
+    cell.alignment = STYLE_COL_HEADER.alignment;
+  }
+
+  applyBorders(ws, 2);
+}
+
+function targetHasDataInSession(target, session) {
+  const actIds = new Set(
+    Object.entries(session.activities || {})
+      .filter(([, a]) => a.targetName === target.name)
+      .map(([id]) => id)
+  );
+  return Object.values(session.remarks || {}).some(r => actIds.has(r.activityId));
+}
+
+// Union of targets across every group a student belongs to (first occurrence by name wins)
+function unionTargetsByName(groups) {
+  const allTargets = [];
+  const seenNames  = new Set();
+  for (const group of groups) {
+    for (const t of (group.targets || [])) {
+      if (!seenNames.has(t.name)) { seenNames.add(t.name); allTargets.push(t); }
+    }
+  }
+  return allTargets;
+}
+
 function addBaselineVsCurrentSheet(wb, entityName, allTargets, sortedSessions) {
   if (sortedSessions.length < 2 ||
       sortedSessions[0].date === sortedSessions[sortedSessions.length - 1].date) return;
@@ -439,14 +496,7 @@ export async function exportGroupMemberData(studentName, groups) {
     return;
   }
 
-  // Union of targets across every group this student belongs to (first occurrence by name wins)
-  const allTargets = [];
-  const seenNames = new Set();
-  for (const group of groups) {
-    for (const t of (group.targets || [])) {
-      if (!seenNames.has(t.name)) { seenNames.add(t.name); allTargets.push(t); }
-    }
-  }
+  const allTargets = unionTargetsByName(groups);
 
   const now    = new Date();
   const buffer = await buildGroupMemberWorkbook(studentName, allTargets, sessions);
@@ -455,6 +505,66 @@ export async function exportGroupMemberData(studentName, groups) {
   const a      = document.createElement("a");
   a.href       = url;
   a.download   = makeFilename(`${studentName} (Group)`, now);
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ── Single-session export (one specific day) ─────────────────
+// Much lighter than the full export: just a Daily Summary sheet plus the
+// target detail sheets that actually have data on that day — no monthly or
+// detailed summary, no baseline-vs-current, no charts.
+function makeSingleSessionFilename(entityName, session) {
+  const monNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const [y, m, d] = session.date.split("-").map(Number);
+  return `${entityName}_${String(d).padStart(2, "0")}-${monNames[m - 1]}-${y}.xlsx`;
+}
+
+async function buildSingleSessionWorkbook(entityName, allTargets, session) {
+  const sortedTargets = allTargets.slice().sort((a, b) => a.name.localeCompare(b.name));
+  const wb = new ExcelJS.Workbook();
+
+  addDailySummarySheet(wb, entityName, sortedTargets, session);
+
+  const targetsWithData = sortedTargets.filter(t => targetHasDataInSession(t, session));
+  addIndividualTargetSheets(wb, targetsWithData, [session], entityName);
+
+  return wb.xlsx.writeBuffer();
+}
+
+export async function exportStudentSingleSession(student, session) {
+  if (!student || !session) return;
+
+  const allTargets = getAllTargets(student);
+  const buffer = await buildSingleSessionWorkbook(student.name, allTargets, session);
+  const blob   = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  const url    = URL.createObjectURL(blob);
+  const a      = document.createElement("a");
+  a.href       = url;
+  a.download   = makeSingleSessionFilename(student.name, session);
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+export async function exportGroupMemberSingleSession(studentName, groups, session) {
+  if (!studentName || !groups?.length || !session) return;
+
+  const filteredRemarks = Object.fromEntries(
+    Object.entries(session.remarks || {}).filter(([, r]) => r.studentName === studentName)
+  );
+  if (Object.keys(filteredRemarks).length === 0) {
+    alert(`No session data found for ${studentName} on ${fmtDate(session.date)}.`);
+    return;
+  }
+
+  const allTargets    = unionTargetsByName(groups);
+  const entityName     = `${studentName} (Group)`;
+  const filteredSession = { ...session, remarks: filteredRemarks };
+  const buffer = await buildSingleSessionWorkbook(entityName, allTargets, filteredSession);
+  const blob   = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  const url    = URL.createObjectURL(blob);
+  const a      = document.createElement("a");
+  a.href       = url;
+  a.download   = makeSingleSessionFilename(entityName, session);
   a.click();
   URL.revokeObjectURL(url);
 }

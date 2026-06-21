@@ -45,7 +45,10 @@ import {
   updateGroupSessionDate,
   deleteTargetDataFromSessions
 } from "./firebase-service.js";
-import { exportStudentData, exportAllStudents, exportGroupMemberData } from "./export.js";
+import {
+  exportStudentData, exportAllStudents, exportGroupMemberData,
+  exportStudentSingleSession, exportGroupMemberSingleSession
+} from "./export.js";
 
 // ── SW update detection — must run at parse time, before DOMContentLoaded,
 //   so the listener is in place before the new SW can fire controllerchange.
@@ -57,7 +60,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "380";
+const APP_VERSION = "381";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -68,8 +71,6 @@ const state = {
   searchExisting:     "",
   searchAssessment:   "",
   searchTemplate:     "",
-  searchExport:       "",
-  searchExportGroup:  "",
   currentStudent:     null,
   currentSessionId:   null,
   sessionData:        null,
@@ -330,8 +331,8 @@ async function showHome() {
   if (verEl) verEl.textContent = `Made by Lewis · Version ${APP_VERSION}`;
   // Clear section searches when returning home
   state.searchExisting = ""; state.searchAssessment = ""; state.searchTemplate = "";
-  state.searchExport = ""; state.searchExportGroup = ""; state.searchGroup = "";
-  [$("search-existing"), $("search-assessment"), $("search-template"), $("search-export"), $("search-export-group"), $("search-group")]
+  state.searchGroup = "";
+  [$("search-existing"), $("search-assessment"), $("search-template"), $("search-group")]
     .forEach(el => { if (el) el.value = ""; });
   renderExistingStudentButtons();
   renderGroupButtons();
@@ -361,14 +362,6 @@ $("search-assessment").addEventListener("input", e => {
 $("search-template").addEventListener("input", e => {
   state.searchTemplate = e.target.value;
   renderTemplateButtons();
-});
-$("search-export").addEventListener("input", e => {
-  state.searchExport = e.target.value;
-  renderExportButtons();
-});
-$("search-export-group").addEventListener("input", e => {
-  state.searchExportGroup = e.target.value;
-  renderExportButtons();
 });
 
 async function addNewStudent(type) {
@@ -519,54 +512,10 @@ function renderTemplateButtons() {
 }
 
 function renderExportButtons() {
-  const indivContainer = $("export-individual-buttons");
-  const groupContainer = $("export-group-buttons");
   const exportAllContainer = $("export-all-button");
-  if (!indivContainer || !groupContainer || !exportAllContainer) return;
+  if (!exportAllContainer) return;
 
-  const sortByName = (a, b) => a.name.localeCompare(b.name);
-
-  const qIndiv = (state.searchExport || "").toLowerCase();
-  const filteredStudents = (qIndiv ? state.students.filter(s => s.name.toLowerCase().includes(qIndiv)) : state.students)
-    .slice().sort(sortByName);
-
-  // Flatten all groups into one roster entry per unique student name, each
-  // carrying every group that student belongs to (a student can be in >1 group).
-  const groupsByStudent = new Map();
-  for (const g of (state.groups || [])) {
-    for (const name of (g.students || [])) {
-      if (!groupsByStudent.has(name)) groupsByStudent.set(name, []);
-      groupsByStudent.get(name).push(g);
-    }
-  }
-  const groupMembers = Array.from(groupsByStudent.entries()).map(([name, groups]) => ({ name, groups }));
-
-  const qGroup = (state.searchExportGroup || "").toLowerCase();
-  const filteredGroupMembers = (qGroup ? groupMembers.filter(m => m.name.toLowerCase().includes(qGroup)) : groupMembers)
-    .slice().sort((a, b) => a.name.localeCompare(b.name));
-
-  const studentRosterHtml = filteredStudents.length
-    ? `<div class="roster-list">` +
-        filteredStudents.map(s => `
-          <button class="roster-item" data-id="${s.id}">
-            <span class="roster-item-name">${escHtml(s.name)}</span>
-          </button>
-        `).join("") +
-      `</div>`
-    : `<p class="empty-hint">${qIndiv ? "No matches." : "No students yet."}</p>`;
-
-  indivContainer.innerHTML = studentRosterHtml;
   exportAllContainer.innerHTML = `<button class="export-btn export-btn-all" id="btn-export-all">Export All (ZIP)</button>`;
-
-  groupContainer.innerHTML = filteredGroupMembers.length
-    ? `<div class="roster-list">` +
-        filteredGroupMembers.map(m => `
-          <button class="roster-item" data-member-name="${escHtml(m.name)}">
-            <span class="roster-item-name">${escHtml(m.name)} (Group)</span>
-          </button>
-        `).join("") +
-      `</div>`
-    : `<p class="empty-hint">${qGroup ? "No matches." : "No groups added yet."}</p>`;
 
   $("btn-export-all").addEventListener("click", async () => {
     const btn = $("btn-export-all");
@@ -582,42 +531,6 @@ function renderExportButtons() {
       btn.textContent = "Export All (ZIP)";
       btn.style.width = "";
     }
-  });
-
-  indivContainer.querySelectorAll(".roster-item[data-id]").forEach(btn => {
-    btn.addEventListener("click", async () => {
-      const student = state.students.find(s => s.id === btn.dataset.id);
-      if (!student) return;
-      const orig = btn.textContent;
-      btn.disabled = true;
-      btn.textContent = "Generating…";
-      try {
-        await exportStudentData(student);
-      } catch (err) {
-        alert("Export failed: " + err.message);
-      } finally {
-        btn.disabled = false;
-        btn.textContent = orig;
-      }
-    });
-  });
-
-  groupContainer.querySelectorAll(".roster-item[data-member-name]").forEach(btn => {
-    btn.addEventListener("click", async () => {
-      const member = groupMembers.find(m => m.name === btn.dataset.memberName);
-      if (!member) return;
-      const orig = btn.textContent;
-      btn.disabled = true;
-      btn.textContent = "Generating…";
-      try {
-        await exportGroupMemberData(member.name, member.groups);
-      } catch (err) {
-        alert("Export failed: " + err.message);
-      } finally {
-        btn.disabled = false;
-        btn.textContent = orig;
-      }
-    });
   });
 }
 
@@ -648,8 +561,23 @@ function showStudentChoice(student) {
           <div class="choice-label">Manage Student</div>
         </div>
       </button>
+      <button class="choice-btn choice-export">
+        <span class="choice-icon">📤</span>
+        <div class="choice-text">
+          <div class="choice-label">Export Notes to Excel</div>
+        </div>
+      </button>
     </div>`;
   $("session-picker-modal").classList.remove("hidden");
+
+  $("session-picker-list").querySelector(".choice-export").addEventListener("click", () => {
+    showExportChoiceGeneric(
+      student.name,
+      () => exportStudentData(student),
+      () => getRecentSessionsForStudent(student.id),
+      session => exportStudentSingleSession(student, session)
+    );
+  });
 
   $("session-picker-list").querySelector(".choice-today").addEventListener("click", () => {
     const today = getTodayString();
@@ -813,6 +741,158 @@ function closeSessionPicker() {
 
 $("session-picker-close").addEventListener("click",    closeSessionPicker);
 $("session-picker-backdrop").addEventListener("click", closeSessionPicker);
+
+// ─── EXPORT NOTES TO EXCEL (shared by individual students and group members) ─
+// entityLabel: display name shown in the picker.
+// onExportAll(): exports every session for this entity (full workbook).
+// getSessions(): fetches the full session list to populate the day picker.
+// onExportSingle(session): exports just the one picked session (light workbook).
+function showExportChoiceGeneric(entityLabel, onExportAll, getSessions, onExportSingle) {
+  $("session-picker-title").textContent = entityLabel;
+  $("session-picker-list").innerHTML = `
+    <div class="choice-list">
+      <button class="choice-btn choice-export-all">
+        <span class="choice-icon">📊</span>
+        <div class="choice-text"><div class="choice-label">Export All Sessions</div></div>
+      </button>
+      <button class="choice-btn choice-export-one">
+        <span class="choice-icon">📅</span>
+        <div class="choice-text"><div class="choice-label">Export One Session Only</div></div>
+      </button>
+    </div>`;
+  $("session-picker-modal").classList.remove("hidden");
+
+  $("session-picker-list").querySelector(".choice-export-all").addEventListener("click", async e => {
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    btn.querySelector(".choice-label").textContent = "Generating…";
+    try {
+      await onExportAll();
+    } catch (err) {
+      alert("Export failed: " + err.message);
+    }
+    closeSessionPicker();
+  });
+
+  $("session-picker-list").querySelector(".choice-export-one").addEventListener("click", () => {
+    showExportSessionPickerGeneric(entityLabel, getSessions, onExportSingle);
+  });
+}
+
+async function showExportSessionPickerGeneric(entityLabel, getSessions, onExportSingle) {
+  $("session-picker-title").textContent = entityLabel;
+  $("session-picker-list").innerHTML = `<div class="session-picker-loading">Loading sessions…</div>`;
+  $("session-picker-modal").classList.remove("hidden");
+
+  let sessions = [];
+  try { sessions = await getSessions(); } catch (_) {}
+
+  const today = getTodayString();
+  const byMonth = new Map();
+  for (const s of sessions) {
+    if (!byMonth.has(s.month)) byMonth.set(s.month, []);
+    byMonth.get(s.month).push(s);
+  }
+
+  if (byMonth.size === 0) {
+    $("session-picker-list").innerHTML = `<div class="session-picker-loading">No sessions found.</div>`;
+    return;
+  }
+
+  renderExportMonthGrid(entityLabel, byMonth, today, onExportSingle);
+}
+
+function renderExportMonthGrid(entityLabel, byMonth, today, onExportSingle) {
+  $("session-picker-title").textContent = entityLabel;
+  let html = `<div class="month-grid">`;
+  for (const month of byMonth.keys()) {
+    const [name, year] = month.split(" ");
+    html += `<button class="month-grid-btn" data-month="${escHtml(month)}">
+      <span class="mgb-month">${escHtml(name.slice(0, 3))}</span>
+      <span class="mgb-year">${escHtml(year)}</span>
+    </button>`;
+  }
+  html += `</div>`;
+
+  const list = $("session-picker-list");
+  list.innerHTML = html;
+
+  list.querySelectorAll(".month-grid-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const month = btn.dataset.month;
+      renderExportSessionsForMonth(entityLabel, month, byMonth.get(month), byMonth, today, onExportSingle);
+    });
+  });
+}
+
+function renderExportSessionsForMonth(entityLabel, month, monthSessions, byMonth, today, onExportSingle) {
+  $("session-picker-title").textContent = month;
+
+  const list = $("session-picker-list");
+  let html = `<button class="btn-picker-back">← Back</button>`;
+
+  const sorted    = [...monthSessions].sort((a, b) => a.date.localeCompare(b.date));
+  const display   = [...sorted].reverse();
+  const yesterday = getYesterdayString();
+  for (const s of display) {
+    const num   = sorted.findIndex(x => x.id === s.id) + 1;
+    const label = sessionDateLabel(s.date, today, yesterday, false);
+    html += `<div class="session-list-item" data-session-id="${s.id}">
+      <div class="session-list-meta">
+        <div class="session-list-label"><strong>Session ${num}</strong>: ${formatDate(s.date)}${label}</div>
+      </div>
+    </div>`;
+  }
+
+  list.innerHTML = html;
+
+  list.querySelector(".btn-picker-back").addEventListener("click", () => {
+    renderExportMonthGrid(entityLabel, byMonth, today, onExportSingle);
+  });
+
+  list.querySelectorAll(".session-list-item").forEach(item => {
+    item.addEventListener("click", async () => {
+      const session = sorted.find(s => s.id === item.dataset.sessionId);
+      $("session-picker-title").textContent = "Generating…";
+      closeSessionPicker();
+      try {
+        await onExportSingle(session);
+      } catch (err) {
+        alert("Export failed: " + err.message);
+      }
+    });
+  });
+}
+
+// Group "Export Notes to Excel" exports one student at a time — ask which
+// student in this group first, then hand off to the same All/One-day flow.
+function showGroupExportStudentPicker(group) {
+  $("session-picker-title").textContent = group.name;
+  const students = group.students || [];
+  $("session-picker-list").innerHTML = students.length
+    ? `<div class="choice-list">` +
+        students.map(name => `
+          <button class="choice-btn choice-export-student" data-name="${escHtml(name)}">
+            <span class="choice-icon">📤</span>
+            <div class="choice-text"><div class="choice-label">${escHtml(name)}</div></div>
+          </button>
+        `).join("") +
+      `</div>`
+    : `<p class="empty-hint">No students in this group.</p>`;
+  $("session-picker-modal").classList.remove("hidden");
+
+  $("session-picker-list").querySelectorAll(".choice-export-student").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const name = btn.dataset.name;
+      showExportChoiceGeneric(
+        `${name} (Group)`,
+        () => exportGroupMemberData(name, [group]),
+        () => getRecentGroupSessions(group.id),
+        session => exportGroupMemberSingleSession(name, [group], session)
+      );
+    });
+  });
+}
 
 // ─── GO TO ANOTHER SESSION ───────────────────────────────────
 // Opens session-picker starting at the current session's month.
@@ -5038,8 +5118,16 @@ function showGroupChoice(group) {
         <span class="choice-icon">✏</span>
         <div class="choice-text"><div class="choice-label">Manage Group</div></div>
       </button>
+      <button class="choice-btn choice-export">
+        <span class="choice-icon">📤</span>
+        <div class="choice-text"><div class="choice-label">Export Notes to Excel</div></div>
+      </button>
     </div>`;
   $("session-picker-modal").classList.remove("hidden");
+
+  $("session-picker-list").querySelector(".choice-export").addEventListener("click", () => {
+    showGroupExportStudentPicker(group);
+  });
 
   const today = getTodayString();
   $("session-picker-list").querySelector(".choice-today").addEventListener("click", () => {
