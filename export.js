@@ -55,6 +55,15 @@ const STYLE_NOTE = {
   fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFF8ED" } },
   font: { italic: true, color: { argb: "FF7A5030" } }
 };
+// Activity cell with an attached note: name on its own line, note italicized below it
+function richTextActivityWithNote(name, note) {
+  return {
+    richText: [
+      { text: name },
+      { text: `\nNote: ${note}`, font: STYLE_NOTE.font }
+    ]
+  };
+}
 // Thin border: soft periwinkle-gray for summary sheets
 const CELL_BORDER = {
   top:    { style: "thin", color: { argb: "FFB0C8E0" } },
@@ -453,14 +462,15 @@ async function buildGroupMemberWorkbook(studentName, allTargets, sessions) {
   return wb.xlsx.writeBuffer();
 }
 
-function makeFilename(studentName, now) {
-  const monNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+// Filename format: "{Name} - {Individual/Group Session} - {dd.mm.yyyy} - {hh-mm}.xlsx"
+// Date/time always reflect the moment of export, not any session date.
+function formatExportFilename(name, sessionType, now) {
   const dd   = String(now.getDate()).padStart(2, "0");
-  const mon  = monNames[now.getMonth()];
+  const mm   = String(now.getMonth() + 1).padStart(2, "0");
   const yyyy = now.getFullYear();
   const hh   = String(now.getHours()).padStart(2, "0");
-  const mm   = String(now.getMinutes()).padStart(2, "0");
-  return `${studentName}_${dd}-${mon}-${yyyy}_${hh}${mm}.xlsx`;
+  const min  = String(now.getMinutes()).padStart(2, "0");
+  return `${name} - ${sessionType} - ${dd}.${mm}.${yyyy} - ${hh}-${min}.xlsx`;
 }
 
 export async function exportStudentData(student) {
@@ -478,7 +488,7 @@ export async function exportStudentData(student) {
   const url    = URL.createObjectURL(blob);
   const a      = document.createElement("a");
   a.href       = url;
-  a.download   = makeFilename(student.name, now);
+  a.download   = formatExportFilename(student.name, "Individual Session", now);
   a.click();
   URL.revokeObjectURL(url);
 }
@@ -505,7 +515,7 @@ export async function exportGroupMemberData(studentName, groups) {
   const url    = URL.createObjectURL(blob);
   const a      = document.createElement("a");
   a.href       = url;
-  a.download   = makeFilename(`${studentName} (Group)`, now);
+  a.download   = formatExportFilename(studentName, "Group Session", now);
   a.click();
   URL.revokeObjectURL(url);
 }
@@ -514,11 +524,6 @@ export async function exportGroupMemberData(studentName, groups) {
 // Much lighter than the full export: just two sheets — one combined sheet with
 // every target's data for that day, and a Daily Summary table — no monthly or
 // detailed summary, no per-target sheets, no baseline-vs-current, no charts.
-function makeSingleSessionFilename(entityName, session) {
-  const monNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-  const [y, m, d] = session.date.split("-").map(Number);
-  return `${entityName}_${String(d).padStart(2, "0")}-${monNames[m - 1]}-${y}.xlsx`;
-}
 
 function buildCombinedSessionRows(allTargets, session, entityName) {
   const rows                = [];
@@ -671,7 +676,7 @@ export async function exportStudentSingleSession(student, session) {
   const url    = URL.createObjectURL(blob);
   const a      = document.createElement("a");
   a.href       = url;
-  a.download   = makeSingleSessionFilename(student.name, session);
+  a.download   = formatExportFilename(student.name, "Individual Session", new Date());
   a.click();
   URL.revokeObjectURL(url);
 }
@@ -695,7 +700,7 @@ export async function exportGroupMemberSingleSession(studentName, groups, sessio
   const url    = URL.createObjectURL(blob);
   const a      = document.createElement("a");
   a.href       = url;
-  a.download   = makeSingleSessionFilename(entityName, session);
+  a.download   = formatExportFilename(studentName, "Group Session", new Date());
   a.click();
   URL.revokeObjectURL(url);
 }
@@ -711,7 +716,7 @@ export async function exportAllStudents(students) {
     const sessions = await getAllSessionsForStudent(student.id);
     if (sessions.length === 0) continue;
     const buffer = await buildStudentWorkbook(student, sessions);
-    zip.file(makeFilename(student.name, now), buffer);
+    zip.file(formatExportFilename(student.name, "Individual Session", now), buffer);
     exported++;
   }
 
@@ -976,13 +981,12 @@ function appendSessionRows(rows, sessionDateBlocks, activityHeadingRows, noteRow
       const actNoteText = (target.predefinedActivities || []).find(
         p => !p.isHeading && !p.isNote && p.name === act.activityName
       )?.actNote;
-      if (actNoteText && actNoteText.trim()) {
-        noteRows.add(rows.length);
-        rows.push(["", `Note: ${actNoteText.trim()}`, "", "", ""]);
-      }
+      const activityCell = (actNoteText && actNoteText.trim())
+        ? richTextActivityWithNote(act.activityName, actNoteText.trim())
+        : act.activityName;
 
       if (act.empty) {
-        rows.push(["", act.activityName, "", "", ""]);
+        rows.push(["", activityCell, "", "", ""]);
         continue;
       }
 
@@ -992,7 +996,7 @@ function appendSessionRows(rows, sessionDateBlocks, activityHeadingRows, noteRow
       )?.sentenceStarter || null;
 
       if (remarks.length === 0) {
-        rows.push(["", act.activityName, "", "", ""]);
+        rows.push(["", activityCell, "", "", ""]);
         continue;
       }
 
@@ -1005,7 +1009,7 @@ function appendSessionRows(rows, sessionDateBlocks, activityHeadingRows, noteRow
         const remarkText  = masteryNote ? `${baseText} — ${masteryNote}` : baseText;
         rows.push([
           "",
-          firstRemark ? act.activityName : "",
+          firstRemark ? activityCell : "",
           remarkText,
           remarkAvg !== null ? pct(remarkAvg) : "",
           ""
