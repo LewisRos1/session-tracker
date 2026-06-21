@@ -60,7 +60,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "385";
+const APP_VERSION = "388";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -804,7 +804,7 @@ async function showExportSessionPickerGeneric(entityLabel, getSessions, onExport
 
 function renderExportMonthGrid(entityLabel, byMonth, today, onExportSingle) {
   $("session-picker-title").textContent = entityLabel;
-  let html = `<div class="month-grid">`;
+  let html = `<p class="session-date-prompt">Choose a session note to export.</p><div class="month-grid">`;
   for (const month of byMonth.keys()) {
     const [name, year] = month.split(" ");
     html += `<button class="month-grid-btn" data-month="${escHtml(month)}">
@@ -830,6 +830,7 @@ function renderExportSessionsForMonth(entityLabel, month, monthSessions, byMonth
 
   const list = $("session-picker-list");
   let html = `<button class="btn-picker-back">← Back</button>`;
+  html += `<p class="session-date-prompt">Choose a session note to export.</p>`;
 
   const sorted    = [...monthSessions].sort((a, b) => a.date.localeCompare(b.date));
   const display   = [...sorted].reverse();

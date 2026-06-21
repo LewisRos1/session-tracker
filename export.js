@@ -327,7 +327,7 @@ function addIndividualTargetSheets(wb, allTargets, sessions, studentName) {
     // Col widths: Date | Activity | Remark | Score | Avg Score
     ws.getColumn(1).width     = 6.33;
     ws.getColumn(2).width     = 40.89;
-    ws.getColumn(3).width     = 56.22;
+    ws.getColumn(3).width     = 60.45;
     ws.getColumn(4).width     = 6.78;
     ws.getColumn(5).width     = 8.56;
     ws.getColumn(1).alignment = { horizontal: "center", vertical: "top" };
@@ -510,23 +510,142 @@ export async function exportGroupMemberData(studentName, groups) {
 }
 
 // ── Single-session export (one specific day) ─────────────────
-// Much lighter than the full export: just a Daily Summary sheet plus the
-// target detail sheets that actually have data on that day — no monthly or
-// detailed summary, no baseline-vs-current, no charts.
+// Much lighter than the full export: just two sheets — one combined sheet with
+// every target's data for that day, and a Daily Summary table — no monthly or
+// detailed summary, no per-target sheets, no baseline-vs-current, no charts.
 function makeSingleSessionFilename(entityName, session) {
   const monNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
   const [y, m, d] = session.date.split("-").map(Number);
   return `${entityName}_${String(d).padStart(2, "0")}-${monNames[m - 1]}-${y}.xlsx`;
 }
 
+function buildCombinedSessionRows(allTargets, session) {
+  const rows                = [];
+  const targetHeaderRows    = new Set();
+  const colHeaderRows       = new Set();
+  const activityHeadingRows = new Set();
+  const noteRows            = new Set();
+  const sessionDateBlocks   = [];
+  const spacerRows          = new Set();
+  let firstTarget = true;
+
+  for (const target of allTargets) {
+    if (!targetHasDataInSession(target, session)) continue;
+
+    const snap   = (session.targetsSnapshot || []).find(t => t.name === target.name);
+    const eff    = snap ? { ...target, maxPoints: snap.maxPoints } : target;
+    const dayAvg = calcDailyAverage(session, eff);
+
+    if (!firstTarget) { spacerRows.add(rows.length); rows.push(["", "", "", "", ""]); }
+    firstTarget = false;
+
+    targetHeaderRows.add(rows.length);
+    rows.push([`${target.name}  —  Score: ${dayAvg !== null ? pct(dayAvg) : "N/A"}`, "", "", "", ""]);
+    spacerRows.add(rows.length);
+    rows.push(["", "", "", "", ""]);
+
+    colHeaderRows.add(rows.length);
+    rows.push(["Date", "Activity", "Remark", "Score", "Avg Score"]);
+
+    appendSessionRows(rows, sessionDateBlocks, activityHeadingRows, noteRows, session, eff);
+  }
+
+  return { rows, targetHeaderRows, colHeaderRows, activityHeadingRows, noteRows, sessionDateBlocks, spacerRows };
+}
+
+// One sheet combining every target's data for the single exported day
+// (mirrors addIndividualTargetSheets' styling, but per-target header blocks
+// instead of per-target sheets).
+function addCombinedSessionSheet(wb, allTargets, session, entityName) {
+  const { rows, targetHeaderRows, colHeaderRows, activityHeadingRows, noteRows, sessionDateBlocks, spacerRows } =
+    buildCombinedSessionRows(allTargets, session);
+
+  const ws = wb.addWorksheet("Session Notes");
+  rows.forEach(row => ws.addRow(row));
+
+  ws.getColumn(1).width     = 6.33;
+  ws.getColumn(2).width     = 40.89;
+  ws.getColumn(3).width     = 60.45;
+  ws.getColumn(4).width     = 6.78;
+  ws.getColumn(5).width     = 8.56;
+  ws.getColumn(1).alignment = { horizontal: "center", vertical: "top" };
+  ws.getColumn(2).alignment = { wrapText: true, vertical: "top" };
+  ws.getColumn(3).alignment = { wrapText: true, vertical: "top" };
+  ws.getColumn(4).alignment = { horizontal: "center", vertical: "top" };
+  ws.getColumn(5).alignment = { horizontal: "center", vertical: "top" };
+
+  for (const rowIdx of targetHeaderRows) {
+    const n = rowIdx + 1;
+    try { ws.mergeCells(`A${n}:E${n}`); } catch (_) {}
+    const cell = ws.getRow(n).getCell(1);
+    cell.fill      = STYLE_TARGET_MONTH.fill;
+    cell.font      = STYLE_TARGET_MONTH.font;
+    cell.alignment = STYLE_TARGET_MONTH.alignment;
+  }
+
+  for (const rowIdx of colHeaderRows) {
+    const n = rowIdx + 1;
+    for (let c = 1; c <= 5; c++) {
+      const cell = ws.getRow(n).getCell(c);
+      cell.fill      = STYLE_TARGET_COLHDR.fill;
+      cell.font      = STYLE_TARGET_COLHDR.font;
+      cell.alignment = STYLE_TARGET_COLHDR.alignment;
+    }
+  }
+
+  for (const rowIdx of activityHeadingRows) {
+    const n = rowIdx + 1;
+    try { ws.mergeCells(`B${n}:D${n}`); } catch (_) {}
+    const cell = ws.getRow(n).getCell(2);
+    cell.fill      = STYLE_ACT_HEADING.fill;
+    cell.font      = STYLE_ACT_HEADING.font;
+    cell.alignment = { vertical: "top" };
+  }
+
+  for (const rowIdx of noteRows) {
+    const n = rowIdx + 1;
+    try { ws.mergeCells(`B${n}:D${n}`); } catch (_) {}
+    const cell = ws.getRow(n).getCell(2);
+    cell.fill      = STYLE_NOTE.fill;
+    cell.font      = STYLE_NOTE.font;
+    cell.alignment = { wrapText: true, vertical: "top" };
+    const text = (cell.value || "").toString();
+    const visLines = text.split("\n").reduce((sum, seg) =>
+      sum + Math.max(1, Math.ceil((seg.length || 1) / 90)), 0);
+    ws.getRow(n).height = Math.max(18, visLines * 15);
+  }
+
+  for (const { startRow, endRow, dateLabel, avgScore } of sessionDateBlocks) {
+    const startN = startRow + 1;
+    const endN   = endRow + 1;
+    if (startN < endN) {
+      try { ws.mergeCells(`A${startN}:A${endN}`); } catch (_) {}
+      try { ws.mergeCells(`E${startN}:E${endN}`); } catch (_) {}
+    }
+    const dateCell = ws.getRow(startN).getCell(1);
+    dateCell.value     = dateLabel;
+    dateCell.alignment = { horizontal: "center", vertical: "top" };
+
+    const avgCell = ws.getRow(startN).getCell(5);
+    avgCell.value     = avgScore;
+    avgCell.font      = { color: { argb: "FF000000" } };
+    avgCell.alignment = { horizontal: "center", vertical: "top" };
+  }
+
+  ws.headerFooter.oddFooter = `&LZORA Behavioural Intervention&C${entityName}&R&P`;
+
+  ws.eachRow((row, rowNumber) => {
+    if (spacerRows.has(rowNumber - 1)) return;
+    for (let c = 1; c <= 5; c++) row.getCell(c).border = TARGET_CELL_BORDER;
+  });
+}
+
 async function buildSingleSessionWorkbook(entityName, allTargets, session) {
   const sortedTargets = allTargets.slice().sort((a, b) => a.name.localeCompare(b.name));
   const wb = new ExcelJS.Workbook();
 
+  addCombinedSessionSheet(wb, sortedTargets, session, entityName);
   addDailySummarySheet(wb, entityName, sortedTargets, session);
-
-  const targetsWithData = sortedTargets.filter(t => targetHasDataInSession(t, session));
-  addIndividualTargetSheets(wb, targetsWithData, [session], entityName);
 
   return wb.xlsx.writeBuffer();
 }
