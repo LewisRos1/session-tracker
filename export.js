@@ -163,8 +163,8 @@ function addDailySummarySheet(wb, entityName, allTargets, session) {
 
   const ws = wb.addWorksheet("Daily Summary");
   rows.forEach(row => ws.addRow(row));
-  ws.getColumn(1).width     = 30;
-  ws.getColumn(2).width     = 14;
+  ws.getColumn(1).width     = 36;
+  ws.getColumn(2).width     = 16;
   ws.getColumn(1).alignment = { vertical: "middle" };
   ws.getColumn(2).alignment = { horizontal: "center", vertical: "middle" };
 
@@ -173,6 +173,7 @@ function addDailySummarySheet(wb, entityName, allTargets, session) {
   title.fill      = STYLE_SESSION.fill;
   title.font      = STYLE_SESSION.font;
   title.alignment = { horizontal: "center", vertical: "middle" };
+  fitTitleRow(ws, 1, 52);
 
   for (let c = 1; c <= 2; c++) {
     const cell     = ws.getRow(2).getCell(c);
@@ -327,7 +328,7 @@ function addIndividualTargetSheets(wb, allTargets, sessions, studentName) {
     // Col widths: Date | Activity | Remark | Score | Avg Score
     ws.getColumn(1).width     = 6.33;
     ws.getColumn(2).width     = 40.89;
-    ws.getColumn(3).width     = 60.45;
+    ws.getColumn(3).width     = 62;
     ws.getColumn(4).width     = 6.78;
     ws.getColumn(5).width     = 8.56;
     ws.getColumn(1).alignment = { horizontal: "center", vertical: "top" };
@@ -519,7 +520,7 @@ function makeSingleSessionFilename(entityName, session) {
   return `${entityName}_${String(d).padStart(2, "0")}-${monNames[m - 1]}-${y}.xlsx`;
 }
 
-function buildCombinedSessionRows(allTargets, session) {
+function buildCombinedSessionRows(allTargets, session, entityName) {
   const rows                = [];
   const targetHeaderRows    = new Set();
   const colHeaderRows       = new Set();
@@ -527,7 +528,11 @@ function buildCombinedSessionRows(allTargets, session) {
   const noteRows            = new Set();
   const sessionDateBlocks   = [];
   const spacerRows          = new Set();
-  let firstTarget = true;
+
+  const titleRow = rows.length;
+  rows.push([`${entityName}: Daily Summary — ${fmtDate(session.date)}`, "", "", "", ""]);
+  spacerRows.add(rows.length);
+  rows.push(["", "", "", "", ""]);
 
   for (const target of allTargets) {
     if (!targetHasDataInSession(target, session)) continue;
@@ -536,8 +541,7 @@ function buildCombinedSessionRows(allTargets, session) {
     const eff    = snap ? { ...target, maxPoints: snap.maxPoints } : target;
     const dayAvg = calcDailyAverage(session, eff);
 
-    if (!firstTarget) { spacerRows.add(rows.length); rows.push(["", "", "", "", ""]); }
-    firstTarget = false;
+    if (targetHeaderRows.size > 0) { spacerRows.add(rows.length); rows.push(["", "", "", "", ""]); }
 
     targetHeaderRows.add(rows.length);
     rows.push([`${target.name}  —  Score: ${dayAvg !== null ? pct(dayAvg) : "N/A"}`, "", "", "", ""]);
@@ -550,22 +554,22 @@ function buildCombinedSessionRows(allTargets, session) {
     appendSessionRows(rows, sessionDateBlocks, activityHeadingRows, noteRows, session, eff);
   }
 
-  return { rows, targetHeaderRows, colHeaderRows, activityHeadingRows, noteRows, sessionDateBlocks, spacerRows };
+  return { rows, titleRow, targetHeaderRows, colHeaderRows, activityHeadingRows, noteRows, sessionDateBlocks, spacerRows };
 }
 
 // One sheet combining every target's data for the single exported day
 // (mirrors addIndividualTargetSheets' styling, but per-target header blocks
 // instead of per-target sheets).
 function addCombinedSessionSheet(wb, allTargets, session, entityName) {
-  const { rows, targetHeaderRows, colHeaderRows, activityHeadingRows, noteRows, sessionDateBlocks, spacerRows } =
-    buildCombinedSessionRows(allTargets, session);
+  const { rows, titleRow, targetHeaderRows, colHeaderRows, activityHeadingRows, noteRows, sessionDateBlocks, spacerRows } =
+    buildCombinedSessionRows(allTargets, session, entityName);
 
   const ws = wb.addWorksheet("Session Notes");
   rows.forEach(row => ws.addRow(row));
 
   ws.getColumn(1).width     = 6.33;
   ws.getColumn(2).width     = 40.89;
-  ws.getColumn(3).width     = 60.45;
+  ws.getColumn(3).width     = 62;
   ws.getColumn(4).width     = 6.78;
   ws.getColumn(5).width     = 8.56;
   ws.getColumn(1).alignment = { horizontal: "center", vertical: "top" };
@@ -573,6 +577,16 @@ function addCombinedSessionSheet(wb, allTargets, session, entityName) {
   ws.getColumn(3).alignment = { wrapText: true, vertical: "top" };
   ws.getColumn(4).alignment = { horizontal: "center", vertical: "top" };
   ws.getColumn(5).alignment = { horizontal: "center", vertical: "top" };
+
+  {
+    const n = titleRow + 1;
+    try { ws.mergeCells(`A${n}:E${n}`); } catch (_) {}
+    const cell = ws.getRow(n).getCell(1);
+    cell.fill      = STYLE_SESSION.fill;
+    cell.font      = STYLE_SESSION.font;
+    cell.alignment = { horizontal: "center", vertical: "middle" };
+    fitTitleRow(ws, n, 110);
+  }
 
   for (const rowIdx of targetHeaderRows) {
     const n = rowIdx + 1;
@@ -733,6 +747,16 @@ function applyRowStyles(ws, rowIndices, style, numCols = 4) {
       if (style.alignment) cell.alignment = style.alignment;
     }
   }
+}
+
+// Wraps a merged title cell and grows its row height so long titles (e.g. a
+// long student name) never get clipped instead of just sizing for the common case.
+function fitTitleRow(ws, rowNumber, totalColWidth) {
+  const cell = ws.getRow(rowNumber).getCell(1);
+  cell.alignment = { ...cell.alignment, wrapText: true };
+  const text = (cell.value || "").toString();
+  const visLines = Math.max(1, Math.ceil(text.length / totalColWidth));
+  ws.getRow(rowNumber).height = Math.max(20, visLines * 18);
 }
 
 // Apply thin borders to every cell in the used range for print readability
