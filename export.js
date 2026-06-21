@@ -529,10 +529,15 @@ function buildCombinedSessionRows(allTargets, session, entityName) {
   const sessionDateBlocks   = [];
   const spacerRows          = new Set();
 
+  // No Date column here — every row is the same single day, already named in
+  // the title above, so appendSessionRows' leading date placeholder is dropped
+  // from each row it adds (that function is shared with the full multi-session
+  // export, which still needs its Date column, so it's untouched — we just
+  // strip the column locally after the fact).
   const titleRow = rows.length;
-  rows.push([`${entityName} — ${fmtDate(session.date)}`, "", "", "", ""]);
+  rows.push([`${entityName} — ${fmtDate(session.date)}`, "", "", ""]);
   spacerRows.add(rows.length);
-  rows.push(["", "", "", "", ""]);
+  rows.push(["", "", "", ""]);
 
   for (const target of allTargets) {
     if (!targetHasDataInSession(target, session)) continue;
@@ -541,15 +546,17 @@ function buildCombinedSessionRows(allTargets, session, entityName) {
     const eff    = snap ? { ...target, maxPoints: snap.maxPoints } : target;
     const dayAvg = calcDailyAverage(session, eff);
 
-    if (targetHeaderRows.size > 0) { spacerRows.add(rows.length); rows.push(["", "", "", "", ""]); }
+    if (targetHeaderRows.size > 0) { spacerRows.add(rows.length); rows.push(["", "", "", ""]); }
 
     targetHeaderRows.add(rows.length);
-    rows.push([`${target.name}  —  Score: ${dayAvg !== null ? pct(dayAvg) : "N/A"}`, "", "", "", ""]);
+    rows.push([`${target.name}  —  Score: ${dayAvg !== null ? pct(dayAvg) : "N/A"}`, "", "", ""]);
 
     colHeaderRows.add(rows.length);
-    rows.push(["Date", "Activity", "Remark", "Score", "Avg Score"]);
+    rows.push(["Activity", "Remark", "Score", "Avg Score"]);
 
+    const before = rows.length;
     appendSessionRows(rows, sessionDateBlocks, activityHeadingRows, noteRows, session, eff);
+    for (let i = before; i < rows.length; i++) rows[i] = rows[i].slice(1);
   }
 
   return { rows, titleRow, targetHeaderRows, colHeaderRows, activityHeadingRows, noteRows, sessionDateBlocks, spacerRows };
@@ -565,20 +572,19 @@ function addCombinedSessionSheet(wb, allTargets, session, entityName) {
   const ws = wb.addWorksheet("Session Notes");
   rows.forEach(row => ws.addRow(row));
 
-  ws.getColumn(1).width     = 6.33;
-  ws.getColumn(2).width     = 40.89;
-  ws.getColumn(3).width     = 62;
-  ws.getColumn(4).width     = 6.78;
-  ws.getColumn(5).width     = 8.56;
-  ws.getColumn(1).alignment = { horizontal: "center", vertical: "top" };
+  // Col widths: Activity | Remark | Score | Avg Score (no Date — see comment above)
+  ws.getColumn(1).width     = 40.89;
+  ws.getColumn(2).width     = 62;
+  ws.getColumn(3).width     = 6.78;
+  ws.getColumn(4).width     = 8.56;
+  ws.getColumn(1).alignment = { wrapText: true, vertical: "top" };
   ws.getColumn(2).alignment = { wrapText: true, vertical: "top" };
-  ws.getColumn(3).alignment = { wrapText: true, vertical: "top" };
+  ws.getColumn(3).alignment = { horizontal: "center", vertical: "top" };
   ws.getColumn(4).alignment = { horizontal: "center", vertical: "top" };
-  ws.getColumn(5).alignment = { horizontal: "center", vertical: "top" };
 
   {
     const n = titleRow + 1;
-    try { ws.mergeCells(`A${n}:E${n}`); } catch (_) {}
+    try { ws.mergeCells(`A${n}:D${n}`); } catch (_) {}
     const cell = ws.getRow(n).getCell(1);
     cell.fill      = STYLE_TARGET_MONTH.fill;
     cell.font      = STYLE_TARGET_MONTH.font;
@@ -588,7 +594,7 @@ function addCombinedSessionSheet(wb, allTargets, session, entityName) {
 
   for (const rowIdx of targetHeaderRows) {
     const n = rowIdx + 1;
-    try { ws.mergeCells(`A${n}:E${n}`); } catch (_) {}
+    try { ws.mergeCells(`A${n}:D${n}`); } catch (_) {}
     const cell = ws.getRow(n).getCell(1);
     cell.fill      = STYLE_TARGET_MONTH.fill;
     cell.font      = STYLE_TARGET_MONTH.font;
@@ -597,7 +603,7 @@ function addCombinedSessionSheet(wb, allTargets, session, entityName) {
 
   for (const rowIdx of colHeaderRows) {
     const n = rowIdx + 1;
-    for (let c = 1; c <= 5; c++) {
+    for (let c = 1; c <= 4; c++) {
       const cell = ws.getRow(n).getCell(c);
       cell.fill      = STYLE_TARGET_COLHDR.fill;
       cell.font      = STYLE_TARGET_COLHDR.font;
@@ -607,8 +613,8 @@ function addCombinedSessionSheet(wb, allTargets, session, entityName) {
 
   for (const rowIdx of activityHeadingRows) {
     const n = rowIdx + 1;
-    try { ws.mergeCells(`B${n}:D${n}`); } catch (_) {}
-    const cell = ws.getRow(n).getCell(2);
+    try { ws.mergeCells(`A${n}:C${n}`); } catch (_) {}
+    const cell = ws.getRow(n).getCell(1);
     cell.fill      = STYLE_ACT_HEADING.fill;
     cell.font      = STYLE_ACT_HEADING.font;
     cell.alignment = { vertical: "top" };
@@ -616,8 +622,8 @@ function addCombinedSessionSheet(wb, allTargets, session, entityName) {
 
   for (const rowIdx of noteRows) {
     const n = rowIdx + 1;
-    try { ws.mergeCells(`B${n}:D${n}`); } catch (_) {}
-    const cell = ws.getRow(n).getCell(2);
+    try { ws.mergeCells(`A${n}:C${n}`); } catch (_) {}
+    const cell = ws.getRow(n).getCell(1);
     cell.fill      = STYLE_NOTE.fill;
     cell.font      = STYLE_NOTE.font;
     cell.alignment = { wrapText: true, vertical: "top" };
@@ -627,18 +633,13 @@ function addCombinedSessionSheet(wb, allTargets, session, entityName) {
     ws.getRow(n).height = Math.max(18, visLines * 15);
   }
 
-  for (const { startRow, endRow, dateLabel, avgScore } of sessionDateBlocks) {
+  for (const { startRow, endRow, avgScore } of sessionDateBlocks) {
     const startN = startRow + 1;
     const endN   = endRow + 1;
     if (startN < endN) {
-      try { ws.mergeCells(`A${startN}:A${endN}`); } catch (_) {}
-      try { ws.mergeCells(`E${startN}:E${endN}`); } catch (_) {}
+      try { ws.mergeCells(`D${startN}:D${endN}`); } catch (_) {}
     }
-    const dateCell = ws.getRow(startN).getCell(1);
-    dateCell.value     = dateLabel;
-    dateCell.alignment = { horizontal: "center", vertical: "top" };
-
-    const avgCell = ws.getRow(startN).getCell(5);
+    const avgCell = ws.getRow(startN).getCell(4);
     avgCell.value     = avgScore;
     avgCell.font      = { color: { argb: "FF000000" } };
     avgCell.alignment = { horizontal: "center", vertical: "top" };
@@ -648,7 +649,7 @@ function addCombinedSessionSheet(wb, allTargets, session, entityName) {
 
   ws.eachRow((row, rowNumber) => {
     if (spacerRows.has(rowNumber - 1)) return;
-    for (let c = 1; c <= 5; c++) row.getCell(c).border = TARGET_CELL_BORDER;
+    for (let c = 1; c <= 4; c++) row.getCell(c).border = TARGET_CELL_BORDER;
   });
 }
 
