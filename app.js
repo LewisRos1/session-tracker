@@ -60,7 +60,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "394";
+const APP_VERSION = "397";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -2668,7 +2668,12 @@ function setupMergedRemarkSaving(body, getSessionId) {
           sid, div.dataset.target, div.dataset.actName, Date.now(), div.dataset.isPredefined === "true"
         );
       }
-      const remId = await addRemark(sid, actId, "");
+      // Group view's empty boxes are scoped to one attendee (data-student);
+      // the individual view's aren't.
+      const studentName = div.dataset.student;
+      const remId = studentName
+        ? await addGroupRemark(sid, actId, studentName)
+        : await addRemark(sid, actId, "");
       await updateRemarkText(sid, remId, text);
     });
   }
@@ -3144,6 +3149,33 @@ function viewGroupActivityRows(no, actName, actId, data, target, attendees, isPr
   const isMastery       = paEntry?.isMastery || false;
 
   if (rounds.length === 0) {
+    // Free-text activities (no presets, not mastery): show a ready-to-type empty
+    // box per attendee, like the individual screen does, instead of a generic
+    // "+ Add Remark & Trials" bulk button — this activity is already in "Separate
+    // Remarks" mode, so each student gets their own row from the start.
+    const opts      = parseOpts(inlineOptions);
+    const showEmpty = opts.length === 0 && !isMastery;
+
+    if (showEmpty) {
+      return attendees.map((studentName, idx) => `<tr>
+        <td class="vcol-no" contenteditable="false">${idx === 0 ? no : ""}</td>
+        <td class="vcol-act" contenteditable="false">${idx === 0 ? actCellWithToggle : ""}</td>
+        <td class="vcol-student" contenteditable="false">${escHtml(studentName)}</td>
+        <td class="vcol-rem">
+          <div class="view-remark-edit view-remark-empty"
+            data-act-id="${escHtml(actId || "")}"
+            data-act-name="${escHtml(actName)}"
+            data-target="${escHtml(target.name)}"
+            data-is-predefined="${isPredefined}"
+            data-student="${escHtml(studentName)}"
+            data-placeholder="Click to add remark…"></div>
+        </td>
+        <td class="vcol-trials" contenteditable="false"></td>
+        <td class="vcol-total" contenteditable="false"></td>
+        <td class="vcol-score" contenteditable="false"></td>
+      </tr>`).join("");
+    }
+
     return `<tr>
       <td class="vcol-no" contenteditable="false">${no}</td>
       <td class="vcol-act" contenteditable="false">${actCellWithToggle}</td>
@@ -3930,7 +3962,7 @@ function showGroupDupFromTemplate(group) {
   });
 }
 
-function closeManageModal() {
+async function closeManageModal() {
   $("manage-modal").classList.add("hidden");
   _groupForTargetEdit = null;
 
@@ -3943,7 +3975,14 @@ function closeManageModal() {
     }
     if (acts.length !== before) {
       acts.forEach((a, i) => a.order = i);
-      save().catch(() => {});
+      // Awaited (not fire-and-forget) so this finishes before the screen
+      // refreshes below, and a failed save is surfaced instead of silently
+      // leaving the empty item sitting in Firestore.
+      try {
+        await save();
+      } catch (err) {
+        alert("Couldn't save — check your connection and try again.\n\n" + err.message);
+      }
     }
   }
   // If a brand-new group was being created but has no students, remove it
