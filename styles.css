@@ -2499,7 +2499,7 @@ div.admin-note-editable:empty::before {
   min-height: 1.8rem;
   cursor: text;
 }
-.view-remark-edit:focus,
+.view-remark-edit.rem-edit-active,
 .view-comment-edit:focus { border-color: var(--primary); background: #fff; }
 
 .view-remark-preset-select {

@@ -57,7 +57,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "379";
+const APP_VERSION = "380";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -137,6 +137,10 @@ function commitTextEditorSheet() {
   if (!_sheetOriginEl) return;
   _sheetOriginEl.innerHTML = $("text-editor-content").innerHTML;
   _sheetOriginEl.dispatchEvent(new Event("blur"));
+  // .view-remark-edit boxes on the view/edit-past-session screens no longer have
+  // their own blur listener (saving is handled by the shared merged-editing host) —
+  // bubble an "input" so that host's debounced flush picks up this change too.
+  _sheetOriginEl.dispatchEvent(new Event("input", { bubbles: true }));
   _sheetOriginEl = null;
 }
 
@@ -2189,12 +2193,14 @@ async function openSessionView(student, sessionId) {
   $("session-view-body").innerHTML = `<div class="loading">Loading…</div>`;
 
   if (state.fbViewUnsubscribe) { state.fbViewUnsubscribe(); state.fbViewUnsubscribe = null; }
+  state.viewRemarkSaver?.cleanup();
+  state.viewRemarkSaver = setupMergedRemarkSaving($("session-view-body"), () => state.viewSessionId);
 
   try {
     state.fbViewUnsubscribe = listenToSession(sessionId, data => {
       state.viewSessionData = data;
       const active = document.activeElement;
-      const busy   = active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA");
+      const busy   = active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.isContentEditable);
       if (busy) { state.viewRenderPending = true; }
       else      { renderSessionView(); }
     });
@@ -2210,6 +2216,9 @@ function leaveSessionView() {
   $("btn-delete-session")?.classList.add("hidden");
   $("btn-goto-session")?.classList.add("hidden");
   if (state.fbViewUnsubscribe) { state.fbViewUnsubscribe(); state.fbViewUnsubscribe = null; }
+  state.viewRemarkSaver?.flush();
+  state.viewRemarkSaver?.cleanup();
+  state.viewRemarkSaver = null;
   const sessionId = state.viewSessionId;
   const data      = state.viewSessionData;
   const student   = state.viewStudent;
@@ -2297,11 +2306,11 @@ function buildTargetViewTable(target, data) {
     let no = 0;
     for (const pa of target.predefinedActivities) {
       if (pa.isHeading) {
-        rows += `<tr class="view-heading-row"><td colspan="6">${escHtml(pa.name)}</td></tr>`;
+        rows += `<tr class="view-heading-row"><td colspan="6" contenteditable="false">${escHtml(pa.name)}</td></tr>`;
         continue;
       }
       if (pa.isNote) {
-        rows += `<tr class="view-note-row"><td colspan="6">${noteToHtml(pa.text)}</td></tr>`;
+        rows += `<tr class="view-note-row"><td colspan="6" contenteditable="false">${noteToHtml(pa.text)}</td></tr>`;
         continue;
       }
       no++;
@@ -2329,7 +2338,7 @@ function buildTargetViewTable(target, data) {
   }
 
   rows += `<tr class="view-add-activity-row">
-    <td colspan="6">
+    <td colspan="6" contenteditable="false">
       <button class="btn-view-add-activity" data-target-name="${escHtml(target.name)}">＋ Activity</button>
     </td>
   </tr>`;
@@ -2338,8 +2347,8 @@ function buildTargetViewTable(target, data) {
     const key     = sanitizeKey(target.name);
     const comment = (data.fedcComments || {})[key] || "";
     rows += `<tr class="view-comment-row">
-      <td colspan="2" class="view-comment-label">Comment</td>
-      <td colspan="4">
+      <td colspan="2" class="view-comment-label" contenteditable="false">Comment</td>
+      <td colspan="4" contenteditable="false">
         <textarea class="view-comment-edit" data-target-key="${escHtml(key)}" rows="3"
         >${escHtml(comment)}</textarea>
       </td>
@@ -2348,13 +2357,13 @@ function buildTargetViewTable(target, data) {
 
   if (dayAvg !== null) {
     rows += `<tr class="view-dayavg-row">
-      <td colspan="5" style="text-align:right">Day's Average</td>
-      <td class="vcol-score">${dayAvg}%</td>
+      <td colspan="5" style="text-align:right" contenteditable="false">Day's Average</td>
+      <td class="vcol-score" contenteditable="false">${dayAvg}%</td>
     </tr>`;
   }
 
   return `<div class="target-view-section">
-    <div class="target-view-header">
+    <div class="target-view-header" contenteditable="false">
       <span class="target-view-name">${escHtml(target.name)}</span>
       ${dayAvg !== null ? `<span class="target-view-avg">${dayAvg}%</span>` : ""}
     </div>
@@ -2400,7 +2409,7 @@ function viewActivityRows(no, actName, actId, data, target, isPredefined = true)
     const opts = parseOpts(inlineOptions);
     const showEmpty = opts.length === 0 && !isMastery;
     const emptyCell = showEmpty
-      ? `<div class="view-remark-edit view-remark-empty" contenteditable="true"
+      ? `<div class="view-remark-edit view-remark-empty"
            data-act-id="${escHtml(actId || "")}"
            data-act-name="${escHtml(actName)}"
            data-target="${escHtml(target.name)}"
@@ -2408,12 +2417,12 @@ function viewActivityRows(no, actName, actId, data, target, isPredefined = true)
            data-placeholder="Click to add remark…"></div>`
       : "";
     return `<tr>
-      <td class="vcol-no">${no}</td>
-      <td class="vcol-act">${actCell}</td>
+      <td class="vcol-no" contenteditable="false">${no}</td>
+      <td class="vcol-act" contenteditable="false">${actCell}</td>
       <td class="vcol-rem">${emptyCell}</td>
-      <td class="vcol-trials"></td>
-      <td class="vcol-total"></td>
-      <td class="vcol-score"></td>
+      <td class="vcol-trials" contenteditable="false"></td>
+      <td class="vcol-total" contenteditable="false"></td>
+      <td class="vcol-score" contenteditable="false"></td>
     </tr>`;
   }
   return remarks.map((rem, ri) => viewRemarkRow(
@@ -2448,7 +2457,7 @@ function viewRemarkRow(no, actName, rem, target, inlineOptions = null, sentenceS
     if (opts.length === 0) return null;
     if (multiSelect) {
       const sel = (remText || "").split(", ").map(s => s.trim()).filter(Boolean);
-      return `<div class="view-remark-multi-opts">${opts.map(opt =>
+      return `<div class="view-remark-multi-opts" contenteditable="false">${opts.map(opt =>
         `<button class="view-remark-multi-btn${sel.includes(opt) ? " active" : ""}"
           data-rem-id="${escHtml(remId)}" data-opt="${escHtml(opt)}">${escHtml(opt)}</button>`
       ).join("")}</div>`;
@@ -2462,7 +2471,7 @@ function viewRemarkRow(no, actName, rem, target, inlineOptions = null, sentenceS
   }
 
   const optSelect = isMastery
-    ? `<div class="mastery-remark-wrap">
+    ? `<div class="mastery-remark-wrap" contenteditable="false">
         <div class="remark-mastery-opts view-mastery-opts" data-rem-id="${rem.id}">
           ${["In Progress", "Mastered", "Maintain"].map(v =>
             `<button class="btn-mastery${rem.text === v ? " active" : ""}" data-rem-id="${escHtml(rem.id)}" data-val="${v}">${v}</button>`
@@ -2474,11 +2483,11 @@ function viewRemarkRow(no, actName, rem, target, inlineOptions = null, sentenceS
         </div>
       </div>`
     : (makeViewOpts(rem.id, rem.text)
-        || `<div class="view-remark-edit" contenteditable="true" data-rem-id="${escHtml(rem.id)}">${remarkToHtml(rem.text)}</div>`);
+        || `<div class="view-remark-edit" data-rem-id="${escHtml(rem.id)}">${remarkToHtml(rem.text)}</div>`);
 
   let remarkCell;
   if (sentenceStarter) {
-    remarkCell = `<div class="view-starter-wrap">
+    remarkCell = `<div class="view-starter-wrap" contenteditable="false">
       <span class="view-starter-prefix">${escHtml(sentenceStarter)}</span>
       ${makeViewOpts(rem.id, rem.text)
         || `<input type="text" class="view-starter-input" data-rem-id="${escHtml(rem.id)}"
@@ -2490,12 +2499,12 @@ function viewRemarkRow(no, actName, rem, target, inlineOptions = null, sentenceS
   }
 
   return `<tr>
-    <td class="vcol-no">${no !== null ? no : ""}</td>
-    <td class="vcol-act">${actName !== null ? actName : ""}</td>
+    <td class="vcol-no" contenteditable="false">${no !== null ? no : ""}</td>
+    <td class="vcol-act" contenteditable="false">${actName !== null ? actName : ""}</td>
     <td class="vcol-rem">${remarkCell}</td>
-    <td class="vcol-trials"><div class="trial-cells">${trialCells}</div></td>
-    <td class="vcol-total">${validTrials.length > 0 ? total : ""}</td>
-    <td class="vcol-score">
+    <td class="vcol-trials" contenteditable="false"><div class="trial-cells">${trialCells}</div></td>
+    <td class="vcol-total" contenteditable="false">${validTrials.length > 0 ? total : ""}</td>
+    <td class="vcol-score" contenteditable="false">
       <div style="display:flex;align-items:center;gap:.3rem;justify-content:flex-end">
         <span>${scorePct}</span>
         <button class="view-rem-del" data-rem-id="${escHtml(rem.id)}" title="Delete remark">×</button>
@@ -2525,6 +2534,94 @@ function calcViewDayAvg(data, target) {
   return avgs.length ? Math.round(avgs.reduce((a, b) => a + b, 0) / avgs.length) : null;
 }
 
+// ── Merged remark editing ────────────────────────────────────
+// All free-text remark boxes (.view-remark-edit, incl. the group "combined"
+// variant) on a view/edit-past-session screen share ONE contenteditable host
+// (the screen's body container) instead of each having its own. This lets
+// Grammarly (and similar tools) analyze every remark box on the page at once
+// instead of only the one currently focused — the same reason a single large
+// textarea gets checked in full while a page of many small inputs doesn't.
+// Everything else (activity names, scores, selects, buttons) is carved out
+// with contenteditable="false" in the HTML so only remark text is editable.
+//
+// Because the boxes no longer have individual focus/blur events, saving moves
+// from "save on blur" to: diff every box's content on a short typing-pause
+// debounce, and again whenever focus actually leaves the shared host.
+function setupMergedRemarkSaving(body, getSessionId) {
+  let saveTimer = null;
+
+  function flush() {
+    clearTimeout(saveTimer);
+    saveTimer = null;
+    const sid = getSessionId();
+    if (!sid) return;
+
+    body.querySelectorAll(".view-remark-edit[data-rem-id]:not(.group-remark-input-combined)").forEach(div => {
+      const html = div.innerHTML;
+      if (div.dataset.savedHtml === undefined || div.dataset.savedHtml === html) {
+        div.dataset.savedHtml = html;
+        return;
+      }
+      div.dataset.savedHtml = html;
+      updateRemarkText(sid, div.dataset.remId, html);
+    });
+
+    body.querySelectorAll(".group-remark-input-combined[data-rem-ids]").forEach(div => {
+      const html = div.innerHTML;
+      if (div.dataset.savedHtml === undefined || div.dataset.savedHtml === html) {
+        div.dataset.savedHtml = html;
+        return;
+      }
+      div.dataset.savedHtml = html;
+      const remIds = div.dataset.remIds.split(",").filter(Boolean);
+      Promise.all(remIds.map(id => updateRemarkText(sid, id, html)));
+    });
+
+    body.querySelectorAll(".view-remark-empty").forEach(async div => {
+      const strip = s => (s || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").replace(/ /g, " ").trim();
+      const text = div.innerHTML;
+      if (!strip(text)) return;
+      let actId = div.dataset.actId;
+      if (!actId) {
+        actId = await addActivity(
+          sid, div.dataset.target, div.dataset.actName, Date.now(), div.dataset.isPredefined === "true"
+        );
+      }
+      const remId = await addRemark(sid, actId, "");
+      await updateRemarkText(sid, remId, text);
+    });
+  }
+
+  // Every other cell is carved out with contenteditable="false", so any "input"
+  // event reaching the shared host can only have come from a free-text remark box.
+  const onInput = () => {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(flush, 700);
+  };
+  const onFocusOut = () => flush();
+  const onSelectionChange = () => {
+    body.querySelectorAll(".view-remark-edit.rem-edit-active").forEach(el => el.classList.remove("rem-edit-active"));
+    const sel  = document.getSelection();
+    const node = sel && sel.rangeCount > 0 ? sel.anchorNode : null;
+    if (!node || !body.contains(node)) return;
+    const el = (node.nodeType === 1 ? node : node.parentElement)?.closest(".view-remark-edit");
+    if (el) el.classList.add("rem-edit-active");
+  };
+
+  body.addEventListener("input", onInput);
+  body.addEventListener("focusout", onFocusOut);
+  document.addEventListener("selectionchange", onSelectionChange);
+
+  return {
+    flush,
+    cleanup() {
+      clearTimeout(saveTimer);
+      body.removeEventListener("input", onInput);
+      body.removeEventListener("focusout", onFocusOut);
+      document.removeEventListener("selectionchange", onSelectionChange);
+    }
+  };
+}
 
 function attachViewListeners() {
   const body = $("session-view-body");
@@ -2571,38 +2668,13 @@ function attachViewListeners() {
     });
   });
 
-  body.querySelectorAll(".view-remark-edit:not(.view-remark-empty)").forEach(ta => {
-    let orig = ta.innerHTML;
+  // Saving for .view-remark-edit / .view-remark-empty is handled by the shared
+  // merged-editing host (state.viewRemarkSaver) set up in openSessionView —
+  // these boxes no longer have their own contenteditable/focus, just a
+  // Ctrl+Enter shortcut to force an immediate save.
+  body.querySelectorAll(".view-remark-edit").forEach(ta => {
     ta.addEventListener("keydown", e => {
-      if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); ta.blur(); }
-    });
-    ta.addEventListener("blur", async () => {
-      const newText = ta.innerHTML;
-      if (newText === orig) return;
-      orig = newText;
-      await updateRemarkText(state.viewSessionId, ta.dataset.remId, newText);
-    });
-  });
-
-  // Empty remark cells — create activity + remark on first input
-  body.querySelectorAll(".view-remark-empty").forEach(div => {
-    div.addEventListener("keydown", e => {
-      if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); div.blur(); }
-    });
-    div.addEventListener("blur", async () => {
-      const strip = s => (s || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").replace(/ /g, " ").trim();
-      const text = div.innerHTML;
-      if (!strip(text)) return;
-      let actId = div.dataset.actId;
-      if (!actId) {
-        actId = await addActivity(
-          state.viewSessionId, div.dataset.target,
-          div.dataset.actName, Date.now(),
-          div.dataset.isPredefined === "true"
-        );
-      }
-      const remId = await addRemark(state.viewSessionId, actId, "");
-      await updateRemarkText(state.viewSessionId, remId, text);
+      if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); state.viewRemarkSaver?.flush(); }
     });
   });
 
@@ -2749,12 +2821,14 @@ async function openGroupSessionView(group, sessionId) {
   $("group-session-view-body").innerHTML = `<div class="loading">Loading…</div>`;
 
   if (state.fbViewGroupUnsubscribe) { state.fbViewGroupUnsubscribe(); state.fbViewGroupUnsubscribe = null; }
+  state.viewGroupRemarkSaver?.cleanup();
+  state.viewGroupRemarkSaver = setupMergedRemarkSaving($("group-session-view-body"), () => state.viewGroupSessionId);
 
   try {
     state.fbViewGroupUnsubscribe = listenToSession(sessionId, data => {
       state.viewGroupSessionData = data;
       const active = document.activeElement;
-      const busy   = active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA");
+      const busy   = active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.isContentEditable);
       if (busy) { state.viewGroupRenderPending = true; }
       else      { renderGroupSessionView(); }
     });
@@ -2770,6 +2844,9 @@ function leaveGroupSessionView() {
   $("btn-group-delete-session")?.classList.add("hidden");
   $("btn-group-goto-session")?.classList.add("hidden");
   if (state.fbViewGroupUnsubscribe) { state.fbViewGroupUnsubscribe(); state.fbViewGroupUnsubscribe = null; }
+  state.viewGroupRemarkSaver?.flush();
+  state.viewGroupRemarkSaver?.cleanup();
+  state.viewGroupRemarkSaver = null;
   const sessionId = state.viewGroupSessionId;
   const data      = state.viewGroupSessionData;
   const group     = state.viewGroup;
@@ -2879,11 +2956,11 @@ function buildGroupTargetViewTable(target, data, attendees) {
     let no = 0;
     for (const pa of target.predefinedActivities) {
       if (pa.isHeading) {
-        rows += `<tr class="view-heading-row"><td colspan="7">${escHtml(pa.name)}</td></tr>`;
+        rows += `<tr class="view-heading-row"><td colspan="7" contenteditable="false">${escHtml(pa.name)}</td></tr>`;
         continue;
       }
       if (pa.isNote) {
-        rows += `<tr class="view-note-row"><td colspan="7">${noteToHtml(pa.text)}</td></tr>`;
+        rows += `<tr class="view-note-row"><td colspan="7" contenteditable="false">${noteToHtml(pa.text)}</td></tr>`;
         continue;
       }
       no++;
@@ -2910,7 +2987,7 @@ function buildGroupTargetViewTable(target, data, attendees) {
   }
 
   rows += `<tr class="view-add-activity-row">
-    <td colspan="7">
+    <td colspan="7" contenteditable="false">
       <button class="btn-view-add-activity" data-target-name="${escHtml(target.name)}">＋ Activity</button>
     </td>
   </tr>`;
@@ -2919,8 +2996,8 @@ function buildGroupTargetViewTable(target, data, attendees) {
     const key     = sanitizeKey(target.name);
     const comment = (data.fedcComments || {})[key] || "";
     rows += `<tr class="view-comment-row">
-      <td colspan="3" class="view-comment-label">Comment</td>
-      <td colspan="4">
+      <td colspan="3" class="view-comment-label" contenteditable="false">Comment</td>
+      <td colspan="4" contenteditable="false">
         <textarea class="view-comment-edit" data-target-key="${escHtml(key)}" rows="3"
         >${escHtml(comment)}</textarea>
       </td>
@@ -2929,13 +3006,13 @@ function buildGroupTargetViewTable(target, data, attendees) {
 
   if (dayAvg !== null) {
     rows += `<tr class="view-dayavg-row">
-      <td colspan="6" style="text-align:right">Day's Average</td>
-      <td class="vcol-score">${dayAvg}%</td>
+      <td colspan="6" style="text-align:right" contenteditable="false">Day's Average</td>
+      <td class="vcol-score" contenteditable="false">${dayAvg}%</td>
     </tr>`;
   }
 
   return `<div class="target-view-section">
-    <div class="target-view-header">
+    <div class="target-view-header" contenteditable="false">
       <span class="target-view-name">${escHtml(target.name)}</span>
       ${dayAvg !== null ? `<span class="target-view-avg">${dayAvg}%</span>` : ""}
     </div>
@@ -2987,16 +3064,16 @@ function viewGroupActivityRows(no, actName, actId, data, target, attendees, isPr
 
   if (rounds.length === 0) {
     return `<tr>
-      <td class="vcol-no">${no}</td>
-      <td class="vcol-act">${actCellWithToggle}</td>
-      <td class="vcol-student"></td>
-      <td class="vcol-rem">
+      <td class="vcol-no" contenteditable="false">${no}</td>
+      <td class="vcol-act" contenteditable="false">${actCellWithToggle}</td>
+      <td class="vcol-student" contenteditable="false"></td>
+      <td class="vcol-rem" contenteditable="false">
         <button class="btn-view-group-add-remark-all" data-act-id="${escHtml(actId || "")}"
           data-act-name="${escHtml(actName)}" data-target-name="${escHtml(target.name)}">+ Add Remark &amp; Trials</button>
       </td>
-      <td class="vcol-trials"></td>
-      <td class="vcol-total"></td>
-      <td class="vcol-score"></td>
+      <td class="vcol-trials" contenteditable="false"></td>
+      <td class="vcol-total" contenteditable="false"></td>
+      <td class="vcol-score" contenteditable="false"></td>
     </tr>`;
   }
 
@@ -3015,16 +3092,16 @@ function viewGroupActivityRows(no, actName, actId, data, target, attendees, isPr
 
       if (entry.pending) {
         html += `<tr>
-          <td class="vcol-no">${noVal !== null ? noVal : ""}</td>
-          <td class="vcol-act">${actVal !== null ? actVal : ""}</td>
-          <td class="vcol-student">${escHtml(entry.studentName)}</td>
-          <td class="vcol-rem">
+          <td class="vcol-no" contenteditable="false">${noVal !== null ? noVal : ""}</td>
+          <td class="vcol-act" contenteditable="false">${actVal !== null ? actVal : ""}</td>
+          <td class="vcol-student" contenteditable="false">${escHtml(entry.studentName)}</td>
+          <td class="vcol-rem" contenteditable="false">
             <button class="btn-view-group-add-remark-pending" data-act-id="${escHtml(actId || "")}"
               data-student="${escHtml(entry.studentName)}">+ Add Remark &amp; Trials</button>
           </td>
-          <td class="vcol-trials"></td>
-          <td class="vcol-total"></td>
-          <td class="vcol-score"></td>
+          <td class="vcol-trials" contenteditable="false"></td>
+          <td class="vcol-total" contenteditable="false"></td>
+          <td class="vcol-score" contenteditable="false"></td>
         </tr>`;
         firstRowOverall = false;
         continue;
@@ -3072,7 +3149,7 @@ function viewGroupRemarkRow(no, actName, studentName, rem, target, inlineOptions
       // group session editor's "Combined Remarks" mode, which is free-text only).
       const idList = combineOpts.combinedRemIds.join(",");
       remarkTd = `<td class="vcol-rem" rowspan="${combineOpts.rowspan}">
-        <div class="view-remark-edit group-remark-input-combined" contenteditable="true"
+        <div class="view-remark-edit group-remark-input-combined"
           data-rem-ids="${idList}">${remarkToHtml(combineOpts.sharedText)}</div>
       </td>`;
     } else {
@@ -3082,7 +3159,7 @@ function viewGroupRemarkRow(no, actName, studentName, rem, target, inlineOptions
         if (opts.length === 0) return null;
         if (multiSelect) {
           const sel = (remText || "").split(", ").map(s => s.trim()).filter(Boolean);
-          return `<div class="view-remark-multi-opts">${opts.map(opt =>
+          return `<div class="view-remark-multi-opts" contenteditable="false">${opts.map(opt =>
             `<button class="view-remark-multi-btn${sel.includes(opt) ? " active" : ""}"
               data-rem-id="${escHtml(remId)}" data-opt="${escHtml(opt)}">${escHtml(opt)}</button>`
           ).join("")}</div>`;
@@ -3096,7 +3173,7 @@ function viewGroupRemarkRow(no, actName, studentName, rem, target, inlineOptions
       };
 
       const optSelect = isMastery
-        ? `<div class="mastery-remark-wrap">
+        ? `<div class="mastery-remark-wrap" contenteditable="false">
             <div class="remark-mastery-opts view-mastery-opts" data-rem-id="${rem.id}">
               ${["In Progress", "Mastered", "Maintain"].map(v =>
                 `<button class="btn-mastery${rem.text === v ? " active" : ""}" data-rem-id="${escHtml(rem.id)}" data-val="${v}">${v}</button>`
@@ -3108,11 +3185,11 @@ function viewGroupRemarkRow(no, actName, studentName, rem, target, inlineOptions
             </div>
           </div>`
         : (makeViewOpts(rem.id, rem.text)
-            || `<div class="view-remark-edit" contenteditable="true" data-rem-id="${escHtml(rem.id)}">${remarkToHtml(rem.text)}</div>`);
+            || `<div class="view-remark-edit" data-rem-id="${escHtml(rem.id)}">${remarkToHtml(rem.text)}</div>`);
 
       let remarkCell;
       if (sentenceStarter) {
-        remarkCell = `<div class="view-starter-wrap">
+        remarkCell = `<div class="view-starter-wrap" contenteditable="false">
           <span class="view-starter-prefix">${escHtml(sentenceStarter)}</span>
           ${makeViewOpts(rem.id, rem.text)
             || `<input type="text" class="view-starter-input" data-rem-id="${escHtml(rem.id)}"
@@ -3127,13 +3204,13 @@ function viewGroupRemarkRow(no, actName, studentName, rem, target, inlineOptions
   }
 
   return `<tr>
-    <td class="vcol-no">${no !== null ? no : ""}</td>
-    <td class="vcol-act">${actName !== null ? actName : ""}</td>
-    <td class="vcol-student">${escHtml(studentName)}</td>
+    <td class="vcol-no" contenteditable="false">${no !== null ? no : ""}</td>
+    <td class="vcol-act" contenteditable="false">${actName !== null ? actName : ""}</td>
+    <td class="vcol-student" contenteditable="false">${escHtml(studentName)}</td>
     ${remarkTd}
-    <td class="vcol-trials"><div class="trial-cells">${trialCells}</div></td>
-    <td class="vcol-total">${validTrials.length > 0 ? total : ""}</td>
-    <td class="vcol-score">
+    <td class="vcol-trials" contenteditable="false"><div class="trial-cells">${trialCells}</div></td>
+    <td class="vcol-total" contenteditable="false">${validTrials.length > 0 ? total : ""}</td>
+    <td class="vcol-score" contenteditable="false">
       <div style="display:flex;align-items:center;gap:.3rem;justify-content:flex-end">
         <span>${scorePct}</span>
         <button class="view-rem-del" data-rem-id="${escHtml(rem.id)}" title="Delete remark">×</button>
@@ -3183,31 +3260,19 @@ function attachGroupViewListeners() {
     });
   });
 
-  body.querySelectorAll(".view-remark-edit:not(.view-remark-empty):not(.group-remark-input-combined)").forEach(ta => {
-    let orig = ta.innerHTML;
-    ta.addEventListener("blur", async () => {
-      const newText = ta.innerHTML;
-      if (newText === orig) return;
-      orig = newText;
-      await updateRemarkText(sid(), ta.dataset.remId, newText);
-    });
-  });
-
-  // Combined remark box (shared across all students in a round) — blur-save writes to every remId
-  body.querySelectorAll(".group-remark-input-combined").forEach(div => {
-    let orig = div.innerHTML;
-    div.addEventListener("blur", async () => {
-      const newText = div.innerHTML;
-      if (newText === orig) return;
-      orig = newText;
-      const remIds = div.dataset.remIds.split(",").filter(Boolean);
-      await Promise.all(remIds.map(remId => updateRemarkText(sid(), remId, newText)));
+  // Saving for .view-remark-edit / .group-remark-input-combined is handled by
+  // the shared merged-editing host (state.viewGroupRemarkSaver) set up in
+  // openGroupSessionView — just a Ctrl+Enter shortcut to force an immediate save.
+  body.querySelectorAll(".view-remark-edit").forEach(ta => {
+    ta.addEventListener("keydown", e => {
+      if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); state.viewGroupRemarkSaver?.flush(); }
     });
   });
 
   // Combine/Separate remarks toggle (mirrors the live group session editor's confirm logic)
   body.querySelectorAll(".btn-combine-toggle").forEach(btn => {
     btn.addEventListener("click", async () => {
+      state.viewGroupRemarkSaver?.flush();
       const actId = btn.dataset.actId;
       const data  = state.viewGroupSessionData;
       const current = !!data?.activities?.[actId]?.combineRemarks;
@@ -3253,25 +3318,6 @@ function attachGroupViewListeners() {
 
       btn.disabled = true;
       await updateActivityCombineRemarks(sid(), actId, !current);
-    });
-  });
-
-  // Empty remark cells — create activity + remark on first input
-  body.querySelectorAll(".view-remark-empty").forEach(div => {
-    div.addEventListener("blur", async () => {
-      const strip = s => (s || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").replace(/ /g, " ").trim();
-      const text = div.innerHTML;
-      if (!strip(text)) return;
-      let actId = div.dataset.actId;
-      if (!actId) {
-        actId = await addActivity(
-          sid(), div.dataset.target,
-          div.dataset.actName, Date.now(),
-          div.dataset.isPredefined === "true"
-        );
-      }
-      const remId = await addRemark(sid(), actId, "");
-      await updateRemarkText(sid(), remId, text);
     });
   });
 
