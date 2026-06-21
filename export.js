@@ -530,7 +530,7 @@ function buildCombinedSessionRows(allTargets, session, entityName) {
   const spacerRows          = new Set();
 
   const titleRow = rows.length;
-  rows.push([`${entityName}: Daily Summary — ${fmtDate(session.date)}`, "", "", "", ""]);
+  rows.push([`${entityName} — ${fmtDate(session.date)}`, "", "", "", ""]);
   spacerRows.add(rows.length);
   rows.push(["", "", "", "", ""]);
 
@@ -545,8 +545,6 @@ function buildCombinedSessionRows(allTargets, session, entityName) {
 
     targetHeaderRows.add(rows.length);
     rows.push([`${target.name}  —  Score: ${dayAvg !== null ? pct(dayAvg) : "N/A"}`, "", "", "", ""]);
-    spacerRows.add(rows.length);
-    rows.push(["", "", "", "", ""]);
 
     colHeaderRows.add(rows.length);
     rows.push(["Date", "Activity", "Remark", "Score", "Avg Score"]);
@@ -582,8 +580,8 @@ function addCombinedSessionSheet(wb, allTargets, session, entityName) {
     const n = titleRow + 1;
     try { ws.mergeCells(`A${n}:E${n}`); } catch (_) {}
     const cell = ws.getRow(n).getCell(1);
-    cell.fill      = STYLE_SESSION.fill;
-    cell.font      = STYLE_SESSION.font;
+    cell.fill      = STYLE_TARGET_MONTH.fill;
+    cell.font      = STYLE_TARGET_MONTH.font;
     cell.alignment = { horizontal: "center", vertical: "middle" };
     fitTitleRow(ws, n, 110);
   }
