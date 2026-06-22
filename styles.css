@@ -2319,6 +2319,11 @@ div.admin-note-editable:empty::before {
   vertical-align: middle;
   color: var(--text);
 }
+/* Ghost rows (no remark entered yet) render vcol-trials/total/score as
+   completely empty <td>s — with no content to anchor against, their bare
+   column border floats in open space and, stacked down several empty rows,
+   reads as one continuous stray line. Drop the border only when truly empty. */
+.view-table td:empty { border-color: transparent; }
 
 .view-heading-row td {
   background: var(--primary-light);
