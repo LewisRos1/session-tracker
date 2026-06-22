@@ -60,7 +60,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "432";
+const APP_VERSION = "433";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -77,6 +77,15 @@ const state = {
   selectedTargetName: null,
   fbUnsubscribe:      null,
   renderPending:      false,
+  // Count of in-flight "+Add Remark & Trials"-style button clicks on the
+  // live Entry screens (both individual and group). These aren't covered by
+  // isPending() (no typing involved) or hasActiveSelectionIn() (no
+  // selection involved) — without this, a write from an unrelated row/
+  // activity landing mid-click can pass the busy-check and force a render
+  // that replaces the just-clicked button before its own write resolves,
+  // silently dropping the click's visible result.
+  entryActionsInFlight:      0,
+  entryGroupActionsInFlight: 0,
   flashActive:        false,
   _flashTimer:        null,
   scorePicker:        { open: false, remId: null },
@@ -106,6 +115,20 @@ const state = {
 };
 
 const $ = id => document.getElementById(id);
+
+// True while the user has an actual text selection (not just a caret) inside
+// host. isPending()-based busy checks only see "is there an unflushed
+// keystroke" — they miss the moment right after selecting text but before
+// typing/backspacing over it. If a render slips through during that window
+// (rebuilding the DOM), the selection's Range ends up pointing at detached
+// nodes, and the next backspace/keypress silently no-ops since there's
+// nothing valid left for the browser to act on — the user has to click away
+// and re-select before typing works again.
+function hasActiveSelectionIn(host) {
+  const sel = document.getSelection();
+  if (!sel || sel.isCollapsed || sel.rangeCount === 0) return false;
+  return host.contains(sel.anchorNode);
+}
 
 // ─── BOTTOM-SHEET TEXT EDITOR ────────────────────────────────
 let _sheetOriginEl = null;
@@ -1230,10 +1253,9 @@ async function openSession(student, existingSessionId = null, dateStr = null) {
   if (state.fbUnsubscribe) { state.fbUnsubscribe(); state.fbUnsubscribe = null; }
   state.entryRemarkSaver?.cleanup();
   state.entryRemarkSaver = setupEntryRemarkSaving($("target-content"), () => state.currentSessionId, () => {
-    if (state.renderPending) {
-      state.renderPending = false;
-      renderTargetContent();
-    }
+    if (!state.renderPending || hasActiveSelectionIn($("target-content")) || state.entryActionsInFlight > 0) return;
+    state.renderPending = false;
+    renderTargetContent();
   });
 
   try {
@@ -1259,13 +1281,16 @@ async function openSession(student, existingSessionId = null, dateStr = null) {
       if (state.scorePicker?.open && state.scorePicker?.remId) {
         renderScoreModalTrials(state.scorePicker.remId);
       }
-      // Busy = dropdown open, or a keystroke hasn't been flushed yet. Focus
-      // position alone can't be used here — clicking a button inside
+      // Busy = dropdown open, a keystroke hasn't been flushed yet, or there's
+      // an active text selection inside the host (see hasActiveSelectionIn).
+      // Focus position alone can't be used here — clicking a button inside
       // #target-content deliberately doesn't blur the remark box anymore
       // (see setupEntryRemarkSaving's mousedown handler), so "something is
       // still focused" would stay true forever and defer every render.
       const busy = document.activeElement === $("target-select")
-        || (state.entryRemarkSaver?.isPending() ?? false);
+        || (state.entryRemarkSaver?.isPending() ?? false)
+        || hasActiveSelectionIn($("target-content"))
+        || state.entryActionsInFlight > 0;
       if (busy) {
         state.renderPending = true;
       } else {
@@ -1902,6 +1927,11 @@ function attachTargetListeners(target) {
       if (btn.disabled) return;
       btn.disabled = true;
       btn.textContent = "Adding…";
+      // Tracked so the busy-check defers any unrelated render until this
+      // write lands — otherwise a write from a completely different row
+      // landing mid-click can pass the busy-check, force a render, and
+      // replace this very button before its own write resolves.
+      state.entryActionsInFlight++;
       try {
         const paName  = btn.dataset.paName || null;
         const paOrder = Number(btn.dataset.paOrder) || 0;
@@ -1922,6 +1952,16 @@ function attachTargetListeners(target) {
         btn.disabled = false;
         btn.textContent = "+ Add Remark & Trials";
         alert("Couldn't add remark — check your connection and try again.\n\n" + err.message);
+      } finally {
+        state.entryActionsInFlight--;
+        // The write's own onSnapshot may have already fired and deferred a
+        // render (renderPending) while the counter was still > 0 — nothing
+        // else proactively re-checks once it drops back to 0, so do it here
+        // (same check as setupEntryRemarkSaving's onIdle).
+        if (state.entryActionsInFlight === 0 && state.renderPending && !hasActiveSelectionIn($("target-content"))) {
+          state.renderPending = false;
+          renderTargetContent();
+        }
       }
     });
   });
@@ -5442,10 +5482,9 @@ async function openGroupSession(group, dateStr, attendees) {
   if (state.fbGroupUnsubscribe) { state.fbGroupUnsubscribe(); state.fbGroupUnsubscribe = null; }
   state.entryGroupRemarkSaver?.cleanup();
   state.entryGroupRemarkSaver = setupEntryRemarkSaving($("group-target-content"), () => state.groupSessionId, () => {
-    if (state.groupRenderPending) {
-      state.groupRenderPending = false;
-      renderGroupTargetContent();
-    }
+    if (!state.groupRenderPending || hasActiveSelectionIn($("group-target-content")) || state.entryGroupActionsInFlight > 0) return;
+    state.groupRenderPending = false;
+    renderGroupTargetContent();
   });
   state.currentGroup            = group;
   state.groupAttendees          = attendees;
@@ -5475,11 +5514,13 @@ async function openGroupSession(group, dateStr, attendees) {
         }
       }
       if (state.scorePicker?.open && state.scorePicker?.isGroup) renderScoreModalTrials(state.scorePicker.remId);
-      // Busy = dropdown open, or a keystroke hasn't been flushed yet — see
-      // the matching comment in openSession's listener for why focus
-      // position alone can't be used here.
+      // Busy = dropdown open, a keystroke hasn't been flushed yet, or there's
+      // an active text selection — see the matching comment in openSession's
+      // listener for why focus position alone can't be used here.
       const busy = document.activeElement === $("group-target-select")
-        || (state.entryGroupRemarkSaver?.isPending() ?? false);
+        || (state.entryGroupRemarkSaver?.isPending() ?? false)
+        || hasActiveSelectionIn($("group-target-content"))
+        || state.entryGroupActionsInFlight > 0;
       if (busy) {
         state.groupRenderPending = true;
         return;
@@ -6059,20 +6100,32 @@ function attachGroupTargetListeners(target) {
     btn.addEventListener("click", async () => {
       btn.disabled = true;
       btn.textContent = "Adding…";
-      const actName    = btn.dataset.actName;
-      const targetName = btn.dataset.target;
-      const data       = state.groupSessionData;
-      let actId = btn.dataset.actId || Object.entries(data.activities || {})
-        .find(([, a]) => a.targetName === targetName && a.activityName === actName)?.[0] || null;
-      if (!actId) {
-        actId = await addActivity(state.groupSessionId, targetName, actName, Date.now(), true);
+      // See the individual screen's .btn-add-remark handler for why this is
+      // tracked — an unrelated write landing mid-click can otherwise pass
+      // the busy-check and replace this button before its own write resolves.
+      state.entryGroupActionsInFlight++;
+      try {
+        const actName    = btn.dataset.actName;
+        const targetName = btn.dataset.target;
+        const data       = state.groupSessionData;
+        let actId = btn.dataset.actId || Object.entries(data.activities || {})
+          .find(([, a]) => a.targetName === targetName && a.activityName === actName)?.[0] || null;
+        if (!actId) {
+          actId = await addActivity(state.groupSessionId, targetName, actName, Date.now(), true);
+        }
+        const entries = state.groupAttendees
+          .filter(studentName => !Object.values(data.remarks || {})
+            .some(r => r.activityId === actId && r.studentName === studentName))
+          .map(studentName => ({ actId, studentName }));
+        if (entries.length) await addGroupRemarksBatch(state.groupSessionId, entries);
+        // Firestore listener will re-render
+      } finally {
+        state.entryGroupActionsInFlight--;
+        if (state.entryGroupActionsInFlight === 0 && state.groupRenderPending && !hasActiveSelectionIn($("group-target-content"))) {
+          state.groupRenderPending = false;
+          renderGroupTargetContent();
+        }
       }
-      const entries = state.groupAttendees
-        .filter(studentName => !Object.values(data.remarks || {})
-          .some(r => r.activityId === actId && r.studentName === studentName))
-        .map(studentName => ({ actId, studentName }));
-      if (entries.length) await addGroupRemarksBatch(state.groupSessionId, entries);
-      // Firestore listener will re-render
     });
   });
 
@@ -6081,7 +6134,16 @@ function attachGroupTargetListeners(target) {
     btn.addEventListener("click", async () => {
       btn.disabled = true;
       btn.textContent = "Adding…";
-      await ensureGroupActivityAndRemark(btn);
+      state.entryGroupActionsInFlight++;
+      try {
+        await ensureGroupActivityAndRemark(btn);
+      } finally {
+        state.entryGroupActionsInFlight--;
+        if (state.entryGroupActionsInFlight === 0 && state.groupRenderPending && !hasActiveSelectionIn($("group-target-content"))) {
+          state.groupRenderPending = false;
+          renderGroupTargetContent();
+        }
+      }
     });
   });
 
@@ -6107,9 +6169,18 @@ function attachGroupTargetListeners(target) {
     btn.addEventListener("click", async () => {
       btn.disabled = true;
       btn.textContent = "Adding…";
-      const actId = btn.dataset.actId;
-      const entries = state.groupAttendees.map(studentName => ({ actId, studentName }));
-      await addGroupRemarksBatch(state.groupSessionId, entries);
+      state.entryGroupActionsInFlight++;
+      try {
+        const actId = btn.dataset.actId;
+        const entries = state.groupAttendees.map(studentName => ({ actId, studentName }));
+        await addGroupRemarksBatch(state.groupSessionId, entries);
+      } finally {
+        state.entryGroupActionsInFlight--;
+        if (state.entryGroupActionsInFlight === 0 && state.groupRenderPending && !hasActiveSelectionIn($("group-target-content"))) {
+          state.groupRenderPending = false;
+          renderGroupTargetContent();
+        }
+      }
     });
   });
 
@@ -6118,7 +6189,16 @@ function attachGroupTargetListeners(target) {
     btn.addEventListener("click", async () => {
       btn.disabled = true;
       btn.textContent = "Adding…";
-      await addGroupRemark(state.groupSessionId, btn.dataset.actId, btn.dataset.student);
+      state.entryGroupActionsInFlight++;
+      try {
+        await addGroupRemark(state.groupSessionId, btn.dataset.actId, btn.dataset.student);
+      } finally {
+        state.entryGroupActionsInFlight--;
+        if (state.entryGroupActionsInFlight === 0 && state.groupRenderPending && !hasActiveSelectionIn($("group-target-content"))) {
+          state.groupRenderPending = false;
+          renderGroupTargetContent();
+        }
+      }
     });
   });
 
