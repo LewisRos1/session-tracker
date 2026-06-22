@@ -60,7 +60,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "435";
+const APP_VERSION = "436";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -2786,14 +2786,29 @@ function setupMergedRemarkSaving(body, getSessionId, onIdle) {
     const el = (node.nodeType === 1 ? node : node.parentElement)?.closest(".view-remark-edit");
     if (el) el.classList.add("rem-edit-active");
   };
+  // Backstop against the browser's native paragraph/line-break insertion —
+  // each remark box's own keydown handler calls preventDefault() and inserts
+  // a manual <br> instead, but that alone isn't reliable inside a
+  // contenteditable="true" box nested in this larger contenteditable="true"
+  // host: Chrome's "beforeinput" event (the one that actually performs the
+  // native split into a new sibling element) can still fire and go through
+  // even after keydown was prevented. Catching it at the host level (it
+  // bubbles) blocks the native insert everywhere in one place.
+  const onBeforeInput = e => {
+    if (e.inputType === "insertParagraph" || e.inputType === "insertLineBreak") {
+      e.preventDefault();
+    }
+  };
   body.addEventListener("input", onInput);
   body.addEventListener("focusout", onFocusOut);
+  body.addEventListener("beforeinput", onBeforeInput);
   document.addEventListener("selectionchange", onSelectionChange);
 
   return {
     flush,
     cleanup() {
       clearTimeout(saveTimer);
+      body.removeEventListener("beforeinput", onBeforeInput);
       body.removeEventListener("input", onInput);
       body.removeEventListener("focusout", onFocusOut);
       document.removeEventListener("selectionchange", onSelectionChange);
@@ -2932,11 +2947,24 @@ function setupEntryRemarkSaving(host, getSessionId, onIdle) {
   const onMouseDown = e => {
     if (e.target.closest('[contenteditable="false"]')) e.preventDefault();
   };
+  // Backstop against the browser's native paragraph/line-break insertion —
+  // see the matching comment in setupMergedRemarkSaving. Each remark box's
+  // own keydown handler already calls preventDefault() and inserts a manual
+  // <br>, but that alone isn't reliable for a contenteditable="true" box
+  // nested inside this larger contenteditable="true" host: Chrome's
+  // "beforeinput" event can still fire and perform its own native split
+  // (cloning the box into a sibling) even after keydown was prevented.
+  const onBeforeInput = e => {
+    if (e.inputType === "insertParagraph" || e.inputType === "insertLineBreak") {
+      e.preventDefault();
+    }
+  };
 
   host.addEventListener("input", onInput);
   host.addEventListener("focusout", onFocusOut);
   host.addEventListener("mousedown", onMouseDown);
   host.addEventListener("focusin", onFocusIn);
+  host.addEventListener("beforeinput", onBeforeInput);
 
   return {
     flush,
@@ -2956,6 +2984,7 @@ function setupEntryRemarkSaving(host, getSessionId, onIdle) {
       host.removeEventListener("focusout", onFocusOut);
       host.removeEventListener("mousedown", onMouseDown);
       host.removeEventListener("focusin", onFocusIn);
+      host.removeEventListener("beforeinput", onBeforeInput);
     }
   };
 }
