@@ -60,7 +60,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "437";
+const APP_VERSION = "438";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -1913,16 +1913,16 @@ function attachTargetListeners(target) {
   c.querySelectorAll(".remark-text-input, .mastery-note-input").forEach(el => {
     el.addEventListener("keydown", e => {
       if (e.key !== "Enter" || e.ctrlKey || e.metaKey) return;
+      console.log("[EnterDebug] keydown Enter, defaultPrevented before:", e.defaultPrevented);
       e.preventDefault();
-      // Deferred to the next tick: Chrome still runs its own internal
-      // re-sync of the contenteditable region right after a cancelled
-      // "beforeinput" (see the host-level onBeforeInput comment), and doing
-      // the manual <br> insert synchronously in the same task let that
-      // re-sync silently discard it. Letting that settle first, then
-      // inserting, makes the <br> stick.
       setTimeout(() => {
+        console.log("[EnterDebug] before insert, innerHTML:", JSON.stringify(el.innerHTML));
         insertBrAtCaret();
+        console.log("[EnterDebug] after insert, innerHTML:", JSON.stringify(el.innerHTML));
         el.dispatchEvent(new Event("input", { bubbles: true }));
+        setTimeout(() => {
+          console.log("[EnterDebug] 200ms later, innerHTML:", JSON.stringify(el.innerHTML));
+        }, 200);
       }, 0);
     });
   });
@@ -3011,6 +3011,12 @@ function insertBrAtCaret() {
   range.deleteContents();
   const br = document.createElement("br");
   range.insertNode(br);
+  // A lone trailing <br> with nothing after it doesn't reliably get its own
+  // visible line in contenteditable — browsers only render the new empty
+  // line once there's a node anchoring it. Standard fix: add a second <br>
+  // right after as a placeholder (consumed the moment the user types), and
+  // park the caret between the two so the first one is guaranteed visible.
+  if (!br.nextSibling) br.after(document.createElement("br"));
   range.setStartAfter(br);
   range.collapse(true);
   sel.removeAllRanges();
