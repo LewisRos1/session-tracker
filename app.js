@@ -60,7 +60,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "445";
+const APP_VERSION = "446";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -2830,30 +2830,35 @@ function setupMergedRemarkSaving(body, getSessionId, onIdle) {
 // first instead of racing a still-in-flight write.
 function setupEntryRemarkSaving(host, getSessionId, onIdle) {
   let saveTimer = null;
-  // Trailing "settling" window covering two gaps isPending() alone misses:
-  // (1) the moment right after a click, before any keystroke has started
-  // the save debounce at all, and (2) the moment right after the 700ms save
-  // debounce fires — flush() clears saveTimer synchronously the instant it
-  // starts, but the Firestore write it kicks off (and the onSnapshot that
-  // write triggers back) routinely takes noticeably longer than that to
-  // round-trip. A render landing in either gap replaces the box the user is
-  // still in, silently dropping the caret — they have to click back in to
-  // keep typing/backspacing.
-  let settleTimer = null;
-  let settling = false;
-  const SETTLE_WINDOW = 1500;
+  // Short grace window covering the gap between "user just clicked into a
+  // box, placing a caret" and "user actually starts typing" — isPending()
+  // alone misses this moment (saveTimer is still null), so a render landing
+  // in that narrow window can replace the just-focused box and silently
+  // drop the caret, forcing the user to click back in.
+  let clickGraceTimer = null;
+  let clickGrace = false;
+  const CLICK_GRACE_WINDOW = 600;
+  // Precise count of writes actually in flight (incremented synchronously
+  // the moment flush() kicks one off, decremented when its promise settles).
+  // flush() used to clear saveTimer and let isPending() flip to false the
+  // instant it STARTED a write, but the Firestore write itself — and the
+  // onSnapshot that write triggers back — routinely takes noticeably longer
+  // than the 700ms save debounce to round-trip. A render landing in that gap
+  // replaced the box the user was still in, silently dropping the caret.
+  // Counting real in-flight writes (instead of guessing a fixed timeout)
+  // closes that gap exactly, regardless of how slow the network is.
+  let pendingWrites = 0;
 
-  function markSettling() {
-    settling = true;
-    clearTimeout(settleTimer);
-    settleTimer = setTimeout(() => {
-      settling = false;
+  function markClickGrace() {
+    clickGrace = true;
+    clearTimeout(clickGraceTimer);
+    clickGraceTimer = setTimeout(() => {
+      clickGrace = false;
       // Unlike onInput/onFocusOut, nothing here already called flush(), so
-      // only let a deferred render through if there's truly no pending
-      // keystroke left elsewhere in the host (saveTimer is host-wide, not
-      // per-box).
-      if (saveTimer === null) onIdle?.();
-    }, SETTLE_WINDOW);
+      // only let a deferred render through if there's truly nothing else
+      // outstanding (a still-running keystroke debounce or in-flight write).
+      if (saveTimer === null && pendingWrites === 0) onIdle?.();
+    }, CLICK_GRACE_WINDOW);
   }
 
   function flush() {
@@ -2864,12 +2869,22 @@ function setupEntryRemarkSaving(host, getSessionId, onIdle) {
 
     const pending = [];
 
+    const trackWrite = promiseLike => {
+      pendingWrites++;
+      const p = Promise.resolve(promiseLike).finally(() => {
+        pendingWrites--;
+        if (pendingWrites === 0 && saveTimer === null) onIdle?.();
+      });
+      pending.push(p);
+      return p;
+    };
+
     const diffAndSave = (selector, getValue, doSave) => {
       host.querySelectorAll(selector).forEach(el => {
         const value = getValue(el);
         if (el.dataset.savedHtml === value) return;
         el.dataset.savedHtml = value;
-        pending.push(Promise.resolve(doSave(el, value)));
+        trackWrite(doSave(el, value));
       });
     };
 
@@ -2918,7 +2933,7 @@ function setupEntryRemarkSaving(host, getSessionId, onIdle) {
           el.dataset.creating = "false";
         }
       };
-      pending.push(create());
+      trackWrite(create());
     });
 
     return Promise.all(pending);
@@ -2934,14 +2949,13 @@ function setupEntryRemarkSaving(host, getSessionId, onIdle) {
   // succeeds, but the re-render that would replace the disabled/"Adding…"
   // button with the new remark fields never runs.
   const onInput = () => {
-    markSettling();
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => { flush(); onIdle?.(); }, 700);
   };
   const onFocusOut = () => { flush(); onIdle?.(); };
   const onFocusIn = e => {
     if (e.target.closest('[contenteditable="false"]')) return;
-    markSettling();
+    markClickGrace();
   };
   // Buttons/labels nested inside a contenteditable host need an explicit
   // mousedown preventDefault, or the browser's default "place the caret"
@@ -2970,7 +2984,6 @@ function setupEntryRemarkSaving(host, getSessionId, onIdle) {
   // activity cards) as if it were deletable content.
   const onBeforeInput = e => {
     if (e.inputType === "insertParagraph" || e.inputType === "insertLineBreak") {
-      console.log("[EnterDebug2] beforeinput", e.inputType, "defaultPrevented before:", e.defaultPrevented);
       e.preventDefault();
       return;
     }
@@ -2998,17 +3011,18 @@ function setupEntryRemarkSaving(host, getSessionId, onIdle) {
   return {
     flush,
     // True while there's a not-yet-flushed keystroke (debounce timer
-    // running) OR the trailing settling window is active. Focus position
-    // itself still can't be used as the long-lived "is the user busy"
+    // running), an in-flight write, or the short post-click grace window.
+    // Focus position itself still can't be used as the long-lived "is the user busy"
     // signal — the mousedown fix above deliberately keeps focus pinned on
     // whatever box was last typed in even after clicking a button, so "is
     // something still focused" would stay true indefinitely and defer every
     // render forever instead of just while actively mid-keystroke (or
-    // mid-round-trip, or for the brief moment right after a click).
-    isPending: () => saveTimer !== null || settling,
+    // mid-round-trip — see pendingWrites — or for the brief moment right
+    // after a click).
+    isPending: () => saveTimer !== null || pendingWrites > 0 || clickGrace,
     cleanup() {
       clearTimeout(saveTimer);
-      clearTimeout(settleTimer);
+      clearTimeout(clickGraceTimer);
       host.removeEventListener("input", onInput);
       host.removeEventListener("focusout", onFocusOut);
       host.removeEventListener("mousedown", onMouseDown);
@@ -3096,22 +3110,12 @@ function setupEntryEnterKeyDelegation(host, getTarget) {
     // like "nothing happens" on the first Enter but worked on the second.
     // Let the browser handle this keystroke untouched; the next, genuinely
     // non-composing Enter reaches us normally.
-    if (e.key === "Enter") {
-      console.log("[EnterDebug2]", {
-        isComposing: e.isComposing,
-        keyCode: e.keyCode,
-        anchorNode: document.getSelection()?.anchorNode,
-        anchorOffset: document.getSelection()?.anchorOffset,
-        defaultPrevented: e.defaultPrevented
-      });
-    }
     if (e.isComposing) return;
     const sel  = document.getSelection();
     const node = sel && sel.rangeCount > 0 ? sel.anchorNode : null;
     const el = node && (node.nodeType === 1 ? node : node.parentElement)?.closest(
       ".activity-name-input, #new-activity-textarea, #new-remark-textarea, .predef-remark-input-live, .remark-text-input, .mastery-note-input"
     );
-    if (e.key === "Enter") console.log("[EnterDebug2] el found:", el?.className ?? null);
     if (!el || !host.contains(el)) return;
 
     // Native Ctrl+A would select everything in the whole merged editing
