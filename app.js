@@ -60,7 +60,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "404";
+const APP_VERSION = "405";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -1228,6 +1228,8 @@ async function openSession(student, existingSessionId = null, dateStr = null) {
   $("target-type-chip")?.classList.add("hidden");
 
   if (state.fbUnsubscribe) { state.fbUnsubscribe(); state.fbUnsubscribe = null; }
+  state.entryRemarkSaver?.cleanup();
+  state.entryRemarkSaver = setupEntryRemarkSaving($("target-content"), () => state.currentSessionId);
 
   try {
     const sessionId = existingSessionId
@@ -1267,9 +1269,14 @@ async function openSession(student, existingSessionId = null, dateStr = null) {
   }
 }
 
-function leaveSession() {
+async function leaveSession() {
   commitTextEditorSheet();
   $("text-editor-sheet").classList.add("hidden");
+  // Flush any not-yet-saved typing while the Firestore listener is still
+  // live, so state.sessionData reflects it before we decide what's "empty".
+  await state.entryRemarkSaver?.flush();
+  state.entryRemarkSaver?.cleanup();
+  state.entryRemarkSaver = null;
   if (state.fbUnsubscribe) { state.fbUnsubscribe(); state.fbUnsubscribe = null; }
   const sessionId = state.currentSessionId;
   const data      = state.sessionData;
@@ -1330,6 +1337,11 @@ function populateTargetDropdown(targets) {
       return;
     }
     const prevTarget = state.selectedTargetName;
+    // Flush any not-yet-saved typing on the target we're leaving before the
+    // cleanup below decides what's "empty" — otherwise a just-typed remark
+    // can lose the race against the still-stale local session data and get
+    // deleted as if it were never entered.
+    await state.entryRemarkSaver?.flush();
     state.selectedTargetName = sel.value;
     state.pendingNewActivity = null;
     state.pendingNewRemark   = null;
@@ -1614,23 +1626,6 @@ function remarkToHtml(text) {
   return text.replace(/\*\*(.+?)\*\*/g, "<b>$1</b>");
 }
 
-// Wraps an async save function so it auto-fires ~700ms after the user stops
-// typing, instead of relying solely on blur. Switching targets via the
-// dropdown reads local session data synchronously to decide what counts as
-// "empty" and should be cleaned up — if a save is still only pending on blur
-// at that moment, the just-typed text can lose the race and get deleted as
-// empty. Debounced input-saving closes that gap; blur still does an
-// immediate final flush.
-function debouncedSave(fn, delay = 700) {
-  let timer = null;
-  const wrapped = (...args) => {
-    clearTimeout(timer);
-    timer = setTimeout(() => fn(...args), delay);
-  };
-  wrapped.cancel = () => clearTimeout(timer);
-  return wrapped;
-}
-
 // ─── REMARK FIELDS ───────────────────────────────────────────
 
 function renderRemarkFields(rem, target, inlineOptions = null, sentenceStarter = null, multiSelect = false, isMastery = false) {
@@ -1806,22 +1801,11 @@ function renderGhostRemarkFields(predRemName, actId, pa, paIdx, target) {
 function attachTargetListeners(target) {
   const c = $("target-content");
 
-  // ── Activity name: debounced + blur auto-save ────────────
+  // Activity name (.activity-name-input) is saved by the shared merged-editing
+  // host — see setupEntryRemarkSaving. Just revert-if-emptied + Ctrl+Enter here.
   c.querySelectorAll(".activity-name-input").forEach(input => {
-    const save = async () => {
-      const newName = input.textContent.trim();
-      const original = input.dataset.original;
-      if (!newName || newName === original) return;
-      input.dataset.original = newName;
-      flashSaved(input);
-      await updateActivityName(state.currentSessionId, input.dataset.actId, newName);
-    };
-    const debounced = debouncedSave(save);
-    input.addEventListener("input", debounced);
     input.addEventListener("blur", () => {
-      debounced.cancel();
-      if (!input.textContent.trim()) { input.textContent = input.dataset.original; return; }
-      save();
+      if (!input.textContent.trim()) input.textContent = input.dataset.original;
     });
     input.addEventListener("keydown", e => {
       if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); input.blur(); }
@@ -1867,34 +1851,12 @@ function attachTargetListeners(target) {
     });
   });
 
-  // ── Remark text: debounced + blur auto-saves (contenteditable, stores HTML) ──
-  c.querySelectorAll(".remark-text-input").forEach(ta => {
-    let orig = ta.innerHTML;
-    const save = async () => {
-      const newText = ta.innerHTML;
-      if (newText === orig) return;
-      orig = newText;
-      flashSaved(ta);
-      await updateRemarkText(state.currentSessionId, ta.dataset.remId, newText);
-    };
-    const debounced = debouncedSave(save);
-    ta.addEventListener("input", debounced);
-    ta.addEventListener("blur", () => { debounced.cancel(); save(); });
-  });
-
-  // ── Mastery note text (contenteditable below buttons) ────
-  c.querySelectorAll(".mastery-note-input").forEach(div => {
-    let orig = div.innerHTML;
-    const save = async () => {
-      const newNote = div.innerHTML;
-      if (newNote === orig) return;
-      orig = newNote;
-      await updateRemarkNote(state.currentSessionId, div.dataset.remId, newNote);
-    };
-    const debounced = debouncedSave(save);
-    div.addEventListener("input", debounced);
-    div.addEventListener("blur", () => { debounced.cancel(); save(); });
-  });
+  // Saving for .remark-text-input / .mastery-note-input / .activity-name-input /
+  // .predef-remark-input / .predef-remark-input-live is handled by the shared
+  // merged-editing host (state.entryRemarkSaver, set up in openSession) — these
+  // boxes are nested inside the now-contenteditable #target-content, where
+  // per-element blur doesn't reliably fire when focus moves to a sibling
+  // control within the same contenteditable host. See setupEntryRemarkSaving.
 
   // ── Mastery level buttons ─────────────────────────────────
   c.querySelectorAll(".btn-mastery").forEach(btn => {
@@ -1996,40 +1958,9 @@ function attachTargetListeners(target) {
     });
   });
 
-  // ── Ghost predefined remark input: debounced + blur save ──
-  c.querySelectorAll(".predef-remark-input").forEach(input => {
-    let creating = false;
-    const save = async () => {
-      const text = input.textContent.trim();
-      if (!text || creating) return;
-      creating = true;
-      try {
-        const paOrder = input.dataset.paOrder !== "" ? Number(input.dataset.paOrder) : 0;
-        const actId = await ensureFedcActivity(input.dataset.target, input.dataset.paName, paOrder);
-        const remId = await ensurePredefinedRemark(actId, input.dataset.remName, text);
-        await updateRemarkText(state.currentSessionId, remId, text);
-      } finally {
-        creating = false;
-      }
-    };
-    const debounced = debouncedSave(save);
-    input.addEventListener("input", debounced);
-    input.addEventListener("blur", () => { debounced.cancel(); save(); });
-  });
-
-  // ── Live predefined remark input: debounced + blur auto-save ────────
+  // Ghost (.predef-remark-input) and live (.predef-remark-input-live) predefined
+  // remark inputs are also saved by the shared merged-editing host — see above.
   c.querySelectorAll(".predef-remark-input-live").forEach(input => {
-    const save = async () => {
-      const text = input.textContent.trim();
-      const original = input.dataset.original;
-      if (text === original) return;
-      input.dataset.original = text;
-      flashSaved(input);
-      await updateRemarkText(state.currentSessionId, input.dataset.remId, text);
-    };
-    const debounced = debouncedSave(save);
-    input.addEventListener("input", debounced);
-    input.addEventListener("blur", () => { debounced.cancel(); save(); });
     input.addEventListener("keydown", e => {
       if (e.key === "Enter") { e.preventDefault(); input.blur(); }
     });
@@ -2738,6 +2669,109 @@ function setupMergedRemarkSaving(body, getSessionId) {
       body.removeEventListener("input", onInput);
       body.removeEventListener("focusout", onFocusOut);
       document.removeEventListener("selectionchange", onSelectionChange);
+    }
+  };
+}
+
+// Same idea as setupMergedRemarkSaving, but for the live Session Entry screens
+// (#target-content / #group-target-content). Those hosts are also
+// contenteditable="true" now (so Grammarly can read the whole page) — which
+// means nested free-text boxes no longer reliably fire their own blur event
+// when focus moves to a sibling control (e.g. the "+Trial" button) within the
+// same contenteditable host. Per-element blur-to-save can silently never fire,
+// so saving is delegated to the host the same way the View screen does it.
+// flush() returns a Promise so callers that are about to read session data to
+// decide what's "empty" (switching targets, leaving the session) can await it
+// first instead of racing a still-in-flight write.
+function setupEntryRemarkSaving(host, getSessionId) {
+  let saveTimer = null;
+
+  function flush() {
+    clearTimeout(saveTimer);
+    saveTimer = null;
+    const sid = getSessionId();
+    if (!sid) return Promise.resolve();
+
+    const pending = [];
+
+    const diffAndSave = (selector, getValue, doSave) => {
+      host.querySelectorAll(selector).forEach(el => {
+        const value = getValue(el);
+        if (el.dataset.savedHtml === undefined || el.dataset.savedHtml === value) {
+          el.dataset.savedHtml = value;
+          return;
+        }
+        el.dataset.savedHtml = value;
+        pending.push(Promise.resolve(doSave(el, value)));
+      });
+    };
+
+    diffAndSave(".remark-text-input[data-rem-id]", el => el.innerHTML,
+      (el, html) => updateRemarkText(sid, el.dataset.remId, html));
+
+    diffAndSave(".mastery-note-input[data-rem-id]", el => el.innerHTML,
+      (el, html) => updateRemarkNote(sid, el.dataset.remId, html));
+
+    diffAndSave(".activity-name-input[data-act-id]", el => el.textContent.trim(),
+      (el, name) => {
+        if (!name) return; // don't persist an emptied-out name; blur reverts the box visually
+        el.dataset.original = name;
+        return updateActivityName(sid, el.dataset.actId, name);
+      });
+
+    diffAndSave(".predef-remark-input-live[data-rem-id]", el => el.textContent.trim(),
+      (el, text) => {
+        el.dataset.original = text;
+        return updateRemarkText(sid, el.dataset.remId, text);
+      });
+
+    diffAndSave(".group-remark-input[data-rem-id]", el => el.innerHTML,
+      (el, html) => updateRemarkText(sid, el.dataset.remId, html));
+
+    diffAndSave(".group-remark-input-combined[data-rem-ids]", el => el.innerHTML,
+      (el, html) => {
+        const remIds = el.dataset.remIds.split(",").filter(Boolean);
+        return Promise.all(remIds.map(id => updateRemarkText(sid, id, html)));
+      });
+
+    // Ghost predefined-remark inputs don't have a remark (or sometimes even an
+    // activity) yet, so they need to be created first — guarded against
+    // double-creation if flush() runs again before the first creation lands.
+    host.querySelectorAll(".predef-remark-input[data-pa-name]").forEach(el => {
+      const text = el.textContent.trim();
+      if (!text || el.dataset.creating === "true") return;
+      el.dataset.creating = "true";
+      const create = async () => {
+        try {
+          const paOrder = el.dataset.paOrder !== "" ? Number(el.dataset.paOrder) : 0;
+          const actId = await ensureFedcActivity(el.dataset.target, el.dataset.paName, paOrder);
+          const remId = await ensurePredefinedRemark(actId, el.dataset.remName, text);
+          await updateRemarkText(sid, remId, text);
+        } finally {
+          el.dataset.creating = "false";
+        }
+      };
+      pending.push(create());
+    });
+
+    return Promise.all(pending);
+  }
+
+  const onInput = () => {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(flush, 700);
+  };
+  const onFocusOut = () => flush();
+
+  host.addEventListener("input", onInput);
+  host.addEventListener("focusout", onFocusOut);
+
+  return {
+    flush,
+    cleanup() {
+      clearTimeout(saveTimer);
+      host.removeEventListener("input", onInput);
+      host.removeEventListener("focusout", onFocusOut);
     }
   };
 }
@@ -5256,6 +5290,8 @@ function showGroupChoice(group) {
 // ── Open group session ───────────────────────────────────────
 async function openGroupSession(group, dateStr, attendees) {
   if (state.fbGroupUnsubscribe) { state.fbGroupUnsubscribe(); state.fbGroupUnsubscribe = null; }
+  state.entryGroupRemarkSaver?.cleanup();
+  state.entryGroupRemarkSaver = setupEntryRemarkSaving($("group-target-content"), () => state.groupSessionId);
   state.currentGroup            = group;
   state.groupAttendees          = attendees;
   state.groupSessionId          = null;
@@ -5333,6 +5369,10 @@ function populateGroupTargetDropdown(targets) {
       return;
     }
     const prevTarget = state.selectedGroupTargetName;
+    // Flush any not-yet-saved typing on the target we're leaving before the
+    // cleanup below decides what's "empty" — see openSession's target dropdown
+    // for the same fix on the individual side.
+    await state.entryGroupRemarkSaver?.flush();
     state.selectedGroupTargetName = sel.value || null;
     if (prevTarget && prevTarget !== sel.value) {
       cleanupEmptyEntries(state.groupSessionId, state.groupSessionData, prevTarget).catch(() => {});
@@ -5367,9 +5407,14 @@ async function autoFillGroupSession(group, sessionId, data, targetName, attendee
   return created;
 }
 
-function leaveGroupSession() {
+async function leaveGroupSession() {
   commitTextEditorSheet();
   $("text-editor-sheet").classList.add("hidden");
+  // Flush any not-yet-saved typing while the Firestore listener is still
+  // live, so state.groupSessionData reflects it before we decide what's "empty".
+  await state.entryGroupRemarkSaver?.flush();
+  state.entryGroupRemarkSaver?.cleanup();
+  state.entryGroupRemarkSaver = null;
   if (state.fbGroupUnsubscribe) { state.fbGroupUnsubscribe(); state.fbGroupUnsubscribe = null; }
   const sessionId = state.groupSessionId;
   const data      = state.groupSessionData;
@@ -5768,19 +5813,9 @@ function attachGroupTargetListeners(target) {
   const c = $("group-target-content");
   if (!c) return;
 
-  // Remark: debounced + blur auto-save
-  c.querySelectorAll(".group-remark-input").forEach(div => {
-    let orig = div.innerHTML;
-    const save = async () => {
-      const newText = div.innerHTML;
-      if (newText === orig) return;
-      orig = newText;
-      await updateRemarkText(state.groupSessionId, div.dataset.remId, newText);
-    };
-    const debounced = debouncedSave(save);
-    div.addEventListener("input", debounced);
-    div.addEventListener("blur", () => { debounced.cancel(); save(); });
-  });
+  // Saving for .group-remark-input / .group-remark-input-combined is handled
+  // by the shared merged-editing host (state.entryGroupRemarkSaver, set up in
+  // openGroupSession) — see setupEntryRemarkSaving.
 
   // Sketch board
   c.querySelectorAll(".btn-group-sketch").forEach(btn => {
@@ -5788,21 +5823,6 @@ function attachGroupTargetListeners(target) {
       const field = c.querySelector(`.group-remark-input[data-rem-id="${btn.dataset.remId}"]`);
       if (field) openTextEditorSheet(field);
     });
-  });
-
-  // Combined remark box (shared across all students in a round) — debounced + blur save, writes to every remId
-  c.querySelectorAll(".group-remark-input-combined").forEach(div => {
-    let orig = div.innerHTML;
-    const save = async () => {
-      const newText = div.innerHTML;
-      if (newText === orig) return;
-      orig = newText;
-      const remIds = div.dataset.remIds.split(",").filter(Boolean);
-      await Promise.all(remIds.map(remId => updateRemarkText(state.groupSessionId, remId, newText)));
-    };
-    const debounced = debouncedSave(save);
-    div.addEventListener("input", debounced);
-    div.addEventListener("blur", () => { debounced.cancel(); save(); });
   });
 
   c.querySelectorAll(".btn-group-sketch-combined").forEach(btn => {
