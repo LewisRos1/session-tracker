@@ -60,7 +60,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "405";
+const APP_VERSION = "406";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -1507,7 +1507,8 @@ function renderFedcTarget(target) {
         <span class="field-label" contenteditable="false">Activity</span>
         <div class="field-input activity-name-input" contenteditable="true"
           data-act-id="${act.id}"
-          data-original="${escHtml(act.activityName)}">${escHtml(act.activityName)}</div>
+          data-original="${escHtml(act.activityName)}"
+          data-saved-html="${escHtml(act.activityName)}">${escHtml(act.activityName)}</div>
         <button class="btn-icon btn-delete-activity" contenteditable="false"
           data-act-id="${act.id}" title="Delete activity">🗑</button>
       </div>`;
@@ -1567,7 +1568,8 @@ function renderRegularTarget(target) {
         <span class="field-label" contenteditable="false">Activity</span>
         <div class="field-input activity-name-input" contenteditable="true"
           data-act-id="${act.id}"
-          data-original="${escHtml(act.activityName)}">${escHtml(act.activityName)}</div>
+          data-original="${escHtml(act.activityName)}"
+          data-saved-html="${escHtml(act.activityName)}">${escHtml(act.activityName)}</div>
         <button class="btn-icon btn-delete-activity" contenteditable="false"
           data-act-id="${act.id}" title="Delete activity">🗑</button>
       </div>`;
@@ -1652,7 +1654,8 @@ function renderRemarkFields(rem, target, inlineOptions = null, sentenceStarter =
         <div class="mastery-note-row">
           <button class="btn-sketch" data-rem-id="${rem.id}" aria-label="Open sketch board">✏</button>
           <div class="field-input mastery-note-input" contenteditable="true"
-            data-rem-id="${rem.id}" data-placeholder="Notes…">${rem.masteryNote || ""}</div>
+            data-rem-id="${rem.id}" data-placeholder="Notes…"
+            data-saved-html="${escHtml(rem.masteryNote || "")}">${rem.masteryNote || ""}</div>
         </div>
       </div>
       <button class="btn-icon btn-delete-remark"
@@ -1686,7 +1689,7 @@ function renderRemarkFields(rem, target, inlineOptions = null, sentenceStarter =
 
   const optBtns = makeOptPills(rem.id, rem.text)
     || `<div class="field-input remark-text-input" contenteditable="true"
-        data-rem-id="${rem.id}">${remarkToHtml(rem.text)}</div>`;
+        data-rem-id="${rem.id}" data-saved-html="${escHtml(remarkToHtml(rem.text))}">${remarkToHtml(rem.text)}</div>`;
 
   // Sketch board button only shown when there's a free-text input (no preset opt pills)
   const sketchBtn = opts.length === 0
@@ -1699,7 +1702,7 @@ function renderRemarkFields(rem, target, inlineOptions = null, sentenceStarter =
       <span class="remark-starter-prefix" contenteditable="false">${escHtml(sentenceStarter)}</span>
       ${makeOptPills(rem.id, rem.text)
         || `<div class="field-input remark-text-input" contenteditable="true"
-            data-rem-id="${rem.id}">${remarkToHtml(rem.text)}</div>`
+            data-rem-id="${rem.id}" data-saved-html="${escHtml(remarkToHtml(rem.text))}">${remarkToHtml(rem.text)}</div>`
       }
     </div>`;
   } else {
@@ -1755,6 +1758,7 @@ function renderPredefinedRemarkFields(rem, predRemName, target) {
       <div class="field-input predef-remark-input-live" contenteditable="true"
         data-rem-id="${rem.id}"
         data-original="${escHtml(rem.text || "")}"
+        data-saved-html="${escHtml(rem.text || "")}"
         data-placeholder="e.g. 80%">${escHtml(rem.text || "")}</div>
     </div>
     <div class="entry-field" contenteditable="false">
@@ -2528,7 +2532,7 @@ function viewRemarkRow(no, actName, rem, target, inlineOptions = null, sentenceS
         </div>
       </div>`
     : (makeViewOpts(rem.id, rem.text)
-        || `<div class="view-remark-edit" data-rem-id="${escHtml(rem.id)}">${remarkToHtml(rem.text)}</div>`);
+        || `<div class="view-remark-edit" data-rem-id="${escHtml(rem.id)}" data-saved-html="${escHtml(remarkToHtml(rem.text))}">${remarkToHtml(rem.text)}</div>`);
 
   let remarkCell;
   if (sentenceStarter) {
@@ -2603,20 +2607,14 @@ function setupMergedRemarkSaving(body, getSessionId) {
 
     body.querySelectorAll(".view-remark-edit[data-rem-id]:not(.group-remark-input-combined)").forEach(div => {
       const html = div.innerHTML;
-      if (div.dataset.savedHtml === undefined || div.dataset.savedHtml === html) {
-        div.dataset.savedHtml = html;
-        return;
-      }
+      if (div.dataset.savedHtml === html) return;
       div.dataset.savedHtml = html;
       updateRemarkText(sid, div.dataset.remId, html);
     });
 
     body.querySelectorAll(".group-remark-input-combined[data-rem-ids]").forEach(div => {
       const html = div.innerHTML;
-      if (div.dataset.savedHtml === undefined || div.dataset.savedHtml === html) {
-        div.dataset.savedHtml = html;
-        return;
-      }
+      if (div.dataset.savedHtml === html) return;
       div.dataset.savedHtml = html;
       const remIds = div.dataset.remIds.split(",").filter(Boolean);
       Promise.all(remIds.map(id => updateRemarkText(sid, id, html)));
@@ -2697,10 +2695,7 @@ function setupEntryRemarkSaving(host, getSessionId) {
     const diffAndSave = (selector, getValue, doSave) => {
       host.querySelectorAll(selector).forEach(el => {
         const value = getValue(el);
-        if (el.dataset.savedHtml === undefined || el.dataset.savedHtml === value) {
-          el.dataset.savedHtml = value;
-          return;
-        }
+        if (el.dataset.savedHtml === value) return;
         el.dataset.savedHtml = value;
         pending.push(Promise.resolve(doSave(el, value)));
       });
@@ -3365,7 +3360,7 @@ function viewGroupRemarkRow(no, actName, studentName, rem, target, inlineOptions
             </div>
           </div>`
         : (makeViewOpts(rem.id, rem.text)
-            || `<div class="view-remark-edit" data-rem-id="${escHtml(rem.id)}">${remarkToHtml(rem.text)}</div>`);
+            || `<div class="view-remark-edit" data-rem-id="${escHtml(rem.id)}" data-saved-html="${escHtml(remarkToHtml(rem.text))}">${remarkToHtml(rem.text)}</div>`);
 
       let remarkCell;
       if (sentenceStarter) {
@@ -5587,7 +5582,8 @@ function renderGroupStudentRowCompact(remId, rem, target) {
       <span class="field-label" contenteditable="false">Remark</span>
       <button class="btn-sketch btn-group-sketch" contenteditable="false" data-rem-id="${remId}" aria-label="Open sketch board">✏</button>
       <div class="field-input group-remark-input" contenteditable="true"
-        data-rem-id="${remId}" data-placeholder="Remark…">${remarkToHtml(rem.text)}</div>
+        data-rem-id="${remId}" data-placeholder="Remark…"
+        data-saved-html="${escHtml(remarkToHtml(rem.text))}">${remarkToHtml(rem.text)}</div>
       <button class="btn-icon btn-group-del-student-remark" contenteditable="false" data-rem-id="${remId}" title="Delete remark">🗑</button>
     </div>
     <div class="entry-field" contenteditable="false">
@@ -5710,7 +5706,8 @@ function renderGroupCombinedRemarkRow(remIds, text) {
     <span class="field-label" contenteditable="false">Remark</span>
     <button class="btn-sketch btn-group-sketch-combined" contenteditable="false" data-rem-ids="${idList}" aria-label="Open sketch board">✏</button>
     <div class="field-input group-remark-input-combined" contenteditable="true"
-      data-rem-ids="${idList}" data-placeholder="Remark…">${remarkToHtml(text)}</div>
+      data-rem-ids="${idList}" data-placeholder="Remark…"
+      data-saved-html="${escHtml(remarkToHtml(text))}">${remarkToHtml(text)}</div>
   </div>`;
 }
 
@@ -5748,7 +5745,8 @@ function renderGroupStudentRow(studentName, remId, rem, target) {
       <span class="field-label" contenteditable="false">Remark</span>
       <button class="btn-sketch btn-group-sketch" contenteditable="false" data-rem-id="${remId}" aria-label="Sketch">✏</button>
       <div class="field-input group-remark-input" contenteditable="true"
-        data-rem-id="${remId}" data-placeholder="Remark…">${remarkToHtml(rem.text)}</div>
+        data-rem-id="${remId}" data-placeholder="Remark…"
+        data-saved-html="${escHtml(remarkToHtml(rem.text))}">${remarkToHtml(rem.text)}</div>
     </div>
     <div class="entry-field" contenteditable="false">
       <span class="field-label">Trials</span>
