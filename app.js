@@ -60,7 +60,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "434";
+const APP_VERSION = "435";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -1904,6 +1904,21 @@ function attachTargetListeners(target) {
   // per-element blur doesn't reliably fire when focus moves to a sibling
   // control within the same contenteditable host. See setupEntryRemarkSaving.
 
+  // Plain Enter in a multi-line remark box should add a line break and grow
+  // the box, not fall through to the browser's default contenteditable Enter
+  // handling — nested inside the larger always-on contenteditable host, that
+  // default can split into a new block-level element instead of just adding
+  // a <br>, which doesn't expand the box the way it used to as a plain
+  // <textarea>. Same fix as the view/edit-past-session screens' insertBrAtCaret.
+  c.querySelectorAll(".remark-text-input, .mastery-note-input").forEach(el => {
+    el.addEventListener("keydown", e => {
+      if (e.key !== "Enter" || e.ctrlKey || e.metaKey) return;
+      e.preventDefault();
+      insertBrAtCaret();
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  });
+
   // ── Mastery level buttons ─────────────────────────────────
   c.querySelectorAll(".btn-mastery").forEach(btn => {
     btn.addEventListener("click", async () => {
@@ -2000,7 +2015,11 @@ function attachTargetListeners(target) {
   const newRemTa = $("new-remark-textarea");
   if (newRemTa) {
     newRemTa.addEventListener("keydown", e => {
-      if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); saveNewRemark(target); }
+      if (e.key !== "Enter") return;
+      if (e.ctrlKey || e.metaKey) { e.preventDefault(); saveNewRemark(target); return; }
+      e.preventDefault();
+      insertBrAtCaret();
+      newRemTa.dispatchEvent(new Event("input", { bubbles: true }));
     });
   }
 
@@ -6061,6 +6080,17 @@ function attachGroupTargetListeners(target) {
   // Saving for .group-remark-input / .group-remark-input-combined is handled
   // by the shared merged-editing host (state.entryGroupRemarkSaver, set up in
   // openGroupSession) — see setupEntryRemarkSaving.
+
+  // Plain Enter adds a line break and grows the box — see the matching
+  // individual-screen comment in attachTargetListeners.
+  c.querySelectorAll(".group-remark-input, .group-remark-input-combined").forEach(el => {
+    el.addEventListener("keydown", e => {
+      if (e.key !== "Enter" || e.ctrlKey || e.metaKey) return;
+      e.preventDefault();
+      insertBrAtCaret();
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  });
 
   // Sketch board
   c.querySelectorAll(".btn-group-sketch").forEach(btn => {
