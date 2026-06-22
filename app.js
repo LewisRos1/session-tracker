@@ -60,7 +60,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "460";
+const APP_VERSION = "461";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -2923,6 +2923,10 @@ function setupMergedRemarkSaving(body, getSessionId, onIdle) {
   // region from also trying to claim the mousedown as a focus/selection
   // change. Standard fix for buttons embedded in editable regions.
   const onMouseDown = e => {
+    // Native form controls (the Trials column's score <select>, etc.) need
+    // their own default mousedown behavior (opening the dropdown, focusing)
+    // to fire — preventDefault() here would silently break that.
+    if (e.target.closest("select, input, textarea")) return;
     if (e.target.closest('[contenteditable="false"]')) e.preventDefault();
   };
   body.addEventListener("input", onInput);
