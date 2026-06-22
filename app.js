@@ -60,7 +60,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "426";
+const APP_VERSION = "428";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -2493,11 +2493,17 @@ function viewActivityRows(no, actName, actId, data, target, isPredefined = true)
            data-is-predefined="${isPredefined}"
            data-placeholder="Click to add remark…"></div>`
       : "";
+    // "+ " shows even with no remark yet — clicking it creates the activity/
+    // remark and a first trial in one go, so a score can be logged without
+    // first having to type something into the remark box.
+    const addTrialBtn = `<button class="view-add-trial-new" data-act-id="${escHtml(actId || "")}"
+      data-act-name="${escHtml(actName)}" data-target-name="${escHtml(target.name)}"
+      data-is-predefined="${isPredefined}">+</button>`;
     return `<tr>
       <td class="vcol-no" contenteditable="false">${no}</td>
       <td class="vcol-act" contenteditable="false">${actCell}</td>
       <td class="vcol-rem">${emptyCell}</td>
-      <td class="vcol-trials" contenteditable="false">&nbsp;</td>
+      <td class="vcol-trials" contenteditable="false">${addTrialBtn}</td>
       <td class="vcol-total" contenteditable="false">&nbsp;</td>
       <td class="vcol-score" contenteditable="false">&nbsp;</td>
     </tr>`;
@@ -2896,7 +2902,15 @@ function attachViewListeners() {
   // Ctrl+Enter shortcut to force an immediate save.
   body.querySelectorAll(".view-remark-edit").forEach(ta => {
     ta.addEventListener("keydown", e => {
-      if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); state.viewRemarkSaver?.flush(); }
+      if (e.key !== "Enter") return;
+      if (e.ctrlKey || e.metaKey) { e.preventDefault(); state.viewRemarkSaver?.flush(); return; }
+      // Plain Enter: insert a single <br> instead of letting the browser
+      // split the box into a new block-level element (its default behavior
+      // for Enter in a contenteditable region) — inside this table-cell
+      // layout that new block can escape its row entirely and render as a
+      // stray floating box.
+      e.preventDefault();
+      document.execCommand("insertLineBreak");
     });
   });
 
@@ -2960,10 +2974,13 @@ function attachViewListeners() {
 
   body.querySelectorAll(".view-add-trial-new").forEach(btn => {
     btn.addEventListener("click", async () => {
-      const target = getViewEffectiveTargets().find(t => t.name === btn.dataset.targetName);
-      const maxPts = target?.maxPoints || 3;
       let actId = btn.dataset.actId;
-      if (!actId) actId = await addActivity(state.viewSessionId, btn.dataset.targetName, btn.dataset.actName, Date.now(), true);
+      if (!actId) {
+        actId = await addActivity(
+          state.viewSessionId, btn.dataset.targetName, btn.dataset.actName, Date.now(),
+          btn.dataset.isPredefined === "true"
+        );
+      }
       const remId = await addRemark(state.viewSessionId, actId, "", null);
       await setTrials(state.viewSessionId, remId, [-1]);
     });
@@ -3286,6 +3303,9 @@ function viewGroupActivityRows(no, actName, actId, data, target, attendees, isPr
     const showEmpty = opts.length === 0 && !isMastery;
 
     if (showEmpty) {
+      // "+ " shows even with no remark yet — see the individual screen's
+      // viewActivityRows for why (lets a score be logged without first
+      // typing a remark).
       return attendees.map((studentName, idx) => `<tr>
         <td class="vcol-no" contenteditable="false">${idx === 0 ? no : ""}</td>
         <td class="vcol-act" contenteditable="false">${idx === 0 ? actCellWithToggle : ""}</td>
@@ -3299,7 +3319,11 @@ function viewGroupActivityRows(no, actName, actId, data, target, attendees, isPr
             data-student="${escHtml(studentName)}"
             data-placeholder="Click to add remark…"></div>
         </td>
-        <td class="vcol-trials" contenteditable="false">&nbsp;</td>
+        <td class="vcol-trials" contenteditable="false">
+          <button class="view-group-add-trial-new" data-act-id="${escHtml(actId || "")}"
+            data-act-name="${escHtml(actName)}" data-target-name="${escHtml(target.name)}"
+            data-is-predefined="${isPredefined}" data-student="${escHtml(studentName)}">+</button>
+        </td>
         <td class="vcol-total" contenteditable="false">&nbsp;</td>
         <td class="vcol-score" contenteditable="false">&nbsp;</td>
       </tr>`).join("");
@@ -3507,7 +3531,12 @@ function attachGroupViewListeners() {
   // openGroupSessionView — just a Ctrl+Enter shortcut to force an immediate save.
   body.querySelectorAll(".view-remark-edit").forEach(ta => {
     ta.addEventListener("keydown", e => {
-      if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); state.viewGroupRemarkSaver?.flush(); }
+      if (e.key !== "Enter") return;
+      if (e.ctrlKey || e.metaKey) { e.preventDefault(); state.viewGroupRemarkSaver?.flush(); return; }
+      // See the individual screen's attachViewListeners for why plain Enter
+      // needs to force a <br> instead of the browser's default block-split.
+      e.preventDefault();
+      document.execCommand("insertLineBreak");
     });
   });
 
@@ -3634,6 +3663,22 @@ function attachGroupViewListeners() {
     btn.addEventListener("click", async () => {
       btn.disabled = true;
       await addGroupRemark(sid(), btn.dataset.actId, btn.dataset.student);
+    });
+  });
+
+  // "+" under Trials with no remark yet — creates the activity/remark for
+  // this student and a first trial in one go.
+  body.querySelectorAll(".view-group-add-trial-new").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      let actId = btn.dataset.actId;
+      if (!actId) {
+        actId = await addActivity(
+          sid(), btn.dataset.targetName, btn.dataset.actName, Date.now(),
+          btn.dataset.isPredefined === "true"
+        );
+      }
+      const remId = await addGroupRemark(sid(), actId, btn.dataset.student);
+      await setTrials(sid(), remId, [-1]);
     });
   });
 

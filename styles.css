@@ -2428,7 +2428,9 @@ div.admin-note-editable:empty::before {
 }
 .view-trial-del:hover { color: var(--danger); border-color: var(--danger); }
 
-.view-add-trial {
+.view-add-trial,
+.view-add-trial-new,
+.view-group-add-trial-new {
   background: none;
   border: 1px solid var(--border);
   border-radius: 4px;
@@ -2438,7 +2440,9 @@ div.admin-note-editable:empty::before {
   cursor: pointer;
   line-height: 1;
 }
-.view-add-trial:hover { background: var(--primary-light); }
+.view-add-trial:hover,
+.view-add-trial-new:hover,
+.view-group-add-trial-new:hover { background: var(--primary-light); }
 
 .view-act-edit {
   flex: 1;
