@@ -60,7 +60,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "433";
+const APP_VERSION = "434";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -1957,8 +1957,13 @@ function attachTargetListeners(target) {
         // The write's own onSnapshot may have already fired and deferred a
         // render (renderPending) while the counter was still > 0 — nothing
         // else proactively re-checks once it drops back to 0, so do it here
-        // (same check as setupEntryRemarkSaving's onIdle).
-        if (state.entryActionsInFlight === 0 && state.renderPending && !hasActiveSelectionIn($("target-content"))) {
+        // (same check as setupEntryRemarkSaving's onIdle). Must also check
+        // isPending() — the user may have resumed typing elsewhere while
+        // this write was in flight, and applying the render now would wipe
+        // that in-progress edit.
+        if (state.entryActionsInFlight === 0 && state.renderPending
+            && !hasActiveSelectionIn($("target-content"))
+            && !(state.entryRemarkSaver?.isPending() ?? false)) {
           state.renderPending = false;
           renderTargetContent();
         }
@@ -2789,6 +2794,13 @@ function setupMergedRemarkSaving(body, getSessionId, onIdle) {
 // first instead of racing a still-in-flight write.
 function setupEntryRemarkSaving(host, getSessionId, onIdle) {
   let saveTimer = null;
+  // Short grace window covering the gap between "user just clicked into a
+  // box, placing a caret" and "user actually starts typing" — isPending()
+  // alone misses this moment (saveTimer is still null), so a render landing
+  // in that narrow window can replace the just-focused box and silently
+  // drop the caret, forcing the user to click back in.
+  let focusGraceTimer = null;
+  let inFocusGrace = false;
 
   function flush() {
     clearTimeout(saveTimer);
@@ -2868,10 +2880,28 @@ function setupEntryRemarkSaving(host, getSessionId, onIdle) {
   // succeeds, but the re-render that would replace the disabled/"Adding…"
   // button with the new remark fields never runs.
   const onInput = () => {
+    // Real typing supersedes the focus-grace window below — clear it so its
+    // timeout doesn't redundantly fire onIdle() mid-keystroke.
+    clearTimeout(focusGraceTimer);
+    inFocusGrace = false;
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => { flush(); onIdle?.(); }, 700);
   };
   const onFocusOut = () => { flush(); onIdle?.(); };
+  const onFocusIn = e => {
+    if (e.target.closest('[contenteditable="false"]')) return;
+    inFocusGrace = true;
+    clearTimeout(focusGraceTimer);
+    focusGraceTimer = setTimeout(() => {
+      inFocusGrace = false;
+      // Only fire onIdle() here if there's no still-pending keystroke
+      // elsewhere in the host (saveTimer is host-wide, not per-box) — unlike
+      // the onInput/onFocusOut paths, this one never called flush() first,
+      // so it must not let a deferred render through while something else
+      // is still unsaved.
+      if (saveTimer === null) onIdle?.();
+    }, 600);
+  };
   // Buttons/labels nested inside a contenteditable host need an explicit
   // mousedown preventDefault, or the browser's default "place the caret"
   // handling for the click eats the first click on them entirely — the
@@ -2887,21 +2917,26 @@ function setupEntryRemarkSaving(host, getSessionId, onIdle) {
   host.addEventListener("input", onInput);
   host.addEventListener("focusout", onFocusOut);
   host.addEventListener("mousedown", onMouseDown);
+  host.addEventListener("focusin", onFocusIn);
 
   return {
     flush,
-    // True only while there's a not-yet-flushed keystroke (debounce timer
-    // running). Focus position can't be used as the "is the user busy"
-    // signal here — the mousedown fix above deliberately keeps focus pinned
+    // True while there's a not-yet-flushed keystroke (debounce timer
+    // running) OR the short post-click focus-grace window is active. Focus
+    // position itself still can't be used as the long-lived "is the user
+    // busy" signal — the mousedown fix above deliberately keeps focus pinned
     // on whatever box was last typed in even after clicking a button, so
     // "is something still focused" would stay true indefinitely and defer
-    // every render forever instead of just while actively mid-keystroke.
-    isPending: () => saveTimer !== null,
+    // every render forever instead of just while actively mid-keystroke (or,
+    // now, for the brief moment right after a click).
+    isPending: () => saveTimer !== null || inFocusGrace,
     cleanup() {
       clearTimeout(saveTimer);
+      clearTimeout(focusGraceTimer);
       host.removeEventListener("input", onInput);
       host.removeEventListener("focusout", onFocusOut);
       host.removeEventListener("mousedown", onMouseDown);
+      host.removeEventListener("focusin", onFocusIn);
     }
   };
 }
@@ -6121,7 +6156,9 @@ function attachGroupTargetListeners(target) {
         // Firestore listener will re-render
       } finally {
         state.entryGroupActionsInFlight--;
-        if (state.entryGroupActionsInFlight === 0 && state.groupRenderPending && !hasActiveSelectionIn($("group-target-content"))) {
+        if (state.entryGroupActionsInFlight === 0 && state.groupRenderPending
+            && !hasActiveSelectionIn($("group-target-content"))
+            && !(state.entryGroupRemarkSaver?.isPending() ?? false)) {
           state.groupRenderPending = false;
           renderGroupTargetContent();
         }
@@ -6139,7 +6176,9 @@ function attachGroupTargetListeners(target) {
         await ensureGroupActivityAndRemark(btn);
       } finally {
         state.entryGroupActionsInFlight--;
-        if (state.entryGroupActionsInFlight === 0 && state.groupRenderPending && !hasActiveSelectionIn($("group-target-content"))) {
+        if (state.entryGroupActionsInFlight === 0 && state.groupRenderPending
+            && !hasActiveSelectionIn($("group-target-content"))
+            && !(state.entryGroupRemarkSaver?.isPending() ?? false)) {
           state.groupRenderPending = false;
           renderGroupTargetContent();
         }
@@ -6176,7 +6215,9 @@ function attachGroupTargetListeners(target) {
         await addGroupRemarksBatch(state.groupSessionId, entries);
       } finally {
         state.entryGroupActionsInFlight--;
-        if (state.entryGroupActionsInFlight === 0 && state.groupRenderPending && !hasActiveSelectionIn($("group-target-content"))) {
+        if (state.entryGroupActionsInFlight === 0 && state.groupRenderPending
+            && !hasActiveSelectionIn($("group-target-content"))
+            && !(state.entryGroupRemarkSaver?.isPending() ?? false)) {
           state.groupRenderPending = false;
           renderGroupTargetContent();
         }
@@ -6194,7 +6235,9 @@ function attachGroupTargetListeners(target) {
         await addGroupRemark(state.groupSessionId, btn.dataset.actId, btn.dataset.student);
       } finally {
         state.entryGroupActionsInFlight--;
-        if (state.entryGroupActionsInFlight === 0 && state.groupRenderPending && !hasActiveSelectionIn($("group-target-content"))) {
+        if (state.entryGroupActionsInFlight === 0 && state.groupRenderPending
+            && !hasActiveSelectionIn($("group-target-content"))
+            && !(state.entryGroupRemarkSaver?.isPending() ?? false)) {
           state.groupRenderPending = false;
           renderGroupTargetContent();
         }
