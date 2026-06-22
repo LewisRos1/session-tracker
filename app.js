@@ -60,7 +60,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "420";
+const APP_VERSION = "421";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -2420,10 +2420,20 @@ function buildTargetViewTable(target, data) {
       });
   }
 
+  // Individual <td>s per column (not one colspan="6" cell) — a colspan cell's
+  // rendered width is the *sum* of the spanned columns, and that sum can round
+  // to a slightly different pixel value than the columns render individually
+  // at certain zoom levels/window widths, showing up as a hairline mismatch
+  // against the bordered rows above. Per-column cells can't drift like that.
   rows += `<tr class="view-add-activity-row">
-    <td colspan="6" contenteditable="false">
+    <td class="vcol-no" contenteditable="false"></td>
+    <td class="vcol-act" contenteditable="false">
       <button class="btn-view-add-activity" data-target-name="${escHtml(target.name)}">＋ Activity</button>
     </td>
+    <td class="vcol-rem" contenteditable="false"></td>
+    <td class="vcol-trials" contenteditable="false"></td>
+    <td class="vcol-total" contenteditable="false"></td>
+    <td class="vcol-score" contenteditable="false"></td>
   </tr>`;
 
   if (target.hasComment) {
@@ -3221,10 +3231,17 @@ function buildGroupTargetViewTable(target, data, attendees) {
       });
   }
 
+  // See the individual table's buildTargetViewTable for why this avoids colspan.
   rows += `<tr class="view-add-activity-row">
-    <td colspan="7" contenteditable="false">
+    <td class="vcol-no" contenteditable="false"></td>
+    <td class="vcol-act" contenteditable="false">
       <button class="btn-view-add-activity" data-target-name="${escHtml(target.name)}">＋ Activity</button>
     </td>
+    <td class="vcol-student" contenteditable="false"></td>
+    <td class="vcol-rem" contenteditable="false"></td>
+    <td class="vcol-trials" contenteditable="false"></td>
+    <td class="vcol-total" contenteditable="false"></td>
+    <td class="vcol-score" contenteditable="false"></td>
   </tr>`;
 
   if (target.hasComment) {
