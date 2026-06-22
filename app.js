@@ -60,7 +60,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "429";
+const APP_VERSION = "431";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -2866,6 +2866,24 @@ function setupEntryRemarkSaving(host, getSessionId, onIdle) {
   };
 }
 
+// Manually insert a <br> at the current caret position, bypassing
+// document.execCommand("insertLineBreak") entirely — it turned out unreliable
+// inside this nested table-cell contenteditable structure (still let the
+// browser split into a new block-level element in some cases, which could
+// then escape its row and render as a stray floating box outside the table).
+function insertBrAtCaret() {
+  const sel = document.getSelection();
+  if (!sel || sel.rangeCount === 0) return;
+  const range = sel.getRangeAt(0);
+  range.deleteContents();
+  const br = document.createElement("br");
+  range.insertNode(br);
+  range.setStartAfter(br);
+  range.collapse(true);
+  sel.removeAllRanges();
+  sel.addRange(range);
+}
+
 function attachViewListeners() {
   const body = $("session-view-body");
 
@@ -2919,13 +2937,12 @@ function attachViewListeners() {
     ta.addEventListener("keydown", e => {
       if (e.key !== "Enter") return;
       if (e.ctrlKey || e.metaKey) { e.preventDefault(); state.viewRemarkSaver?.flush(); return; }
-      // Plain Enter: insert a single <br> instead of letting the browser
-      // split the box into a new block-level element (its default behavior
-      // for Enter in a contenteditable region) — inside this table-cell
-      // layout that new block can escape its row entirely and render as a
-      // stray floating box.
       e.preventDefault();
-      document.execCommand("insertLineBreak");
+      insertBrAtCaret();
+      // Manual DOM mutation via the Range API doesn't fire a native "input"
+      // event the way the browser's own edit commands do — the host's save
+      // debounce listens for that event, so dispatch one ourselves.
+      ta.dispatchEvent(new Event("input", { bubbles: true }));
     });
   });
 
@@ -3548,10 +3565,9 @@ function attachGroupViewListeners() {
     ta.addEventListener("keydown", e => {
       if (e.key !== "Enter") return;
       if (e.ctrlKey || e.metaKey) { e.preventDefault(); state.viewGroupRemarkSaver?.flush(); return; }
-      // See the individual screen's attachViewListeners for why plain Enter
-      // needs to force a <br> instead of the browser's default block-split.
       e.preventDefault();
-      document.execCommand("insertLineBreak");
+      insertBrAtCaret();
+      ta.dispatchEvent(new Event("input", { bubbles: true }));
     });
   });
 

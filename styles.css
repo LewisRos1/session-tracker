@@ -2290,6 +2290,14 @@ div.admin-note-editable:empty::before {
 }
 
 .view-table-wrapper {
+  /* Shrink-to-fit instead of a normal block (which sizes to the viewport's
+     available width, not the table's actual rendered width). Without this,
+     when the table needs to be wider than the viewport (and overflows
+     rightward for the shared horizontal scrollbar on .session-view-body to
+     pick up), this wrapper's box — and the border-radius/box-shadow drawn
+     on it — stayed at the narrower viewport width, so the rounded corner
+     and shadow visibly cut off before reaching the table's true right edge. */
+  display: inline-block;
   border-radius: var(--radius);
   box-shadow: var(--shadow);
 }
