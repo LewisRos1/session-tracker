@@ -60,7 +60,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "406";
+const APP_VERSION = "407";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -1259,7 +1259,12 @@ async function openSession(student, existingSessionId = null, dateStr = null) {
       if (busy) {
         state.renderPending = true;
       } else {
-        renderTargetContent();
+        // Defer one tick: a click on a button inside #target-content (e.g.
+        // "+Trial") blurs the just-typed remark first, which now actually
+        // saves and can trigger this very snapshot — re-rendering
+        // synchronously here would swap out the button mid-click (between
+        // mousedown and the click event), silently eating that first click.
+        setTimeout(renderTargetContent, 0);
       }
     });
 
@@ -5320,7 +5325,8 @@ async function openGroupSession(group, dateStr, attendees) {
         return;
       }
       state.groupRenderPending = false;
-      renderGroupTargetContent();
+      // Defer one tick — see the matching comment in openSession's listener.
+      setTimeout(renderGroupTargetContent, 0);
     });
   } catch (err) {
     alert("Error opening session: " + err.message);
