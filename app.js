@@ -60,7 +60,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "442";
+const APP_VERSION = "443";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -3018,6 +3018,15 @@ function insertBrAtCaret() {
 function setupEntryEnterKeyDelegation(host, getTarget) {
   const onKeydown = e => {
     if (e.key !== "Enter" && e.key !== "Escape") return;
+    // While an IME/text-prediction composition is active (Windows' built-in
+    // hardware-keyboard text suggestions do this even without a visible
+    // popup), the FIRST Enter after typing commits the composition rather
+    // than meaning "newline" — our own preventDefault()/insertBrAtCaret()
+    // would fight that commit and silently lose, which is why it looked
+    // like "nothing happens" on the first Enter but worked on the second.
+    // Let the browser handle this keystroke untouched; the next, genuinely
+    // non-composing Enter reaches us normally.
+    if (e.isComposing) return;
     const sel  = document.getSelection();
     const node = sel && sel.rangeCount > 0 ? sel.anchorNode : null;
     const el = node && (node.nodeType === 1 ? node : node.parentElement)?.closest(
@@ -3072,6 +3081,10 @@ function setupEntryEnterKeyDelegation(host, getTarget) {
 function setupGroupEntryEnterKeyDelegation(host) {
   const onKeydown = e => {
     if (e.key !== "Enter" || e.ctrlKey || e.metaKey) return;
+    // See the matching comment in setupEntryEnterKeyDelegation — an active
+    // IME/text-prediction composition consumes the first Enter as "commit",
+    // not "newline".
+    if (e.isComposing) return;
     const sel  = document.getSelection();
     const node = sel && sel.rangeCount > 0 ? sel.anchorNode : null;
     const el = node && (node.nodeType === 1 ? node : node.parentElement)
@@ -3094,6 +3107,10 @@ function setupGroupEntryEnterKeyDelegation(host) {
 function setupViewEnterKeyDelegation(host, getSaver) {
   const onKeydown = e => {
     if (e.key !== "Enter") return;
+    // See the matching comment in setupEntryEnterKeyDelegation — an active
+    // IME/text-prediction composition consumes the first Enter as "commit",
+    // not "newline".
+    if (e.isComposing) return;
     const sel  = document.getSelection();
     const node = sel && sel.rangeCount > 0 ? sel.anchorNode : null;
     const ta = node && (node.nodeType === 1 ? node : node.parentElement)?.closest(".view-remark-edit");
