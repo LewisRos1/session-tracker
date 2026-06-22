@@ -60,7 +60,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "439";
+const APP_VERSION = "440";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -181,23 +181,6 @@ document.addEventListener("DOMContentLoaded", async () => {
   // Register SW immediately — don't wait for Firebase so updates are never blocked.
   registerServiceWorker();
 
-  // TEMPORARY diagnostic — logs every Enter keypress anywhere on the page,
-  // regardless of which element handles it, to find out whether keydown is
-  // even reaching our JS and what element it actually lands on.
-  document.addEventListener("keydown", e => {
-    if (e.key !== "Enter") return;
-    console.log("[EnterDebug-GLOBAL]", {
-      tag: e.target.tagName,
-      className: e.target.className,
-      contentEditable: e.target.contentEditable,
-      defaultPrevented: e.defaultPrevented
-    });
-  });
-  document.addEventListener("beforeinput", e => {
-    if (e.inputType === "insertParagraph" || e.inputType === "insertLineBreak") {
-      console.log("[EnterDebug-GLOBAL] beforeinput", e.inputType, "target:", e.target.tagName, e.target.className, "defaultPrevented:", e.defaultPrevented);
-    }
-  });
 
   // On iOS, relatedTarget is always null and pointerdown may not fire for <select>.
   // Use both pointerdown and touchstart (touchstart fires reliably before focusout on iOS).
@@ -1865,14 +1848,69 @@ function renderGhostRemarkFields(predRemName, actId, pa, paIdx, target) {
 function attachTargetListeners(target) {
   const c = $("target-content");
 
+  // All free-text boxes below (.activity-name-input, #new-activity-textarea,
+  // #new-remark-textarea, .predef-remark-input-live, .remark-text-input,
+  // .mastery-note-input) are nested inside this already-contenteditable
+  // host. contenteditable="true" on a descendant of an already-editable
+  // ancestor is redundant per spec — the whole region acts as ONE merged
+  // editing context, so document.activeElement (and keydown's e.target) is
+  // ALWAYS this outer host, never whichever inner box visually contains the
+  // caret. A keydown listener attached directly to one of these boxes never
+  // receives the event at all (it doesn't bubble down to descendants).
+  // Delegate from the host instead, using the live selection to find which
+  // box the caret is actually in.
+  c.addEventListener("keydown", e => {
+    if (e.key !== "Enter" && e.key !== "Escape") return;
+    const sel  = document.getSelection();
+    const node = sel && sel.rangeCount > 0 ? sel.anchorNode : null;
+    const el = node && (node.nodeType === 1 ? node : node.parentElement)?.closest(
+      ".activity-name-input, #new-activity-textarea, #new-remark-textarea, .predef-remark-input-live, .remark-text-input, .mastery-note-input"
+    );
+    if (!el || !c.contains(el)) return;
+
+    if (e.key === "Escape") {
+      if (el.id === "new-activity-textarea") cancelPendingActivity();
+      return;
+    }
+    if (el.matches(".activity-name-input")) {
+      if (e.ctrlKey || e.metaKey) { e.preventDefault(); el.blur(); }
+      return;
+    }
+    if (el.id === "new-activity-textarea") {
+      if (e.ctrlKey || e.metaKey) { e.preventDefault(); confirmNewActivity(target); }
+      return;
+    }
+    if (el.id === "new-remark-textarea") {
+      if (e.ctrlKey || e.metaKey) { e.preventDefault(); saveNewRemark(target); return; }
+      e.preventDefault();
+      setTimeout(() => {
+        insertBrAtCaret();
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+      }, 0);
+      return;
+    }
+    if (el.matches(".predef-remark-input-live")) {
+      e.preventDefault();
+      el.blur();
+      return;
+    }
+    // .remark-text-input / .mastery-note-input: plain Enter grows the box
+    // with a manual line break instead of falling through to the browser's
+    // default contenteditable handling.
+    if (e.ctrlKey || e.metaKey) return;
+    e.preventDefault();
+    setTimeout(() => {
+      insertBrAtCaret();
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+    }, 0);
+  });
+
   // Activity name (.activity-name-input) is saved by the shared merged-editing
-  // host — see setupEntryRemarkSaving. Just revert-if-emptied + Ctrl+Enter here.
+  // host — see setupEntryRemarkSaving. Just revert-if-emptied here (Ctrl+Enter
+  // is handled by the delegated keydown listener above).
   c.querySelectorAll(".activity-name-input").forEach(input => {
     input.addEventListener("blur", () => {
       if (!input.textContent.trim()) input.textContent = input.dataset.original;
-    });
-    input.addEventListener("keydown", e => {
-      if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); input.blur(); }
     });
   });
 
@@ -1882,11 +1920,6 @@ function attachTargetListeners(target) {
     state.pendingNewRemark   = null;
     renderTargetContent();
     setTimeout(() => $("new-activity-textarea")?.focus(), 50);
-  });
-
-  $("new-activity-textarea")?.addEventListener("keydown", e => {
-    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); confirmNewActivity(target); }
-    if (e.key === "Escape") cancelPendingActivity();
   });
 
   $("new-activity-textarea")?.addEventListener("blur", e => {
@@ -1921,29 +1954,8 @@ function attachTargetListeners(target) {
   // boxes are nested inside the now-contenteditable #target-content, where
   // per-element blur doesn't reliably fire when focus moves to a sibling
   // control within the same contenteditable host. See setupEntryRemarkSaving.
-
-  // Plain Enter in a multi-line remark box should add a line break and grow
-  // the box, not fall through to the browser's default contenteditable Enter
-  // handling — nested inside the larger always-on contenteditable host, that
-  // default can split into a new block-level element instead of just adding
-  // a <br>, which doesn't expand the box the way it used to as a plain
-  // <textarea>. Same fix as the view/edit-past-session screens' insertBrAtCaret.
-  c.querySelectorAll(".remark-text-input, .mastery-note-input").forEach(el => {
-    el.addEventListener("keydown", e => {
-      if (e.key !== "Enter" || e.ctrlKey || e.metaKey) return;
-      console.log("[EnterDebug] keydown Enter, defaultPrevented before:", e.defaultPrevented);
-      e.preventDefault();
-      setTimeout(() => {
-        console.log("[EnterDebug] before insert, innerHTML:", JSON.stringify(el.innerHTML));
-        insertBrAtCaret();
-        console.log("[EnterDebug] after insert, innerHTML:", JSON.stringify(el.innerHTML));
-        el.dispatchEvent(new Event("input", { bubbles: true }));
-        setTimeout(() => {
-          console.log("[EnterDebug] 200ms later, innerHTML:", JSON.stringify(el.innerHTML));
-        }, 200);
-      }, 0);
-    });
-  });
+  // Enter is handled by the delegated keydown listener at the top of this
+  // function, for the same nested-contenteditable reason.
 
   // ── Mastery level buttons ─────────────────────────────────
   c.querySelectorAll(".btn-mastery").forEach(btn => {
@@ -2038,18 +2050,8 @@ function attachTargetListeners(target) {
   c.querySelectorAll(".btn-save-remark").forEach(btn => {
     btn.addEventListener("click", () => saveNewRemark(target));
   });
-  const newRemTa = $("new-remark-textarea");
-  if (newRemTa) {
-    newRemTa.addEventListener("keydown", e => {
-      if (e.key !== "Enter") return;
-      if (e.ctrlKey || e.metaKey) { e.preventDefault(); saveNewRemark(target); return; }
-      e.preventDefault();
-      setTimeout(() => {
-        insertBrAtCaret();
-        newRemTa.dispatchEvent(new Event("input", { bubbles: true }));
-      }, 0);
-    });
-  }
+  // Enter/Ctrl+Enter inside #new-remark-textarea is handled by the delegated
+  // keydown listener set up at the top of this function.
 
   // ── Cancel new remark ─────────────────────────────────────
   c.querySelectorAll(".btn-cancel-remark").forEach(btn => {
@@ -2083,11 +2085,7 @@ function attachTargetListeners(target) {
 
   // Ghost (.predef-remark-input) and live (.predef-remark-input-live) predefined
   // remark inputs are also saved by the shared merged-editing host — see above.
-  c.querySelectorAll(".predef-remark-input-live").forEach(input => {
-    input.addEventListener("keydown", e => {
-      if (e.key === "Enter") { e.preventDefault(); input.blur(); }
-    });
-  });
+  // Enter is handled by the delegated keydown listener at the top of this function.
 
   // ── Init predefined remark + open score picker ────────────
   c.querySelectorAll(".btn-init-predef-remark").forEach(btn => {
@@ -3087,25 +3085,33 @@ function attachViewListeners() {
   });
 
   // Saving for .view-remark-edit / .view-remark-empty is handled by the shared
-  // merged-editing host (state.viewRemarkSaver) set up in openSessionView —
-  // these boxes no longer have their own contenteditable/focus, just a
-  // Ctrl+Enter shortcut to force an immediate save.
-  body.querySelectorAll(".view-remark-edit").forEach(ta => {
-    ta.addEventListener("keydown", e => {
-      if (e.key !== "Enter") return;
-      if (e.ctrlKey || e.metaKey) { e.preventDefault(); state.viewRemarkSaver?.flush(); return; }
-      e.preventDefault();
-      // Deferred to the next tick — see the matching comment on the entry
-      // screen's .remark-text-input handler: doing this synchronously let
-      // Chrome's post-cancellation re-sync silently discard it.
-      setTimeout(() => {
-        insertBrAtCaret();
-        // Manual DOM mutation via the Range API doesn't fire a native "input"
-        // event the way the browser's own edit commands do — the host's save
-        // debounce listens for that event, so dispatch one ourselves.
-        ta.dispatchEvent(new Event("input", { bubbles: true }));
-      }, 0);
-    });
+  // merged-editing host (state.viewRemarkSaver) set up in openSessionView.
+  // .view-remark-edit boxes are nested inside this already-contenteditable
+  // body — contenteditable="true" on a descendant of an already-editable
+  // ancestor is redundant per spec, so the whole region is ONE merged editing
+  // context: document.activeElement (and keydown's e.target) is ALWAYS this
+  // outer body, never the inner box. A keydown listener on the box itself
+  // never receives the event. Delegate from the body instead, using the live
+  // selection to find which box the caret is in.
+  body.addEventListener("keydown", e => {
+    if (e.key !== "Enter") return;
+    const sel  = document.getSelection();
+    const node = sel && sel.rangeCount > 0 ? sel.anchorNode : null;
+    const ta = node && (node.nodeType === 1 ? node : node.parentElement)?.closest(".view-remark-edit");
+    if (!ta || !body.contains(ta)) return;
+    if (e.ctrlKey || e.metaKey) { e.preventDefault(); state.viewRemarkSaver?.flush(); return; }
+    e.preventDefault();
+    // Deferred to the next tick — Chrome's post-cancellation re-sync of the
+    // contenteditable region (after the host-level beforeinput handler
+    // rejects the native paragraph insert) can silently discard a
+    // synchronous manual <br> insert.
+    setTimeout(() => {
+      insertBrAtCaret();
+      // Manual DOM mutation via the Range API doesn't fire a native "input"
+      // event the way the browser's own edit commands do — the host's save
+      // debounce listens for that event, so dispatch one ourselves.
+      ta.dispatchEvent(new Event("input", { bubbles: true }));
+    }, 0);
   });
 
   body.querySelectorAll(".view-mastery-note").forEach(div => {
@@ -3722,17 +3728,22 @@ function attachGroupViewListeners() {
 
   // Saving for .view-remark-edit / .group-remark-input-combined is handled by
   // the shared merged-editing host (state.viewGroupRemarkSaver) set up in
-  // openGroupSessionView — just a Ctrl+Enter shortcut to force an immediate save.
-  body.querySelectorAll(".view-remark-edit").forEach(ta => {
-    ta.addEventListener("keydown", e => {
-      if (e.key !== "Enter") return;
-      if (e.ctrlKey || e.metaKey) { e.preventDefault(); state.viewGroupRemarkSaver?.flush(); return; }
-      e.preventDefault();
-      setTimeout(() => {
-        insertBrAtCaret();
-        ta.dispatchEvent(new Event("input", { bubbles: true }));
-      }, 0);
-    });
+  // openGroupSessionView. These boxes are nested inside this already-
+  // contenteditable body, so (see the matching comment in attachViewListeners)
+  // keydown must be delegated from the body using the live selection, not
+  // attached to the boxes directly.
+  body.addEventListener("keydown", e => {
+    if (e.key !== "Enter") return;
+    const sel  = document.getSelection();
+    const node = sel && sel.rangeCount > 0 ? sel.anchorNode : null;
+    const ta = node && (node.nodeType === 1 ? node : node.parentElement)?.closest(".view-remark-edit");
+    if (!ta || !body.contains(ta)) return;
+    if (e.ctrlKey || e.metaKey) { e.preventDefault(); state.viewGroupRemarkSaver?.flush(); return; }
+    e.preventDefault();
+    setTimeout(() => {
+      insertBrAtCaret();
+      ta.dispatchEvent(new Event("input", { bubbles: true }));
+    }, 0);
   });
 
   // Combine/Separate remarks toggle (mirrors the live group session editor's confirm logic)
@@ -6151,17 +6162,25 @@ function attachGroupTargetListeners(target) {
   // by the shared merged-editing host (state.entryGroupRemarkSaver, set up in
   // openGroupSession) — see setupEntryRemarkSaving.
 
-  // Plain Enter adds a line break and grows the box — see the matching
-  // individual-screen comment in attachTargetListeners.
-  c.querySelectorAll(".group-remark-input, .group-remark-input-combined").forEach(el => {
-    el.addEventListener("keydown", e => {
-      if (e.key !== "Enter" || e.ctrlKey || e.metaKey) return;
-      e.preventDefault();
-      setTimeout(() => {
-        insertBrAtCaret();
-        el.dispatchEvent(new Event("input", { bubbles: true }));
-      }, 0);
-    });
+  // .group-remark-input / .group-remark-input-combined are nested inside this
+  // already-contenteditable host — contenteditable="true" on a descendant of
+  // an already-editable ancestor is redundant per spec, so the whole region
+  // is ONE merged editing context: document.activeElement (and keydown's
+  // e.target) is ALWAYS this outer host, never the inner box. A keydown
+  // listener on the box itself never receives the event. Delegate from the
+  // host instead, using the live selection to find which box the caret is in.
+  c.addEventListener("keydown", e => {
+    if (e.key !== "Enter" || e.ctrlKey || e.metaKey) return;
+    const sel  = document.getSelection();
+    const node = sel && sel.rangeCount > 0 ? sel.anchorNode : null;
+    const el = node && (node.nodeType === 1 ? node : node.parentElement)
+      ?.closest(".group-remark-input, .group-remark-input-combined");
+    if (!el || !c.contains(el)) return;
+    e.preventDefault();
+    setTimeout(() => {
+      insertBrAtCaret();
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+    }, 0);
   });
 
   // Sketch board
