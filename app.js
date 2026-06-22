@@ -60,7 +60,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "421";
+const APP_VERSION = "423";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -2420,22 +2420,6 @@ function buildTargetViewTable(target, data) {
       });
   }
 
-  // Individual <td>s per column (not one colspan="6" cell) — a colspan cell's
-  // rendered width is the *sum* of the spanned columns, and that sum can round
-  // to a slightly different pixel value than the columns render individually
-  // at certain zoom levels/window widths, showing up as a hairline mismatch
-  // against the bordered rows above. Per-column cells can't drift like that.
-  rows += `<tr class="view-add-activity-row">
-    <td class="vcol-no" contenteditable="false"></td>
-    <td class="vcol-act" contenteditable="false">
-      <button class="btn-view-add-activity" data-target-name="${escHtml(target.name)}">＋ Activity</button>
-    </td>
-    <td class="vcol-rem" contenteditable="false"></td>
-    <td class="vcol-trials" contenteditable="false"></td>
-    <td class="vcol-total" contenteditable="false"></td>
-    <td class="vcol-score" contenteditable="false"></td>
-  </tr>`;
-
   if (target.hasComment) {
     const key     = sanitizeKey(target.name);
     const comment = (data.fedcComments || {})[key] || "";
@@ -2964,14 +2948,6 @@ function attachViewListeners() {
     });
   });
 
-  body.querySelectorAll(".btn-view-add-activity").forEach(btn => {
-    btn.addEventListener("click", async () => {
-      const name = prompt("Activity name:");
-      if (!name?.trim()) return;
-      await addActivity(state.viewSessionId, btn.dataset.targetName, name.trim(), Date.now(), false);
-    });
-  });
-
   body.querySelectorAll(".view-remark-new").forEach(ta => {
     ta.addEventListener("blur", async () => {
       const text = ta.value.trim();
@@ -3230,19 +3206,6 @@ function buildGroupTargetViewTable(target, data, attendees) {
         rows += viewGroupActivityRows(no, act.activityName, actId, data, target, attendees, false);
       });
   }
-
-  // See the individual table's buildTargetViewTable for why this avoids colspan.
-  rows += `<tr class="view-add-activity-row">
-    <td class="vcol-no" contenteditable="false"></td>
-    <td class="vcol-act" contenteditable="false">
-      <button class="btn-view-add-activity" data-target-name="${escHtml(target.name)}">＋ Activity</button>
-    </td>
-    <td class="vcol-student" contenteditable="false"></td>
-    <td class="vcol-rem" contenteditable="false"></td>
-    <td class="vcol-trials" contenteditable="false"></td>
-    <td class="vcol-total" contenteditable="false"></td>
-    <td class="vcol-score" contenteditable="false"></td>
-  </tr>`;
 
   if (target.hasComment) {
     const key     = sanitizeKey(target.name);
@@ -3645,14 +3608,6 @@ function attachGroupViewListeners() {
       const rem = state.viewGroupSessionData?.remarks?.[input.dataset.remId];
       if (!rem || input.value === (rem.text || "")) return;
       await updateRemarkText(sid(), input.dataset.remId, input.value);
-    });
-  });
-
-  body.querySelectorAll(".btn-view-add-activity").forEach(btn => {
-    btn.addEventListener("click", async () => {
-      const name = prompt("Activity name:");
-      if (!name?.trim()) return;
-      await addActivity(sid(), btn.dataset.targetName, name.trim(), Date.now(), false);
     });
   });
 

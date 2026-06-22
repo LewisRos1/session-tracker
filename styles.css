@@ -2440,19 +2440,6 @@ div.admin-note-editable:empty::before {
 }
 .view-add-trial:hover { background: var(--primary-light); }
 
-.view-add-activity-row td { padding: .15rem .4rem; border: none; }
-.btn-view-add-activity {
-  background: none;
-  border: none;
-  color: var(--primary);
-  font-size: .8rem;
-  font-weight: 600;
-  cursor: pointer;
-  padding: .1rem 0;
-  margin-right: 1rem;
-}
-.btn-view-add-activity:hover { text-decoration: underline; }
-
 .view-act-edit {
   flex: 1;
   border: 1px solid var(--border);

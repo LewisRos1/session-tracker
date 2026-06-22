@@ -1,6 +1,6 @@
 {
-  "name": "Therapy Session Tracker",
-  "short_name": "Therapy Tracker",
+  "name": "Session Tracker",
+  "short_name": "Session Tracker",
   "description": "Therapy session scoring and progress tracking",
   "start_url": "/session-tracker/",
   "scope": "/session-tracker/",
