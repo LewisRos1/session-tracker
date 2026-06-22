@@ -60,7 +60,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "443";
+const APP_VERSION = "444";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -2778,8 +2778,26 @@ function setupMergedRemarkSaving(body, getSessionId, onIdle) {
   // native split into a new sibling element) can still fire and go through
   // even after keydown was prevented. Catching it at the host level (it
   // bubbles) blocks the native insert everywhere in one place.
+  //
+  // ALSO guards backspace/delete from escaping a box's own boundary — once a
+  // box is emptied, continuing to backspace can otherwise keep consuming the
+  // surrounding contenteditable="false" structure (labels, whole table rows)
+  // as if it were deletable content, for the same nested-contenteditable
+  // reason the paragraph insert needed a backstop.
   const onBeforeInput = e => {
     if (e.inputType === "insertParagraph" || e.inputType === "insertLineBreak") {
+      e.preventDefault();
+      return;
+    }
+    if (e.inputType !== "deleteContentBackward" && e.inputType !== "deleteContentForward") return;
+    const sel = document.getSelection();
+    if (!sel || sel.rangeCount === 0 || !sel.isCollapsed) return;
+    const node = sel.anchorNode;
+    const el = node && (node.nodeType === 1 ? node : node.parentElement)?.closest(".view-remark-edit");
+    if (!el || !body.contains(el)) return;
+    if (e.inputType === "deleteContentBackward" && isAtStartOf(el, sel.anchorNode, sel.anchorOffset)) {
+      e.preventDefault();
+    } else if (e.inputType === "deleteContentForward" && isAtEndOf(el, sel.anchorNode, sel.anchorOffset)) {
       e.preventDefault();
     }
   };
@@ -2943,8 +2961,29 @@ function setupEntryRemarkSaving(host, getSessionId, onIdle) {
   // nested inside this larger contenteditable="true" host: Chrome's
   // "beforeinput" event can still fire and perform its own native split
   // (cloning the box into a sibling) even after keydown was prevented.
+  //
+  // ALSO guards backspace/delete from escaping a box's own boundary. Since
+  // contenteditable="true" on these boxes is redundant (nested inside an
+  // already-editable host), they aren't real deletion boundaries either —
+  // once a box is emptied, continuing to backspace can keep consuming the
+  // surrounding contenteditable="false" structure (labels, dividers, whole
+  // activity cards) as if it were deletable content.
   const onBeforeInput = e => {
     if (e.inputType === "insertParagraph" || e.inputType === "insertLineBreak") {
+      e.preventDefault();
+      return;
+    }
+    if (e.inputType !== "deleteContentBackward" && e.inputType !== "deleteContentForward") return;
+    const sel = document.getSelection();
+    if (!sel || sel.rangeCount === 0 || !sel.isCollapsed) return;
+    const node = sel.anchorNode;
+    const el = node && (node.nodeType === 1 ? node : node.parentElement)?.closest(
+      ".activity-name-input, #new-activity-textarea, #new-remark-textarea, .predef-remark-input-live, .remark-text-input, .mastery-note-input, .group-remark-input, .group-remark-input-combined"
+    );
+    if (!el || !host.contains(el)) return;
+    if (e.inputType === "deleteContentBackward" && isAtStartOf(el, sel.anchorNode, sel.anchorOffset)) {
+      e.preventDefault();
+    } else if (e.inputType === "deleteContentForward" && isAtEndOf(el, sel.anchorNode, sel.anchorOffset)) {
       e.preventDefault();
     }
   };
@@ -3002,6 +3041,35 @@ function insertBrAtCaret() {
   sel.addRange(range);
 }
 
+// True if there is nothing between the very start of el's content and the
+// given (node, offset) point — i.e. the caret is at el's own left boundary,
+// with no character/<br> left to delete before it.
+function isAtStartOf(el, node, offset) {
+  const probe = document.createRange();
+  probe.setStart(el, 0);
+  probe.setEnd(node, offset);
+  return probe.collapsed;
+}
+// Same idea, mirrored for el's right boundary (used for forward-delete).
+function isAtEndOf(el, node, offset) {
+  const probe = document.createRange();
+  probe.setStart(node, offset);
+  probe.setEnd(el, el.childNodes.length);
+  return probe.collapsed;
+}
+
+// Selects all of el's own content, instead of the browser's native Ctrl+A
+// default — which, in this nested-contenteditable setup, selects everything
+// in the whole merged editing host (all activities/remarks), not just the
+// box the caret happens to be in.
+function selectAllWithin(el) {
+  const range = document.createRange();
+  range.selectNodeContents(el);
+  const sel = document.getSelection();
+  sel.removeAllRanges();
+  sel.addRange(range);
+}
+
 // Delegated Enter/Escape handling for the individual session-entry screen's
 // free-text boxes (.activity-name-input, #new-activity-textarea,
 // #new-remark-textarea, .predef-remark-input-live, .remark-text-input,
@@ -3017,7 +3085,8 @@ function insertBrAtCaret() {
 // would stack up duplicate listeners, each firing for the same keypress.
 function setupEntryEnterKeyDelegation(host, getTarget) {
   const onKeydown = e => {
-    if (e.key !== "Enter" && e.key !== "Escape") return;
+    const isSelectAll = (e.key === "a" || e.key === "A") && (e.ctrlKey || e.metaKey);
+    if (e.key !== "Enter" && e.key !== "Escape" && !isSelectAll) return;
     // While an IME/text-prediction composition is active (Windows' built-in
     // hardware-keyboard text suggestions do this even without a visible
     // popup), the FIRST Enter after typing commits the composition rather
@@ -3033,6 +3102,10 @@ function setupEntryEnterKeyDelegation(host, getTarget) {
       ".activity-name-input, #new-activity-textarea, #new-remark-textarea, .predef-remark-input-live, .remark-text-input, .mastery-note-input"
     );
     if (!el || !host.contains(el)) return;
+
+    // Native Ctrl+A would select everything in the whole merged editing
+    // host (every activity/remark), not just this box — see selectAllWithin.
+    if (isSelectAll) { e.preventDefault(); selectAllWithin(el); return; }
 
     if (e.key === "Escape") {
       if (el.id === "new-activity-textarea") cancelPendingActivity();
@@ -3080,7 +3153,8 @@ function setupEntryEnterKeyDelegation(host, getTarget) {
 // types or Ctrl+Enter shortcuts.
 function setupGroupEntryEnterKeyDelegation(host) {
   const onKeydown = e => {
-    if (e.key !== "Enter" || e.ctrlKey || e.metaKey) return;
+    const isSelectAll = (e.key === "a" || e.key === "A") && (e.ctrlKey || e.metaKey);
+    if ((e.key !== "Enter" || e.ctrlKey || e.metaKey) && !isSelectAll) return;
     // See the matching comment in setupEntryEnterKeyDelegation — an active
     // IME/text-prediction composition consumes the first Enter as "commit",
     // not "newline".
@@ -3090,6 +3164,7 @@ function setupGroupEntryEnterKeyDelegation(host) {
     const el = node && (node.nodeType === 1 ? node : node.parentElement)
       ?.closest(".group-remark-input, .group-remark-input-combined");
     if (!el || !host.contains(el)) return;
+    if (isSelectAll) { e.preventDefault(); selectAllWithin(el); return; }
     e.preventDefault();
     setTimeout(() => {
       insertBrAtCaret();
@@ -3106,7 +3181,8 @@ function setupGroupEntryEnterKeyDelegation(host) {
 // is currently active, so Ctrl+Enter can force an immediate flush.
 function setupViewEnterKeyDelegation(host, getSaver) {
   const onKeydown = e => {
-    if (e.key !== "Enter") return;
+    const isSelectAll = (e.key === "a" || e.key === "A") && (e.ctrlKey || e.metaKey);
+    if (e.key !== "Enter" && !isSelectAll) return;
     // See the matching comment in setupEntryEnterKeyDelegation — an active
     // IME/text-prediction composition consumes the first Enter as "commit",
     // not "newline".
@@ -3115,6 +3191,7 @@ function setupViewEnterKeyDelegation(host, getSaver) {
     const node = sel && sel.rangeCount > 0 ? sel.anchorNode : null;
     const ta = node && (node.nodeType === 1 ? node : node.parentElement)?.closest(".view-remark-edit");
     if (!ta || !host.contains(ta)) return;
+    if (isSelectAll) { e.preventDefault(); selectAllWithin(ta); return; }
     if (e.ctrlKey || e.metaKey) { e.preventDefault(); getSaver()?.flush(); return; }
     e.preventDefault();
     setTimeout(() => {
