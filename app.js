@@ -60,7 +60,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "457";
+const APP_VERSION = "458";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -1346,12 +1346,20 @@ async function openSession(student, existingSessionId = null, dateStr = null) {
       // safety — including deferring forever while the user keeps typing
       // (which is exactly what made "+Add Remark & Trials" look like it
       // wasn't registering when clicked soon after typing elsewhere).
-      const busy = document.activeElement === $("target-select")
+      const isEntryBusy = () => document.activeElement === $("target-select")
         || state.entryActionsInFlight > 0;
-      if (busy) {
+      if (isEntryBusy()) {
         state.renderPending = true;
       } else {
-        setTimeout(renderTargetContent, 0);
+        // Re-check at fire time, not just now — an action button can be
+        // mousedown'd (and thus guarded via entryActionsInFlight, see its
+        // "mousedown" listener) in the gap between scheduling and running
+        // this timeout, and rendering would destroy that button before its
+        // own "click" fires, silently swallowing the click.
+        setTimeout(() => {
+          if (isEntryBusy()) { state.renderPending = true; }
+          else { renderTargetContent(); }
+        }, 0);
       }
     });
 
@@ -2002,6 +2010,15 @@ function attachTargetListeners(target) {
 
   // ── Add remark (immediate creation) ──────────────────────
   c.querySelectorAll(".btn-add-remark").forEach(btn => {
+    // Guards against a render (triggered by the blur this mousedown is
+    // about to cause on whatever box the boss was just typing in, or by an
+    // already-scheduled render from that typing's own autosave) replacing
+    // this button before "click" fires — Chrome silently drops "click" if
+    // its target is removed from the DOM between mousedown and mouseup.
+    btn.addEventListener("mousedown", () => {
+      state.entryActionsInFlight++;
+      setTimeout(() => { state.entryActionsInFlight = Math.max(0, state.entryActionsInFlight - 1); }, 500);
+    });
     btn.addEventListener("click", async () => {
       if (btn.disabled) return;
       btn.disabled = true;
@@ -5759,14 +5776,18 @@ async function openGroupSession(group, dateStr, attendees) {
       // Busy = dropdown open, or a button's own multi-step write still in
       // flight — see the matching comment in openSession's listener for why
       // a focused box never needs to defer a render here.
-      const busy = document.activeElement === $("group-target-select")
+      const isGroupEntryBusy = () => document.activeElement === $("group-target-select")
         || state.entryGroupActionsInFlight > 0;
-      if (busy) {
+      if (isGroupEntryBusy()) {
         state.groupRenderPending = true;
         return;
       }
       state.groupRenderPending = false;
-      setTimeout(renderGroupTargetContent, 0);
+      // Re-check at fire time — see the matching comment in openSession's listener.
+      setTimeout(() => {
+        if (isGroupEntryBusy()) { state.groupRenderPending = true; }
+        else { renderGroupTargetContent(); }
+      }, 0);
     });
   } catch (err) {
     alert("Error opening session: " + err.message);
@@ -6336,6 +6357,17 @@ function attachGroupTargetListeners(target) {
 
       btn.disabled = true;
       await updateActivityCombineRemarks(state.groupSessionId, actId, !current);
+    });
+  });
+
+  // Guards every "+ Add Remark & Trials" variant (all share the base
+  // .btn-add-remark class) against a render replacing the button between
+  // mousedown and click — see the matching comment on the individual
+  // screen's .btn-add-remark handler.
+  c.querySelectorAll(".btn-add-remark").forEach(btn => {
+    btn.addEventListener("mousedown", () => {
+      state.entryGroupActionsInFlight++;
+      setTimeout(() => { state.entryGroupActionsInFlight = Math.max(0, state.entryGroupActionsInFlight - 1); }, 500);
     });
   });
 
