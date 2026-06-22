@@ -60,7 +60,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "408";
+const APP_VERSION = "409";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -1254,16 +1254,16 @@ async function openSession(student, existingSessionId = null, dateStr = null) {
       if (state.scorePicker?.open && state.scorePicker?.remId) {
         renderScoreModalTrials(state.scorePicker.remId);
       }
-      const active = document.activeElement;
-      const busy   = active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.tagName === "SELECT" || active.isContentEditable);
+      // Busy = dropdown open, or a keystroke hasn't been flushed yet. Focus
+      // position alone can't be used here — clicking a button inside
+      // #target-content deliberately doesn't blur the remark box anymore
+      // (see setupEntryRemarkSaving's mousedown handler), so "something is
+      // still focused" would stay true forever and defer every render.
+      const busy = document.activeElement === $("target-select")
+        || (state.entryRemarkSaver?.isPending() ?? false);
       if (busy) {
         state.renderPending = true;
       } else {
-        // Defer one tick: a click on a button inside #target-content (e.g.
-        // "+Trial") blurs the just-typed remark first, which now actually
-        // saves and can trigger this very snapshot — re-rendering
-        // synchronously here would swap out the button mid-click (between
-        // mousedown and the click event), silently eating that first click.
         setTimeout(renderTargetContent, 0);
       }
     });
@@ -2780,6 +2780,13 @@ function setupEntryRemarkSaving(host, getSessionId) {
 
   return {
     flush,
+    // True only while there's a not-yet-flushed keystroke (debounce timer
+    // running). Focus position can't be used as the "is the user busy"
+    // signal here — the mousedown fix above deliberately keeps focus pinned
+    // on whatever box was last typed in even after clicking a button, so
+    // "is something still focused" would stay true indefinitely and defer
+    // every render forever instead of just while actively mid-keystroke.
+    isPending: () => saveTimer !== null,
     cleanup() {
       clearTimeout(saveTimer);
       host.removeEventListener("input", onInput);
@@ -5333,12 +5340,16 @@ async function openGroupSession(group, dateStr, attendees) {
         }
       }
       if (state.scorePicker?.open && state.scorePicker?.isGroup) renderScoreModalTrials(state.scorePicker.remId);
-      if (state.groupRenderPending && document.activeElement?.isContentEditable) {
+      // Busy = dropdown open, or a keystroke hasn't been flushed yet — see
+      // the matching comment in openSession's listener for why focus
+      // position alone can't be used here.
+      const busy = document.activeElement === $("group-target-select")
+        || (state.entryGroupRemarkSaver?.isPending() ?? false);
+      if (busy) {
         state.groupRenderPending = true;
         return;
       }
       state.groupRenderPending = false;
-      // Defer one tick — see the matching comment in openSession's listener.
       setTimeout(renderGroupTargetContent, 0);
     });
   } catch (err) {
