@@ -1423,9 +1423,19 @@ html, body {
 .toast.hidden { display: none; }
 
 /* ─── SCROLLBAR ──────────────────────────────────────────── */
-::-webkit-scrollbar { width: 6px; }
+/* width = vertical bar thickness, height = horizontal bar thickness — both
+   need setting or the horizontal one falls back to the browser's thicker
+   default, looking inconsistent next to the styled vertical one. */
+::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 3px; }
+::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 5px;
+  /* Without this, scrollbars on a contenteditable ancestor (e.g.
+     #session-view-body) inherit that element's text-caret cursor instead
+     of a normal pointer. */
+  cursor: default;
+}
 
 /* ─── RESPONSIVE ─────────────────────────────────────────── */
 
