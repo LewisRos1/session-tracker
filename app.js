@@ -60,7 +60,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "407";
+const APP_VERSION = "408";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -2762,9 +2762,21 @@ function setupEntryRemarkSaving(host, getSessionId) {
     saveTimer = setTimeout(flush, 700);
   };
   const onFocusOut = () => flush();
+  // Buttons/labels nested inside a contenteditable host need an explicit
+  // mousedown preventDefault, or the browser's default "place the caret"
+  // handling for the click eats the first click on them entirely — the
+  // button only responds on the second click. This doesn't stop the click
+  // event itself (still fires normally), it just stops the contenteditable
+  // region from also trying to claim the mousedown as a focus/selection
+  // change, which is the standard fix for buttons embedded in editable
+  // regions (the same trick rich-text-editor toolbars use).
+  const onMouseDown = e => {
+    if (e.target.closest('[contenteditable="false"]')) e.preventDefault();
+  };
 
   host.addEventListener("input", onInput);
   host.addEventListener("focusout", onFocusOut);
+  host.addEventListener("mousedown", onMouseDown);
 
   return {
     flush,
@@ -2772,6 +2784,7 @@ function setupEntryRemarkSaving(host, getSessionId) {
       clearTimeout(saveTimer);
       host.removeEventListener("input", onInput);
       host.removeEventListener("focusout", onFocusOut);
+      host.removeEventListener("mousedown", onMouseDown);
     }
   };
 }
