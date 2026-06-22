@@ -60,7 +60,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "419";
+const APP_VERSION = "420";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -2270,7 +2270,14 @@ async function openSessionView(student, sessionId) {
 
   if (state.fbViewUnsubscribe) { state.fbViewUnsubscribe(); state.fbViewUnsubscribe = null; }
   state.viewRemarkSaver?.cleanup();
-  state.viewRemarkSaver = setupMergedRemarkSaving($("session-view-body"), () => state.viewSessionId);
+  state.viewRemarkSaver = setupMergedRemarkSaving($("session-view-body"), () => state.viewSessionId, () => {
+    if (!state.viewRenderPending) return;
+    const active = document.activeElement;
+    const busy   = active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.isContentEditable);
+    if (busy) return;
+    state.viewRenderPending = false;
+    renderSessionView();
+  });
 
   try {
     state.fbViewUnsubscribe = listenToSession(sessionId, data => {
@@ -2623,7 +2630,7 @@ function calcViewDayAvg(data, target) {
 // Because the boxes no longer have individual focus/blur events, saving moves
 // from "save on blur" to: diff every box's content on a short typing-pause
 // debounce, and again whenever focus actually leaves the shared host.
-function setupMergedRemarkSaving(body, getSessionId) {
+function setupMergedRemarkSaving(body, getSessionId, onIdle) {
   let saveTimer = null;
 
   function flush() {
@@ -2647,33 +2654,50 @@ function setupMergedRemarkSaving(body, getSessionId) {
       Promise.all(remIds.map(id => updateRemarkText(sid, id, html)));
     });
 
-    body.querySelectorAll(".view-remark-empty").forEach(async div => {
+    body.querySelectorAll(".view-remark-empty").forEach(div => {
       const strip = s => (s || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").replace(/ /g, " ").trim();
       const text = div.innerHTML;
-      if (!strip(text)) return;
-      let actId = div.dataset.actId;
-      if (!actId) {
-        actId = await addActivity(
-          sid, div.dataset.target, div.dataset.actName, Date.now(), div.dataset.isPredefined === "true"
-        );
-      }
-      // Group view's empty boxes are scoped to one attendee (data-student);
-      // the individual view's aren't.
-      const studentName = div.dataset.student;
-      const remId = studentName
-        ? await addGroupRemark(sid, actId, studentName)
-        : await addRemark(sid, actId, "");
-      await updateRemarkText(sid, remId, text);
+      // Guarded against double-fire if flush() runs again (e.g. focusout
+      // right after the debounce timer) before this creation lands.
+      if (!strip(text) || div.dataset.creating === "true") return;
+      div.dataset.creating = "true";
+      (async () => {
+        try {
+          let actId = div.dataset.actId;
+          if (!actId) {
+            actId = await addActivity(
+              sid, div.dataset.target, div.dataset.actName, Date.now(), div.dataset.isPredefined === "true"
+            );
+          }
+          // Group view's empty boxes are scoped to one attendee (data-student);
+          // the individual view's aren't.
+          const studentName = div.dataset.student;
+          const remId = studentName
+            ? await addGroupRemark(sid, actId, studentName)
+            : await addRemark(sid, actId, "");
+          await updateRemarkText(sid, remId, text);
+        } finally {
+          div.dataset.creating = "false";
+        }
+      })();
     });
   }
 
   // Every other cell is carved out with contenteditable="false", so any "input"
   // event reaching the shared host can only have come from a free-text remark box.
+  // The busy-check this saver pairs with treats ANY focused contenteditable
+  // element on the page as "still busy", not just the one that changed — so
+  // if the user moves on to typing in a different remark box right after,
+  // the render that would reveal the newly-created remark's "+ Trial" button
+  // stays deferred until they focus something non-editable. onIdle fires the
+  // moment a flush actually runs (debounce settled, data already saved) so
+  // the caller can re-check its deferred-render flag right then instead of
+  // waiting on an unrelated focusout that might not come for a while.
   const onInput = () => {
     clearTimeout(saveTimer);
-    saveTimer = setTimeout(flush, 700);
+    saveTimer = setTimeout(() => { flush(); onIdle?.(); }, 700);
   };
-  const onFocusOut = () => flush();
+  const onFocusOut = () => { flush(); onIdle?.(); };
   const onSelectionChange = () => {
     body.querySelectorAll(".view-remark-edit.rem-edit-active").forEach(el => el.classList.remove("rem-edit-active"));
     const sel  = document.getSelection();
@@ -3026,7 +3050,14 @@ async function openGroupSessionView(group, sessionId) {
 
   if (state.fbViewGroupUnsubscribe) { state.fbViewGroupUnsubscribe(); state.fbViewGroupUnsubscribe = null; }
   state.viewGroupRemarkSaver?.cleanup();
-  state.viewGroupRemarkSaver = setupMergedRemarkSaving($("group-session-view-body"), () => state.viewGroupSessionId);
+  state.viewGroupRemarkSaver = setupMergedRemarkSaving($("group-session-view-body"), () => state.viewGroupSessionId, () => {
+    if (!state.viewGroupRenderPending) return;
+    const active = document.activeElement;
+    const busy   = active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.isContentEditable);
+    if (busy) return;
+    state.viewGroupRenderPending = false;
+    renderGroupSessionView();
+  });
 
   try {
     state.fbViewGroupUnsubscribe = listenToSession(sessionId, data => {
