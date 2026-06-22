@@ -2298,7 +2298,15 @@ div.admin-note-editable:empty::before {
   width: 100%;
   min-width: 600px;
   table-layout: fixed;
-  border-collapse: collapse;
+  /* separate (not collapse) deliberately — with collapse, adjacent cells
+     share one computed border line, and at certain table widths that shared
+     edge lands on a fractional sub-pixel position, rendering as a faint
+     stray line through whichever column it falls in (only at some viewport
+     widths, since the fractional offset depends on the table's resolved
+     width). separate gives each cell its own border with nothing shared to
+     misalign. */
+  border-collapse: separate;
+  border-spacing: 0;
   font-size: .875rem;
 }
 
