@@ -60,7 +60,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "438";
+const APP_VERSION = "439";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -180,6 +180,24 @@ function closeTextEditorSheet() {
 document.addEventListener("DOMContentLoaded", async () => {
   // Register SW immediately — don't wait for Firebase so updates are never blocked.
   registerServiceWorker();
+
+  // TEMPORARY diagnostic — logs every Enter keypress anywhere on the page,
+  // regardless of which element handles it, to find out whether keydown is
+  // even reaching our JS and what element it actually lands on.
+  document.addEventListener("keydown", e => {
+    if (e.key !== "Enter") return;
+    console.log("[EnterDebug-GLOBAL]", {
+      tag: e.target.tagName,
+      className: e.target.className,
+      contentEditable: e.target.contentEditable,
+      defaultPrevented: e.defaultPrevented
+    });
+  });
+  document.addEventListener("beforeinput", e => {
+    if (e.inputType === "insertParagraph" || e.inputType === "insertLineBreak") {
+      console.log("[EnterDebug-GLOBAL] beforeinput", e.inputType, "target:", e.target.tagName, e.target.className, "defaultPrevented:", e.defaultPrevented);
+    }
+  });
 
   // On iOS, relatedTarget is always null and pointerdown may not fire for <select>.
   // Use both pointerdown and touchstart (touchstart fires reliably before focusout on iOS).
