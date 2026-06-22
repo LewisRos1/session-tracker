@@ -60,7 +60,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "424";
+const APP_VERSION = "425";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -2269,12 +2269,18 @@ async function openSessionView(student, sessionId) {
   $("session-view-body").innerHTML = `<div class="loading">Loading…</div>`;
 
   if (state.fbViewUnsubscribe) { state.fbViewUnsubscribe(); state.fbViewUnsubscribe = null; }
+  // Native .view-act-edit/.view-comment-edit fields aren't touched by the
+  // mousedown fix, so focus position is still a reliable busy signal for
+  // them — only the contenteditable remark boxes need isPending() instead.
+  const isViewBusy = () => {
+    const active = document.activeElement;
+    return (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA"))
+      || (state.viewRemarkSaver?.isPending() ?? false);
+  };
+
   state.viewRemarkSaver?.cleanup();
   state.viewRemarkSaver = setupMergedRemarkSaving($("session-view-body"), () => state.viewSessionId, () => {
-    if (!state.viewRenderPending) return;
-    const active = document.activeElement;
-    const busy   = active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.isContentEditable);
-    if (busy) return;
+    if (!state.viewRenderPending || isViewBusy()) return;
     state.viewRenderPending = false;
     renderSessionView();
   });
@@ -2282,10 +2288,8 @@ async function openSessionView(student, sessionId) {
   try {
     state.fbViewUnsubscribe = listenToSession(sessionId, data => {
       state.viewSessionData = data;
-      const active = document.activeElement;
-      const busy   = active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.isContentEditable);
-      if (busy) { state.viewRenderPending = true; }
-      else      { renderSessionView(); }
+      if (isViewBusy()) { state.viewRenderPending = true; }
+      else               { renderSessionView(); }
     });
   } catch (err) {
     $("session-view-body").innerHTML =
@@ -2701,17 +2705,40 @@ function setupMergedRemarkSaving(body, getSessionId, onIdle) {
     const el = (node.nodeType === 1 ? node : node.parentElement)?.closest(".view-remark-edit");
     if (el) el.classList.add("rem-edit-active");
   };
+  // Same fix as the live Session Entry screens' setupEntryRemarkSaving: a
+  // button nested inside a contenteditable="true" host eats its first click
+  // on the browser's default caret-placement handling — it only responds on
+  // a second click. This host never had that guard, so every button here
+  // (+ Trial, delete, etc.) was effectively one-click-does-nothing the whole
+  // time. Scoped to <button> specifically (not every [contenteditable=false]
+  // descendant like the Entry screens' version) because this screen, unlike
+  // the Entry screens, still has real <input>/<textarea> form controls
+  // (.view-act-edit, .view-comment-edit) living inside contenteditable=false
+  // cells — those need their normal native click-to-focus behavior intact.
+  const onMouseDown = e => {
+    if (e.target.closest("button")) e.preventDefault();
+  };
 
   body.addEventListener("input", onInput);
   body.addEventListener("focusout", onFocusOut);
+  body.addEventListener("mousedown", onMouseDown);
   document.addEventListener("selectionchange", onSelectionChange);
 
   return {
     flush,
+    // True only while there's a not-yet-flushed keystroke. Focus position
+    // can't be used as the busy signal here — the mousedown fix above
+    // deliberately keeps focus pinned on whatever box was last typed in even
+    // after clicking a button, so "is something still focused" would stay
+    // true indefinitely and defer every render forever instead of just
+    // while actively mid-keystroke (see setupEntryRemarkSaving for the same
+    // reasoning on the live Session Entry screens).
+    isPending: () => saveTimer !== null,
     cleanup() {
       clearTimeout(saveTimer);
       body.removeEventListener("input", onInput);
       body.removeEventListener("focusout", onFocusOut);
+      body.removeEventListener("mousedown", onMouseDown);
       document.removeEventListener("selectionchange", onSelectionChange);
     }
   };
@@ -3036,12 +3063,19 @@ async function openGroupSessionView(group, sessionId) {
   $("group-session-view-body").innerHTML = `<div class="loading">Loading…</div>`;
 
   if (state.fbViewGroupUnsubscribe) { state.fbViewGroupUnsubscribe(); state.fbViewGroupUnsubscribe = null; }
+  // See isViewBusy in openSessionView for why this combines focus position
+  // (still reliable for the native .view-act-edit/.view-comment-edit fields)
+  // with isPending() (needed for the contenteditable remark boxes, since the
+  // mousedown fix keeps their focus pinned even after a button click).
+  const isGroupViewBusy = () => {
+    const active = document.activeElement;
+    return (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA"))
+      || (state.viewGroupRemarkSaver?.isPending() ?? false);
+  };
+
   state.viewGroupRemarkSaver?.cleanup();
   state.viewGroupRemarkSaver = setupMergedRemarkSaving($("group-session-view-body"), () => state.viewGroupSessionId, () => {
-    if (!state.viewGroupRenderPending) return;
-    const active = document.activeElement;
-    const busy   = active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.isContentEditable);
-    if (busy) return;
+    if (!state.viewGroupRenderPending || isGroupViewBusy()) return;
     state.viewGroupRenderPending = false;
     renderGroupSessionView();
   });
@@ -3049,10 +3083,8 @@ async function openGroupSessionView(group, sessionId) {
   try {
     state.fbViewGroupUnsubscribe = listenToSession(sessionId, data => {
       state.viewGroupSessionData = data;
-      const active = document.activeElement;
-      const busy   = active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.isContentEditable);
-      if (busy) { state.viewGroupRenderPending = true; }
-      else      { renderGroupSessionView(); }
+      if (isGroupViewBusy()) { state.viewGroupRenderPending = true; }
+      else                   { renderGroupSessionView(); }
     });
   } catch (err) {
     $("group-session-view-body").innerHTML =
