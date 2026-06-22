@@ -60,7 +60,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "410";
+const APP_VERSION = "411";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -1890,21 +1890,27 @@ function attachTargetListeners(target) {
       if (btn.disabled) return;
       btn.disabled = true;
       btn.textContent = "Adding…";
-      const paName  = btn.dataset.paName || null;
-      const paOrder = Number(btn.dataset.paOrder) || 0;
-      let   actId   = btn.dataset.actId  || null;
-      state.pendingNewActivity = null;
-      if (paName) actId = await ensureFedcActivity(target.name, paName, paOrder);
-      if (!actId) return;
-      let initialText = "";
-      if (paName) {
-        const pa = target.predefinedActivities?.find(a => a.name === paName);
-        if (pa?.isMastery) {
-          initialText = await getLastMasteryValue(state.currentStudent, target.name, paName, state.currentSessionId);
+      try {
+        const paName  = btn.dataset.paName || null;
+        const paOrder = Number(btn.dataset.paOrder) || 0;
+        let   actId   = btn.dataset.actId  || null;
+        state.pendingNewActivity = null;
+        if (paName) actId = await ensureFedcActivity(target.name, paName, paOrder);
+        if (!actId) { btn.disabled = false; btn.textContent = "+ Add Remark & Trials"; return; }
+        let initialText = "";
+        if (paName) {
+          const pa = target.predefinedActivities?.find(a => a.name === paName);
+          if (pa?.isMastery) {
+            initialText = await getLastMasteryValue(state.currentStudent, target.name, paName, state.currentSessionId);
+          }
         }
+        await addRemark(state.currentSessionId, actId, initialText);
+        // Firestore listener re-renders once the new remark lands.
+      } catch (err) {
+        btn.disabled = false;
+        btn.textContent = "+ Add Remark & Trials";
+        alert("Couldn't add remark — check your connection and try again.\n\n" + err.message);
       }
-      await addRemark(state.currentSessionId, actId, initialText);
-      // Firestore listener re-renders once the new remark lands.
     });
   });
 
