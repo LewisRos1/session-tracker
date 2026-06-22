@@ -60,7 +60,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "447";
+const APP_VERSION = "448";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -1422,7 +1422,6 @@ function calcDaysAverage(target) {
 }
 
 function renderTargetContent() {
-  console.log("[Diag] RENDER", Date.now());
   if (!state.sessionData) return;
   updateSessionHeader();
   if (!state.selectedTargetName) {
@@ -2839,16 +2838,19 @@ function setupEntryRemarkSaving(host, getSessionId, onIdle) {
   let clickGraceTimer = null;
   let clickGrace = false;
   const CLICK_GRACE_WINDOW = 600;
-  // Precise count of writes actually in flight (incremented synchronously
-  // the moment flush() kicks one off, decremented when its promise settles).
-  // flush() used to clear saveTimer and let isPending() flip to false the
-  // instant it STARTED a write, but the Firestore write itself — and the
-  // onSnapshot that write triggers back — routinely takes noticeably longer
-  // than the 700ms save debounce to round-trip. A render landing in that gap
-  // replaced the box the user was still in, silently dropping the caret.
-  // Counting real in-flight writes (instead of guessing a fixed timeout)
-  // closes that gap exactly, regardless of how slow the network is.
+  // Count of writes actually in flight (incremented synchronously the
+  // moment flush() kicks one off, decremented when its promise settles).
+  // This alone turned out NOT to close the gap it was meant to: Firestore
+  // resolves a write's own promise on the local optimistic write almost
+  // immediately, but delivers the onSnapshot callback for that same write
+  // slightly later (confirmed by logging — pendingWrites was already back
+  // to 0 by the time the resulting render fired and dropped the caret). So
+  // there's also a short cooldown below that keeps busy=true for a bit
+  // after the last write resolves, to cover that delivery delay too.
   let pendingWrites = 0;
+  let writeCooldownTimer = null;
+  let writeCooldown = false;
+  const WRITE_COOLDOWN_WINDOW = 1000;
 
   function markClickGrace() {
     clickGrace = true;
@@ -2858,8 +2860,17 @@ function setupEntryRemarkSaving(host, getSessionId, onIdle) {
       // Unlike onInput/onFocusOut, nothing here already called flush(), so
       // only let a deferred render through if there's truly nothing else
       // outstanding (a still-running keystroke debounce or in-flight write).
-      if (saveTimer === null && pendingWrites === 0) onIdle?.();
+      if (saveTimer === null && pendingWrites === 0 && !writeCooldown) onIdle?.();
     }, CLICK_GRACE_WINDOW);
+  }
+
+  function markWriteCooldown() {
+    writeCooldown = true;
+    clearTimeout(writeCooldownTimer);
+    writeCooldownTimer = setTimeout(() => {
+      writeCooldown = false;
+      if (saveTimer === null && pendingWrites === 0) onIdle?.();
+    }, WRITE_COOLDOWN_WINDOW);
   }
 
   function flush() {
@@ -2874,7 +2885,7 @@ function setupEntryRemarkSaving(host, getSessionId, onIdle) {
       pendingWrites++;
       const p = Promise.resolve(promiseLike).finally(() => {
         pendingWrites--;
-        if (pendingWrites === 0 && saveTimer === null) onIdle?.();
+        if (pendingWrites === 0) markWriteCooldown();
       });
       pending.push(p);
       return p;
@@ -2985,7 +2996,6 @@ function setupEntryRemarkSaving(host, getSessionId, onIdle) {
   // activity cards) as if it were deletable content.
   const onBeforeInput = e => {
     if (e.inputType === "insertParagraph" || e.inputType === "insertLineBreak") {
-      console.log("[Diag] BEFOREINPUT", e.inputType, Date.now());
       e.preventDefault();
       return;
     }
@@ -3018,13 +3028,14 @@ function setupEntryRemarkSaving(host, getSessionId, onIdle) {
     // signal — the mousedown fix above deliberately keeps focus pinned on
     // whatever box was last typed in even after clicking a button, so "is
     // something still focused" would stay true indefinitely and defer every
-    // render forever instead of just while actively mid-keystroke (or
-    // mid-round-trip — see pendingWrites — or for the brief moment right
-    // after a click).
-    isPending: () => saveTimer !== null || pendingWrites > 0 || clickGrace,
+    // render forever instead of just while actively mid-keystroke, mid-write,
+    // mid-write-cooldown (see markWriteCooldown), or for the brief moment
+    // right after a click.
+    isPending: () => saveTimer !== null || pendingWrites > 0 || writeCooldown || clickGrace,
     cleanup() {
       clearTimeout(saveTimer);
       clearTimeout(clickGraceTimer);
+      clearTimeout(writeCooldownTimer);
       host.removeEventListener("input", onInput);
       host.removeEventListener("focusout", onFocusOut);
       host.removeEventListener("mousedown", onMouseDown);
@@ -3118,7 +3129,6 @@ function setupEntryEnterKeyDelegation(host, getTarget) {
     const el = node && (node.nodeType === 1 ? node : node.parentElement)?.closest(
       ".activity-name-input, #new-activity-textarea, #new-remark-textarea, .predef-remark-input-live, .remark-text-input, .mastery-note-input"
     );
-    if (e.key === "Enter") console.log("[Diag] ENTER", Date.now(), "el:", el?.className ?? null);
     if (!el || !host.contains(el)) return;
 
     // Native Ctrl+A would select everything in the whole merged editing
@@ -3157,11 +3167,8 @@ function setupEntryEnterKeyDelegation(host, getTarget) {
     // default contenteditable handling.
     if (e.ctrlKey || e.metaKey) return;
     e.preventDefault();
-    console.log("[Diag] ENTER preventDefault called", Date.now(), "defaultPrevented:", e.defaultPrevented);
     setTimeout(() => {
-      console.log("[Diag] ENTER setTimeout fired", Date.now(), "innerHTML before:", JSON.stringify(el.innerHTML));
       insertBrAtCaret();
-      console.log("[Diag] ENTER innerHTML after insert:", JSON.stringify(el.innerHTML));
       el.dispatchEvent(new Event("input", { bubbles: true }));
     }, 0);
   };
