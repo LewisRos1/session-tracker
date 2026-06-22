@@ -60,7 +60,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "456";
+const APP_VERSION = "457";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -150,6 +150,24 @@ function withViewAction(counterKey, pendingKey, isBusy, render, fn) {
       }
     }
   };
+}
+
+// addRemark()/addGroupRemark() etc resolve once the write is sent, but the
+// Firestore onSnapshot listener that actually updates state.sessionData /
+// state.groupSessionData can deliver that update a beat later. Rendering
+// right after the await can therefore render the OLD data (new remark not
+// in it yet), which looks like the click did nothing. Poll instead of
+// guessing a delay — resolves the instant the local snapshot has the data.
+function waitForSessionData(check, timeoutMs = 4000) {
+  return new Promise(resolve => {
+    if (check()) { resolve(); return; }
+    const start = Date.now();
+    const poll = () => {
+      if (check() || Date.now() - start > timeoutMs) { resolve(); return; }
+      setTimeout(poll, 40);
+    };
+    poll();
+  });
 }
 
 // ─── BOTTOM-SHEET TEXT EDITOR ────────────────────────────────
@@ -1330,9 +1348,6 @@ async function openSession(student, existingSessionId = null, dateStr = null) {
       // wasn't registering when clicked soon after typing elsewhere).
       const busy = document.activeElement === $("target-select")
         || state.entryActionsInFlight > 0;
-      console.log("[AddRemarkDebug] onSnapshot fired. busy =", busy,
-        "activeElement =", document.activeElement?.tagName, document.activeElement?.className,
-        "entryActionsInFlight =", state.entryActionsInFlight);
       if (busy) {
         state.renderPending = true;
       } else {
@@ -1458,7 +1473,6 @@ function calcDaysAverage(target) {
 }
 
 function renderTargetContent() {
-  console.log("[AddRemarkDebug] renderTargetContent() called", new Error().stack?.split("\n").slice(1, 4).join(" | "));
   if (!state.sessionData) return;
   updateSessionHeader();
   if (!state.selectedTargetName) {
@@ -1989,7 +2003,6 @@ function attachTargetListeners(target) {
   // ── Add remark (immediate creation) ──────────────────────
   c.querySelectorAll(".btn-add-remark").forEach(btn => {
     btn.addEventListener("click", async () => {
-      console.log("[AddRemarkDebug] click fired, disabled =", btn.disabled);
       if (btn.disabled) return;
       btn.disabled = true;
       btn.textContent = "Adding…";
@@ -2012,25 +2025,22 @@ function attachTargetListeners(target) {
             initialText = await getLastMasteryValue(state.currentStudent, target.name, paName, state.currentSessionId);
           }
         }
-        console.log("[AddRemarkDebug] calling addRemark...");
-        await addRemark(state.currentSessionId, actId, initialText);
-        console.log("[AddRemarkDebug] addRemark resolved");
-        // Firestore listener re-renders once the new remark lands.
+        const remId = await addRemark(state.currentSessionId, actId, initialText);
+        // Wait for the new remark to actually land in state.sessionData
+        // before letting the finally block render — addRemark() resolving
+        // only means the write was sent, not that onSnapshot delivered it.
+        await waitForSessionData(() => !!state.sessionData?.remarks?.[remId]);
       } catch (err) {
-        console.log("[AddRemarkDebug] addRemark threw:", err);
         btn.disabled = false;
         btn.textContent = "+ Add Remark & Trials";
         alert("Couldn't add remark — check your connection and try again.\n\n" + err.message);
       } finally {
         state.entryActionsInFlight--;
-        console.log("[AddRemarkDebug] finally: entryActionsInFlight =", state.entryActionsInFlight,
-          "renderPending =", state.renderPending);
         // The write's own onSnapshot may have already fired and deferred a
         // render (renderPending) while the counter was still > 0 — nothing
         // else proactively re-checks once it drops back to 0, so do it here
         // (same check as setupEntryRemarkSaving's onIdle).
         if (state.entryActionsInFlight === 0 && state.renderPending) {
-          console.log("[AddRemarkDebug] finally: forcing renderTargetContent()");
           state.renderPending = false;
           renderTargetContent();
         }
@@ -6351,8 +6361,10 @@ function attachGroupTargetListeners(target) {
           .filter(studentName => !Object.values(data.remarks || {})
             .some(r => r.activityId === actId && r.studentName === studentName))
           .map(studentName => ({ actId, studentName }));
-        if (entries.length) await addGroupRemarksBatch(state.groupSessionId, entries);
-        // Firestore listener will re-render
+        if (entries.length) {
+          const remIds = await addGroupRemarksBatch(state.groupSessionId, entries);
+          await waitForSessionData(() => remIds.every(id => !!state.groupSessionData?.remarks?.[id]));
+        }
       } finally {
         state.entryGroupActionsInFlight--;
         if (state.entryGroupActionsInFlight === 0 && state.groupRenderPending) {
@@ -6370,7 +6382,8 @@ function attachGroupTargetListeners(target) {
       btn.textContent = "Adding…";
       state.entryGroupActionsInFlight++;
       try {
-        await ensureGroupActivityAndRemark(btn);
+        const { remId } = await ensureGroupActivityAndRemark(btn);
+        await waitForSessionData(() => !!state.groupSessionData?.remarks?.[remId]);
       } finally {
         state.entryGroupActionsInFlight--;
         if (state.entryGroupActionsInFlight === 0 && state.groupRenderPending) {
@@ -6407,7 +6420,8 @@ function attachGroupTargetListeners(target) {
       try {
         const actId = btn.dataset.actId;
         const entries = state.groupAttendees.map(studentName => ({ actId, studentName }));
-        await addGroupRemarksBatch(state.groupSessionId, entries);
+        const remIds = await addGroupRemarksBatch(state.groupSessionId, entries);
+        await waitForSessionData(() => remIds.every(id => !!state.groupSessionData?.remarks?.[id]));
       } finally {
         state.entryGroupActionsInFlight--;
         if (state.entryGroupActionsInFlight === 0 && state.groupRenderPending) {
@@ -6425,7 +6439,8 @@ function attachGroupTargetListeners(target) {
       btn.textContent = "Adding…";
       state.entryGroupActionsInFlight++;
       try {
-        await addGroupRemark(state.groupSessionId, btn.dataset.actId, btn.dataset.student);
+        const remId = await addGroupRemark(state.groupSessionId, btn.dataset.actId, btn.dataset.student);
+        await waitForSessionData(() => !!state.groupSessionData?.remarks?.[remId]);
       } finally {
         state.entryGroupActionsInFlight--;
         if (state.entryGroupActionsInFlight === 0 && state.groupRenderPending) {

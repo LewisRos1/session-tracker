@@ -553,11 +553,14 @@ export async function addGroupRemark(sessionId, actId, studentName, text = "") {
 export async function addGroupRemarksBatch(sessionId, entries) {
   const updates = {};
   const now = Date.now();
+  const remIds = [];
   for (const { actId, studentName } of entries) {
     const remId = generateId("r");
+    remIds.push(remId);
     updates[`remarks.${remId}`] = { activityId: actId, studentName, text: "", trials: [], order: now };
   }
   await updateDoc(doc(db, "sessions", sessionId), updates);
+  return remIds;
 }
 
 /** Delete multiple remarks in one write (no sequential re-renders). */
