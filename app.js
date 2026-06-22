@@ -60,7 +60,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "412";
+const APP_VERSION = "413";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -1359,6 +1359,13 @@ function populateTargetDropdown(targets) {
     if (prevTarget && prevTarget !== sel.value) {
       cleanupEmptyEntries(state.currentSessionId, state.sessionData, prevTarget).catch(() => {});
     }
+    // A <select> keeps focus after its own change event fires — and since
+    // clicking buttons inside #target-content no longer blurs anything (see
+    // setupEntryRemarkSaving's mousedown fix), nothing would ever naturally
+    // take focus off it again. The busy-check in openSession's listener
+    // treats "the dropdown is focused" as "still choosing", so leaving it
+    // focused here would permanently block every future render.
+    sel.blur();
     renderTargetContent();
   };
 }
@@ -5431,6 +5438,12 @@ function populateGroupTargetDropdown(targets) {
     if (prevTarget && prevTarget !== sel.value) {
       cleanupEmptyEntries(state.groupSessionId, state.groupSessionData, prevTarget).catch(() => {});
     }
+    // See individual session's populateTargetDropdown for why this matters:
+    // a <select> keeps focus after its own change event, and nothing else
+    // would naturally blur it now that button clicks inside the content
+    // host don't — so the busy-check would treat it as permanently "still
+    // choosing" and block every future render.
+    sel.blur();
     if (!state.selectedGroupTargetName) { renderGroupTargetContent(); return; }
     const data = state.groupSessionData;
     if (data) {
