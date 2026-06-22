@@ -60,7 +60,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "453";
+const APP_VERSION = "455";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -120,27 +120,6 @@ const state = {
 };
 
 const $ = id => document.getElementById(id);
-
-// True while the user has an actual text selection (not just a caret) inside
-// host. isPending()-based busy checks only see "is there an unflushed
-// keystroke" — they miss the moment right after selecting text but before
-// typing/backspacing over it. If a render slips through during that window
-// (rebuilding the DOM), the selection's Range ends up pointing at detached
-// nodes, and the next backspace/keypress silently no-ops since there's
-// nothing valid left for the browser to act on — the user has to click away
-// and re-select before typing works again.
-function hasActiveSelectionIn(host) {
-  // Session-entry boxes are real <textarea>/<input> elements — their internal
-  // caret/selection isn't tracked by document.getSelection() at all, so being
-  // focused (regardless of selection) is what matters for those.
-  const active = document.activeElement;
-  if (active && host.contains(active) && (active.tagName === "TEXTAREA" || active.tagName === "INPUT")) {
-    return true;
-  }
-  const sel = document.getSelection();
-  if (!sel || sel.isCollapsed || sel.rangeCount === 0) return false;
-  return host.contains(sel.anchorNode);
-}
 
 // True while a View/Edit-past-session screen's box is focused — used to
 // defer a render that would otherwise yank a remark box out from under the
@@ -1310,7 +1289,7 @@ async function openSession(student, existingSessionId = null, dateStr = null) {
   if (state.fbUnsubscribe) { state.fbUnsubscribe(); state.fbUnsubscribe = null; }
   state.entryRemarkSaver?.cleanup();
   state.entryRemarkSaver = setupEntryRemarkSaving($("target-content"), () => state.currentSessionId, () => {
-    if (!state.renderPending || hasActiveSelectionIn($("target-content")) || state.entryActionsInFlight > 0) return;
+    if (!state.renderPending || state.entryActionsInFlight > 0) return;
     state.renderPending = false;
     renderTargetContent();
   });
@@ -1341,16 +1320,15 @@ async function openSession(student, existingSessionId = null, dateStr = null) {
       if (state.scorePicker?.open && state.scorePicker?.remId) {
         renderScoreModalTrials(state.scorePicker.remId);
       }
-      // Busy = dropdown open, an active text selection inside the host (see
-      // hasActiveSelectionIn), or a button's own multi-step Firestore write
-      // still in flight. Typing itself no longer needs to defer a render —
+      // Busy = dropdown open, or a button's own multi-step Firestore write
+      // still in flight. Typing/focus itself never needs to defer a render —
       // captureActiveEditState/restoreActiveEditState (see renderTargetContent)
-      // protect an in-progress edit through any render, so there's no need to
-      // hold renders back while the user is mid-keystroke anymore (that used
-      // to add a real, user-visible delay to things like "+Add Remark &
-      // Trials" whenever it landed soon after typing elsewhere).
+      // protect an in-progress edit through any render regardless of timing,
+      // so gating on "is a box focused" here would only ever add delay, never
+      // safety — including deferring forever while the user keeps typing
+      // (which is exactly what made "+Add Remark & Trials" look like it
+      // wasn't registering when clicked soon after typing elsewhere).
       const busy = document.activeElement === $("target-select")
-        || hasActiveSelectionIn($("target-content"))
         || state.entryActionsInFlight > 0;
       if (busy) {
         state.renderPending = true;
@@ -2041,8 +2019,7 @@ function attachTargetListeners(target) {
         // render (renderPending) while the counter was still > 0 — nothing
         // else proactively re-checks once it drops back to 0, so do it here
         // (same check as setupEntryRemarkSaving's onIdle).
-        if (state.entryActionsInFlight === 0 && state.renderPending
-            && !hasActiveSelectionIn($("target-content"))) {
+        if (state.entryActionsInFlight === 0 && state.renderPending) {
           state.renderPending = false;
           renderTargetContent();
         }
@@ -2246,6 +2223,11 @@ async function autoFillMasteryRemarks(student, sessionId) {
 
 // Deletes remarks that have no text, no mastery note, and no valid trials for
 // the given target, then removes any activity that is left with no remarks.
+// A "-1" trial is the View/Edit screen's "+" placeholder for a slot that was
+// added but never given an actual score — it never counts as real data: a
+// remark that's otherwise empty gets deleted outright (as if "+" was never
+// clicked), and one that has other real content just has that stray slot
+// quietly dropped from its trials array.
 async function cleanupEmptyEntries(sessionId, data, targetName) {
   if (!sessionId || !data) return;
   const acts = Object.entries(data.activities || {})
@@ -2253,14 +2235,18 @@ async function cleanupEmptyEntries(sessionId, data, targetName) {
   for (const [actId] of acts) {
     const rems = Object.entries(data.remarks || {}).filter(([, r]) => r.activityId === actId);
     const stripEmpty = s => (s || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").replace(/ /g, " ").trim();
-    const emptyIds = rems
-      .filter(([, r]) => {
-        const hasText   = stripEmpty(r.text).length > 0;
-        const hasNote   = stripEmpty(r.masteryNote).length > 0;
-        const hasTrials = (r.trials || []).some(t => t !== -1);
-        return !hasText && !hasNote && !hasTrials;
-      })
-      .map(([id]) => id);
+    const emptyIds = [];
+    for (const [remId, r] of rems) {
+      const trials     = r.trials || [];
+      const realTrials = trials.filter(t => t !== -1);
+      const hasText = stripEmpty(r.text).length > 0;
+      const hasNote = stripEmpty(r.masteryNote).length > 0;
+      if (!hasText && !hasNote && realTrials.length === 0) {
+        emptyIds.push(remId);
+      } else if (realTrials.length !== trials.length) {
+        await setTrials(sessionId, remId, realTrials);
+      }
+    }
     if (!emptyIds.length) continue;
     if (emptyIds.length === rems.length) {
       await deleteActivity(sessionId, actId, emptyIds); // removes activity + all its empty remarks
@@ -5717,7 +5703,7 @@ async function openGroupSession(group, dateStr, attendees) {
   if (state.fbGroupUnsubscribe) { state.fbGroupUnsubscribe(); state.fbGroupUnsubscribe = null; }
   state.entryGroupRemarkSaver?.cleanup();
   state.entryGroupRemarkSaver = setupEntryRemarkSaving($("group-target-content"), () => state.groupSessionId, () => {
-    if (!state.groupRenderPending || hasActiveSelectionIn($("group-target-content")) || state.entryGroupActionsInFlight > 0) return;
+    if (!state.groupRenderPending || state.entryGroupActionsInFlight > 0) return;
     state.groupRenderPending = false;
     renderGroupTargetContent();
   });
@@ -5749,12 +5735,10 @@ async function openGroupSession(group, dateStr, attendees) {
         }
       }
       if (state.scorePicker?.open && state.scorePicker?.isGroup) renderScoreModalTrials(state.scorePicker.remId);
-      // Busy = dropdown open, an active text selection, or a button's own
-      // multi-step write still in flight — see the matching comment in
-      // openSession's listener for why typing itself no longer needs to
-      // defer a render.
+      // Busy = dropdown open, or a button's own multi-step write still in
+      // flight — see the matching comment in openSession's listener for why
+      // a focused box never needs to defer a render here.
       const busy = document.activeElement === $("group-target-select")
-        || hasActiveSelectionIn($("group-target-content"))
         || state.entryGroupActionsInFlight > 0;
       if (busy) {
         state.groupRenderPending = true;
@@ -6360,8 +6344,7 @@ function attachGroupTargetListeners(target) {
         // Firestore listener will re-render
       } finally {
         state.entryGroupActionsInFlight--;
-        if (state.entryGroupActionsInFlight === 0 && state.groupRenderPending
-            && !hasActiveSelectionIn($("group-target-content"))) {
+        if (state.entryGroupActionsInFlight === 0 && state.groupRenderPending) {
           state.groupRenderPending = false;
           renderGroupTargetContent();
         }
@@ -6379,8 +6362,7 @@ function attachGroupTargetListeners(target) {
         await ensureGroupActivityAndRemark(btn);
       } finally {
         state.entryGroupActionsInFlight--;
-        if (state.entryGroupActionsInFlight === 0 && state.groupRenderPending
-            && !hasActiveSelectionIn($("group-target-content"))) {
+        if (state.entryGroupActionsInFlight === 0 && state.groupRenderPending) {
           state.groupRenderPending = false;
           renderGroupTargetContent();
         }
@@ -6417,8 +6399,7 @@ function attachGroupTargetListeners(target) {
         await addGroupRemarksBatch(state.groupSessionId, entries);
       } finally {
         state.entryGroupActionsInFlight--;
-        if (state.entryGroupActionsInFlight === 0 && state.groupRenderPending
-            && !hasActiveSelectionIn($("group-target-content"))) {
+        if (state.entryGroupActionsInFlight === 0 && state.groupRenderPending) {
           state.groupRenderPending = false;
           renderGroupTargetContent();
         }
@@ -6436,8 +6417,7 @@ function attachGroupTargetListeners(target) {
         await addGroupRemark(state.groupSessionId, btn.dataset.actId, btn.dataset.student);
       } finally {
         state.entryGroupActionsInFlight--;
-        if (state.entryGroupActionsInFlight === 0 && state.groupRenderPending
-            && !hasActiveSelectionIn($("group-target-content"))) {
+        if (state.entryGroupActionsInFlight === 0 && state.groupRenderPending) {
           state.groupRenderPending = false;
           renderGroupTargetContent();
         }
