@@ -60,7 +60,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "428";
+const APP_VERSION = "429";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -2657,9 +2657,20 @@ function setupMergedRemarkSaving(body, getSessionId, onIdle) {
     body.querySelectorAll(".view-remark-empty").forEach(div => {
       const strip = s => (s || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").replace(/ /g, " ").trim();
       const text = div.innerHTML;
-      // Guarded against double-fire if flush() runs again (e.g. focusout
-      // right after the debounce timer) before this creation lands.
       if (!strip(text) || div.dataset.creating === "true") return;
+      // Once a remark has actually been created for this box, every later
+      // flush (e.g. the render that would replace this ghost box with a real
+      // .view-remark-edit got deferred while the user kept typing/pressed
+      // Enter again) must update that SAME remark, not create another one —
+      // div.dataset.actId was only ever read here, never written back, so a
+      // second flush before the re-render landed always looked like "no
+      // activity yet" and created a brand new duplicate remark each time.
+      if (div.dataset.remId) {
+        if (div.dataset.savedHtml === text) return;
+        div.dataset.savedHtml = text;
+        updateRemarkText(sid, div.dataset.remId, text);
+        return;
+      }
       div.dataset.creating = "true";
       (async () => {
         try {
@@ -2675,8 +2686,12 @@ function setupMergedRemarkSaving(body, getSessionId, onIdle) {
           // write after — one less sequential round-trip before the remark
           // (and its "+ Trial" button) actually shows up.
           const studentName = div.dataset.student;
-          if (studentName) await addGroupRemark(sid, actId, studentName, text);
-          else await addRemark(sid, actId, text);
+          const remId = studentName
+            ? await addGroupRemark(sid, actId, studentName, text)
+            : await addRemark(sid, actId, text);
+          div.dataset.actId      = actId;
+          div.dataset.remId      = remId;
+          div.dataset.savedHtml  = text;
         } finally {
           div.dataset.creating = "false";
         }
