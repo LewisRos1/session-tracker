@@ -60,7 +60,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "436";
+const APP_VERSION = "437";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -1914,8 +1914,16 @@ function attachTargetListeners(target) {
     el.addEventListener("keydown", e => {
       if (e.key !== "Enter" || e.ctrlKey || e.metaKey) return;
       e.preventDefault();
-      insertBrAtCaret();
-      el.dispatchEvent(new Event("input", { bubbles: true }));
+      // Deferred to the next tick: Chrome still runs its own internal
+      // re-sync of the contenteditable region right after a cancelled
+      // "beforeinput" (see the host-level onBeforeInput comment), and doing
+      // the manual <br> insert synchronously in the same task let that
+      // re-sync silently discard it. Letting that settle first, then
+      // inserting, makes the <br> stick.
+      setTimeout(() => {
+        insertBrAtCaret();
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+      }, 0);
     });
   });
 
@@ -2018,8 +2026,10 @@ function attachTargetListeners(target) {
       if (e.key !== "Enter") return;
       if (e.ctrlKey || e.metaKey) { e.preventDefault(); saveNewRemark(target); return; }
       e.preventDefault();
-      insertBrAtCaret();
-      newRemTa.dispatchEvent(new Event("input", { bubbles: true }));
+      setTimeout(() => {
+        insertBrAtCaret();
+        newRemTa.dispatchEvent(new Event("input", { bubbles: true }));
+      }, 0);
     });
   }
 
@@ -3061,11 +3071,16 @@ function attachViewListeners() {
       if (e.key !== "Enter") return;
       if (e.ctrlKey || e.metaKey) { e.preventDefault(); state.viewRemarkSaver?.flush(); return; }
       e.preventDefault();
-      insertBrAtCaret();
-      // Manual DOM mutation via the Range API doesn't fire a native "input"
-      // event the way the browser's own edit commands do — the host's save
-      // debounce listens for that event, so dispatch one ourselves.
-      ta.dispatchEvent(new Event("input", { bubbles: true }));
+      // Deferred to the next tick — see the matching comment on the entry
+      // screen's .remark-text-input handler: doing this synchronously let
+      // Chrome's post-cancellation re-sync silently discard it.
+      setTimeout(() => {
+        insertBrAtCaret();
+        // Manual DOM mutation via the Range API doesn't fire a native "input"
+        // event the way the browser's own edit commands do — the host's save
+        // debounce listens for that event, so dispatch one ourselves.
+        ta.dispatchEvent(new Event("input", { bubbles: true }));
+      }, 0);
     });
   });
 
@@ -3689,8 +3704,10 @@ function attachGroupViewListeners() {
       if (e.key !== "Enter") return;
       if (e.ctrlKey || e.metaKey) { e.preventDefault(); state.viewGroupRemarkSaver?.flush(); return; }
       e.preventDefault();
-      insertBrAtCaret();
-      ta.dispatchEvent(new Event("input", { bubbles: true }));
+      setTimeout(() => {
+        insertBrAtCaret();
+        ta.dispatchEvent(new Event("input", { bubbles: true }));
+      }, 0);
     });
   });
 
@@ -6116,8 +6133,10 @@ function attachGroupTargetListeners(target) {
     el.addEventListener("keydown", e => {
       if (e.key !== "Enter" || e.ctrlKey || e.metaKey) return;
       e.preventDefault();
-      insertBrAtCaret();
-      el.dispatchEvent(new Event("input", { bubbles: true }));
+      setTimeout(() => {
+        insertBrAtCaret();
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+      }, 0);
     });
   });
 
