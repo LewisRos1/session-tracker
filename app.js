@@ -60,7 +60,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "403";
+const APP_VERSION = "404";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -1614,6 +1614,23 @@ function remarkToHtml(text) {
   return text.replace(/\*\*(.+?)\*\*/g, "<b>$1</b>");
 }
 
+// Wraps an async save function so it auto-fires ~700ms after the user stops
+// typing, instead of relying solely on blur. Switching targets via the
+// dropdown reads local session data synchronously to decide what counts as
+// "empty" and should be cleaned up — if a save is still only pending on blur
+// at that moment, the just-typed text can lose the race and get deleted as
+// empty. Debounced input-saving closes that gap; blur still does an
+// immediate final flush.
+function debouncedSave(fn, delay = 700) {
+  let timer = null;
+  const wrapped = (...args) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), delay);
+  };
+  wrapped.cancel = () => clearTimeout(timer);
+  return wrapped;
+}
+
 // ─── REMARK FIELDS ───────────────────────────────────────────
 
 function renderRemarkFields(rem, target, inlineOptions = null, sentenceStarter = null, multiSelect = false, isMastery = false) {
@@ -1789,17 +1806,22 @@ function renderGhostRemarkFields(predRemName, actId, pa, paIdx, target) {
 function attachTargetListeners(target) {
   const c = $("target-content");
 
-  // ── Activity name: auto-save on blur ─────────────────────
+  // ── Activity name: debounced + blur auto-save ────────────
   c.querySelectorAll(".activity-name-input").forEach(input => {
-    input.addEventListener("blur", async () => {
+    const save = async () => {
       const newName = input.textContent.trim();
       const original = input.dataset.original;
-      if (!newName) { input.textContent = original; return; }
-      if (newName !== original) {
-        input.dataset.original = newName;
-        flashSaved(input);
-        await updateActivityName(state.currentSessionId, input.dataset.actId, newName);
-      }
+      if (!newName || newName === original) return;
+      input.dataset.original = newName;
+      flashSaved(input);
+      await updateActivityName(state.currentSessionId, input.dataset.actId, newName);
+    };
+    const debounced = debouncedSave(save);
+    input.addEventListener("input", debounced);
+    input.addEventListener("blur", () => {
+      debounced.cancel();
+      if (!input.textContent.trim()) { input.textContent = input.dataset.original; return; }
+      save();
     });
     input.addEventListener("keydown", e => {
       if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); input.blur(); }
@@ -1845,28 +1867,33 @@ function attachTargetListeners(target) {
     });
   });
 
-  // ── Remark text: blur auto-saves (contenteditable, stores HTML) ──
+  // ── Remark text: debounced + blur auto-saves (contenteditable, stores HTML) ──
   c.querySelectorAll(".remark-text-input").forEach(ta => {
     let orig = ta.innerHTML;
-    ta.addEventListener("blur", async () => {
+    const save = async () => {
       const newText = ta.innerHTML;
-      if (newText !== orig) {
-        orig = newText;
-        flashSaved(ta);
-        await updateRemarkText(state.currentSessionId, ta.dataset.remId, newText);
-      }
-    });
+      if (newText === orig) return;
+      orig = newText;
+      flashSaved(ta);
+      await updateRemarkText(state.currentSessionId, ta.dataset.remId, newText);
+    };
+    const debounced = debouncedSave(save);
+    ta.addEventListener("input", debounced);
+    ta.addEventListener("blur", () => { debounced.cancel(); save(); });
   });
 
   // ── Mastery note text (contenteditable below buttons) ────
   c.querySelectorAll(".mastery-note-input").forEach(div => {
     let orig = div.innerHTML;
-    div.addEventListener("blur", async () => {
+    const save = async () => {
       const newNote = div.innerHTML;
       if (newNote === orig) return;
       orig = newNote;
       await updateRemarkNote(state.currentSessionId, div.dataset.remId, newNote);
-    });
+    };
+    const debounced = debouncedSave(save);
+    div.addEventListener("input", debounced);
+    div.addEventListener("blur", () => { debounced.cancel(); save(); });
   });
 
   // ── Mastery level buttons ─────────────────────────────────
@@ -1969,29 +1996,40 @@ function attachTargetListeners(target) {
     });
   });
 
-  // ── Ghost predefined remark input: save text on blur ──────
+  // ── Ghost predefined remark input: debounced + blur save ──
   c.querySelectorAll(".predef-remark-input").forEach(input => {
-    input.addEventListener("blur", async () => {
+    let creating = false;
+    const save = async () => {
       const text = input.textContent.trim();
-      if (!text) return;
-      const paOrder = input.dataset.paOrder !== "" ? Number(input.dataset.paOrder) : 0;
-      const actId = await ensureFedcActivity(input.dataset.target, input.dataset.paName, paOrder);
-      const remId = await ensurePredefinedRemark(actId, input.dataset.remName, text);
-      await updateRemarkText(state.currentSessionId, remId, text);
-    });
+      if (!text || creating) return;
+      creating = true;
+      try {
+        const paOrder = input.dataset.paOrder !== "" ? Number(input.dataset.paOrder) : 0;
+        const actId = await ensureFedcActivity(input.dataset.target, input.dataset.paName, paOrder);
+        const remId = await ensurePredefinedRemark(actId, input.dataset.remName, text);
+        await updateRemarkText(state.currentSessionId, remId, text);
+      } finally {
+        creating = false;
+      }
+    };
+    const debounced = debouncedSave(save);
+    input.addEventListener("input", debounced);
+    input.addEventListener("blur", () => { debounced.cancel(); save(); });
   });
 
-  // ── Live predefined remark input: auto-save on blur ────────
+  // ── Live predefined remark input: debounced + blur auto-save ────────
   c.querySelectorAll(".predef-remark-input-live").forEach(input => {
-    input.addEventListener("blur", async () => {
+    const save = async () => {
       const text = input.textContent.trim();
       const original = input.dataset.original;
-      if (text !== original) {
-        input.dataset.original = text;
-        flashSaved(input);
-        await updateRemarkText(state.currentSessionId, input.dataset.remId, text);
-      }
-    });
+      if (text === original) return;
+      input.dataset.original = text;
+      flashSaved(input);
+      await updateRemarkText(state.currentSessionId, input.dataset.remId, text);
+    };
+    const debounced = debouncedSave(save);
+    input.addEventListener("input", debounced);
+    input.addEventListener("blur", () => { debounced.cancel(); save(); });
     input.addEventListener("keydown", e => {
       if (e.key === "Enter") { e.preventDefault(); input.blur(); }
     });
@@ -5730,15 +5768,18 @@ function attachGroupTargetListeners(target) {
   const c = $("group-target-content");
   if (!c) return;
 
-  // Remark blur-save
+  // Remark: debounced + blur auto-save
   c.querySelectorAll(".group-remark-input").forEach(div => {
     let orig = div.innerHTML;
-    div.addEventListener("blur", async () => {
+    const save = async () => {
       const newText = div.innerHTML;
       if (newText === orig) return;
       orig = newText;
       await updateRemarkText(state.groupSessionId, div.dataset.remId, newText);
-    });
+    };
+    const debounced = debouncedSave(save);
+    div.addEventListener("input", debounced);
+    div.addEventListener("blur", () => { debounced.cancel(); save(); });
   });
 
   // Sketch board
@@ -5749,16 +5790,19 @@ function attachGroupTargetListeners(target) {
     });
   });
 
-  // Combined remark box (shared across all students in a round) — blur-save writes to every remId
+  // Combined remark box (shared across all students in a round) — debounced + blur save, writes to every remId
   c.querySelectorAll(".group-remark-input-combined").forEach(div => {
     let orig = div.innerHTML;
-    div.addEventListener("blur", async () => {
+    const save = async () => {
       const newText = div.innerHTML;
       if (newText === orig) return;
       orig = newText;
       const remIds = div.dataset.remIds.split(",").filter(Boolean);
       await Promise.all(remIds.map(remId => updateRemarkText(state.groupSessionId, remId, newText)));
-    });
+    };
+    const debounced = debouncedSave(save);
+    div.addEventListener("input", debounced);
+    div.addEventListener("blur", () => { debounced.cancel(); save(); });
   });
 
   c.querySelectorAll(".btn-group-sketch-combined").forEach(btn => {
