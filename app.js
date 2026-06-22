@@ -60,7 +60,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "450";
+const APP_VERSION = "451";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -78,12 +78,10 @@ const state = {
   fbUnsubscribe:      null,
   renderPending:      false,
   // Count of in-flight "+Add Remark & Trials"-style button clicks on the
-  // live Entry screens (both individual and group). These aren't covered by
-  // isPending() (no typing involved) or hasActiveSelectionIn() (no
-  // selection involved) — without this, a write from an unrelated row/
-  // activity landing mid-click can pass the busy-check and force a render
-  // that replaces the just-clicked button before its own write resolves,
-  // silently dropping the click's visible result.
+  // live Entry screens (both individual and group). Without this, a write
+  // from an unrelated row/activity landing mid-click can pass the busy-check
+  // and force a render that replaces the just-clicked button before its own
+  // write resolves, silently dropping the click's visible result.
   entryActionsInFlight:      0,
   entryGroupActionsInFlight: 0,
   flashActive:        false,
@@ -1305,14 +1303,15 @@ async function openSession(student, existingSessionId = null, dateStr = null) {
       if (state.scorePicker?.open && state.scorePicker?.remId) {
         renderScoreModalTrials(state.scorePicker.remId);
       }
-      // Busy = dropdown open, a keystroke hasn't been flushed yet, or there's
-      // an active text selection inside the host (see hasActiveSelectionIn).
-      // Focus position alone can't be used here — clicking a button inside
-      // #target-content deliberately doesn't blur the remark box anymore
-      // (see setupEntryRemarkSaving's mousedown handler), so "something is
-      // still focused" would stay true forever and defer every render.
+      // Busy = dropdown open, an active text selection inside the host (see
+      // hasActiveSelectionIn), or a button's own multi-step Firestore write
+      // still in flight. Typing itself no longer needs to defer a render —
+      // captureActiveEditState/restoreActiveEditState (see renderTargetContent)
+      // protect an in-progress edit through any render, so there's no need to
+      // hold renders back while the user is mid-keystroke anymore (that used
+      // to add a real, user-visible delay to things like "+Add Remark &
+      // Trials" whenever it landed soon after typing elsewhere).
       const busy = document.activeElement === $("target-select")
-        || (state.entryRemarkSaver?.isPending() ?? false)
         || hasActiveSelectionIn($("target-content"))
         || state.entryActionsInFlight > 0;
       if (busy) {
@@ -1779,7 +1778,7 @@ function renderRemarkFields(rem, target, inlineOptions = null, sentenceStarter =
   }
 
   const optBtns = makeOptPills(rem.id, rem.text)
-    || `<textarea class="field-input remark-text-input"
+    || `<textarea class="field-input remark-text-input" rows="1"
         data-rem-id="${rem.id}" data-saved-html="${escHtml(rem.text || "")}">${escHtml(plainTextForEdit(rem.text))}</textarea>`;
 
   // Sketch board button only shown when there's a free-text input (no preset opt pills)
@@ -1792,7 +1791,7 @@ function renderRemarkFields(rem, target, inlineOptions = null, sentenceStarter =
     remarkContent = `<div class="remark-starter-wrap">
       <span class="remark-starter-prefix" contenteditable="false">${escHtml(sentenceStarter)}</span>
       ${makeOptPills(rem.id, rem.text)
-        || `<textarea class="field-input remark-text-input"
+        || `<textarea class="field-input remark-text-input" rows="1"
             data-rem-id="${rem.id}" data-saved-html="${escHtml(rem.text || "")}">${escHtml(plainTextForEdit(rem.text))}</textarea>`
       }
     </div>`;
@@ -2005,13 +2004,9 @@ function attachTargetListeners(target) {
         // The write's own onSnapshot may have already fired and deferred a
         // render (renderPending) while the counter was still > 0 — nothing
         // else proactively re-checks once it drops back to 0, so do it here
-        // (same check as setupEntryRemarkSaving's onIdle). Must also check
-        // isPending() — the user may have resumed typing elsewhere while
-        // this write was in flight, and applying the render now would wipe
-        // that in-progress edit.
+        // (same check as setupEntryRemarkSaving's onIdle).
         if (state.entryActionsInFlight === 0 && state.renderPending
-            && !hasActiveSelectionIn($("target-content"))
-            && !(state.entryRemarkSaver?.isPending() ?? false)) {
+            && !hasActiveSelectionIn($("target-content"))) {
           state.renderPending = false;
           renderTargetContent();
         }
@@ -2870,48 +2865,6 @@ function setupMergedRemarkSaving(body, getSessionId, onIdle) {
 // racing a still-in-flight write.
 function setupEntryRemarkSaving(host, getSessionId, onIdle) {
   let saveTimer = null;
-  // Short grace window covering the gap between "user just clicked into a
-  // box, placing a caret" and "user actually starts typing" — isPending()
-  // alone misses this moment (saveTimer is still null), so a render landing
-  // in that narrow window can replace the just-focused box and silently
-  // drop the caret, forcing the user to click back in.
-  let clickGraceTimer = null;
-  let clickGrace = false;
-  const CLICK_GRACE_WINDOW = 600;
-  // Count of writes actually in flight (incremented synchronously the
-  // moment flush() kicks one off, decremented when its promise settles).
-  // This alone turned out NOT to close the gap it was meant to: Firestore
-  // resolves a write's own promise on the local optimistic write almost
-  // immediately, but delivers the onSnapshot callback for that same write
-  // slightly later (confirmed by logging — pendingWrites was already back
-  // to 0 by the time the resulting render fired and dropped the caret). So
-  // there's also a short cooldown below that keeps busy=true for a bit
-  // after the last write resolves, to cover that delivery delay too.
-  let pendingWrites = 0;
-  let writeCooldownTimer = null;
-  let writeCooldown = false;
-  const WRITE_COOLDOWN_WINDOW = 1000;
-
-  function markClickGrace() {
-    clickGrace = true;
-    clearTimeout(clickGraceTimer);
-    clickGraceTimer = setTimeout(() => {
-      clickGrace = false;
-      // Unlike onInput/onFocusOut, nothing here already called flush(), so
-      // only let a deferred render through if there's truly nothing else
-      // outstanding (a still-running keystroke debounce or in-flight write).
-      if (saveTimer === null && pendingWrites === 0 && !writeCooldown) onIdle?.();
-    }, CLICK_GRACE_WINDOW);
-  }
-
-  function markWriteCooldown() {
-    writeCooldown = true;
-    clearTimeout(writeCooldownTimer);
-    writeCooldownTimer = setTimeout(() => {
-      writeCooldown = false;
-      if (saveTimer === null && pendingWrites === 0) onIdle?.();
-    }, WRITE_COOLDOWN_WINDOW);
-  }
 
   function flush() {
     clearTimeout(saveTimer);
@@ -2920,16 +2873,7 @@ function setupEntryRemarkSaving(host, getSessionId, onIdle) {
     if (!sid) return Promise.resolve();
 
     const pending = [];
-
-    const trackWrite = promiseLike => {
-      pendingWrites++;
-      const p = Promise.resolve(promiseLike).finally(() => {
-        pendingWrites--;
-        if (pendingWrites === 0) markWriteCooldown();
-      });
-      pending.push(p);
-      return p;
-    };
+    const trackWrite = promiseLike => { pending.push(Promise.resolve(promiseLike)); };
 
     const diffAndSave = (selector, getValue, doSave) => {
       host.querySelectorAll(selector).forEach(el => {
@@ -2991,44 +2935,25 @@ function setupEntryRemarkSaving(host, getSessionId, onIdle) {
     return Promise.all(pending);
   }
 
-  // flush() clears saveTimer synchronously, so isPending() flips to false
-  // the instant a flush starts — but nothing was re-checking
-  // state.renderPending / state.groupRenderPending at that moment. Only an
-  // actual "focusout" bubbling to document did that, and the mousedown fix
-  // below deliberately stops button clicks from ever causing one (it keeps
-  // focus pinned on the remark box). Without onIdle, a render deferred while
-  // isPending() was true could stay deferred forever: the Firestore write
-  // succeeds, but the re-render that would replace the disabled/"Adding…"
-  // button with the new remark fields never runs.
+  // onIdle re-checks state.renderPending after a save settles, in case a
+  // render was deferred for a reason unrelated to typing (dropdown open,
+  // active text selection) and is now safe to run.
   const onInput = e => {
     if (e.target.tagName === "TEXTAREA") autoResizeTextarea(e.target);
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => { flush(); onIdle?.(); }, 700);
   };
   const onFocusOut = () => { flush(); onIdle?.(); };
-  const onFocusIn = e => {
-    if (e.target.closest('[contenteditable="false"]')) return;
-    markClickGrace();
-  };
 
   host.addEventListener("input", onInput);
   host.addEventListener("focusout", onFocusOut);
-  host.addEventListener("focusin", onFocusIn);
 
   return {
     flush,
-    // True while there's a not-yet-flushed keystroke (debounce timer
-    // running), an in-flight write, or the short post-click grace window —
-    // used to defer a render that would otherwise yank a box out from under
-    // the user mid-edit.
-    isPending: () => saveTimer !== null || pendingWrites > 0 || writeCooldown || clickGrace,
     cleanup() {
       clearTimeout(saveTimer);
-      clearTimeout(clickGraceTimer);
-      clearTimeout(writeCooldownTimer);
       host.removeEventListener("input", onInput);
       host.removeEventListener("focusout", onFocusOut);
-      host.removeEventListener("focusin", onFocusIn);
     }
   };
 }
@@ -5777,11 +5702,11 @@ async function openGroupSession(group, dateStr, attendees) {
         }
       }
       if (state.scorePicker?.open && state.scorePicker?.isGroup) renderScoreModalTrials(state.scorePicker.remId);
-      // Busy = dropdown open, a keystroke hasn't been flushed yet, or there's
-      // an active text selection — see the matching comment in openSession's
-      // listener for why focus position alone can't be used here.
+      // Busy = dropdown open, an active text selection, or a button's own
+      // multi-step write still in flight — see the matching comment in
+      // openSession's listener for why typing itself no longer needs to
+      // defer a render.
       const busy = document.activeElement === $("group-target-select")
-        || (state.entryGroupRemarkSaver?.isPending() ?? false)
         || hasActiveSelectionIn($("group-target-content"))
         || state.entryGroupActionsInFlight > 0;
       if (busy) {
@@ -6058,7 +5983,7 @@ function renderGroupStudentRowCompact(remId, rem, target) {
     <div class="entry-field">
       <span class="field-label" contenteditable="false">Remark</span>
       <button class="btn-sketch btn-group-sketch" contenteditable="false" data-rem-id="${remId}" aria-label="Open sketch board">✏</button>
-      <textarea class="field-input group-remark-input"
+      <textarea class="field-input group-remark-input" rows="1"
         data-rem-id="${remId}" placeholder="Remark…"
         data-saved-html="${escHtml(rem.text || "")}">${escHtml(plainTextForEdit(rem.text))}</textarea>
       <button class="btn-icon btn-group-del-student-remark" contenteditable="false" data-rem-id="${remId}" title="Delete remark">🗑</button>
@@ -6182,7 +6107,7 @@ function renderGroupCombinedRemarkRow(remIds, text) {
   return `<div class="entry-field">
     <span class="field-label" contenteditable="false">Remark</span>
     <button class="btn-sketch btn-group-sketch-combined" contenteditable="false" data-rem-ids="${idList}" aria-label="Open sketch board">✏</button>
-    <textarea class="field-input group-remark-input-combined"
+    <textarea class="field-input group-remark-input-combined" rows="1"
       data-rem-ids="${idList}" placeholder="Remark…"
       data-saved-html="${escHtml(text || "")}">${escHtml(plainTextForEdit(text))}</textarea>
   </div>`;
@@ -6221,7 +6146,7 @@ function renderGroupStudentRow(studentName, remId, rem, target) {
     <div class="entry-field">
       <span class="field-label" contenteditable="false">Remark</span>
       <button class="btn-sketch btn-group-sketch" contenteditable="false" data-rem-id="${remId}" aria-label="Sketch">✏</button>
-      <textarea class="field-input group-remark-input"
+      <textarea class="field-input group-remark-input" rows="1"
         data-rem-id="${remId}" placeholder="Remark…"
         data-saved-html="${escHtml(rem.text || "")}">${escHtml(plainTextForEdit(rem.text))}</textarea>
     </div>
@@ -6389,8 +6314,7 @@ function attachGroupTargetListeners(target) {
       } finally {
         state.entryGroupActionsInFlight--;
         if (state.entryGroupActionsInFlight === 0 && state.groupRenderPending
-            && !hasActiveSelectionIn($("group-target-content"))
-            && !(state.entryGroupRemarkSaver?.isPending() ?? false)) {
+            && !hasActiveSelectionIn($("group-target-content"))) {
           state.groupRenderPending = false;
           renderGroupTargetContent();
         }
@@ -6409,8 +6333,7 @@ function attachGroupTargetListeners(target) {
       } finally {
         state.entryGroupActionsInFlight--;
         if (state.entryGroupActionsInFlight === 0 && state.groupRenderPending
-            && !hasActiveSelectionIn($("group-target-content"))
-            && !(state.entryGroupRemarkSaver?.isPending() ?? false)) {
+            && !hasActiveSelectionIn($("group-target-content"))) {
           state.groupRenderPending = false;
           renderGroupTargetContent();
         }
@@ -6448,8 +6371,7 @@ function attachGroupTargetListeners(target) {
       } finally {
         state.entryGroupActionsInFlight--;
         if (state.entryGroupActionsInFlight === 0 && state.groupRenderPending
-            && !hasActiveSelectionIn($("group-target-content"))
-            && !(state.entryGroupRemarkSaver?.isPending() ?? false)) {
+            && !hasActiveSelectionIn($("group-target-content"))) {
           state.groupRenderPending = false;
           renderGroupTargetContent();
         }
@@ -6468,8 +6390,7 @@ function attachGroupTargetListeners(target) {
       } finally {
         state.entryGroupActionsInFlight--;
         if (state.entryGroupActionsInFlight === 0 && state.groupRenderPending
-            && !hasActiveSelectionIn($("group-target-content"))
-            && !(state.entryGroupRemarkSaver?.isPending() ?? false)) {
+            && !hasActiveSelectionIn($("group-target-content"))) {
           state.groupRenderPending = false;
           renderGroupTargetContent();
         }
