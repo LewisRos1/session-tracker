@@ -60,7 +60,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "431";
+const APP_VERSION = "432";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -4006,6 +4006,7 @@ function showGroupAddTargetPicker(group) {
     group.targets.push(t);
     const gi = state.groups.findIndex(g => g.id === group.id);
     if (gi >= 0) state.groups[gi] = group;
+    await state.entryGroupRemarkSaver?.flush();
     await saveGroup(group);
     state.selectedGroupTargetName = t.name;
     populateGroupTargetDropdown(group.targets);
@@ -4047,6 +4048,7 @@ function showGroupDupFromCurrent(group) {
     group.targets.push(copy);
     const gi = state.groups.findIndex(g => g.id === group.id);
     if (gi >= 0) state.groups[gi] = group;
+    await state.entryGroupRemarkSaver?.flush();
     await saveGroup(group);
     state.selectedGroupTargetName = copy.name;
     populateGroupTargetDropdown(group.targets);
@@ -4109,6 +4111,7 @@ function showGroupDupFromOtherPickTarget(group, sourceGroup) {
     group.targets.push(copy);
     const gi = state.groups.findIndex(g => g.id === group.id);
     if (gi >= 0) state.groups[gi] = group;
+    await state.entryGroupRemarkSaver?.flush();
     await saveGroup(group);
     state.selectedGroupTargetName = copy.name;
     populateGroupTargetDropdown(group.targets);
@@ -4151,6 +4154,7 @@ function showGroupDupFromTemplate(group) {
     }
     const gi = state.groups.findIndex(g => g.id === group.id);
     if (gi >= 0) state.groups[gi] = group;
+    await state.entryGroupRemarkSaver?.flush();
     await saveGroup(group);
     if (lastAdded) state.selectedGroupTargetName = lastAdded.name;
     populateGroupTargetDropdown(group.targets);
@@ -4162,6 +4166,15 @@ function showGroupDupFromTemplate(group) {
 async function closeManageModal() {
   $("manage-modal").classList.add("hidden");
   _groupForTargetEdit = null;
+
+  // This function force-renders the live session screen further down (to
+  // reflect any target-config changes just made), bypassing the normal
+  // busy-check entirely. Without flushing first, an edit that was typed but
+  // hadn't hit its save debounce yet would get silently overwritten by that
+  // forced render reading the last (now-stale) Firestore snapshot — exactly
+  // the "my edit reverted to the original" bug.
+  await state.entryRemarkSaver?.flush();
+  await state.entryGroupRemarkSaver?.flush();
 
   if (_pendingActsCleanup) {
     const { acts, save } = _pendingActsCleanup;
@@ -4282,6 +4295,10 @@ function showAddTargetPicker(student) {
     student.targets.push(t);
     const si = state.students.findIndex(s => s.id === student.id);
     if (si >= 0) state.students[si] = student;
+    // Flush before the forced renderTargetContent() below — otherwise a
+    // not-yet-saved edit on whatever target was open gets silently
+    // overwritten when this re-renders from the last Firestore snapshot.
+    await state.entryRemarkSaver?.flush();
     await saveStudent(student);
     state.selectedTargetName = t.name;
     populateTargetDropdown(student.targets);
@@ -4337,6 +4354,7 @@ function showDupFromCurrentStudent(student) {
     student.targets.push(copy);
     const si = state.students.findIndex(s => s.id === student.id);
     if (si >= 0) state.students[si] = student;
+    await state.entryRemarkSaver?.flush();
     await saveStudent(student);
     state.selectedTargetName = copy.name;
     populateTargetDropdown(student.targets);
@@ -4437,6 +4455,7 @@ function showDupFromOtherStudent_pickTarget(student, sourceStudent) {
     student.targets.push(copy);
     const si = state.students.findIndex(s => s.id === student.id);
     if (si >= 0) state.students[si] = student;
+    await state.entryRemarkSaver?.flush();
     await saveStudent(student);
     state.selectedTargetName = copy.name;
     populateTargetDropdown(student.targets);
@@ -4487,6 +4506,7 @@ function showDupFromTemplate(student) {
     }
     const si = state.students.findIndex(s => s.id === student.id);
     if (si >= 0) state.students[si] = student;
+    await state.entryRemarkSaver?.flush();
     await saveStudent(student);
     if (lastAdded) state.selectedTargetName = lastAdded.name;
     populateTargetDropdown(student.targets);
