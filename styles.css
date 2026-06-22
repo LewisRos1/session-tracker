@@ -669,6 +669,7 @@ html, body {
   display: flex;
   flex-direction: column;
   gap: .85rem;
+  outline: none;
 }
 
 
