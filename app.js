@@ -60,7 +60,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "411";
+const APP_VERSION = "412";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -1229,7 +1229,12 @@ async function openSession(student, existingSessionId = null, dateStr = null) {
 
   if (state.fbUnsubscribe) { state.fbUnsubscribe(); state.fbUnsubscribe = null; }
   state.entryRemarkSaver?.cleanup();
-  state.entryRemarkSaver = setupEntryRemarkSaving($("target-content"), () => state.currentSessionId);
+  state.entryRemarkSaver = setupEntryRemarkSaving($("target-content"), () => state.currentSessionId, () => {
+    if (state.renderPending) {
+      state.renderPending = false;
+      renderTargetContent();
+    }
+  });
 
   try {
     const sessionId = existingSessionId
@@ -2696,7 +2701,7 @@ function setupMergedRemarkSaving(body, getSessionId) {
 // flush() returns a Promise so callers that are about to read session data to
 // decide what's "empty" (switching targets, leaving the session) can await it
 // first instead of racing a still-in-flight write.
-function setupEntryRemarkSaving(host, getSessionId) {
+function setupEntryRemarkSaving(host, getSessionId, onIdle) {
   let saveTimer = null;
 
   function flush() {
@@ -2767,11 +2772,20 @@ function setupEntryRemarkSaving(host, getSessionId) {
     return Promise.all(pending);
   }
 
+  // flush() clears saveTimer synchronously, so isPending() flips to false
+  // the instant a flush starts — but nothing was re-checking
+  // state.renderPending / state.groupRenderPending at that moment. Only an
+  // actual "focusout" bubbling to document did that, and the mousedown fix
+  // below deliberately stops button clicks from ever causing one (it keeps
+  // focus pinned on the remark box). Without onIdle, a render deferred while
+  // isPending() was true could stay deferred forever: the Firestore write
+  // succeeds, but the re-render that would replace the disabled/"Adding…"
+  // button with the new remark fields never runs.
   const onInput = () => {
     clearTimeout(saveTimer);
-    saveTimer = setTimeout(flush, 700);
+    saveTimer = setTimeout(() => { flush(); onIdle?.(); }, 700);
   };
-  const onFocusOut = () => flush();
+  const onFocusOut = () => { flush(); onIdle?.(); };
   // Buttons/labels nested inside a contenteditable host need an explicit
   // mousedown preventDefault, or the browser's default "place the caret"
   // handling for the click eats the first click on them entirely — the
@@ -5321,7 +5335,12 @@ function showGroupChoice(group) {
 async function openGroupSession(group, dateStr, attendees) {
   if (state.fbGroupUnsubscribe) { state.fbGroupUnsubscribe(); state.fbGroupUnsubscribe = null; }
   state.entryGroupRemarkSaver?.cleanup();
-  state.entryGroupRemarkSaver = setupEntryRemarkSaving($("group-target-content"), () => state.groupSessionId);
+  state.entryGroupRemarkSaver = setupEntryRemarkSaving($("group-target-content"), () => state.groupSessionId, () => {
+    if (state.groupRenderPending) {
+      state.groupRenderPending = false;
+      renderGroupTargetContent();
+    }
+  });
   state.currentGroup            = group;
   state.groupAttendees          = attendees;
   state.groupSessionId          = null;
