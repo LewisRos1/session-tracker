@@ -60,7 +60,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "446";
+const APP_VERSION = "447";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -1422,6 +1422,7 @@ function calcDaysAverage(target) {
 }
 
 function renderTargetContent() {
+  console.log("[Diag] RENDER", Date.now());
   if (!state.sessionData) return;
   updateSessionHeader();
   if (!state.selectedTargetName) {
@@ -2984,6 +2985,7 @@ function setupEntryRemarkSaving(host, getSessionId, onIdle) {
   // activity cards) as if it were deletable content.
   const onBeforeInput = e => {
     if (e.inputType === "insertParagraph" || e.inputType === "insertLineBreak") {
+      console.log("[Diag] BEFOREINPUT", e.inputType, Date.now());
       e.preventDefault();
       return;
     }
@@ -3116,6 +3118,7 @@ function setupEntryEnterKeyDelegation(host, getTarget) {
     const el = node && (node.nodeType === 1 ? node : node.parentElement)?.closest(
       ".activity-name-input, #new-activity-textarea, #new-remark-textarea, .predef-remark-input-live, .remark-text-input, .mastery-note-input"
     );
+    if (e.key === "Enter") console.log("[Diag] ENTER", Date.now(), "el:", el?.className ?? null);
     if (!el || !host.contains(el)) return;
 
     // Native Ctrl+A would select everything in the whole merged editing
@@ -3154,8 +3157,11 @@ function setupEntryEnterKeyDelegation(host, getTarget) {
     // default contenteditable handling.
     if (e.ctrlKey || e.metaKey) return;
     e.preventDefault();
+    console.log("[Diag] ENTER preventDefault called", Date.now(), "defaultPrevented:", e.defaultPrevented);
     setTimeout(() => {
+      console.log("[Diag] ENTER setTimeout fired", Date.now(), "innerHTML before:", JSON.stringify(el.innerHTML));
       insertBrAtCaret();
+      console.log("[Diag] ENTER innerHTML after insert:", JSON.stringify(el.innerHTML));
       el.dispatchEvent(new Event("input", { bubbles: true }));
     }, 0);
   };
