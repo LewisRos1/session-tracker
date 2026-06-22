@@ -60,7 +60,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "409";
+const APP_VERSION = "410";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -1887,6 +1887,9 @@ function attachTargetListeners(target) {
   // ── Add remark (immediate creation) ──────────────────────
   c.querySelectorAll(".btn-add-remark").forEach(btn => {
     btn.addEventListener("click", async () => {
+      if (btn.disabled) return;
+      btn.disabled = true;
+      btn.textContent = "Adding…";
       const paName  = btn.dataset.paName || null;
       const paOrder = Number(btn.dataset.paOrder) || 0;
       let   actId   = btn.dataset.actId  || null;
@@ -1901,6 +1904,7 @@ function attachTargetListeners(target) {
         }
       }
       await addRemark(state.currentSessionId, actId, initialText);
+      // Firestore listener re-renders once the new remark lands.
     });
   });
 
