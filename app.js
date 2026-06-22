@@ -60,7 +60,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "458";
+const APP_VERSION = "460";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -2017,7 +2017,26 @@ function attachTargetListeners(target) {
     // its target is removed from the DOM between mousedown and mouseup.
     btn.addEventListener("mousedown", () => {
       state.entryActionsInFlight++;
-      setTimeout(() => { state.entryActionsInFlight = Math.max(0, state.entryActionsInFlight - 1); }, 500);
+      let released = false;
+      const release = () => {
+        if (released) return;
+        released = true;
+        state.entryActionsInFlight = Math.max(0, state.entryActionsInFlight - 1);
+        // If "click" never actually fired (e.g. the press was dragged away),
+        // the main click handler's own increment/decrement never ran either,
+        // so catch up on any render its finally would otherwise have done.
+        if (state.entryActionsInFlight === 0 && state.renderPending) {
+          state.renderPending = false;
+          renderTargetContent();
+        }
+      };
+      // Released the instant "click" actually fires (proving the button
+      // survived the gap) — the main click handler's own increment (added
+      // earlier, so it runs first) takes over from there with no added
+      // delay. The timeout is only a fallback for a press that never
+      // resolves into a click at all.
+      btn.addEventListener("click", release, { once: true });
+      setTimeout(release, 600);
     });
     btn.addEventListener("click", async () => {
       if (btn.disabled) return;
@@ -6367,7 +6386,21 @@ function attachGroupTargetListeners(target) {
   c.querySelectorAll(".btn-add-remark").forEach(btn => {
     btn.addEventListener("mousedown", () => {
       state.entryGroupActionsInFlight++;
-      setTimeout(() => { state.entryGroupActionsInFlight = Math.max(0, state.entryGroupActionsInFlight - 1); }, 500);
+      let released = false;
+      const release = () => {
+        if (released) return;
+        released = true;
+        state.entryGroupActionsInFlight = Math.max(0, state.entryGroupActionsInFlight - 1);
+        if (state.entryGroupActionsInFlight === 0 && state.groupRenderPending) {
+          state.groupRenderPending = false;
+          renderGroupTargetContent();
+        }
+      };
+      // Released the instant "click" fires (the main click handler's own
+      // increment, registered earlier, takes over with no added delay) —
+      // the timeout is only a fallback for a press that never becomes a click.
+      btn.addEventListener("click", release, { once: true });
+      setTimeout(release, 600);
     });
   });
 
