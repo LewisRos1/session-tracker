@@ -60,7 +60,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "440";
+const APP_VERSION = "441";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -1258,6 +1258,9 @@ async function openSession(student, existingSessionId = null, dateStr = null) {
     state.renderPending = false;
     renderTargetContent();
   });
+  state.entryEnterKeyCleanup?.();
+  state.entryEnterKeyCleanup = setupEntryEnterKeyDelegation($("target-content"),
+    () => getEffectiveTargets().find(t => t.name === state.selectedTargetName));
 
   try {
     const sessionId = existingSessionId
@@ -1313,6 +1316,8 @@ async function leaveSession() {
   await state.entryRemarkSaver?.flush();
   state.entryRemarkSaver?.cleanup();
   state.entryRemarkSaver = null;
+  state.entryEnterKeyCleanup?.();
+  state.entryEnterKeyCleanup = null;
   if (state.fbUnsubscribe) { state.fbUnsubscribe(); state.fbUnsubscribe = null; }
   const sessionId = state.currentSessionId;
   const data      = state.sessionData;
@@ -1848,62 +1853,11 @@ function renderGhostRemarkFields(predRemName, actId, pa, paIdx, target) {
 function attachTargetListeners(target) {
   const c = $("target-content");
 
-  // All free-text boxes below (.activity-name-input, #new-activity-textarea,
-  // #new-remark-textarea, .predef-remark-input-live, .remark-text-input,
-  // .mastery-note-input) are nested inside this already-contenteditable
-  // host. contenteditable="true" on a descendant of an already-editable
-  // ancestor is redundant per spec — the whole region acts as ONE merged
-  // editing context, so document.activeElement (and keydown's e.target) is
-  // ALWAYS this outer host, never whichever inner box visually contains the
-  // caret. A keydown listener attached directly to one of these boxes never
-  // receives the event at all (it doesn't bubble down to descendants).
-  // Delegate from the host instead, using the live selection to find which
-  // box the caret is actually in.
-  c.addEventListener("keydown", e => {
-    if (e.key !== "Enter" && e.key !== "Escape") return;
-    const sel  = document.getSelection();
-    const node = sel && sel.rangeCount > 0 ? sel.anchorNode : null;
-    const el = node && (node.nodeType === 1 ? node : node.parentElement)?.closest(
-      ".activity-name-input, #new-activity-textarea, #new-remark-textarea, .predef-remark-input-live, .remark-text-input, .mastery-note-input"
-    );
-    if (!el || !c.contains(el)) return;
-
-    if (e.key === "Escape") {
-      if (el.id === "new-activity-textarea") cancelPendingActivity();
-      return;
-    }
-    if (el.matches(".activity-name-input")) {
-      if (e.ctrlKey || e.metaKey) { e.preventDefault(); el.blur(); }
-      return;
-    }
-    if (el.id === "new-activity-textarea") {
-      if (e.ctrlKey || e.metaKey) { e.preventDefault(); confirmNewActivity(target); }
-      return;
-    }
-    if (el.id === "new-remark-textarea") {
-      if (e.ctrlKey || e.metaKey) { e.preventDefault(); saveNewRemark(target); return; }
-      e.preventDefault();
-      setTimeout(() => {
-        insertBrAtCaret();
-        el.dispatchEvent(new Event("input", { bubbles: true }));
-      }, 0);
-      return;
-    }
-    if (el.matches(".predef-remark-input-live")) {
-      e.preventDefault();
-      el.blur();
-      return;
-    }
-    // .remark-text-input / .mastery-note-input: plain Enter grows the box
-    // with a manual line break instead of falling through to the browser's
-    // default contenteditable handling.
-    if (e.ctrlKey || e.metaKey) return;
-    e.preventDefault();
-    setTimeout(() => {
-      insertBrAtCaret();
-      el.dispatchEvent(new Event("input", { bubbles: true }));
-    }, 0);
-  });
+  // Enter/Escape handling for all the free-text boxes here is delegated from
+  // the host and set up ONCE per session-open by setupEntryEnterKeyDelegation
+  // (see openSession) — not here, since this function runs on every render
+  // and the host itself persists across renders (only its children get
+  // replaced), so attaching it here would stack up duplicate listeners.
 
   // Activity name (.activity-name-input) is saved by the shared merged-editing
   // host — see setupEntryRemarkSaving. Just revert-if-emptied here (Ctrl+Enter
@@ -2370,6 +2324,8 @@ async function openSessionView(student, sessionId) {
     state.viewRenderPending = false;
     renderSessionView();
   });
+  state.viewEnterKeyCleanup?.();
+  state.viewEnterKeyCleanup = setupViewEnterKeyDelegation($("session-view-body"), () => state.viewRemarkSaver);
 
   try {
     state.fbViewUnsubscribe = listenToSession(sessionId, data => {
@@ -2392,6 +2348,8 @@ function leaveSessionView() {
   state.viewRemarkSaver?.flush();
   state.viewRemarkSaver?.cleanup();
   state.viewRemarkSaver = null;
+  state.viewEnterKeyCleanup?.();
+  state.viewEnterKeyCleanup = null;
   const sessionId = state.viewSessionId;
   const data      = state.viewSessionData;
   const student   = state.viewStudent;
@@ -3039,6 +2997,113 @@ function insertBrAtCaret() {
   sel.addRange(range);
 }
 
+// Delegated Enter/Escape handling for the individual session-entry screen's
+// free-text boxes (.activity-name-input, #new-activity-textarea,
+// #new-remark-textarea, .predef-remark-input-live, .remark-text-input,
+// .mastery-note-input). These are nested inside an already-contenteditable
+// host — contenteditable="true" on a descendant of an already-editable
+// ancestor is redundant per spec, so the whole region is ONE merged editing
+// context: document.activeElement (and keydown's e.target) is ALWAYS the
+// outer host, never the inner box. A keydown listener on the box itself
+// never receives the event, so this delegates from the host using the live
+// selection. MUST be set up once per session-open (not per-render) — host
+// is a persistent container whose children get replaced on every render,
+// but the host itself never does, so re-attaching this on every render
+// would stack up duplicate listeners, each firing for the same keypress.
+function setupEntryEnterKeyDelegation(host, getTarget) {
+  const onKeydown = e => {
+    if (e.key !== "Enter" && e.key !== "Escape") return;
+    const sel  = document.getSelection();
+    const node = sel && sel.rangeCount > 0 ? sel.anchorNode : null;
+    const el = node && (node.nodeType === 1 ? node : node.parentElement)?.closest(
+      ".activity-name-input, #new-activity-textarea, #new-remark-textarea, .predef-remark-input-live, .remark-text-input, .mastery-note-input"
+    );
+    if (!el || !host.contains(el)) return;
+
+    if (e.key === "Escape") {
+      if (el.id === "new-activity-textarea") cancelPendingActivity();
+      return;
+    }
+    const target = getTarget();
+    if (el.matches(".activity-name-input")) {
+      if (e.ctrlKey || e.metaKey) { e.preventDefault(); el.blur(); }
+      return;
+    }
+    if (el.id === "new-activity-textarea") {
+      if (e.ctrlKey || e.metaKey) { e.preventDefault(); confirmNewActivity(target); }
+      return;
+    }
+    if (el.id === "new-remark-textarea") {
+      if (e.ctrlKey || e.metaKey) { e.preventDefault(); saveNewRemark(target); return; }
+      e.preventDefault();
+      setTimeout(() => {
+        insertBrAtCaret();
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+      }, 0);
+      return;
+    }
+    if (el.matches(".predef-remark-input-live")) {
+      e.preventDefault();
+      el.blur();
+      return;
+    }
+    // .remark-text-input / .mastery-note-input: plain Enter grows the box
+    // with a manual line break instead of falling through to the browser's
+    // default contenteditable handling.
+    if (e.ctrlKey || e.metaKey) return;
+    e.preventDefault();
+    setTimeout(() => {
+      insertBrAtCaret();
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+    }, 0);
+  };
+  host.addEventListener("keydown", onKeydown);
+  return () => host.removeEventListener("keydown", onKeydown);
+}
+
+// Same idea, simplified for the group session-entry screen — only
+// .group-remark-input / .group-remark-input-combined need it, no other box
+// types or Ctrl+Enter shortcuts.
+function setupGroupEntryEnterKeyDelegation(host) {
+  const onKeydown = e => {
+    if (e.key !== "Enter" || e.ctrlKey || e.metaKey) return;
+    const sel  = document.getSelection();
+    const node = sel && sel.rangeCount > 0 ? sel.anchorNode : null;
+    const el = node && (node.nodeType === 1 ? node : node.parentElement)
+      ?.closest(".group-remark-input, .group-remark-input-combined");
+    if (!el || !host.contains(el)) return;
+    e.preventDefault();
+    setTimeout(() => {
+      insertBrAtCaret();
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+    }, 0);
+  };
+  host.addEventListener("keydown", onKeydown);
+  return () => host.removeEventListener("keydown", onKeydown);
+}
+
+// Same idea for the view/edit-past-session screens' .view-remark-edit boxes
+// (individual and group share the same markup/class). getSaver returns
+// whichever merged-editing saver (state.viewRemarkSaver / .viewGroupRemarkSaver)
+// is currently active, so Ctrl+Enter can force an immediate flush.
+function setupViewEnterKeyDelegation(host, getSaver) {
+  const onKeydown = e => {
+    if (e.key !== "Enter") return;
+    const sel  = document.getSelection();
+    const node = sel && sel.rangeCount > 0 ? sel.anchorNode : null;
+    const ta = node && (node.nodeType === 1 ? node : node.parentElement)?.closest(".view-remark-edit");
+    if (!ta || !host.contains(ta)) return;
+    if (e.ctrlKey || e.metaKey) { e.preventDefault(); getSaver()?.flush(); return; }
+    e.preventDefault();
+    setTimeout(() => {
+      insertBrAtCaret();
+      ta.dispatchEvent(new Event("input", { bubbles: true }));
+    }, 0);
+  };
+  host.addEventListener("keydown", onKeydown);
+  return () => host.removeEventListener("keydown", onKeydown);
+}
+
 function attachViewListeners() {
   const body = $("session-view-body");
 
@@ -3086,33 +3151,9 @@ function attachViewListeners() {
 
   // Saving for .view-remark-edit / .view-remark-empty is handled by the shared
   // merged-editing host (state.viewRemarkSaver) set up in openSessionView.
-  // .view-remark-edit boxes are nested inside this already-contenteditable
-  // body — contenteditable="true" on a descendant of an already-editable
-  // ancestor is redundant per spec, so the whole region is ONE merged editing
-  // context: document.activeElement (and keydown's e.target) is ALWAYS this
-  // outer body, never the inner box. A keydown listener on the box itself
-  // never receives the event. Delegate from the body instead, using the live
-  // selection to find which box the caret is in.
-  body.addEventListener("keydown", e => {
-    if (e.key !== "Enter") return;
-    const sel  = document.getSelection();
-    const node = sel && sel.rangeCount > 0 ? sel.anchorNode : null;
-    const ta = node && (node.nodeType === 1 ? node : node.parentElement)?.closest(".view-remark-edit");
-    if (!ta || !body.contains(ta)) return;
-    if (e.ctrlKey || e.metaKey) { e.preventDefault(); state.viewRemarkSaver?.flush(); return; }
-    e.preventDefault();
-    // Deferred to the next tick — Chrome's post-cancellation re-sync of the
-    // contenteditable region (after the host-level beforeinput handler
-    // rejects the native paragraph insert) can silently discard a
-    // synchronous manual <br> insert.
-    setTimeout(() => {
-      insertBrAtCaret();
-      // Manual DOM mutation via the Range API doesn't fire a native "input"
-      // event the way the browser's own edit commands do — the host's save
-      // debounce listens for that event, so dispatch one ourselves.
-      ta.dispatchEvent(new Event("input", { bubbles: true }));
-    }, 0);
-  });
+  // Enter-key delegation is also set up once there (setupViewEnterKeyDelegation),
+  // not here — this function runs on every render, and the body persists
+  // across renders, so attaching it here would stack up duplicate listeners.
 
   body.querySelectorAll(".view-mastery-note").forEach(div => {
     let orig = div.innerHTML;
@@ -3263,6 +3304,8 @@ async function openGroupSessionView(group, sessionId) {
     state.viewGroupRenderPending = false;
     renderGroupSessionView();
   });
+  state.viewGroupEnterKeyCleanup?.();
+  state.viewGroupEnterKeyCleanup = setupViewEnterKeyDelegation($("group-session-view-body"), () => state.viewGroupRemarkSaver);
 
   try {
     state.fbViewGroupUnsubscribe = listenToSession(sessionId, data => {
@@ -3285,6 +3328,8 @@ function leaveGroupSessionView() {
   state.viewGroupRemarkSaver?.flush();
   state.viewGroupRemarkSaver?.cleanup();
   state.viewGroupRemarkSaver = null;
+  state.viewGroupEnterKeyCleanup?.();
+  state.viewGroupEnterKeyCleanup = null;
   const sessionId = state.viewGroupSessionId;
   const data      = state.viewGroupSessionData;
   const group     = state.viewGroup;
@@ -3728,23 +3773,10 @@ function attachGroupViewListeners() {
 
   // Saving for .view-remark-edit / .group-remark-input-combined is handled by
   // the shared merged-editing host (state.viewGroupRemarkSaver) set up in
-  // openGroupSessionView. These boxes are nested inside this already-
-  // contenteditable body, so (see the matching comment in attachViewListeners)
-  // keydown must be delegated from the body using the live selection, not
-  // attached to the boxes directly.
-  body.addEventListener("keydown", e => {
-    if (e.key !== "Enter") return;
-    const sel  = document.getSelection();
-    const node = sel && sel.rangeCount > 0 ? sel.anchorNode : null;
-    const ta = node && (node.nodeType === 1 ? node : node.parentElement)?.closest(".view-remark-edit");
-    if (!ta || !body.contains(ta)) return;
-    if (e.ctrlKey || e.metaKey) { e.preventDefault(); state.viewGroupRemarkSaver?.flush(); return; }
-    e.preventDefault();
-    setTimeout(() => {
-      insertBrAtCaret();
-      ta.dispatchEvent(new Event("input", { bubbles: true }));
-    }, 0);
-  });
+  // openGroupSessionView. Enter-key delegation is also set up once there
+  // (setupViewEnterKeyDelegation), not here — this function runs on every
+  // render, and the body persists across renders, so attaching it here would
+  // stack up duplicate listeners.
 
   // Combine/Separate remarks toggle (mirrors the live group session editor's confirm logic)
   body.querySelectorAll(".btn-combine-toggle").forEach(btn => {
@@ -5621,6 +5653,8 @@ async function openGroupSession(group, dateStr, attendees) {
     state.groupRenderPending = false;
     renderGroupTargetContent();
   });
+  state.entryGroupEnterKeyCleanup?.();
+  state.entryGroupEnterKeyCleanup = setupGroupEntryEnterKeyDelegation($("group-target-content"));
   state.currentGroup            = group;
   state.groupAttendees          = attendees;
   state.groupSessionId          = null;
@@ -5757,6 +5791,8 @@ async function leaveGroupSession() {
   await state.entryGroupRemarkSaver?.flush();
   state.entryGroupRemarkSaver?.cleanup();
   state.entryGroupRemarkSaver = null;
+  state.entryGroupEnterKeyCleanup?.();
+  state.entryGroupEnterKeyCleanup = null;
   if (state.fbGroupUnsubscribe) { state.fbGroupUnsubscribe(); state.fbGroupUnsubscribe = null; }
   const sessionId = state.groupSessionId;
   const data      = state.groupSessionData;
@@ -6160,28 +6196,10 @@ function attachGroupTargetListeners(target) {
 
   // Saving for .group-remark-input / .group-remark-input-combined is handled
   // by the shared merged-editing host (state.entryGroupRemarkSaver, set up in
-  // openGroupSession) — see setupEntryRemarkSaving.
-
-  // .group-remark-input / .group-remark-input-combined are nested inside this
-  // already-contenteditable host — contenteditable="true" on a descendant of
-  // an already-editable ancestor is redundant per spec, so the whole region
-  // is ONE merged editing context: document.activeElement (and keydown's
-  // e.target) is ALWAYS this outer host, never the inner box. A keydown
-  // listener on the box itself never receives the event. Delegate from the
-  // host instead, using the live selection to find which box the caret is in.
-  c.addEventListener("keydown", e => {
-    if (e.key !== "Enter" || e.ctrlKey || e.metaKey) return;
-    const sel  = document.getSelection();
-    const node = sel && sel.rangeCount > 0 ? sel.anchorNode : null;
-    const el = node && (node.nodeType === 1 ? node : node.parentElement)
-      ?.closest(".group-remark-input, .group-remark-input-combined");
-    if (!el || !c.contains(el)) return;
-    e.preventDefault();
-    setTimeout(() => {
-      insertBrAtCaret();
-      el.dispatchEvent(new Event("input", { bubbles: true }));
-    }, 0);
-  });
+  // openGroupSession) — see setupEntryRemarkSaving. Enter-key delegation is
+  // also set up once there (setupGroupEntryEnterKeyDelegation), not here —
+  // this function runs on every render, and the host persists across
+  // renders, so attaching it here would stack up duplicate listeners.
 
   // Sketch board
   c.querySelectorAll(".btn-group-sketch").forEach(btn => {
