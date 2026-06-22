@@ -60,7 +60,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "444";
+const APP_VERSION = "445";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -2970,6 +2970,7 @@ function setupEntryRemarkSaving(host, getSessionId, onIdle) {
   // activity cards) as if it were deletable content.
   const onBeforeInput = e => {
     if (e.inputType === "insertParagraph" || e.inputType === "insertLineBreak") {
+      console.log("[EnterDebug2] beforeinput", e.inputType, "defaultPrevented before:", e.defaultPrevented);
       e.preventDefault();
       return;
     }
@@ -3095,12 +3096,22 @@ function setupEntryEnterKeyDelegation(host, getTarget) {
     // like "nothing happens" on the first Enter but worked on the second.
     // Let the browser handle this keystroke untouched; the next, genuinely
     // non-composing Enter reaches us normally.
+    if (e.key === "Enter") {
+      console.log("[EnterDebug2]", {
+        isComposing: e.isComposing,
+        keyCode: e.keyCode,
+        anchorNode: document.getSelection()?.anchorNode,
+        anchorOffset: document.getSelection()?.anchorOffset,
+        defaultPrevented: e.defaultPrevented
+      });
+    }
     if (e.isComposing) return;
     const sel  = document.getSelection();
     const node = sel && sel.rangeCount > 0 ? sel.anchorNode : null;
     const el = node && (node.nodeType === 1 ? node : node.parentElement)?.closest(
       ".activity-name-input, #new-activity-textarea, #new-remark-textarea, .predef-remark-input-live, .remark-text-input, .mastery-note-input"
     );
+    if (e.key === "Enter") console.log("[EnterDebug2] el found:", el?.className ?? null);
     if (!el || !host.contains(el)) return;
 
     // Native Ctrl+A would select everything in the whole merged editing
