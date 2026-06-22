@@ -778,7 +778,7 @@ html, body {
   line-height: 1.45;
 }
 
-/* contenteditable remark divs — mimic textarea look */
+/* contenteditable remark divs (View screens only) — mimic textarea look */
 .field-input[contenteditable] {
   resize: none;
   min-height: 2.6rem;
@@ -790,6 +790,25 @@ html, body {
   content: attr(data-placeholder);
   color: #9ca3af;
   pointer-events: none;
+}
+
+/* Session-entry boxes — real <textarea>/<input>, auto-grown via JS */
+textarea.field-input,
+input.field-input {
+  box-sizing: border-box;
+  width: 100%;
+  display: block;
+}
+textarea.field-input {
+  resize: none;
+  overflow: hidden;
+  min-height: 2.6rem;
+  word-break: break-word;
+}
+textarea.field-input::placeholder,
+input.field-input::placeholder {
+  color: #9ca3af;
+  opacity: 1;
 }
 
 /* fixed (non-editable) activity name for FEDC */

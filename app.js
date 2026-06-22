@@ -60,7 +60,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "449";
+const APP_VERSION = "450";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -125,6 +125,13 @@ const $ = id => document.getElementById(id);
 // nothing valid left for the browser to act on — the user has to click away
 // and re-select before typing works again.
 function hasActiveSelectionIn(host) {
+  // Session-entry boxes are real <textarea>/<input> elements — their internal
+  // caret/selection isn't tracked by document.getSelection() at all, so being
+  // focused (regardless of selection) is what matters for those.
+  const active = document.activeElement;
+  if (active && host.contains(active) && (active.tagName === "TEXTAREA" || active.tagName === "INPUT")) {
+    return true;
+  }
   const sel = document.getSelection();
   if (!sel || sel.isCollapsed || sel.rangeCount === 0) return false;
   return host.contains(sel.anchorNode);
@@ -152,14 +159,27 @@ function isEmptyActItem(a) {
 
 function openTextEditorSheet(originEl) {
   _sheetOriginEl = originEl;
-  $("text-editor-content").innerHTML = originEl.innerHTML;
+  // Session-entry boxes are real <textarea> elements now (plain text, "\n"
+  // for line breaks) — the sketch sheet itself stays contenteditable (it's
+  // shared with the View screens' boxes, which still are too), so bridge
+  // between the two formats going in and out.
+  const isFormField = originEl.tagName === "TEXTAREA" || originEl.tagName === "INPUT";
+  $("text-editor-content").innerHTML = isFormField
+    ? remarkToHtml(originEl.value).replace(/\n/g, "<br>")
+    : originEl.innerHTML;
   $("text-editor-sheet").classList.remove("hidden");
   requestAnimationFrame(() => $("text-editor-content").focus());
 }
 
 function commitTextEditorSheet() {
   if (!_sheetOriginEl) return;
-  _sheetOriginEl.innerHTML = $("text-editor-content").innerHTML;
+  const isFormField = _sheetOriginEl.tagName === "TEXTAREA" || _sheetOriginEl.tagName === "INPUT";
+  if (isFormField) {
+    _sheetOriginEl.value = plainTextForEdit($("text-editor-content").innerHTML);
+    autoResizeTextarea(_sheetOriginEl);
+  } else {
+    _sheetOriginEl.innerHTML = $("text-editor-content").innerHTML;
+  }
   _sheetOriginEl.dispatchEvent(new Event("blur"));
   // .view-remark-edit boxes on the view/edit-past-session screens no longer have
   // their own blur listener (saving is handled by the shared merged-editing host) —
@@ -1555,10 +1575,10 @@ function renderFedcTarget(target) {
     html += `<div class="entry-block" data-act-id="${act.id}">
       <div class="entry-field">
         <span class="field-label" contenteditable="false">Activity</span>
-        <div class="field-input activity-name-input" contenteditable="true"
+        <input type="text" class="field-input activity-name-input"
           data-act-id="${act.id}"
           data-original="${escHtml(act.activityName)}"
-          data-saved-html="${escHtml(act.activityName)}">${escHtml(act.activityName)}</div>
+          data-saved-html="${escHtml(act.activityName)}" value="${escHtml(act.activityName)}" />
         <button class="btn-icon btn-delete-activity" contenteditable="false"
           data-act-id="${act.id}" title="Delete activity">🗑</button>
       </div>`;
@@ -1582,8 +1602,8 @@ function renderFedcTarget(target) {
     html += `<div class="entry-block">
       <div class="entry-field">
         <span class="field-label" contenteditable="false">Activity</span>
-        <div id="new-activity-textarea" class="field-input" contenteditable="true"
-          data-placeholder="Type activity name… (Enter = new line · Ctrl+Enter to save)"></div>
+        <input type="text" id="new-activity-textarea" class="field-input"
+          placeholder="Type activity name… (Ctrl+Enter to save)" />
         <button class="btn-icon btn-cancel-new-activity" contenteditable="false" title="Cancel">✕</button>
       </div>
     </div>`;
@@ -1616,10 +1636,10 @@ function renderRegularTarget(target) {
     html += `<div class="entry-block" data-act-id="${act.id}">
       <div class="entry-field">
         <span class="field-label" contenteditable="false">Activity</span>
-        <div class="field-input activity-name-input" contenteditable="true"
+        <input type="text" class="field-input activity-name-input"
           data-act-id="${act.id}"
           data-original="${escHtml(act.activityName)}"
-          data-saved-html="${escHtml(act.activityName)}">${escHtml(act.activityName)}</div>
+          data-saved-html="${escHtml(act.activityName)}" value="${escHtml(act.activityName)}" />
         <button class="btn-icon btn-delete-activity" contenteditable="false"
           data-act-id="${act.id}" title="Delete activity">🗑</button>
       </div>`;
@@ -1645,8 +1665,8 @@ function renderRegularTarget(target) {
     html += `<div class="entry-block">
       <div class="entry-field">
         <span class="field-label" contenteditable="false">Activity</span>
-        <div id="new-activity-textarea" class="field-input" contenteditable="true"
-          data-placeholder="Type activity name… (Enter = new line · Ctrl+Enter to save)"></div>
+        <input type="text" id="new-activity-textarea" class="field-input"
+          placeholder="Type activity name… (Ctrl+Enter to save)" />
         <button class="btn-icon btn-cancel-new-activity" contenteditable="false" title="Cancel">✕</button>
       </div>
     </div>`;
@@ -1678,6 +1698,27 @@ function remarkToHtml(text) {
   return text.replace(/\*\*(.+?)\*\*/g, "<b>$1</b>");
 }
 
+// Session-entry remark/note boxes are real <textarea>/<input> elements (not
+// contenteditable) so Grammarly, Enter, backspace and Ctrl+A all behave
+// natively per-field. Stored text can still contain legacy HTML markup
+// (literal "<br>" from the old contenteditable boxes, "<b>" from
+// remarkToHtml) — these two functions round-trip between that stored format
+// and the plain text a textarea's .value can actually hold.
+function plainTextForEdit(html) {
+  if (!html) return "";
+  return html
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/?b>/gi, "**")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&amp;/gi, "&");
+}
+function htmlForStorage(text) {
+  return escHtml(text || "").replace(/\n/g, "<br>");
+}
+
 // ─── REMARK FIELDS ───────────────────────────────────────────
 
 function renderRemarkFields(rem, target, inlineOptions = null, sentenceStarter = null, multiSelect = false, isMastery = false) {
@@ -1703,9 +1744,9 @@ function renderRemarkFields(rem, target, inlineOptions = null, sentenceStarter =
         </div>
         <div class="mastery-note-row">
           <button class="btn-sketch" data-rem-id="${rem.id}" aria-label="Open sketch board">✏</button>
-          <div class="field-input mastery-note-input" contenteditable="true"
-            data-rem-id="${rem.id}" data-placeholder="Notes…"
-            data-saved-html="${escHtml(rem.masteryNote || "")}">${rem.masteryNote || ""}</div>
+          <textarea class="field-input mastery-note-input" rows="1"
+            data-rem-id="${rem.id}" placeholder="Notes…"
+            data-saved-html="${escHtml(rem.masteryNote || "")}">${escHtml(plainTextForEdit(rem.masteryNote || ""))}</textarea>
         </div>
       </div>
       <button class="btn-icon btn-delete-remark"
@@ -1738,8 +1779,8 @@ function renderRemarkFields(rem, target, inlineOptions = null, sentenceStarter =
   }
 
   const optBtns = makeOptPills(rem.id, rem.text)
-    || `<div class="field-input remark-text-input" contenteditable="true"
-        data-rem-id="${rem.id}" data-saved-html="${escHtml(remarkToHtml(rem.text))}">${remarkToHtml(rem.text)}</div>`;
+    || `<textarea class="field-input remark-text-input"
+        data-rem-id="${rem.id}" data-saved-html="${escHtml(rem.text || "")}">${escHtml(plainTextForEdit(rem.text))}</textarea>`;
 
   // Sketch board button only shown when there's a free-text input (no preset opt pills)
   const sketchBtn = opts.length === 0
@@ -1751,8 +1792,8 @@ function renderRemarkFields(rem, target, inlineOptions = null, sentenceStarter =
     remarkContent = `<div class="remark-starter-wrap">
       <span class="remark-starter-prefix" contenteditable="false">${escHtml(sentenceStarter)}</span>
       ${makeOptPills(rem.id, rem.text)
-        || `<div class="field-input remark-text-input" contenteditable="true"
-            data-rem-id="${rem.id}" data-saved-html="${escHtml(remarkToHtml(rem.text))}">${remarkToHtml(rem.text)}</div>`
+        || `<textarea class="field-input remark-text-input"
+            data-rem-id="${rem.id}" data-saved-html="${escHtml(rem.text || "")}">${escHtml(plainTextForEdit(rem.text))}</textarea>`
       }
     </div>`;
   } else {
@@ -1785,8 +1826,8 @@ function renderPendingRemarkFields(pendingKey, actId, paName, paOrder, target) {
     <div class="entry-field">
       <span class="field-label" contenteditable="false">Remark</span>
       <button class="btn-sketch btn-sketch-pending" contenteditable="false" aria-label="Open sketch board">✏</button>
-      <div id="new-remark-textarea" class="field-input" contenteditable="true"
-        data-placeholder="Type remark…"></div>
+      <textarea id="new-remark-textarea" class="field-input" rows="1"
+        placeholder="Type remark…"></textarea>
     </div>
     <div class="pending-remark-actions" contenteditable="false">
       <button class="btn-cancel-remark btn-remark-cancel">✕ Cancel</button>
@@ -1805,11 +1846,11 @@ function renderPredefinedRemarkFields(rem, predRemName, target) {
     <div class="entry-divider" contenteditable="false"></div>
     <div class="entry-field">
       <span class="field-label" contenteditable="false">${escHtml(predRemName)}</span>
-      <div class="field-input predef-remark-input-live" contenteditable="true"
+      <input type="text" class="field-input predef-remark-input-live"
         data-rem-id="${rem.id}"
         data-original="${escHtml(rem.text || "")}"
         data-saved-html="${escHtml(rem.text || "")}"
-        data-placeholder="e.g. 80%">${escHtml(rem.text || "")}</div>
+        placeholder="e.g. 80%" value="${escHtml(rem.text || "")}" />
     </div>
     <div class="entry-field" contenteditable="false">
       <span class="field-label">Trials</span>
@@ -1828,13 +1869,13 @@ function renderGhostRemarkFields(predRemName, actId, pa, paIdx, target) {
     <div class="entry-divider" contenteditable="false"></div>
     <div class="entry-field">
       <span class="field-label" contenteditable="false">${escHtml(predRemName)}</span>
-      <div class="field-input predef-remark-input" contenteditable="true"
+      <input type="text" class="field-input predef-remark-input"
         data-rem-name="${escHtml(predRemName)}"
         data-act-id="${actId || ""}"
         data-pa-name="${escHtml(pa.name)}"
         data-pa-order="${paIdx}"
         data-target="${escHtml(target.name)}"
-        data-placeholder="e.g. 80%"></div>
+        placeholder="e.g. 80%" />
     </div>
     <div class="entry-field" contenteditable="false">
       <span class="field-label">Trials</span>
@@ -1855,18 +1896,18 @@ function renderGhostRemarkFields(predRemName, actId, pa, paIdx, target) {
 function attachTargetListeners(target) {
   const c = $("target-content");
 
-  // Enter/Escape handling for all the free-text boxes here is delegated from
-  // the host and set up ONCE per session-open by setupEntryEnterKeyDelegation
-  // (see openSession) — not here, since this function runs on every render
-  // and the host itself persists across renders (only its children get
-  // replaced), so attaching it here would stack up duplicate listeners.
+  // Free-text boxes here are real <textarea>/<input> elements now, so their
+  // own native Enter/backspace/Ctrl+A handling just works — only the app's
+  // own Escape/Ctrl+Enter shortcuts are delegated from the host (set up ONCE
+  // per session-open by setupEntryEnterKeyDelegation, see openSession).
+  c.querySelectorAll("textarea.field-input").forEach(autoResizeTextarea);
 
   // Activity name (.activity-name-input) is saved by the shared merged-editing
   // host — see setupEntryRemarkSaving. Just revert-if-emptied here (Ctrl+Enter
   // is handled by the delegated keydown listener above).
   c.querySelectorAll(".activity-name-input").forEach(input => {
     input.addEventListener("blur", () => {
-      if (!input.textContent.trim()) input.textContent = input.dataset.original;
+      if (!input.value.trim()) input.value = input.dataset.original;
     });
   });
 
@@ -1883,7 +1924,7 @@ function attachTargetListeners(target) {
     setTimeout(() => {
       const input = $("new-activity-textarea");
       if (!input) return; // already removed by cancel
-      const name = input.textContent.trim();
+      const name = input.value.trim();
       state.pendingNewActivity = null;
       if (name) {
         addActivity(state.currentSessionId, target.name, name, Date.now(), false);
@@ -1906,12 +1947,10 @@ function attachTargetListeners(target) {
 
   // Saving for .remark-text-input / .mastery-note-input / .activity-name-input /
   // .predef-remark-input / .predef-remark-input-live is handled by the shared
-  // merged-editing host (state.entryRemarkSaver, set up in openSession) — these
-  // boxes are nested inside the now-contenteditable #target-content, where
-  // per-element blur doesn't reliably fire when focus moves to a sibling
-  // control within the same contenteditable host. See setupEntryRemarkSaving.
-  // Enter is handled by the delegated keydown listener at the top of this
-  // function, for the same nested-contenteditable reason.
+  // host-level saver (state.entryRemarkSaver, set up in openSession) rather
+  // than per-element blur — these boxes get torn down and rebuilt on every
+  // render, so per-element listeners would need re-attaching constantly. See
+  // setupEntryRemarkSaving.
 
   // ── Mastery level buttons ─────────────────────────────────
   c.querySelectorAll(".btn-mastery").forEach(btn => {
@@ -2054,7 +2093,7 @@ function attachTargetListeners(target) {
       const ghostInput = [...c.querySelectorAll(".predef-remark-input")].find(
         inp => inp.dataset.remName === btn.dataset.remName
       );
-      const initialText = ghostInput?.textContent.trim() || "";
+      const initialText = ghostInput?.value.trim() || "";
       const remId = await ensurePredefinedRemark(actId, btn.dataset.remName, initialText);
       if (initialText) await updateRemarkText(state.currentSessionId, remId, initialText);
       openScorePicker(remId, tgt.maxPoints || 3);
@@ -2087,12 +2126,12 @@ function attachTargetListeners(target) {
 async function confirmNewActivity(target) {
   const input = $("new-activity-textarea");
   if (!input) return;
-  const name = input.textContent.trim();
+  const name = input.value.trim();
   if (!name) { input.focus(); return; }
   state.pendingNewActivity = null;
   flashSaved(input);
-  input.textContent = "";  // blur handler sees empty → calls renderTargetContent at +150ms
-  input.blur();             // dismiss keyboard; flash shows for ~150ms then input removed
+  input.value = "";  // blur handler sees empty → calls renderTargetContent at +150ms
+  input.blur();      // dismiss keyboard; flash shows for ~150ms then input removed
   await addActivity(state.currentSessionId, target.name, name, Date.now(), false);
 }
 
@@ -2105,7 +2144,7 @@ async function saveNewRemark(target) {
   const ta = $("new-remark-textarea");
   if (!ta || !state.pendingNewRemark) return;
 
-  const text    = ta.innerHTML;
+  const text    = htmlForStorage(ta.value);
   const p       = state.pendingNewRemark;
   const paName  = p.paName || null;
   const paOrder = p.paOrder ?? 0;
@@ -2821,15 +2860,14 @@ function setupMergedRemarkSaving(body, getSessionId, onIdle) {
 }
 
 // Same idea as setupMergedRemarkSaving, but for the live Session Entry screens
-// (#target-content / #group-target-content). Those hosts are also
-// contenteditable="true" now (so Grammarly can read the whole page) — which
-// means nested free-text boxes no longer reliably fire their own blur event
-// when focus moves to a sibling control (e.g. the "+Trial" button) within the
-// same contenteditable host. Per-element blur-to-save can silently never fire,
-// so saving is delegated to the host the same way the View screen does it.
-// flush() returns a Promise so callers that are about to read session data to
-// decide what's "empty" (switching targets, leaving the session) can await it
-// first instead of racing a still-in-flight write.
+// (#target-content / #group-target-content). The free-text boxes there are
+// real <textarea>/<input> elements, not contenteditable — but they're still
+// scattered across many activity/remark cards that get torn down and rebuilt
+// on every render, so saving is still centralized on the host via debounced
+// "input" + "focusout", same as the View screens. flush() returns a Promise
+// so callers that are about to read session data to decide what's "empty"
+// (switching targets, leaving the session) can await it first instead of
+// racing a still-in-flight write.
 function setupEntryRemarkSaving(host, getSessionId, onIdle) {
   let saveTimer = null;
   // Short grace window covering the gap between "user just clicked into a
@@ -2902,29 +2940,29 @@ function setupEntryRemarkSaving(host, getSessionId, onIdle) {
       });
     };
 
-    diffAndSave(".remark-text-input[data-rem-id]", el => el.innerHTML,
+    diffAndSave(".remark-text-input[data-rem-id]", el => htmlForStorage(el.value),
       (el, html) => updateRemarkText(sid, el.dataset.remId, html));
 
-    diffAndSave(".mastery-note-input[data-rem-id]", el => el.innerHTML,
+    diffAndSave(".mastery-note-input[data-rem-id]", el => htmlForStorage(el.value),
       (el, html) => updateRemarkNote(sid, el.dataset.remId, html));
 
-    diffAndSave(".activity-name-input[data-act-id]", el => el.textContent.trim(),
+    diffAndSave(".activity-name-input[data-act-id]", el => el.value.trim(),
       (el, name) => {
         if (!name) return; // don't persist an emptied-out name; blur reverts the box visually
         el.dataset.original = name;
         return updateActivityName(sid, el.dataset.actId, name);
       });
 
-    diffAndSave(".predef-remark-input-live[data-rem-id]", el => el.textContent.trim(),
+    diffAndSave(".predef-remark-input-live[data-rem-id]", el => el.value.trim(),
       (el, text) => {
         el.dataset.original = text;
         return updateRemarkText(sid, el.dataset.remId, text);
       });
 
-    diffAndSave(".group-remark-input[data-rem-id]", el => el.innerHTML,
+    diffAndSave(".group-remark-input[data-rem-id]", el => htmlForStorage(el.value),
       (el, html) => updateRemarkText(sid, el.dataset.remId, html));
 
-    diffAndSave(".group-remark-input-combined[data-rem-ids]", el => el.innerHTML,
+    diffAndSave(".group-remark-input-combined[data-rem-ids]", el => htmlForStorage(el.value),
       (el, html) => {
         const remIds = el.dataset.remIds.split(",").filter(Boolean);
         return Promise.all(remIds.map(id => updateRemarkText(sid, id, html)));
@@ -2934,7 +2972,7 @@ function setupEntryRemarkSaving(host, getSessionId, onIdle) {
     // activity) yet, so they need to be created first — guarded against
     // double-creation if flush() runs again before the first creation lands.
     host.querySelectorAll(".predef-remark-input[data-pa-name]").forEach(el => {
-      const text = el.textContent.trim();
+      const text = el.value.trim();
       if (!text || el.dataset.creating === "true") return;
       el.dataset.creating = "true";
       const create = async () => {
@@ -2962,7 +3000,8 @@ function setupEntryRemarkSaving(host, getSessionId, onIdle) {
   // isPending() was true could stay deferred forever: the Firestore write
   // succeeds, but the re-render that would replace the disabled/"Adding…"
   // button with the new remark fields never runs.
-  const onInput = () => {
+  const onInput = e => {
+    if (e.target.tagName === "TEXTAREA") autoResizeTextarea(e.target);
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => { flush(); onIdle?.(); }, 700);
   };
@@ -2971,68 +3010,17 @@ function setupEntryRemarkSaving(host, getSessionId, onIdle) {
     if (e.target.closest('[contenteditable="false"]')) return;
     markClickGrace();
   };
-  // Buttons/labels nested inside a contenteditable host need an explicit
-  // mousedown preventDefault, or the browser's default "place the caret"
-  // handling for the click eats the first click on them entirely — the
-  // button only responds on the second click. This doesn't stop the click
-  // event itself (still fires normally), it just stops the contenteditable
-  // region from also trying to claim the mousedown as a focus/selection
-  // change, which is the standard fix for buttons embedded in editable
-  // regions (the same trick rich-text-editor toolbars use).
-  const onMouseDown = e => {
-    if (e.target.closest('[contenteditable="false"]')) e.preventDefault();
-  };
-  // Backstop against the browser's native paragraph/line-break insertion —
-  // see the matching comment in setupMergedRemarkSaving. Each remark box's
-  // own keydown handler already calls preventDefault() and inserts a manual
-  // <br>, but that alone isn't reliable for a contenteditable="true" box
-  // nested inside this larger contenteditable="true" host: Chrome's
-  // "beforeinput" event can still fire and perform its own native split
-  // (cloning the box into a sibling) even after keydown was prevented.
-  //
-  // ALSO guards backspace/delete from escaping a box's own boundary. Since
-  // contenteditable="true" on these boxes is redundant (nested inside an
-  // already-editable host), they aren't real deletion boundaries either —
-  // once a box is emptied, continuing to backspace can keep consuming the
-  // surrounding contenteditable="false" structure (labels, dividers, whole
-  // activity cards) as if it were deletable content.
-  const onBeforeInput = e => {
-    if (e.inputType === "insertParagraph" || e.inputType === "insertLineBreak") {
-      e.preventDefault();
-      return;
-    }
-    if (e.inputType !== "deleteContentBackward" && e.inputType !== "deleteContentForward") return;
-    const sel = document.getSelection();
-    if (!sel || sel.rangeCount === 0 || !sel.isCollapsed) return;
-    const node = sel.anchorNode;
-    const el = node && (node.nodeType === 1 ? node : node.parentElement)?.closest(
-      ".activity-name-input, #new-activity-textarea, #new-remark-textarea, .predef-remark-input-live, .remark-text-input, .mastery-note-input, .group-remark-input, .group-remark-input-combined"
-    );
-    if (!el || !host.contains(el)) return;
-    if (e.inputType === "deleteContentBackward" && isAtStartOf(el, sel.anchorNode, sel.anchorOffset)) {
-      e.preventDefault();
-    } else if (e.inputType === "deleteContentForward" && isAtEndOf(el, sel.anchorNode, sel.anchorOffset)) {
-      e.preventDefault();
-    }
-  };
 
   host.addEventListener("input", onInput);
   host.addEventListener("focusout", onFocusOut);
-  host.addEventListener("mousedown", onMouseDown);
   host.addEventListener("focusin", onFocusIn);
-  host.addEventListener("beforeinput", onBeforeInput);
 
   return {
     flush,
     // True while there's a not-yet-flushed keystroke (debounce timer
-    // running), an in-flight write, or the short post-click grace window.
-    // Focus position itself still can't be used as the long-lived "is the user busy"
-    // signal — the mousedown fix above deliberately keeps focus pinned on
-    // whatever box was last typed in even after clicking a button, so "is
-    // something still focused" would stay true indefinitely and defer every
-    // render forever instead of just while actively mid-keystroke, mid-write,
-    // mid-write-cooldown (see markWriteCooldown), or for the brief moment
-    // right after a click.
+    // running), an in-flight write, or the short post-click grace window —
+    // used to defer a render that would otherwise yank a box out from under
+    // the user mid-edit.
     isPending: () => saveTimer !== null || pendingWrites > 0 || writeCooldown || clickGrace,
     cleanup() {
       clearTimeout(saveTimer);
@@ -3040,9 +3028,7 @@ function setupEntryRemarkSaving(host, getSessionId, onIdle) {
       clearTimeout(writeCooldownTimer);
       host.removeEventListener("input", onInput);
       host.removeEventListener("focusout", onFocusOut);
-      host.removeEventListener("mousedown", onMouseDown);
       host.removeEventListener("focusin", onFocusIn);
-      host.removeEventListener("beforeinput", onBeforeInput);
     }
   };
 }
@@ -3053,31 +3039,30 @@ function setupEntryRemarkSaving(host, getSessionId, onIdle) {
 // connection. This closes the gap a different way: instead of trying to
 // avoid re-rendering while the user is mid-keystroke, make the re-render
 // itself non-destructive. Before a render replaces #target-content's whole
-// innerHTML, capture whichever box the caret is currently in (its identity,
-// current — possibly unsaved — html, and the caret's position within it).
-// After the render, if a box with that same identity exists in the fresh
-// markup, overwrite ITS html with what was captured and restore the caret —
-// so a render landing at the worst possible moment no longer matters: the
-// user's in-progress edit (and cursor) survives it intact, and the normal
-// save-debounce flow picks up and persists that text exactly as before.
+// innerHTML, capture whichever box currently has focus (its identity,
+// current — possibly unsaved — value, and caret/selection). After the
+// render, if a box with that same identity exists in the fresh markup,
+// restore the captured value and re-focus it at the same selection — so a
+// render landing at the worst possible moment no longer matters. Real
+// <textarea>/<input> elements expose selectionStart/selectionEnd directly,
+// so this no longer needs any manual Range/offset math.
 const EDITABLE_BOX_SELECTOR =
   ".remark-text-input, .mastery-note-input, .activity-name-input, .predef-remark-input-live, .group-remark-input, .group-remark-input-combined";
 
 function captureActiveEditState(host) {
-  const sel = document.getSelection();
-  if (!sel || sel.rangeCount === 0) return null;
-  const node = sel.anchorNode;
-  if (!node || !host.contains(node)) return null;
-  const el = (node.nodeType === 1 ? node : node.parentElement)?.closest(EDITABLE_BOX_SELECTOR);
-  if (!el) return null;
+  const el = document.activeElement;
+  if (!el || !host.contains(el)) return null;
+  if (el.tagName !== "TEXTAREA" && el.tagName !== "INPUT") return null;
+  if (!el.matches(EDITABLE_BOX_SELECTOR)) return null;
   const idAttr = el.dataset.remId ? "remId" : el.dataset.actId ? "actId" : el.dataset.remIds ? "remIds" : null;
   if (!idAttr) return null;
   return {
     className: el.className,
     idAttr,
     idValue: el.dataset[idAttr],
-    html: el.innerHTML,
-    caretPos: linearCaretPosition(el, sel.anchorNode, sel.anchorOffset)
+    value: el.value,
+    selectionStart: el.selectionStart,
+    selectionEnd: el.selectionEnd
   };
 }
 
@@ -3086,88 +3071,10 @@ function restoreActiveEditState(host, captured) {
   const el = [...host.querySelectorAll(`.${captured.className.split(" ").join(".")}`)]
     .find(e => e.dataset[captured.idAttr] === captured.idValue);
   if (!el) return;
-  el.innerHTML = captured.html;
-  placeCaretAtLinearPosition(el, captured.caretPos);
-}
-
-// Counts text characters + <br> elements between the start of el's content
-// and the given (node, offset) point — a stable, content-based "position"
-// that survives the box being torn down and rebuilt with identical content.
-function linearCaretPosition(el, node, offset) {
-  let count = 0;
-  let done = false;
-  const visit = n => {
-    if (done) return;
-    if (n === node) {
-      if (n.nodeType === 3) count += offset;
-      done = true;
-      return;
-    }
-    if (n.nodeType === 3) {
-      count += n.textContent.length;
-    } else if (n.nodeName === "BR") {
-      count += 1;
-    } else {
-      for (const child of n.childNodes) {
-        visit(child);
-        if (done) return;
-      }
-    }
-  };
-  if (node === el) {
-    for (let i = 0; i < offset && i < el.childNodes.length; i++) {
-      const child = el.childNodes[i];
-      count += child.nodeType === 3 ? child.textContent.length
-        : child.nodeName === "BR" ? 1
-        : (child.textContent || "").length;
-    }
-    return count;
-  }
-  for (const child of el.childNodes) {
-    visit(child);
-    if (done) break;
-  }
-  return count;
-}
-
-// Inverse of linearCaretPosition — walks el's content counting the same
-// units back out, and collapses the selection there.
-function placeCaretAtLinearPosition(el, pos) {
-  let remaining = pos;
-  let resultNode = el, resultOffset = el.childNodes.length;
-  const visit = n => {
-    if (n.nodeType === 3) {
-      if (remaining <= n.textContent.length) {
-        resultNode = n;
-        resultOffset = remaining;
-        remaining = -1;
-        return true;
-      }
-      remaining -= n.textContent.length;
-      return false;
-    }
-    if (n.nodeName === "BR") {
-      if (remaining === 0) {
-        resultNode = n.parentNode;
-        resultOffset = Array.prototype.indexOf.call(n.parentNode.childNodes, n);
-        remaining = -1;
-        return true;
-      }
-      remaining -= 1;
-      return false;
-    }
-    for (const child of Array.from(n.childNodes)) {
-      if (visit(child)) return true;
-    }
-    return false;
-  };
-  visit(el);
-  const range = document.createRange();
-  range.setStart(resultNode, resultOffset);
-  range.collapse(true);
-  const sel = document.getSelection();
-  sel.removeAllRanges();
-  sel.addRange(range);
+  el.value = captured.value;
+  if (el.tagName === "TEXTAREA") autoResizeTextarea(el);
+  el.focus();
+  el.setSelectionRange(captured.selectionStart, captured.selectionEnd);
 }
 
 // Manually insert a <br> at the current caret position, bypassing
@@ -3223,42 +3130,21 @@ function selectAllWithin(el) {
   sel.addRange(range);
 }
 
-// Delegated Enter/Escape handling for the individual session-entry screen's
-// free-text boxes (.activity-name-input, #new-activity-textarea,
-// #new-remark-textarea, .predef-remark-input-live, .remark-text-input,
-// .mastery-note-input). These are nested inside an already-contenteditable
-// host — contenteditable="true" on a descendant of an already-editable
-// ancestor is redundant per spec, so the whole region is ONE merged editing
-// context: document.activeElement (and keydown's e.target) is ALWAYS the
-// outer host, never the inner box. A keydown listener on the box itself
-// never receives the event, so this delegates from the host using the live
-// selection. MUST be set up once per session-open (not per-render) — host
-// is a persistent container whose children get replaced on every render,
-// but the host itself never does, so re-attaching this on every render
-// would stack up duplicate listeners, each firing for the same keypress.
+// Delegated Escape/Ctrl+Enter handling for the individual session-entry
+// screen's free-text fields. These are real <textarea>/<input> elements now
+// (not contenteditable), so native Enter, backspace and Ctrl+A already work
+// correctly per-field without any help — this only needs to cover the app's
+// own confirm/cancel shortcuts. MUST be set up once per session-open (not
+// per-render) — host is a persistent container whose children get replaced
+// on every render, but the host itself never does, so re-attaching this on
+// every render would stack up duplicate listeners.
 function setupEntryEnterKeyDelegation(host, getTarget) {
   const onKeydown = e => {
-    const isSelectAll = (e.key === "a" || e.key === "A") && (e.ctrlKey || e.metaKey);
-    if (e.key !== "Enter" && e.key !== "Escape" && !isSelectAll) return;
-    // While an IME/text-prediction composition is active (Windows' built-in
-    // hardware-keyboard text suggestions do this even without a visible
-    // popup), the FIRST Enter after typing commits the composition rather
-    // than meaning "newline" — our own preventDefault()/insertBrAtCaret()
-    // would fight that commit and silently lose, which is why it looked
-    // like "nothing happens" on the first Enter but worked on the second.
-    // Let the browser handle this keystroke untouched; the next, genuinely
-    // non-composing Enter reaches us normally.
-    if (e.isComposing) return;
-    const sel  = document.getSelection();
-    const node = sel && sel.rangeCount > 0 ? sel.anchorNode : null;
-    const el = node && (node.nodeType === 1 ? node : node.parentElement)?.closest(
-      ".activity-name-input, #new-activity-textarea, #new-remark-textarea, .predef-remark-input-live, .remark-text-input, .mastery-note-input"
+    if (e.key !== "Enter" && e.key !== "Escape") return;
+    const el = e.target.closest?.(
+      ".activity-name-input, #new-activity-textarea, #new-remark-textarea, .predef-remark-input-live"
     );
     if (!el || !host.contains(el)) return;
-
-    // Native Ctrl+A would select everything in the whole merged editing
-    // host (every activity/remark), not just this box — see selectAllWithin.
-    if (isSelectAll) { e.preventDefault(); selectAllWithin(el); return; }
 
     if (e.key === "Escape") {
       if (el.id === "new-activity-textarea") cancelPendingActivity();
@@ -3274,55 +3160,13 @@ function setupEntryEnterKeyDelegation(host, getTarget) {
       return;
     }
     if (el.id === "new-remark-textarea") {
-      if (e.ctrlKey || e.metaKey) { e.preventDefault(); saveNewRemark(target); return; }
-      e.preventDefault();
-      setTimeout(() => {
-        insertBrAtCaret();
-        el.dispatchEvent(new Event("input", { bubbles: true }));
-      }, 0);
+      if (e.ctrlKey || e.metaKey) { e.preventDefault(); saveNewRemark(target); }
       return;
     }
     if (el.matches(".predef-remark-input-live")) {
       e.preventDefault();
       el.blur();
-      return;
     }
-    // .remark-text-input / .mastery-note-input: plain Enter grows the box
-    // with a manual line break instead of falling through to the browser's
-    // default contenteditable handling.
-    if (e.ctrlKey || e.metaKey) return;
-    e.preventDefault();
-    setTimeout(() => {
-      insertBrAtCaret();
-      el.dispatchEvent(new Event("input", { bubbles: true }));
-    }, 0);
-  };
-  host.addEventListener("keydown", onKeydown);
-  return () => host.removeEventListener("keydown", onKeydown);
-}
-
-// Same idea, simplified for the group session-entry screen — only
-// .group-remark-input / .group-remark-input-combined need it, no other box
-// types or Ctrl+Enter shortcuts.
-function setupGroupEntryEnterKeyDelegation(host) {
-  const onKeydown = e => {
-    const isSelectAll = (e.key === "a" || e.key === "A") && (e.ctrlKey || e.metaKey);
-    if ((e.key !== "Enter" || e.ctrlKey || e.metaKey) && !isSelectAll) return;
-    // See the matching comment in setupEntryEnterKeyDelegation — an active
-    // IME/text-prediction composition consumes the first Enter as "commit",
-    // not "newline".
-    if (e.isComposing) return;
-    const sel  = document.getSelection();
-    const node = sel && sel.rangeCount > 0 ? sel.anchorNode : null;
-    const el = node && (node.nodeType === 1 ? node : node.parentElement)
-      ?.closest(".group-remark-input, .group-remark-input-combined");
-    if (!el || !host.contains(el)) return;
-    if (isSelectAll) { e.preventDefault(); selectAllWithin(el); return; }
-    e.preventDefault();
-    setTimeout(() => {
-      insertBrAtCaret();
-      el.dispatchEvent(new Event("input", { bubbles: true }));
-    }, 0);
   };
   host.addEventListener("keydown", onKeydown);
   return () => host.removeEventListener("keydown", onKeydown);
@@ -5905,8 +5749,6 @@ async function openGroupSession(group, dateStr, attendees) {
     state.groupRenderPending = false;
     renderGroupTargetContent();
   });
-  state.entryGroupEnterKeyCleanup?.();
-  state.entryGroupEnterKeyCleanup = setupGroupEntryEnterKeyDelegation($("group-target-content"));
   state.currentGroup            = group;
   state.groupAttendees          = attendees;
   state.groupSessionId          = null;
@@ -6043,8 +5885,6 @@ async function leaveGroupSession() {
   await state.entryGroupRemarkSaver?.flush();
   state.entryGroupRemarkSaver?.cleanup();
   state.entryGroupRemarkSaver = null;
-  state.entryGroupEnterKeyCleanup?.();
-  state.entryGroupEnterKeyCleanup = null;
   if (state.fbGroupUnsubscribe) { state.fbGroupUnsubscribe(); state.fbGroupUnsubscribe = null; }
   const sessionId = state.groupSessionId;
   const data      = state.groupSessionData;
@@ -6218,9 +6058,9 @@ function renderGroupStudentRowCompact(remId, rem, target) {
     <div class="entry-field">
       <span class="field-label" contenteditable="false">Remark</span>
       <button class="btn-sketch btn-group-sketch" contenteditable="false" data-rem-id="${remId}" aria-label="Open sketch board">✏</button>
-      <div class="field-input group-remark-input" contenteditable="true"
-        data-rem-id="${remId}" data-placeholder="Remark…"
-        data-saved-html="${escHtml(remarkToHtml(rem.text))}">${remarkToHtml(rem.text)}</div>
+      <textarea class="field-input group-remark-input"
+        data-rem-id="${remId}" placeholder="Remark…"
+        data-saved-html="${escHtml(rem.text || "")}">${escHtml(plainTextForEdit(rem.text))}</textarea>
       <button class="btn-icon btn-group-del-student-remark" contenteditable="false" data-rem-id="${remId}" title="Delete remark">🗑</button>
     </div>
     <div class="entry-field" contenteditable="false">
@@ -6342,9 +6182,9 @@ function renderGroupCombinedRemarkRow(remIds, text) {
   return `<div class="entry-field">
     <span class="field-label" contenteditable="false">Remark</span>
     <button class="btn-sketch btn-group-sketch-combined" contenteditable="false" data-rem-ids="${idList}" aria-label="Open sketch board">✏</button>
-    <div class="field-input group-remark-input-combined" contenteditable="true"
-      data-rem-ids="${idList}" data-placeholder="Remark…"
-      data-saved-html="${escHtml(remarkToHtml(text))}">${remarkToHtml(text)}</div>
+    <textarea class="field-input group-remark-input-combined"
+      data-rem-ids="${idList}" placeholder="Remark…"
+      data-saved-html="${escHtml(text || "")}">${escHtml(plainTextForEdit(text))}</textarea>
   </div>`;
 }
 
@@ -6381,9 +6221,9 @@ function renderGroupStudentRow(studentName, remId, rem, target) {
     <div class="entry-field">
       <span class="field-label" contenteditable="false">Remark</span>
       <button class="btn-sketch btn-group-sketch" contenteditable="false" data-rem-id="${remId}" aria-label="Sketch">✏</button>
-      <div class="field-input group-remark-input" contenteditable="true"
-        data-rem-id="${remId}" data-placeholder="Remark…"
-        data-saved-html="${escHtml(remarkToHtml(rem.text))}">${remarkToHtml(rem.text)}</div>
+      <textarea class="field-input group-remark-input"
+        data-rem-id="${remId}" placeholder="Remark…"
+        data-saved-html="${escHtml(rem.text || "")}">${escHtml(plainTextForEdit(rem.text))}</textarea>
     </div>
     <div class="entry-field" contenteditable="false">
       <span class="field-label">Trials</span>
@@ -6450,10 +6290,9 @@ function attachGroupTargetListeners(target) {
 
   // Saving for .group-remark-input / .group-remark-input-combined is handled
   // by the shared merged-editing host (state.entryGroupRemarkSaver, set up in
-  // openGroupSession) — see setupEntryRemarkSaving. Enter-key delegation is
-  // also set up once there (setupGroupEntryEnterKeyDelegation), not here —
-  // this function runs on every render, and the host persists across
-  // renders, so attaching it here would stack up duplicate listeners.
+  // openGroupSession) — see setupEntryRemarkSaving. These are real
+  // <textarea> elements, so Enter/backspace/Ctrl+A all work natively.
+  c.querySelectorAll("textarea.field-input").forEach(autoResizeTextarea);
 
   // Sketch board
   c.querySelectorAll(".btn-group-sketch").forEach(btn => {
