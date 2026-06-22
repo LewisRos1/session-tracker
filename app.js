@@ -60,7 +60,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "401";
+const APP_VERSION = "402";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -1253,7 +1253,7 @@ async function openSession(student, existingSessionId = null, dateStr = null) {
         renderScoreModalTrials(state.scorePicker.remId);
       }
       const active = document.activeElement;
-      const busy   = active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.tagName === "SELECT");
+      const busy   = active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.tagName === "SELECT" || active.isContentEditable);
       if (busy) {
         state.renderPending = true;
       } else {
@@ -1369,7 +1369,7 @@ function renderTargetContent() {
     if (mb) mb.classList.add("hidden");
     $("target-type-chip")?.classList.add("hidden");
     $("target-content").innerHTML =
-      `<p class="empty-hint" style="padding:2rem;text-align:center">
+      `<p class="empty-hint" contenteditable="false" style="padding:2rem;text-align:center">
         No targets added yet. Use the dropdown above to add one.
       </p>`;
     return;
@@ -1410,20 +1410,20 @@ function renderFedcTarget(target) {
   target.predefinedActivities.forEach((pa, idx) => {
     // Note item — render inline in order, styled like a section heading
     if (pa.isNote) {
-      if (pa.text) html += `<div class="activity-note-heading">${noteToHtml(pa.text)}</div>`;
+      if (pa.text) html += `<div class="activity-note-heading" contenteditable="false">${noteToHtml(pa.text)}</div>`;
       return;
     }
 
     // New format: explicit heading row
     if (pa.isHeading) {
-      html += `<div class="activity-group-heading">${escHtml(pa.name)}</div>`;
+      html += `<div class="activity-group-heading" contenteditable="false">${escHtml(pa.name)}</div>`;
       return;
     }
 
     // Old format: group field per activity (backward compat)
     if (pa.group && pa.group !== lastGroup) {
       lastGroup = pa.group;
-      html += `<div class="activity-group-heading">${escHtml(pa.group)}</div>`;
+      html += `<div class="activity-group-heading" contenteditable="false">${escHtml(pa.group)}</div>`;
     } else if (!pa.group) {
       lastGroup = null;
     }
@@ -1435,13 +1435,13 @@ function renderFedcTarget(target) {
     const isPending  = state.pendingNewRemark?.pendingKey === pendingKey;
 
     html += `<div class="entry-block entry-block-predefined">
-      <div class="entry-field">
+      <div class="entry-field" contenteditable="false">
         <span class="field-label">Activity</span>
         <span class="field-value-fixed">${escHtml(pa.name)}</span>
       </div>`;
 
     if (pa.actNote && pa.actNote.trim()) {
-      html += `<div class="entry-field">
+      html += `<div class="entry-field" contenteditable="false">
         <span class="field-label">Note</span>
         <span class="field-value-note">${escHtml(pa.actNote)}</span>
       </div>`;
@@ -1452,7 +1452,7 @@ function renderFedcTarget(target) {
       const noteHtml = pa.note.map((line, i) =>
         `${letters[i]}) ${escHtml(line)}`
       ).join("<br>");
-      html += `<div class="activity-note">${noteHtml}</div>`;
+      html += `<div class="activity-note" contenteditable="false">${noteHtml}</div>`;
     }
 
     if (pa.predefinedRemarks) {
@@ -1471,7 +1471,7 @@ function renderFedcTarget(target) {
       if (isPending) {
         html += renderPendingRemarkFields(pendingKey, actId, pa.name, idx, target);
       } else {
-        html += `<button class="btn-add-remark"
+        html += `<button class="btn-add-remark" contenteditable="false"
           data-pending-key="${escHtml(pendingKey)}"
           data-act-id="${actId || ""}"
           data-pa-name="${escHtml(pa.name)}"
@@ -1492,12 +1492,11 @@ function renderFedcTarget(target) {
 
     html += `<div class="entry-block" data-act-id="${act.id}">
       <div class="entry-field">
-        <span class="field-label">Activity</span>
-        <textarea class="field-input activity-name-input"
-          rows="2"
+        <span class="field-label" contenteditable="false">Activity</span>
+        <div class="field-input activity-name-input" contenteditable="true"
           data-act-id="${act.id}"
-          data-original="${escHtml(act.activityName)}">${escHtml(act.activityName)}</textarea>
-        <button class="btn-icon btn-delete-activity"
+          data-original="${escHtml(act.activityName)}">${escHtml(act.activityName)}</div>
+        <button class="btn-icon btn-delete-activity" contenteditable="false"
           data-act-id="${act.id}" title="Delete activity">🗑</button>
       </div>`;
 
@@ -1507,7 +1506,7 @@ function renderFedcTarget(target) {
     if (isPending) {
       html += renderPendingRemarkFields(pendingKey, act.id, null, null, target);
     } else {
-      html += `<button class="btn-add-remark"
+      html += `<button class="btn-add-remark" contenteditable="false"
         data-pending-key="${escHtml(pendingKey)}"
         data-act-id="${act.id}"
         data-target="${escHtml(target.name)}">+ Add Remark &amp; Trials</button>`;
@@ -1519,15 +1518,15 @@ function renderFedcTarget(target) {
   if (state.pendingNewActivity?.targetName === target.name) {
     html += `<div class="entry-block">
       <div class="entry-field">
-        <span class="field-label">Activity</span>
-        <textarea id="new-activity-textarea" class="field-input"
-          placeholder="Type activity name… (Enter = new line · Ctrl+Enter to save)" rows="2"></textarea>
-        <button class="btn-icon btn-cancel-new-activity" title="Cancel">✕</button>
+        <span class="field-label" contenteditable="false">Activity</span>
+        <div id="new-activity-textarea" class="field-input" contenteditable="true"
+          data-placeholder="Type activity name… (Enter = new line · Ctrl+Enter to save)"></div>
+        <button class="btn-icon btn-cancel-new-activity" contenteditable="false" title="Cancel">✕</button>
       </div>
     </div>`;
   }
 
-  html += `<button class="btn-add-activity" data-target="${escHtml(target.name)}">+ Add Activity (This activity only appears in this session)</button>`;
+  html += `<button class="btn-add-activity" contenteditable="false" data-target="${escHtml(target.name)}">+ Add Activity (This activity only appears in this session)</button>`;
 
   return html;
 }
@@ -1539,7 +1538,7 @@ function renderRegularTarget(target) {
   let html = "";
 
   if (target.notes?.length > 0) {
-    html += `<div class="target-notes">`;
+    html += `<div class="target-notes" contenteditable="false">`;
     for (const n of target.notes) {
       if (n.text) html += `<div class="target-note-item">📌 ${escHtml(n.text)}</div>`;
     }
@@ -1553,12 +1552,11 @@ function renderRegularTarget(target) {
 
     html += `<div class="entry-block" data-act-id="${act.id}">
       <div class="entry-field">
-        <span class="field-label">Activity</span>
-        <textarea class="field-input activity-name-input"
-          rows="2"
+        <span class="field-label" contenteditable="false">Activity</span>
+        <div class="field-input activity-name-input" contenteditable="true"
           data-act-id="${act.id}"
-          data-original="${escHtml(act.activityName)}">${escHtml(act.activityName)}</textarea>
-        <button class="btn-icon btn-delete-activity"
+          data-original="${escHtml(act.activityName)}">${escHtml(act.activityName)}</div>
+        <button class="btn-icon btn-delete-activity" contenteditable="false"
           data-act-id="${act.id}" title="Delete activity">🗑</button>
       </div>`;
 
@@ -1569,7 +1567,7 @@ function renderRegularTarget(target) {
     if (isPending) {
       html += renderPendingRemarkFields(pendingKey, act.id, null, null, target);
     } else {
-      html += `<button class="btn-add-remark"
+      html += `<button class="btn-add-remark" contenteditable="false"
         data-pending-key="${escHtml(pendingKey)}"
         data-act-id="${act.id}"
         data-target="${escHtml(target.name)}">+ Add Remark &amp; Trials</button>`;
@@ -1582,15 +1580,15 @@ function renderRegularTarget(target) {
   if (state.pendingNewActivity?.targetName === target.name) {
     html += `<div class="entry-block">
       <div class="entry-field">
-        <span class="field-label">Activity</span>
-        <textarea id="new-activity-textarea" class="field-input"
-          placeholder="Type activity name… (Enter = new line · Ctrl+Enter to save)" rows="2"></textarea>
-        <button class="btn-icon btn-cancel-new-activity" title="Cancel">✕</button>
+        <span class="field-label" contenteditable="false">Activity</span>
+        <div id="new-activity-textarea" class="field-input" contenteditable="true"
+          data-placeholder="Type activity name… (Enter = new line · Ctrl+Enter to save)"></div>
+        <button class="btn-icon btn-cancel-new-activity" contenteditable="false" title="Cancel">✕</button>
       </div>
     </div>`;
   }
 
-  html += `<button class="btn-add-activity" data-target="${escHtml(target.name)}">+ Add Activity (This activity only appears in this session)</button>`;
+  html += `<button class="btn-add-activity" contenteditable="false" data-target="${escHtml(target.name)}">+ Add Activity (This activity only appears in this session)</button>`;
 
   return html;
 }
@@ -1630,8 +1628,8 @@ function renderRemarkFields(rem, target, inlineOptions = null, sentenceStarter =
   if (isMastery) {
     const cur = rem.text || "";
     return `
-    <div class="entry-divider"></div>
-    <div class="entry-field">
+    <div class="entry-divider" contenteditable="false"></div>
+    <div class="entry-field" contenteditable="false">
       <span class="field-label">Remark</span>
       <div class="mastery-remark-wrap">
         <div class="remark-mastery-opts" data-rem-id="${rem.id}">
@@ -1648,7 +1646,7 @@ function renderRemarkFields(rem, target, inlineOptions = null, sentenceStarter =
       <button class="btn-icon btn-delete-remark"
         data-rem-id="${rem.id}" title="Delete remark">🗑</button>
     </div>
-    <div class="entry-field">
+    <div class="entry-field" contenteditable="false">
       <span class="field-label">Trials</span>
       <div class="trials-row">
         <div class="trials-badges">${badgesHtml}</div>
@@ -1663,12 +1661,12 @@ function renderRemarkFields(rem, target, inlineOptions = null, sentenceStarter =
     if (opts.length === 0) return null;
     if (multiSelect) {
       const sel = (remText || "").split(", ").map(s => s.trim()).filter(Boolean);
-      return `<div class="remark-preset-opts remark-preset-opts-multi">${opts.map(opt =>
+      return `<div class="remark-preset-opts remark-preset-opts-multi" contenteditable="false">${opts.map(opt =>
         `<button class="btn-remark-opt${sel.includes(opt) ? " active" : ""}"
           data-rem-id="${remId}" data-opt="${escHtml(opt)}">${escHtml(opt)}</button>`
       ).join("")}</div>`;
     }
-    return `<div class="remark-preset-opts">${opts.map(opt =>
+    return `<div class="remark-preset-opts" contenteditable="false">${opts.map(opt =>
       `<button class="btn-remark-opt${remText === opt ? " active" : ""}"
         data-rem-id="${remId}" data-opt="${escHtml(opt)}">${escHtml(opt)}</button>`
     ).join("")}</div>`;
@@ -1680,13 +1678,13 @@ function renderRemarkFields(rem, target, inlineOptions = null, sentenceStarter =
 
   // Sketch board button only shown when there's a free-text input (no preset opt pills)
   const sketchBtn = opts.length === 0
-    ? `<button class="btn-sketch" data-rem-id="${rem.id}" aria-label="Open sketch board">✏</button>`
+    ? `<button class="btn-sketch" contenteditable="false" data-rem-id="${rem.id}" aria-label="Open sketch board">✏</button>`
     : "";
 
   let remarkContent;
   if (sentenceStarter) {
     remarkContent = `<div class="remark-starter-wrap">
-      <span class="remark-starter-prefix">${escHtml(sentenceStarter)}</span>
+      <span class="remark-starter-prefix" contenteditable="false">${escHtml(sentenceStarter)}</span>
       ${makeOptPills(rem.id, rem.text)
         || `<div class="field-input remark-text-input" contenteditable="true"
             data-rem-id="${rem.id}">${remarkToHtml(rem.text)}</div>`
@@ -1697,15 +1695,15 @@ function renderRemarkFields(rem, target, inlineOptions = null, sentenceStarter =
   }
 
   return `
-    <div class="entry-divider"></div>
+    <div class="entry-divider" contenteditable="false"></div>
     <div class="entry-field">
-      <span class="field-label">Remark</span>
+      <span class="field-label" contenteditable="false">Remark</span>
       ${sketchBtn}
       ${remarkContent}
-      <button class="btn-icon btn-delete-remark"
+      <button class="btn-icon btn-delete-remark" contenteditable="false"
         data-rem-id="${rem.id}" title="Delete remark">🗑</button>
     </div>
-    <div class="entry-field">
+    <div class="entry-field" contenteditable="false">
       <span class="field-label">Trials</span>
       <div class="trials-row">
         <div class="trials-badges">${badgesHtml}</div>
@@ -1718,14 +1716,14 @@ function renderRemarkFields(rem, target, inlineOptions = null, sentenceStarter =
 
 function renderPendingRemarkFields(pendingKey, actId, paName, paOrder, target) {
   return `
-    <div class="entry-divider"></div>
+    <div class="entry-divider" contenteditable="false"></div>
     <div class="entry-field">
-      <span class="field-label">Remark</span>
-      <button class="btn-sketch btn-sketch-pending" aria-label="Open sketch board">✏</button>
+      <span class="field-label" contenteditable="false">Remark</span>
+      <button class="btn-sketch btn-sketch-pending" contenteditable="false" aria-label="Open sketch board">✏</button>
       <div id="new-remark-textarea" class="field-input" contenteditable="true"
         data-placeholder="Type remark…"></div>
     </div>
-    <div class="pending-remark-actions">
+    <div class="pending-remark-actions" contenteditable="false">
       <button class="btn-cancel-remark btn-remark-cancel">✕ Cancel</button>
       <button class="btn-save-remark btn-remark-save">✓ Save</button>
     </div>`;
@@ -1739,17 +1737,15 @@ function renderPredefinedRemarkFields(rem, predRemName, target) {
       data-rem-id="${rem.id}" data-idx="${idx}">×</button></span>`
   ).join("");
   return `
-    <div class="entry-divider"></div>
+    <div class="entry-divider" contenteditable="false"></div>
     <div class="entry-field">
-      <span class="field-label">${escHtml(predRemName)}</span>
-      <input class="field-input predef-remark-input-live"
-        type="text"
-        value="${escHtml(rem.text || "")}"
+      <span class="field-label" contenteditable="false">${escHtml(predRemName)}</span>
+      <div class="field-input predef-remark-input-live" contenteditable="true"
         data-rem-id="${rem.id}"
         data-original="${escHtml(rem.text || "")}"
-        placeholder="e.g. 80%" />
+        data-placeholder="e.g. 80%">${escHtml(rem.text || "")}</div>
     </div>
-    <div class="entry-field">
+    <div class="entry-field" contenteditable="false">
       <span class="field-label">Trials</span>
       <div class="trials-row">
         <div class="trials-badges">${badgesHtml}</div>
@@ -1763,19 +1759,18 @@ function renderPredefinedRemarkFields(rem, predRemName, target) {
 // Predefined remark not yet in Firebase — label + empty text input
 function renderGhostRemarkFields(predRemName, actId, pa, paIdx, target) {
   return `
-    <div class="entry-divider"></div>
+    <div class="entry-divider" contenteditable="false"></div>
     <div class="entry-field">
-      <span class="field-label">${escHtml(predRemName)}</span>
-      <input class="field-input predef-remark-input"
-        type="text"
-        placeholder="e.g. 80%"
+      <span class="field-label" contenteditable="false">${escHtml(predRemName)}</span>
+      <div class="field-input predef-remark-input" contenteditable="true"
         data-rem-name="${escHtml(predRemName)}"
         data-act-id="${actId || ""}"
         data-pa-name="${escHtml(pa.name)}"
         data-pa-order="${paIdx}"
-        data-target="${escHtml(target.name)}" />
+        data-target="${escHtml(target.name)}"
+        data-placeholder="e.g. 80%"></div>
     </div>
-    <div class="entry-field">
+    <div class="entry-field" contenteditable="false">
       <span class="field-label">Trials</span>
       <div class="trials-row">
         <div class="trials-badges"></div>
@@ -1797,9 +1792,9 @@ function attachTargetListeners(target) {
   // ── Activity name: auto-save on blur ─────────────────────
   c.querySelectorAll(".activity-name-input").forEach(input => {
     input.addEventListener("blur", async () => {
-      const newName = input.value.trim();
+      const newName = input.textContent.trim();
       const original = input.dataset.original;
-      if (!newName) { input.value = original; return; }
+      if (!newName) { input.textContent = original; return; }
       if (newName !== original) {
         input.dataset.original = newName;
         flashSaved(input);
@@ -1829,7 +1824,7 @@ function attachTargetListeners(target) {
     setTimeout(() => {
       const input = $("new-activity-textarea");
       if (!input) return; // already removed by cancel
-      const name = input.value.trim();
+      const name = input.textContent.trim();
       state.pendingNewActivity = null;
       if (name) {
         addActivity(state.currentSessionId, target.name, name, Date.now(), false);
@@ -1977,7 +1972,7 @@ function attachTargetListeners(target) {
   // ── Ghost predefined remark input: save text on blur ──────
   c.querySelectorAll(".predef-remark-input").forEach(input => {
     input.addEventListener("blur", async () => {
-      const text = input.value.trim();
+      const text = input.textContent.trim();
       if (!text) return;
       const paOrder = input.dataset.paOrder !== "" ? Number(input.dataset.paOrder) : 0;
       const actId = await ensureFedcActivity(input.dataset.target, input.dataset.paName, paOrder);
@@ -1989,7 +1984,7 @@ function attachTargetListeners(target) {
   // ── Live predefined remark input: auto-save on blur ────────
   c.querySelectorAll(".predef-remark-input-live").forEach(input => {
     input.addEventListener("blur", async () => {
-      const text = input.value.trim();
+      const text = input.textContent.trim();
       const original = input.dataset.original;
       if (text !== original) {
         input.dataset.original = text;
@@ -2013,7 +2008,7 @@ function attachTargetListeners(target) {
       const ghostInput = [...c.querySelectorAll(".predef-remark-input")].find(
         inp => inp.dataset.remName === btn.dataset.remName
       );
-      const initialText = ghostInput?.value.trim() || "";
+      const initialText = ghostInput?.textContent.trim() || "";
       const remId = await ensurePredefinedRemark(actId, btn.dataset.remName, initialText);
       if (initialText) await updateRemarkText(state.currentSessionId, remId, initialText);
       openScorePicker(remId, tgt.maxPoints || 3);
@@ -2046,12 +2041,12 @@ function attachTargetListeners(target) {
 async function confirmNewActivity(target) {
   const input = $("new-activity-textarea");
   if (!input) return;
-  const name = input.value.trim();
+  const name = input.textContent.trim();
   if (!name) { input.focus(); return; }
   state.pendingNewActivity = null;
   flashSaved(input);
-  input.value = "";  // blur handler sees empty → calls renderTargetContent at +150ms
-  input.blur();      // dismiss keyboard; flash shows for ~150ms then input removed
+  input.textContent = "";  // blur handler sees empty → calls renderTargetContent at +150ms
+  input.blur();             // dismiss keyboard; flash shows for ~150ms then input removed
   await addActivity(state.currentSessionId, target.name, name, Date.now(), false);
 }
 
@@ -5373,7 +5368,7 @@ function renderGroupTargetContent() {
   const data    = state.groupSessionData;
   const target  = group?.targets.find(t => t.name === state.selectedGroupTargetName);
   if (!target || !data) {
-    content.innerHTML = `<p class="empty-hint" style="padding:2rem;text-align:center">No targets added yet. Use the dropdown above to add one.</p>`;
+    content.innerHTML = `<p class="empty-hint" contenteditable="false" style="padding:2rem;text-align:center">No targets added yet. Use the dropdown above to add one.</p>`;
     updateGroupAvgChips(null, null);
     return;
   }
@@ -5384,7 +5379,7 @@ function renderGroupTargetContent() {
     ? buildGroupItemsByStudent(target, data, attendees)
     : buildGroupItemsByActivity(target, data, attendees);
 
-  items.push(`<button class="btn-add-activity btn-group-add-activity">+ Add Activity (This activity only appears in this session)</button>`);
+  items.push(`<button class="btn-add-activity btn-group-add-activity" contenteditable="false">+ Add Activity (This activity only appears in this session)</button>`);
 
   content.innerHTML = items.join("");
   updateGroupAvgChips(target, data);
@@ -5398,11 +5393,11 @@ function buildGroupItemsByActivity(target, data, attendees) {
   // Predefined activities (with heading and note support)
   for (const pa of (target.predefinedActivities || [])) {
     if (pa.isNote) {
-      if (pa.text) items.push(`<div class="activity-note-heading">${noteToHtml(pa.text)}</div>`);
+      if (pa.text) items.push(`<div class="activity-note-heading" contenteditable="false">${noteToHtml(pa.text)}</div>`);
       continue;
     }
     if (pa.isHeading) {
-      items.push(`<div class="activity-group-heading">${escHtml(pa.name)}</div>`);
+      items.push(`<div class="activity-group-heading" contenteditable="false">${escHtml(pa.name)}</div>`);
       continue;
     }
     const actId = Object.entries(data.activities || {})
@@ -5419,7 +5414,7 @@ function buildGroupItemsByActivity(target, data, attendees) {
     });
 
   if (items.length === 0) {
-    items.push(`<p class="empty-hint" style="padding:1.5rem">No activities yet. Add them under Edit Target.</p>`);
+    items.push(`<p class="empty-hint" contenteditable="false" style="padding:1.5rem">No activities yet. Add them under Edit Target.</p>`);
   }
   return items;
 }
@@ -5427,7 +5422,7 @@ function buildGroupItemsByActivity(target, data, attendees) {
 // "Group activities together": student is the heading, activities are listed underneath
 function buildGroupItemsByStudent(target, data, attendees) {
   if (attendees.length === 0) {
-    return [`<p class="empty-hint" style="padding:1.5rem">No attendees selected for this session.</p>`];
+    return [`<p class="empty-hint" contenteditable="false" style="padding:1.5rem">No attendees selected for this session.</p>`];
   }
   const items = attendees.map(studentName => renderGroupStudentBlock(studentName, target, data));
   return items;
@@ -5451,10 +5446,10 @@ function renderGroupStudentBlock(studentName, target, data) {
   const cards = activityEntries.length
     ? activityEntries.map(({ actId, actName, actNote }) =>
         renderGroupStudentActivityCard(studentName, actName, actId, target, data, actNote)).join("")
-    : `<p class="empty-hint" style="padding:1rem">No activities yet. Add them under Edit Target.</p>`;
+    : `<p class="empty-hint" contenteditable="false" style="padding:1rem">No activities yet. Add them under Edit Target.</p>`;
 
   return `<div class="group-by-student-block" data-student="${escHtml(studentName)}">
-    <div class="activity-group-heading">${escHtml(studentName)}</div>
+    <div class="activity-group-heading" contenteditable="false">${escHtml(studentName)}</div>
     ${cards}
   </div>`;
 }
@@ -5467,14 +5462,14 @@ function renderGroupStudentActivityCard(studentName, actName, actId, target, dat
     : [];
 
   const noteRow = actNote && actNote.trim()
-    ? `<div class="entry-field">
+    ? `<div class="entry-field" contenteditable="false">
         <span class="field-label">Note</span>
         <span class="field-value-note">${escHtml(actNote)}</span>
       </div>`
     : "";
 
   let html = `<div class="entry-block entry-block-predefined" data-act-name="${escHtml(actName)}" data-act-id="${escHtml(actId || "")}">
-    <div class="entry-field">
+    <div class="entry-field" contenteditable="false">
       <span class="field-label">Activity</span>
       <span class="field-value-fixed">${escHtml(actName)}</span>
     </div>
@@ -5485,12 +5480,12 @@ function renderGroupStudentActivityCard(studentName, actName, actId, target, dat
   }
 
   html += remarksForThisStudent.length === 0
-    ? `<button class="btn-add-remark btn-group-add-remark-pending"
+    ? `<button class="btn-add-remark btn-group-add-remark-pending" contenteditable="false"
         data-student="${escHtml(studentName)}"
         data-act-id="${escHtml(actId || "")}"
         data-act-name="${escHtml(actName)}"
         data-target="${escHtml(target.name)}">+ Add Remark &amp; Trials</button>`
-    : `<button class="btn-add-remark btn-group-add-remark-student-more"
+    : `<button class="btn-add-remark btn-group-add-remark-student-more" contenteditable="false"
         data-act-id="${escHtml(actId || "")}"
         data-student="${escHtml(studentName)}">+ Add Remark &amp; Trials</button>`;
 
@@ -5504,15 +5499,15 @@ function renderGroupStudentRowCompact(remId, rem, target) {
     `<span class="trial-badge">${t === -1 ? "—" : t}<button class="btn-trial-delete btn-group-trial-del" data-rem-id="${remId}" data-idx="${i}">×</button></span>`
   ).join("");
   return `
-    <div class="entry-divider"></div>
+    <div class="entry-divider" contenteditable="false"></div>
     <div class="entry-field">
-      <span class="field-label">Remark</span>
-      <button class="btn-sketch btn-group-sketch" data-rem-id="${remId}" aria-label="Open sketch board">✏</button>
+      <span class="field-label" contenteditable="false">Remark</span>
+      <button class="btn-sketch btn-group-sketch" contenteditable="false" data-rem-id="${remId}" aria-label="Open sketch board">✏</button>
       <div class="field-input group-remark-input" contenteditable="true"
         data-rem-id="${remId}" data-placeholder="Remark…">${remarkToHtml(rem.text)}</div>
-      <button class="btn-icon btn-group-del-student-remark" data-rem-id="${remId}" title="Delete remark">🗑</button>
+      <button class="btn-icon btn-group-del-student-remark" contenteditable="false" data-rem-id="${remId}" title="Delete remark">🗑</button>
     </div>
-    <div class="entry-field">
+    <div class="entry-field" contenteditable="false">
       <span class="field-label">Trials</span>
       <div class="trials-row">
         <div class="trials-badges">${badges}</div>
@@ -5524,7 +5519,7 @@ function renderGroupStudentRowCompact(remId, rem, target) {
 
 function renderGroupActivityCard(actName, actId, target, data, attendees, actNote = null) {
   const noteRow = actNote && actNote.trim()
-    ? `<div class="entry-field">
+    ? `<div class="entry-field" contenteditable="false">
         <span class="field-label">Note</span>
         <span class="field-value-note">${escHtml(actNote)}</span>
       </div>`
@@ -5545,13 +5540,13 @@ function renderGroupActivityCard(actName, actId, target, data, attendees, actNot
   // Collapsed: no data yet → single "+ Add Remark & Trials" button (like individual session)
   if (!anyExpanded) {
     return `<div class="entry-block entry-block-predefined" data-act-name="${escHtml(actName)}" data-act-id="${escHtml(actId || "")}">
-      <div class="entry-field">
+      <div class="entry-field" contenteditable="false">
         <span class="field-label">Activity</span>
         <span class="field-value-fixed">${escHtml(actName)}</span>
         ${combineToggle}
       </div>
       ${noteRow}
-      <button class="btn-add-remark btn-group-add-remark-all"
+      <button class="btn-add-remark btn-group-add-remark-all" contenteditable="false"
         data-act-id="${escHtml(actId || "")}"
         data-act-name="${escHtml(actName)}"
         data-target="${escHtml(target.name)}">+ Add Remark &amp; Trials</button>
@@ -5597,7 +5592,7 @@ function renderGroupActivityCard(actName, actId, target, data, attendees, actNot
 
     roundHtmls.push(`<div class="group-remark-round">
       ${bodyHtml}
-      <div class="group-round-footer">
+      <div class="group-round-footer" contenteditable="false">
         <button class="btn-icon btn-group-del-round"
           data-rem-ids="${roundRemIds.join(",")}" title="Remove">🗑</button>
       </div>
@@ -5605,20 +5600,20 @@ function renderGroupActivityCard(actName, actId, target, data, attendees, actNot
   }
 
   const roundsBody = roundHtmls.map((r, i) =>
-    (i > 0 ? `<div class="entry-divider entry-divider-round"></div>` : ``) + r
+    (i > 0 ? `<div class="entry-divider entry-divider-round" contenteditable="false"></div>` : ``) + r
   ).join("");
 
   return `<div class="entry-block entry-block-predefined" data-act-name="${escHtml(actName)}" data-act-id="${escHtml(actId || "")}">
-    <div class="entry-field">
+    <div class="entry-field" contenteditable="false">
       <span class="field-label">Activity</span>
       <span class="field-value-fixed">${escHtml(actName)}</span>
       ${combineToggle}
     </div>
     ${noteRow}
-    <div class="entry-divider"></div>
+    <div class="entry-divider" contenteditable="false"></div>
     ${roundsBody}
-    <div class="entry-divider"></div>
-    <button class="btn-add-remark btn-group-add-remark-more"
+    <div class="entry-divider" contenteditable="false"></div>
+    <button class="btn-add-remark btn-group-add-remark-more" contenteditable="false"
       data-act-id="${escHtml(actId || "")}"
       data-act-name="${escHtml(actName)}"
       data-target="${escHtml(target.name)}">+ Add Remark &amp; Trials</button>
@@ -5629,8 +5624,8 @@ function renderGroupActivityCard(actName, actId, target, data, attendees, actNot
 function renderGroupCombinedRemarkRow(remIds, text) {
   const idList = remIds.join(",");
   return `<div class="entry-field">
-    <span class="field-label">Remark</span>
-    <button class="btn-sketch btn-group-sketch-combined" data-rem-ids="${idList}" aria-label="Open sketch board">✏</button>
+    <span class="field-label" contenteditable="false">Remark</span>
+    <button class="btn-sketch btn-group-sketch-combined" contenteditable="false" data-rem-ids="${idList}" aria-label="Open sketch board">✏</button>
     <div class="field-input group-remark-input-combined" contenteditable="true"
       data-rem-ids="${idList}" data-placeholder="Remark…">${remarkToHtml(text)}</div>
   </div>`;
@@ -5643,10 +5638,10 @@ function renderGroupStudentTrialsOnlyRow(studentName, remId, rem, target) {
     `<span class="trial-badge">${t === -1 ? "—" : t}<button class="btn-trial-delete btn-group-trial-del" data-rem-id="${remId}" data-idx="${i}">×</button></span>`
   ).join("");
   return `<div class="group-student-section" data-rem-id="${remId}" data-student="${escHtml(studentName)}">
-    <div class="group-student-name-row">
+    <div class="group-student-name-row" contenteditable="false">
       <span class="group-student-name-label">${escHtml(studentName)}</span>
     </div>
-    <div class="entry-field">
+    <div class="entry-field" contenteditable="false">
       <span class="field-label">Trials</span>
       <div class="trials-row">
         <div class="trials-badges">${badges}</div>
@@ -5663,16 +5658,16 @@ function renderGroupStudentRow(studentName, remId, rem, target) {
     `<span class="trial-badge">${t === -1 ? "—" : t}<button class="btn-trial-delete btn-group-trial-del" data-rem-id="${remId}" data-idx="${i}">×</button></span>`
   ).join("");
   return `<div class="group-student-section" data-rem-id="${remId}" data-student="${escHtml(studentName)}">
-    <div class="group-student-name-row">
+    <div class="group-student-name-row" contenteditable="false">
       <span class="group-student-name-label">${escHtml(studentName)}</span>
     </div>
     <div class="entry-field">
-      <span class="field-label">Remark</span>
-      <button class="btn-sketch btn-group-sketch" data-rem-id="${remId}" aria-label="Sketch">✏</button>
+      <span class="field-label" contenteditable="false">Remark</span>
+      <button class="btn-sketch btn-group-sketch" contenteditable="false" data-rem-id="${remId}" aria-label="Sketch">✏</button>
       <div class="field-input group-remark-input" contenteditable="true"
         data-rem-id="${remId}" data-placeholder="Remark…">${remarkToHtml(rem.text)}</div>
     </div>
-    <div class="entry-field">
+    <div class="entry-field" contenteditable="false">
       <span class="field-label">Trials</span>
       <div class="trials-row">
         <div class="trials-badges">${badges}</div>
@@ -5684,7 +5679,7 @@ function renderGroupStudentRow(studentName, remId, rem, target) {
 }
 
 function renderGroupStudentPendingRow(studentName, actId, actName, target) {
-  return `<div class="group-student-section group-student-pending"
+  return `<div class="group-student-section group-student-pending" contenteditable="false"
     data-student="${escHtml(studentName)}"
     data-act-id="${escHtml(actId || "")}"
     data-act-name="${escHtml(actName)}"
