@@ -60,7 +60,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "455";
+const APP_VERSION = "456";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -1330,6 +1330,9 @@ async function openSession(student, existingSessionId = null, dateStr = null) {
       // wasn't registering when clicked soon after typing elsewhere).
       const busy = document.activeElement === $("target-select")
         || state.entryActionsInFlight > 0;
+      console.log("[AddRemarkDebug] onSnapshot fired. busy =", busy,
+        "activeElement =", document.activeElement?.tagName, document.activeElement?.className,
+        "entryActionsInFlight =", state.entryActionsInFlight);
       if (busy) {
         state.renderPending = true;
       } else {
@@ -1455,6 +1458,7 @@ function calcDaysAverage(target) {
 }
 
 function renderTargetContent() {
+  console.log("[AddRemarkDebug] renderTargetContent() called", new Error().stack?.split("\n").slice(1, 4).join(" | "));
   if (!state.sessionData) return;
   updateSessionHeader();
   if (!state.selectedTargetName) {
@@ -1985,6 +1989,7 @@ function attachTargetListeners(target) {
   // ── Add remark (immediate creation) ──────────────────────
   c.querySelectorAll(".btn-add-remark").forEach(btn => {
     btn.addEventListener("click", async () => {
+      console.log("[AddRemarkDebug] click fired, disabled =", btn.disabled);
       if (btn.disabled) return;
       btn.disabled = true;
       btn.textContent = "Adding…";
@@ -2007,19 +2012,25 @@ function attachTargetListeners(target) {
             initialText = await getLastMasteryValue(state.currentStudent, target.name, paName, state.currentSessionId);
           }
         }
+        console.log("[AddRemarkDebug] calling addRemark...");
         await addRemark(state.currentSessionId, actId, initialText);
+        console.log("[AddRemarkDebug] addRemark resolved");
         // Firestore listener re-renders once the new remark lands.
       } catch (err) {
+        console.log("[AddRemarkDebug] addRemark threw:", err);
         btn.disabled = false;
         btn.textContent = "+ Add Remark & Trials";
         alert("Couldn't add remark — check your connection and try again.\n\n" + err.message);
       } finally {
         state.entryActionsInFlight--;
+        console.log("[AddRemarkDebug] finally: entryActionsInFlight =", state.entryActionsInFlight,
+          "renderPending =", state.renderPending);
         // The write's own onSnapshot may have already fired and deferred a
         // render (renderPending) while the counter was still > 0 — nothing
         // else proactively re-checks once it drops back to 0, so do it here
         // (same check as setupEntryRemarkSaving's onIdle).
         if (state.entryActionsInFlight === 0 && state.renderPending) {
+          console.log("[AddRemarkDebug] finally: forcing renderTargetContent()");
           state.renderPending = false;
           renderTargetContent();
         }
