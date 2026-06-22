@@ -541,10 +541,10 @@ export async function deleteGroupTargetDataFromSessions(groupId, targetName) {
 }
 
 /** Add a remark for a specific student in a group session. */
-export async function addGroupRemark(sessionId, actId, studentName) {
+export async function addGroupRemark(sessionId, actId, studentName, text = "") {
   const remId = generateId("r");
   await updateDoc(doc(db, "sessions", sessionId), {
-    [`remarks.${remId}`]: { activityId: actId, studentName, text: "", trials: [], order: Date.now() }
+    [`remarks.${remId}`]: { activityId: actId, studentName, text, trials: [], order: Date.now() }
   });
   return remId;
 }

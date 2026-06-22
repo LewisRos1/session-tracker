@@ -60,7 +60,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "423";
+const APP_VERSION = "424";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -2497,9 +2497,9 @@ function viewActivityRows(no, actName, actId, data, target, isPredefined = true)
       <td class="vcol-no" contenteditable="false">${no}</td>
       <td class="vcol-act" contenteditable="false">${actCell}</td>
       <td class="vcol-rem">${emptyCell}</td>
-      <td class="vcol-trials" contenteditable="false"></td>
-      <td class="vcol-total" contenteditable="false"></td>
-      <td class="vcol-score" contenteditable="false"></td>
+      <td class="vcol-trials" contenteditable="false">&nbsp;</td>
+      <td class="vcol-total" contenteditable="false">&nbsp;</td>
+      <td class="vcol-score" contenteditable="false">&nbsp;</td>
     </tr>`;
   }
   return remarks.map((rem, ri) => viewRemarkRow(
@@ -2580,7 +2580,7 @@ function viewRemarkRow(no, actName, rem, target, inlineOptions = null, sentenceS
     <td class="vcol-act" contenteditable="false">${actName !== null ? actName : ""}</td>
     <td class="vcol-rem">${remarkCell}</td>
     <td class="vcol-trials" contenteditable="false"><div class="trial-cells">${trialCells}</div></td>
-    <td class="vcol-total" contenteditable="false">${validTrials.length > 0 ? total : ""}</td>
+    <td class="vcol-total" contenteditable="false">${validTrials.length > 0 ? total : "&nbsp;"}</td>
     <td class="vcol-score" contenteditable="false">
       <div style="display:flex;align-items:center;gap:.3rem;justify-content:flex-end">
         <span>${scorePct}</span>
@@ -2664,12 +2664,13 @@ function setupMergedRemarkSaving(body, getSessionId, onIdle) {
             );
           }
           // Group view's empty boxes are scoped to one attendee (data-student);
-          // the individual view's aren't.
+          // the individual view's aren't. Pass text straight into the create
+          // call (both accept it) instead of a separate updateRemarkText
+          // write after — one less sequential round-trip before the remark
+          // (and its "+ Trial" button) actually shows up.
           const studentName = div.dataset.student;
-          const remId = studentName
-            ? await addGroupRemark(sid, actId, studentName)
-            : await addRemark(sid, actId, "");
-          await updateRemarkText(sid, remId, text);
+          if (studentName) await addGroupRemark(sid, actId, studentName, text);
+          else await addRemark(sid, actId, text);
         } finally {
           div.dataset.creating = "false";
         }
@@ -3299,9 +3300,9 @@ function viewGroupActivityRows(no, actName, actId, data, target, attendees, isPr
             data-student="${escHtml(studentName)}"
             data-placeholder="Click to add remark…"></div>
         </td>
-        <td class="vcol-trials" contenteditable="false"></td>
-        <td class="vcol-total" contenteditable="false"></td>
-        <td class="vcol-score" contenteditable="false"></td>
+        <td class="vcol-trials" contenteditable="false">&nbsp;</td>
+        <td class="vcol-total" contenteditable="false">&nbsp;</td>
+        <td class="vcol-score" contenteditable="false">&nbsp;</td>
       </tr>`).join("");
     }
 
@@ -3313,9 +3314,9 @@ function viewGroupActivityRows(no, actName, actId, data, target, attendees, isPr
         <button class="btn-view-group-add-remark-all" data-act-id="${escHtml(actId || "")}"
           data-act-name="${escHtml(actName)}" data-target-name="${escHtml(target.name)}">+ Add Remark &amp; Trials</button>
       </td>
-      <td class="vcol-trials" contenteditable="false"></td>
-      <td class="vcol-total" contenteditable="false"></td>
-      <td class="vcol-score" contenteditable="false"></td>
+      <td class="vcol-trials" contenteditable="false">&nbsp;</td>
+      <td class="vcol-total" contenteditable="false">&nbsp;</td>
+      <td class="vcol-score" contenteditable="false">&nbsp;</td>
     </tr>`;
   }
 
@@ -3341,9 +3342,9 @@ function viewGroupActivityRows(no, actName, actId, data, target, attendees, isPr
             <button class="btn-view-group-add-remark-pending" data-act-id="${escHtml(actId || "")}"
               data-student="${escHtml(entry.studentName)}">+ Add Remark &amp; Trials</button>
           </td>
-          <td class="vcol-trials" contenteditable="false"></td>
-          <td class="vcol-total" contenteditable="false"></td>
-          <td class="vcol-score" contenteditable="false"></td>
+          <td class="vcol-trials" contenteditable="false">&nbsp;</td>
+          <td class="vcol-total" contenteditable="false">&nbsp;</td>
+          <td class="vcol-score" contenteditable="false">&nbsp;</td>
         </tr>`;
         firstRowOverall = false;
         continue;
@@ -3451,7 +3452,7 @@ function viewGroupRemarkRow(no, actName, studentName, rem, target, inlineOptions
     <td class="vcol-student" contenteditable="false">${escHtml(studentName)}</td>
     ${remarkTd}
     <td class="vcol-trials" contenteditable="false"><div class="trial-cells">${trialCells}</div></td>
-    <td class="vcol-total" contenteditable="false">${validTrials.length > 0 ? total : ""}</td>
+    <td class="vcol-total" contenteditable="false">${validTrials.length > 0 ? total : "&nbsp;"}</td>
     <td class="vcol-score" contenteditable="false">
       <div style="display:flex;align-items:center;gap:.3rem;justify-content:flex-end">
         <span>${scorePct}</span>
