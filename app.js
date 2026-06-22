@@ -60,7 +60,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "448";
+const APP_VERSION = "449";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -1453,11 +1453,13 @@ function renderTargetContent() {
   if (avgEl) avgEl.textContent = avg !== null ? avg + "%" : "—";
 
   const container = $("target-content");
+  const captured = captureActiveEditState(container);
   container.innerHTML = target.predefinedActivities?.length > 0
     ? renderFedcTarget(target)
     : renderRegularTarget(target);
 
   attachTargetListeners(target);
+  restoreActiveEditState(container, captured);
 }
 
 // ─── FEDC TARGET ─────────────────────────────────────────────
@@ -3043,6 +3045,129 @@ function setupEntryRemarkSaving(host, getSessionId, onIdle) {
       host.removeEventListener("beforeinput", onBeforeInput);
     }
   };
+}
+
+// Every previous fix for the caret-disappearing/text-flickering bug tried to
+// predict and defer renders that land mid-edit (focus grace windows, write
+// cooldowns, etc.) — all still left a timing race on a slow enough
+// connection. This closes the gap a different way: instead of trying to
+// avoid re-rendering while the user is mid-keystroke, make the re-render
+// itself non-destructive. Before a render replaces #target-content's whole
+// innerHTML, capture whichever box the caret is currently in (its identity,
+// current — possibly unsaved — html, and the caret's position within it).
+// After the render, if a box with that same identity exists in the fresh
+// markup, overwrite ITS html with what was captured and restore the caret —
+// so a render landing at the worst possible moment no longer matters: the
+// user's in-progress edit (and cursor) survives it intact, and the normal
+// save-debounce flow picks up and persists that text exactly as before.
+const EDITABLE_BOX_SELECTOR =
+  ".remark-text-input, .mastery-note-input, .activity-name-input, .predef-remark-input-live, .group-remark-input, .group-remark-input-combined";
+
+function captureActiveEditState(host) {
+  const sel = document.getSelection();
+  if (!sel || sel.rangeCount === 0) return null;
+  const node = sel.anchorNode;
+  if (!node || !host.contains(node)) return null;
+  const el = (node.nodeType === 1 ? node : node.parentElement)?.closest(EDITABLE_BOX_SELECTOR);
+  if (!el) return null;
+  const idAttr = el.dataset.remId ? "remId" : el.dataset.actId ? "actId" : el.dataset.remIds ? "remIds" : null;
+  if (!idAttr) return null;
+  return {
+    className: el.className,
+    idAttr,
+    idValue: el.dataset[idAttr],
+    html: el.innerHTML,
+    caretPos: linearCaretPosition(el, sel.anchorNode, sel.anchorOffset)
+  };
+}
+
+function restoreActiveEditState(host, captured) {
+  if (!captured) return;
+  const el = [...host.querySelectorAll(`.${captured.className.split(" ").join(".")}`)]
+    .find(e => e.dataset[captured.idAttr] === captured.idValue);
+  if (!el) return;
+  el.innerHTML = captured.html;
+  placeCaretAtLinearPosition(el, captured.caretPos);
+}
+
+// Counts text characters + <br> elements between the start of el's content
+// and the given (node, offset) point — a stable, content-based "position"
+// that survives the box being torn down and rebuilt with identical content.
+function linearCaretPosition(el, node, offset) {
+  let count = 0;
+  let done = false;
+  const visit = n => {
+    if (done) return;
+    if (n === node) {
+      if (n.nodeType === 3) count += offset;
+      done = true;
+      return;
+    }
+    if (n.nodeType === 3) {
+      count += n.textContent.length;
+    } else if (n.nodeName === "BR") {
+      count += 1;
+    } else {
+      for (const child of n.childNodes) {
+        visit(child);
+        if (done) return;
+      }
+    }
+  };
+  if (node === el) {
+    for (let i = 0; i < offset && i < el.childNodes.length; i++) {
+      const child = el.childNodes[i];
+      count += child.nodeType === 3 ? child.textContent.length
+        : child.nodeName === "BR" ? 1
+        : (child.textContent || "").length;
+    }
+    return count;
+  }
+  for (const child of el.childNodes) {
+    visit(child);
+    if (done) break;
+  }
+  return count;
+}
+
+// Inverse of linearCaretPosition — walks el's content counting the same
+// units back out, and collapses the selection there.
+function placeCaretAtLinearPosition(el, pos) {
+  let remaining = pos;
+  let resultNode = el, resultOffset = el.childNodes.length;
+  const visit = n => {
+    if (n.nodeType === 3) {
+      if (remaining <= n.textContent.length) {
+        resultNode = n;
+        resultOffset = remaining;
+        remaining = -1;
+        return true;
+      }
+      remaining -= n.textContent.length;
+      return false;
+    }
+    if (n.nodeName === "BR") {
+      if (remaining === 0) {
+        resultNode = n.parentNode;
+        resultOffset = Array.prototype.indexOf.call(n.parentNode.childNodes, n);
+        remaining = -1;
+        return true;
+      }
+      remaining -= 1;
+      return false;
+    }
+    for (const child of Array.from(n.childNodes)) {
+      if (visit(child)) return true;
+    }
+    return false;
+  };
+  visit(el);
+  const range = document.createRange();
+  range.setStart(resultNode, resultOffset);
+  range.collapse(true);
+  const sel = document.getSelection();
+  sel.removeAllRanges();
+  sel.addRange(range);
 }
 
 // Manually insert a <br> at the current caret position, bypassing
@@ -5969,9 +6094,11 @@ function renderGroupTargetContent() {
 
   items.push(`<button class="btn-add-activity btn-group-add-activity" contenteditable="false">+ Add Activity (This activity only appears in this session)</button>`);
 
+  const captured = captureActiveEditState(content);
   content.innerHTML = items.join("");
   updateGroupAvgChips(target, data);
   attachGroupTargetListeners(target);
+  restoreActiveEditState(content, captured);
 }
 
 // "Group students together": activity is the heading, students are listed underneath
