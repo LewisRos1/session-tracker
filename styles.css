@@ -620,6 +620,7 @@ html, body {
 
 .target-dropdown {
   flex: 1;
+  min-width: 0;
   padding: .55rem .75rem;
   border: 2px solid var(--border);
   border-radius: var(--radius-sm);
