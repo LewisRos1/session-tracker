@@ -1178,7 +1178,7 @@ input.field-input::placeholder {
 .score-modal-trials {
   display: flex;
   align-items: center;
-  gap: .3rem;
+  gap: .5rem;
   flex-wrap: wrap;
 }
 .score-modal-trials-label {
@@ -1190,27 +1190,32 @@ input.field-input::placeholder {
 .score-modal-trial-badge {
   display: inline-flex;
   align-items: center;
-  gap: .2rem;
-  padding: 0 .4rem 0 .55rem;
-  height: 1.6rem;
+  gap: .3rem;
+  padding: 0 .3rem 0 .7rem;
+  height: 2.1rem;
   background: var(--primary);
   color: #fff;
-  border-radius: 20px;
-  font-size: .8rem;
+  border-radius: 24px;
+  font-size: 1rem;
   font-weight: 700;
 }
 .score-trial-del {
-  background: none;
+  background: rgba(255,255,255,.2);
   border: none;
-  color: rgba(255,255,255,.75);
-  font-size: .85rem;
+  color: #fff;
+  font-size: 1.05rem;
   line-height: 1;
   padding: 0;
   cursor: pointer;
   display: flex;
   align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 50%;
 }
-.score-trial-del:hover { color: #fff; }
+.score-trial-del:hover,
+.score-trial-del:active { background: rgba(255,255,255,.4); color: #fff; }
 
 .modal-close {
   background: none;
