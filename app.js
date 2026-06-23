@@ -60,7 +60,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const APP_VERSION = "461";
+const APP_VERSION = "463";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -124,9 +124,22 @@ const $ = id => document.getElementById(id);
 // True while a View/Edit-past-session screen's box is focused — used to
 // defer a render that would otherwise yank a remark box out from under the
 // user mid-edit. Identical logic for individual and group.
+//
+// Deliberately checks specific editable-field classes rather than
+// activeElement.isContentEditable — contenteditable="true" on the whole
+// session-view-body host inherits to every descendant that isn't marked
+// contenteditable="false", so that check also matches the host div itself.
+// A button's mousedown handler intentionally blocks the focus-shift that
+// would otherwise blur whatever was previously focused (that's the fix for
+// buttons needing 2 clicks) — so if the host (or any such inherited-editable
+// element) ever ends up focused, isContentEditable would stay true forever,
+// permanently blocking every future render until a manual page refresh.
 function isViewBusy() {
   const active = document.activeElement;
-  return !!(active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.isContentEditable));
+  return !!(active && (
+    active.tagName === "INPUT" || active.tagName === "TEXTAREA"
+    || active.matches?.(".view-remark-edit, .view-mastery-note")
+  ));
 }
 function isGroupViewBusy() {
   return isViewBusy();
@@ -2862,8 +2875,8 @@ function setupMergedRemarkSaving(body, getSessionId, onIdle) {
 
   // Every other cell is carved out with contenteditable="false", so any "input"
   // event reaching the shared host can only have come from a free-text remark box.
-  // The busy-check this saver pairs with treats ANY focused contenteditable
-  // element on the page as "still busy", not just the one that changed — so
+  // The busy-check this saver pairs with (isViewBusy) treats ANY focused
+  // remark/note box as "still busy", not just the one that changed — so
   // if the user moves on to typing in a different remark box right after,
   // the render that would reveal the newly-created remark's "+ Trial" button
   // stays deferred until they focus something non-editable. onIdle fires the
@@ -3250,7 +3263,12 @@ function attachViewListeners() {
         ? getViewEffectiveTargets().find(t => t.name === act.targetName)
         : null;
       const maxPts = target?.maxPoints || 3;
+      const prevLen = (rem.trials || []).length;
       await setTrials(state.viewSessionId, btn.dataset.remId, [...(rem.trials || []), -1]);
+      // setTrials() resolving only means the write was sent — wait for the
+      // local snapshot to actually have it before letting the render fire,
+      // or the new trial dropdown looks like it didn't appear at all.
+      await waitForSessionData(() => (state.viewSessionData?.remarks?.[btn.dataset.remId]?.trials || []).length > prevLen);
     }));
   });
 
@@ -3339,6 +3357,7 @@ function attachViewListeners() {
       }
       const remId = await addRemark(state.viewSessionId, actId, "", null);
       await setTrials(state.viewSessionId, remId, [-1]);
+      await waitForSessionData(() => !!state.viewSessionData?.remarks?.[remId]?.trials?.length);
     }));
   });
 
@@ -3872,7 +3891,9 @@ function attachGroupViewListeners() {
     btn.addEventListener("click", wrap(async () => {
       const rem = state.viewGroupSessionData?.remarks?.[btn.dataset.remId];
       if (!rem) return;
+      const prevLen = (rem.trials || []).length;
       await setTrials(sid(), btn.dataset.remId, [...(rem.trials || []), -1]);
+      await waitForSessionData(() => (state.viewGroupSessionData?.remarks?.[btn.dataset.remId]?.trials || []).length > prevLen);
     }));
   });
 
@@ -4032,6 +4053,7 @@ function attachGroupViewListeners() {
       }
       const remId = await addGroupRemark(sid(), actId, btn.dataset.student);
       await setTrials(sid(), remId, [-1]);
+      await waitForSessionData(() => !!state.viewGroupSessionData?.remarks?.[remId]?.trials?.length);
     }));
   });
 
