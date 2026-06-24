@@ -110,7 +110,7 @@ function versionLineText() {
   return `Made by Lewis · Version ${APP_VERSION}`;
 }
 
-const APP_VERSION = "489";
+const APP_VERSION = "491";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -429,6 +429,11 @@ function registerServiceWorker() {
       document.addEventListener("visibilitychange", () => {
         if (document.visibilityState === "visible") reg.update();
       });
+      // Catches updates even if the tab is just left open in the foreground
+      // the whole time — visibilitychange alone never fires then, so an
+      // update could otherwise sit undetected until the boss happens to
+      // switch away and back, or manually refreshes.
+      setInterval(() => reg.update(), 60000);
     })
     .catch(() => {});
 }
@@ -448,6 +453,13 @@ function initPin() {
   const pinLen = CONFIG.PIN_LENGTH;
   let value = "";
   let checking = false;
+
+  // A previous successful login leaves statusMsg's "hidden" class removed
+  // (only the error path explicitly re-hides it — success just navigates
+  // away from this whole screen). Reset both on every fresh entry so
+  // "Logging in…" can't still be showing before anything's been typed.
+  errMsg.classList.add("hidden");
+  statusMsg.classList.add("hidden");
 
   dotsEl.innerHTML = Array.from({ length: pinLen }, () =>
     '<span class="pin-dot"></span>'
@@ -471,8 +483,16 @@ function initPin() {
     errMsg.classList.add("hidden");
     statusMsg.classList.remove("hidden");
     try {
-      await signInWithPin(value);
+      // Marked *before* signing in, not after — onAuthChange's listener can
+      // fire as soon as Firebase's internal state updates, which can race
+      // ahead of this async function's own continuation after the await.
+      // If hasLoggedInToday() were still false at that moment, onAuthChange
+      // would immediately sign this brand-new login back out again (it
+      // looks identical to a stale persisted session from a previous day),
+      // leaving "Logging in…" stuck forever since the screen never moves on
+      // to home OR back to a fresh PIN entry.
       markLoggedInToday();
+      await signInWithPin(value);
       // Success: onAuthChange (registered once in DOMContentLoaded) picks up
       // the new signed-in user, loads data, and shows home from there. Leave
       // "Logging in…" up the whole time — loading that data after sign-in
@@ -539,6 +559,10 @@ async function showHome() {
   renderTemplateButtons();
   renderExportButtons();
 }
+
+$("btn-logout").addEventListener("click", () => {
+  signOutUser();
+});
 
 // ── Add student / template from home screen ───────────────────
 
