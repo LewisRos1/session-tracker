@@ -24,6 +24,13 @@ import {
   deleteField,
   serverTimestamp
 } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
+import {
+  getAuth,
+  setPersistence,
+  inMemoryPersistence,
+  signInWithEmailAndPassword,
+  onAuthStateChanged
+} from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
 
 // ─── FIREBASE CONFIGURATION ────────────────────────────────
 // Replace every "YOUR_..." placeholder with your project's values.
@@ -44,6 +51,30 @@ const app = initializeApp(FIREBASE_CONFIG);
 const db = initializeFirestore(app, {
   localCache: persistentLocalCache()
 });
+
+// ─── AUTH ────────────────────────────────────────────────────
+// There's one shared account for the whole team — the PIN screen is the
+// real login UI, this just turns "the PIN" into an actual server-checked
+// password instead of a value compared inside the page's own JS (which
+// anyone could read). Firebase requires passwords to be 6+ characters, so
+// the PIN gets a fixed prefix glued on before being sent — staff never see
+// or type that prefix, they still just enter the PIN on the keypad.
+const auth = getAuth(app);
+// Staff want the PIN required every single time the app opens — app.js
+// forces a sign-out at the start of every load to guarantee that, so there
+// is nothing for Firebase itself to persist across reloads.
+setPersistence(auth, inMemoryPersistence);
+const AUTH_EMAIL    = "staff@session-tracker.app";
+const PIN_PASSWORD_PREFIX = "str-pin-";
+
+export function signInWithPin(pin) {
+  return signInWithEmailAndPassword(auth, AUTH_EMAIL, PIN_PASSWORD_PREFIX + pin);
+}
+
+// Calls back immediately with the current state, then on every change.
+export function onAuthChange(callback) {
+  return onAuthStateChanged(auth, callback);
+}
 
 // ─── ID GENERATOR ───────────────────────────────────────────
 // Produces short alphanumeric IDs safe for Firestore field paths.
@@ -263,8 +294,10 @@ export async function deleteActivity(sessionId, actId, remarkIds) {
 
 // ─── REMARK OPERATIONS ───────────────────────────────────────
 
-export async function addRemark(sessionId, actId, text, predefinedKey = null) {
-  const remId = generateId("r");
+// remId can be supplied by the caller (e.g. to write a remark into local
+// state immediately, before this write reaches the server, so the UI
+// doesn't have to wait on the round trip) — otherwise one is generated here.
+export async function addRemark(sessionId, actId, text, predefinedKey = null, remId = generateId("r")) {
   const data = { activityId: actId, text, trials: [], order: Date.now() };
   if (predefinedKey !== null) data.predefinedKey = predefinedKey;
   await updateDoc(doc(db, "sessions", sessionId), {
@@ -541,26 +574,24 @@ export async function deleteGroupTargetDataFromSessions(groupId, targetName) {
 }
 
 /** Add a remark for a specific student in a group session. */
-export async function addGroupRemark(sessionId, actId, studentName, text = "") {
-  const remId = generateId("r");
+export async function addGroupRemark(sessionId, actId, studentName, text = "", remId = generateId("r")) {
   await updateDoc(doc(db, "sessions", sessionId), {
     [`remarks.${remId}`]: { activityId: actId, studentName, text, trials: [], order: Date.now() }
   });
   return remId;
 }
 
-/** Add remarks for multiple students in one write (no sequential re-renders). */
-export async function addGroupRemarksBatch(sessionId, entries) {
+/** Add remarks for multiple students in one write (no sequential re-renders).
+ *  remIds, if supplied, must be the same length as entries (see addRemark). */
+export async function addGroupRemarksBatch(sessionId, entries, remIds = null) {
   const updates = {};
   const now = Date.now();
-  const remIds = [];
-  for (const { actId, studentName } of entries) {
-    const remId = generateId("r");
-    remIds.push(remId);
-    updates[`remarks.${remId}`] = { activityId: actId, studentName, text: "", trials: [], order: now };
-  }
+  const ids = remIds || entries.map(() => generateId("r"));
+  entries.forEach(({ actId, studentName }, i) => {
+    updates[`remarks.${ids[i]}`] = { activityId: actId, studentName, text: "", trials: [], order: now };
+  });
   await updateDoc(doc(db, "sessions", sessionId), updates);
-  return remIds;
+  return ids;
 }
 
 /** Delete multiple remarks in one write (no sequential re-renders). */

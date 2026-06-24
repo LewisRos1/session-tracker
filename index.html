@@ -27,16 +27,32 @@
 </head>
 <body>
 
+  <!-- Shown by default until the code determines whether you're already
+       signed in — avoids a flash of the PIN screen for already-logged-in
+       staff every time the app loads. Also reused to show "App Updating…"
+       across a SW-update-triggered reload (see controllerchange below) so
+       it reads as one continuous, intentional transition instead of the
+       app silently bouncing back to the home screen with no explanation. -->
+  <div id="screen-loading" class="screen">
+    <div id="updating-content" class="updating-content hidden">
+      <div class="pin-logo">🧩</div>
+      <p class="updating-text">App Updating</p>
+      <div class="updating-progress"><div id="updating-progress-bar" class="updating-progress-bar"></div></div>
+      <span id="updating-percent" class="updating-percent">0%</span>
+    </div>
+  </div>
+
   <!-- ══════════════════════════════════════════════════════
        PIN SCREEN
        ══════════════════════════════════════════════════════ -->
-  <div id="screen-pin" class="screen active">
+  <div id="screen-pin" class="screen hidden">
     <div class="pin-container">
       <div class="pin-logo">🧩</div>
       <h1 class="pin-title">Session Tracker</h1>
       <p class="pin-subtitle">Enter PIN to continue</p>
       <div class="pin-dots" id="pin-dots"></div>
       <div id="pin-error" class="pin-error hidden">Incorrect PIN. Try again.</div>
+      <div id="pin-status" class="pin-status hidden">Logging In<span class="pin-status-dot">.</span><span class="pin-status-dot">.</span><span class="pin-status-dot">.</span></div>
       <div class="pin-keypad" id="pin-keypad">
         <button class="pin-key" data-key="1">1</button>
         <button class="pin-key" data-key="2">2</button>

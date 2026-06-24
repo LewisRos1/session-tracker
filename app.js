@@ -43,7 +43,10 @@ import {
   deleteSession,
   updateSessionDate,
   updateGroupSessionDate,
-  deleteTargetDataFromSessions
+  deleteTargetDataFromSessions,
+  signInWithPin,
+  onAuthChange,
+  generateId
 } from "./firebase-service.js";
 import {
   exportStudentData, exportAllStudents, exportGroupMemberData,
@@ -55,12 +58,58 @@ import {
 if ("serviceWorker" in navigator) {
   const hadController = !!navigator.serviceWorker.controller;
   navigator.serviceWorker.addEventListener("controllerchange", () => {
-    // Only reload for updates, not for the very first SW install.
-    if (hadController) window.location.reload();
+    // Only reload for updates, not for the very first SW install. Show
+    // "App Updating…" on THIS page first so it's visible for a moment, then
+    // reload — the fresh page picks the same message back up immediately
+    // (see the sessionStorage check in DOMContentLoaded below) so it reads
+    // as one continuous transition instead of the app silently bouncing to
+    // the home screen with no explanation.
+    if (hadController) {
+      sessionStorage.setItem("justUpdated", "1");
+      document.querySelectorAll(".screen").forEach(s => s.classList.toggle("hidden", s.id !== "screen-loading"));
+      document.getElementById("updating-content")?.classList.remove("hidden");
+      setTimeout(() => window.location.reload(), 700);
+    }
   });
 }
 
-const APP_VERSION = "465";
+// Set when this page load is showing "App Updating…" right after a SW
+// update reload — holds the timestamp it was revealed so the caller can
+// guarantee a minimum visible time before moving on, regardless of how
+// fast sign-in/data-loading actually finishes.
+let updatingScreenShownAt = null;
+const UPDATING_SCREEN_MIN_MS = 3000;
+
+async function waitForUpdatingScreenMinimum(minMs = UPDATING_SCREEN_MIN_MS) {
+  if (!updatingScreenShownAt) return;
+  const remaining = minMs - (Date.now() - updatingScreenShownAt);
+  updatingScreenShownAt = null; // only delay once per page load
+  if (remaining > 0) await new Promise(r => setTimeout(r, remaining));
+}
+
+// Fills the "App Updating…" progress bar and percentage text from 0 to 100
+// over durationMs (matching waitForUpdatingScreenMinimum's own minimum), so
+// it reads as real progress rather than a generic spinner. Holds at 100% if
+// the actual load ends up taking longer than durationMs.
+function animateUpdatingProgress(durationMs = UPDATING_SCREEN_MIN_MS) {
+  const bar = $("updating-progress-bar");
+  const pct = $("updating-percent");
+  if (!bar || !pct) return;
+  const start = Date.now();
+  const tick = () => {
+    const percent = Math.min(100, Math.round((Date.now() - start) / durationMs * 100));
+    bar.style.width = percent + "%";
+    pct.textContent = percent + "%";
+    if (percent < 100) requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+}
+
+function versionLineText() {
+  return `Made by Lewis · Version ${APP_VERSION}`;
+}
+
+const APP_VERSION = "488";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -244,8 +293,21 @@ function closeTextEditorSheet() {
 
 // ─── INIT ────────────────────────────────────────────────────
 document.addEventListener("DOMContentLoaded", async () => {
+
   // Register SW immediately — don't wait for Firebase so updates are never blocked.
   registerServiceWorker();
+
+  // Picks the "App Updating…" message back up on the fresh page (it was
+  // already showing on the old page right before this reload happened) —
+  // #screen-loading is already the default-visible screen at this point,
+  // so this just reveals its content; initPin()/showHome() naturally hides
+  // the whole thing once sign-in state is known.
+  if (sessionStorage.getItem("justUpdated")) {
+    sessionStorage.removeItem("justUpdated");
+    $("updating-content")?.classList.remove("hidden");
+    updatingScreenShownAt = Date.now();
+    animateUpdatingProgress();
+  }
 
 
   // On iOS, relatedTarget is always null and pointerdown may not fire for <select>.
@@ -293,35 +355,51 @@ document.addEventListener("DOMContentLoaded", async () => {
     closeTextEditorSheet();
   });
 
-  // Load student config from Firebase (seeds from INITIAL_STUDENTS if empty)
-  try {
-    let students = await loadStudentsConfig();
+  // Firestore now requires a real signed-in user (see firebase-service.js),
+  // so none of the app's data can be fetched until sign-in resolves. Auth
+  // uses inMemoryPersistence (see firebase-service.js) so this always
+  // starts out signed-out on a fresh page load — staff want the PIN
+  // required every time, not just the first time on a device.
+  onAuthChange(async user => {
+    console.log("[PinDebug] onAuthChange fired, user =", user && user.email);
+    if (!user) {
+      await waitForUpdatingScreenMinimum();
+      initPin();
+      return;
+    }
+    await loadAppData();
+    await waitForUpdatingScreenMinimum();
+    showHome();
+  });
+});
+
+// Student/template/group/remark-preset config — only fetchable once signed in.
+async function loadAppData() {
+  // These 4 reads are independent of each other — fire them all at once
+  // instead of one-after-another, or their wait times just add up.
+  const [studentsR, templatesR, groupsR, presetsR] = await Promise.allSettled([
+    loadStudentsConfig(),
+    loadTemplates(),
+    loadGroups(),
+    loadRemarkPresets()
+  ]);
+
+  // Student config (seeds from INITIAL_STUDENTS if empty)
+  if (studentsR.status === "fulfilled") {
+    let students = studentsR.value;
     if (students.length === 0) {
       for (const s of CONFIG.INITIAL_STUDENTS) await saveStudent(s);
       students = CONFIG.INITIAL_STUDENTS;
     }
     state.students = students;
-  } catch (_) {
+  } else {
     state.students = CONFIG.INITIAL_STUDENTS;
   }
 
-  // Load templates
-  try {
-    state.templates = await loadTemplates();
-  } catch (_) {}
-
-  // Load groups
-  try {
-    state.groups = await loadGroups();
-  } catch (_) {}
-
-  // Load remark presets
-  try {
-    state.remarkPresets = await loadRemarkPresets();
-  } catch (_) {}
-
-  initPin();
-});
+  if (templatesR.status === "fulfilled") state.templates = templatesR.value;
+  if (groupsR.status === "fulfilled") state.groups = groupsR.value;
+  if (presetsR.status === "fulfilled") state.remarkPresets = presetsR.value;
+}
 
 function registerServiceWorker() {
   if (!("serviceWorker" in navigator)) return;
@@ -348,14 +426,17 @@ function registerServiceWorker() {
 // ============================================================
 
 function initPin() {
+  console.log("[PinDebug] initPin() called", new Error().stack?.split("\n").slice(1, 4).join(" | "));
   showScreen("screen-pin");
   const vEl = $("pin-version");
-  if (vEl) vEl.textContent = `Made by Lewis · Version ${APP_VERSION}`;
+  if (vEl) vEl.textContent = versionLineText();
   const errMsg = $("pin-error");
+  const statusMsg = $("pin-status");
   const dotsEl = $("pin-dots");
   const keypad = $("pin-keypad");
-  const pinLen = CONFIG.PIN.length;
+  const pinLen = CONFIG.PIN_LENGTH;
   let value = "";
+  let checking = false;
 
   dotsEl.innerHTML = Array.from({ length: pinLen }, () =>
     '<span class="pin-dot"></span>'
@@ -372,19 +453,37 @@ function initPin() {
     dotsEl.classList.add("shake");
   }
 
-  function submit() {
-    if (value === CONFIG.PIN) {
+  async function submit() {
+    console.log("[PinDebug] submit() called, value =", JSON.stringify(value), "length =", value.length, "pinLen =", pinLen);
+    if (checking) return;
+    checking = true;
+    keypad.classList.add("checking");
+    errMsg.classList.add("hidden");
+    statusMsg.classList.remove("hidden");
+    try {
+      await signInWithPin(value);
+      // Success: onAuthChange (registered once in DOMContentLoaded) picks up
+      // the new signed-in user, loads data, and shows home from there. Leave
+      // "Logging in…" up the whole time — loading that data after sign-in
+      // can itself take a few seconds, and showScreen() will hide this
+      // entire PIN screen (status message included) once home appears, so
+      // there's no gap where nothing is showing.
       document.removeEventListener("keydown", onKeyDown);
-      showHome();
-    } else {
+      checking = false;
+      keypad.classList.remove("checking");
+    } catch (err) {
       shake();
       errMsg.classList.remove("hidden");
+      statusMsg.classList.add("hidden");
       value = "";
       renderDots();
+      checking = false;
+      keypad.classList.remove("checking");
     }
   }
 
   function pressKey(key) {
+    console.log("[PinDebug] pressKey", key, "current value =", JSON.stringify(value), "pinLen =", pinLen);
     if (key === "back") {
       value = value.slice(0, -1);
       errMsg.classList.add("hidden");
@@ -418,7 +517,7 @@ function initPin() {
 async function showHome() {
   showScreen("screen-home");
   const verEl = document.getElementById("app-version");
-  if (verEl) verEl.textContent = `Made by Lewis · Version ${APP_VERSION}`;
+  if (verEl) verEl.textContent = versionLineText();
   // Clear section searches when returning home
   state.searchExisting = ""; state.searchAssessment = ""; state.searchTemplate = "";
   state.searchGroup = "";
@@ -550,7 +649,9 @@ function renderGroupButtons() {
     .filter(g => !q || g.name.toLowerCase().includes(q))
     .sort((a, b) => a.name.localeCompare(b.name));
   if (filtered.length === 0) {
-    container.innerHTML = `<div class="roster-list"><p class="empty-hint">${q ? "No matches." : "No groups yet."}</p></div>`;
+    container.innerHTML = q
+      ? `<p class="empty-hint">No matches.</p>`
+      : `<p class="empty-hint">None yet.</p>`;
     return;
   }
   container.innerHTML = `<div class="roster-list">` +
@@ -798,18 +899,9 @@ function renderSessionsForMonth(student, month, monthSessions, byMonth, today) {
   const list = $("session-picker-list");
   let html = `<button class="btn-picker-back">← Back</button>`;
 
-  const sorted    = [...monthSessions].sort((a, b) => a.date.localeCompare(b.date));
-  const display   = [...sorted].reverse();
-  const yesterday = getYesterdayString();
-  for (const s of display) {
-    const num   = sorted.findIndex(x => x.id === s.id) + 1;
-    const label = sessionDateLabel(s.date, today, yesterday, false);
-    html += `<div class="session-list-item" data-session-id="${s.id}">
-      <div class="session-list-meta">
-        <div class="session-list-label"><strong>Session ${num}</strong>: ${formatDate(s.date)}${label}</div>
-      </div>
-    </div>`;
-  }
+  const sorted  = [...monthSessions].sort((a, b) => a.date.localeCompare(b.date));
+  const display = [...sorted].reverse();
+  html += renderSessionListRows(sorted, display, today);
 
   list.innerHTML = html;
 
@@ -922,18 +1014,9 @@ function renderExportSessionsForMonth(entityLabel, month, monthSessions, byMonth
   let html = `<button class="btn-picker-back">← Back</button>`;
   html += `<p class="session-date-prompt">Choose a session note to export:</p>`;
 
-  const sorted    = [...monthSessions].sort((a, b) => a.date.localeCompare(b.date));
-  const display   = [...sorted].reverse();
-  const yesterday = getYesterdayString();
-  for (const s of display) {
-    const num   = sorted.findIndex(x => x.id === s.id) + 1;
-    const label = sessionDateLabel(s.date, today, yesterday, false);
-    html += `<div class="session-list-item" data-session-id="${s.id}">
-      <div class="session-list-meta">
-        <div class="session-list-label"><strong>Session ${num}</strong>: ${formatDate(s.date)}${label}</div>
-      </div>
-    </div>`;
-  }
+  const sorted  = [...monthSessions].sort((a, b) => a.date.localeCompare(b.date));
+  const display = [...sorted].reverse();
+  html += renderSessionListRows(sorted, display, today);
 
   list.innerHTML = html;
 
@@ -1056,21 +1139,10 @@ function renderGoToMonthGrid(student, byMonth, today) {
 
 function renderGoToSessionsForMonth(student, month, monthSessions, byMonth, today) {
   $("session-picker-title").textContent = month;
-  const sorted    = [...monthSessions].sort((a, b) => a.date.localeCompare(b.date));
-  const display   = [...sorted].reverse();
-  const yesterday = getYesterdayString();
+  const sorted  = [...monthSessions].sort((a, b) => a.date.localeCompare(b.date));
+  const display = [...sorted].reverse();
   let html = `<button class="btn-picker-back">← Back</button>`;
-  for (const s of display) {
-    const num       = sorted.findIndex(x => x.id === s.id) + 1;
-    const isCurrent = s.id === state.viewSessionId;
-    const cls       = `session-list-item${isCurrent ? " session-list-current" : ""}`;
-    const label     = sessionDateLabel(s.date, today, yesterday, isCurrent);
-    html += `<div class="${cls}" data-session-id="${s.id}">
-      <div class="session-list-meta">
-        <div class="session-list-label"><strong>Session ${num}</strong>: ${formatDate(s.date)}${label}</div>
-      </div>
-    </div>`;
-  }
+  html += renderSessionListRows(sorted, display, today, { isCurrentId: state.viewSessionId });
   const list = $("session-picker-list");
   list.innerHTML = html;
   list.querySelector(".btn-picker-back").addEventListener("click", () => {
@@ -1116,7 +1188,7 @@ function renderStartSessionCalendar(student, today, displayDate, takenDates = ne
   const daysInMon = new Date(y, m, 0).getDate();
 
   let html = `<div class="date-picker-wrap">
-    <p class="date-picker-legend"><span class="date-taken-dot"></span> Session exists on this day</p>
+    <p class="date-picker-legend"><span class="date-taken-dot">✓︎</span> Session exists on this day</p>
     <div class="date-picker-cal">
       <div class="date-picker-nav">
         <button class="btn-date-prev">‹</button>
@@ -1139,7 +1211,7 @@ function renderStartSessionCalendar(student, today, displayDate, takenDates = ne
     if (isFut)   cls += " date-picker-day-future";
     if (isTaken) cls += " date-picker-day-taken";
     const dotCls = isTaken ? "date-taken-dot" : "day-dot-spacer";
-    html += `<button class="${cls}" data-date="${ds}"${isFut ? " disabled" : ""}><span class="day-num">${d}</span><span class="${dotCls}"></span></button>`;
+    html += `<button class="${cls}" data-date="${ds}"${isFut ? " disabled" : ""}><span class="day-num">${d}</span><span class="${dotCls}">${isTaken ? "✓︎" : ""}</span></button>`;
   }
   html += `</div></div></div>`;
 
@@ -1175,7 +1247,7 @@ function renderGroupStartSessionCalendar(group, today, displayDate, takenDates =
   const daysInMon = new Date(y, m, 0).getDate();
 
   let html = `<div class="date-picker-wrap">
-    <p class="date-picker-legend"><span class="date-taken-dot"></span> Session exists on this day</p>
+    <p class="date-picker-legend"><span class="date-taken-dot">✓︎</span> Session exists on this day</p>
     <div class="date-picker-cal">
       <div class="date-picker-nav">
         <button class="btn-date-prev">‹</button>
@@ -1198,7 +1270,7 @@ function renderGroupStartSessionCalendar(group, today, displayDate, takenDates =
     if (isFut)   cls += " date-picker-day-future";
     if (isTaken) cls += " date-picker-day-taken";
     const dotCls = isTaken ? "date-taken-dot" : "day-dot-spacer";
-    html += `<button class="${cls}" data-date="${ds}"${isFut ? " disabled" : ""}><span class="day-num">${d}</span><span class="${dotCls}"></span></button>`;
+    html += `<button class="${cls}" data-date="${ds}"${isFut ? " disabled" : ""}><span class="day-num">${d}</span><span class="${dotCls}">${isTaken ? "✓︎" : ""}</span></button>`;
   }
   html += `</div></div></div>`;
 
@@ -1237,7 +1309,7 @@ function renderDatePickerCalendar(displayDate, takenDates, today, currentDate) {
 
   let html = `<div class="date-picker-wrap">
     <p class="date-picker-subtitle">Select a new date</p>
-    <p class="date-picker-legend"><span class="date-taken-dot"></span> Session exists on this day</p>
+    <p class="date-picker-legend"><span class="date-taken-dot">✓︎</span> Session exists on this day</p>
     <div class="date-picker-cal">
       <div class="date-picker-nav">
         <button class="btn-date-prev">‹</button>
@@ -1263,8 +1335,8 @@ function renderDatePickerCalendar(displayDate, takenDates, today, currentDate) {
     if (isCur)   cls += " date-picker-day-current";
     if (isFut)   cls += " date-picker-day-future";
     if (isTaken) cls += " date-picker-day-taken";
-    const dotCls = (isTaken || isCur) ? "date-taken-dot" : "day-dot-spacer";
-    html += `<button class="${cls}" data-date="${ds}"${dis ? " disabled" : ""}><span class="day-num">${d}</span><span class="${dotCls}"></span></button>`;
+    const dotCls = isTaken ? "date-taken-dot" : "day-dot-spacer";
+    html += `<button class="${cls}" data-date="${ds}"${dis ? " disabled" : ""}><span class="day-num">${d}</span><span class="${dotCls}">${isTaken ? "✓︎" : ""}</span></button>`;
   }
   html += `</div></div></div>`;
 
@@ -2043,30 +2115,23 @@ function attachTargetListeners(target) {
           renderTargetContent();
         }
       };
-      // Released the instant "click" actually fires (proving the button
-      // survived the gap) — the main click handler's own increment (added
-      // earlier, so it runs first) takes over from there with no added
-      // delay. The timeout is only a fallback for a press that never
-      // resolves into a click at all.
+      // Released the instant "click" actually fires, proving the button
+      // survived the gap — the main click handler renders synchronously
+      // once it's done (no further write to guard against). The timeout is
+      // only a fallback for a press that never resolves into a click at all.
       btn.addEventListener("click", release, { once: true });
       setTimeout(release, 600);
     });
     btn.addEventListener("click", async () => {
       if (btn.disabled) return;
       btn.disabled = true;
-      btn.textContent = "Adding…";
-      // Tracked so the busy-check defers any unrelated render until this
-      // write lands — otherwise a write from a completely different row
-      // landing mid-click can pass the busy-check, force a render, and
-      // replace this very button before its own write resolves.
-      state.entryActionsInFlight++;
       try {
         const paName  = btn.dataset.paName || null;
         const paOrder = Number(btn.dataset.paOrder) || 0;
         let   actId   = btn.dataset.actId  || null;
         state.pendingNewActivity = null;
         if (paName) actId = await ensureFedcActivity(target.name, paName, paOrder);
-        if (!actId) { btn.disabled = false; btn.textContent = "+ Add Remark & Trials"; return; }
+        if (!actId) { btn.disabled = false; return; }
         let initialText = "";
         if (paName) {
           const pa = target.predefinedActivities?.find(a => a.name === paName);
@@ -2074,25 +2139,21 @@ function attachTargetListeners(target) {
             initialText = await getLastMasteryValue(state.currentStudent, target.name, paName, state.currentSessionId);
           }
         }
-        const remId = await addRemark(state.currentSessionId, actId, initialText);
-        // Wait for the new remark to actually land in state.sessionData
-        // before letting the finally block render — addRemark() resolving
-        // only means the write was sent, not that onSnapshot delivered it.
-        await waitForSessionData(() => !!state.sessionData?.remarks?.[remId]);
+        // Write the remark into local state and render right away instead of
+        // waiting on the Firestore round trip — addRemark() is handed the
+        // same ID so it just confirms this row server-side in the background.
+        const remId = generateId("r");
+        state.sessionData.remarks = state.sessionData.remarks || {};
+        state.sessionData.remarks[remId] = { activityId: actId, text: initialText, trials: [], order: Date.now() };
+        renderTargetContent();
+        addRemark(state.currentSessionId, actId, initialText, null, remId).catch(err => {
+          delete state.sessionData.remarks[remId];
+          renderTargetContent();
+          alert("Couldn't add remark — check your connection and try again.\n\n" + err.message);
+        });
       } catch (err) {
         btn.disabled = false;
-        btn.textContent = "+ Add Remark & Trials";
         alert("Couldn't add remark — check your connection and try again.\n\n" + err.message);
-      } finally {
-        state.entryActionsInFlight--;
-        // The write's own onSnapshot may have already fired and deferred a
-        // render (renderPending) while the counter was still > 0 — nothing
-        // else proactively re-checks once it drops back to 0, so do it here
-        // (same check as setupEntryRemarkSaving's onIdle).
-        if (state.entryActionsInFlight === 0 && state.renderPending) {
-          state.renderPending = false;
-          renderTargetContent();
-        }
       }
     });
   });
@@ -2514,7 +2575,7 @@ function renderSessionView() {
   if (!data || !student) return;
 
   $("view-session-meta").innerHTML =
-    `Session ${data.sessionNumber}: ${formatDate(data.date)}`
+    `Session ${data.sessionNumber}: ${formatDateWithDay(data.date)}${relativeDaySuffix(data.date)}`
     + ` <button class="btn-edit-session-date">Edit Date</button>`;
 
   const delBtn = $("btn-delete-session");
@@ -3500,7 +3561,7 @@ function renderGroupSessionView() {
   if (!data || !group) return;
 
   $("group-view-session-meta").innerHTML =
-    `Session ${data.sessionNumber}: ${formatDate(data.date)}`
+    `Session ${data.sessionNumber}: ${formatDateWithDay(data.date)}${relativeDaySuffix(data.date)}`
     + ` <button class="btn-edit-session-date">Edit Date</button>`;
 
   const delBtn = $("btn-group-delete-session");
@@ -4168,21 +4229,10 @@ function renderGoToGroupMonthGrid(group, byMonth, today) {
 
 function renderGoToGroupSessionsForMonth(group, month, monthSessions, byMonth, today) {
   $("session-picker-title").textContent = month;
-  const sorted    = [...monthSessions].sort((a, b) => a.date.localeCompare(b.date));
-  const display   = [...sorted].reverse();
-  const yesterday = getYesterdayString();
+  const sorted  = [...monthSessions].sort((a, b) => a.date.localeCompare(b.date));
+  const display = [...sorted].reverse();
   let html = `<button class="btn-picker-back">← Back</button>`;
-  for (const s of display) {
-    const num       = sorted.findIndex(x => x.id === s.id) + 1;
-    const isCurrent = s.id === state.viewGroupSessionId;
-    const cls       = `session-list-item${isCurrent ? " session-list-current" : ""}`;
-    const label     = sessionDateLabel(s.date, today, yesterday, isCurrent);
-    html += `<div class="${cls}" data-session-id="${s.id}">
-      <div class="session-list-meta">
-        <div class="session-list-label"><strong>Session ${num}</strong>: ${formatDate(s.date)}${label}</div>
-      </div>
-    </div>`;
-  }
+  html += renderSessionListRows(sorted, display, today, { isCurrentId: state.viewGroupSessionId });
   const list = $("session-picker-list");
   list.innerHTML = html;
   list.querySelector(".btn-picker-back").addEventListener("click", () => {
@@ -4230,7 +4280,7 @@ function renderGroupDatePickerCalendar(displayDate, takenDates, today, currentDa
 
   let html = `<div class="date-picker-wrap">
     <p class="date-picker-subtitle">Select a new date</p>
-    <p class="date-picker-legend"><span class="date-taken-dot"></span> Session exists on this day</p>
+    <p class="date-picker-legend"><span class="date-taken-dot">✓︎</span> Session exists on this day</p>
     <div class="date-picker-cal">
       <div class="date-picker-nav">
         <button class="btn-date-prev">‹</button>
@@ -4255,8 +4305,8 @@ function renderGroupDatePickerCalendar(displayDate, takenDates, today, currentDa
     if (isCur)   cls += " date-picker-day-current";
     if (isFut)   cls += " date-picker-day-future";
     if (isTaken) cls += " date-picker-day-taken";
-    const dotCls = (isTaken || isCur) ? "date-taken-dot" : "day-dot-spacer";
-    html += `<button class="${cls}" data-date="${ds}"${dis ? " disabled" : ""}><span class="day-num">${d}</span><span class="${dotCls}"></span></button>`;
+    const dotCls = isTaken ? "date-taken-dot" : "day-dot-spacer";
+    html += `<button class="${cls}" data-date="${ds}"${dis ? " disabled" : ""}><span class="day-num">${d}</span><span class="${dotCls}">${isTaken ? "✓︎" : ""}</span></button>`;
   }
   html += `</div></div></div>`;
 
@@ -6422,9 +6472,10 @@ function attachGroupTargetListeners(target) {
           renderGroupTargetContent();
         }
       };
-      // Released the instant "click" fires (the main click handler's own
-      // increment, registered earlier, takes over with no added delay) —
-      // the timeout is only a fallback for a press that never becomes a click.
+      // Released the instant "click" fires, proving the button survived the
+      // gap — the main click handler renders synchronously once it's done,
+      // no further write to guard against. The timeout is only a fallback
+      // for a press that never becomes a click.
       btn.addEventListener("click", release, { once: true });
       setTimeout(release, 600);
     });
@@ -6434,11 +6485,6 @@ function attachGroupTargetListeners(target) {
   c.querySelectorAll(".btn-group-add-remark-all").forEach(btn => {
     btn.addEventListener("click", async () => {
       btn.disabled = true;
-      btn.textContent = "Adding…";
-      // See the individual screen's .btn-add-remark handler for why this is
-      // tracked — an unrelated write landing mid-click can otherwise pass
-      // the busy-check and replace this button before its own write resolves.
-      state.entryGroupActionsInFlight++;
       try {
         const actName    = btn.dataset.actName;
         const targetName = btn.dataset.target;
@@ -6453,15 +6499,12 @@ function attachGroupTargetListeners(target) {
             .some(r => r.activityId === actId && r.studentName === studentName))
           .map(studentName => ({ actId, studentName }));
         if (entries.length) {
-          const remIds = await addGroupRemarksBatch(state.groupSessionId, entries);
-          await waitForSessionData(() => remIds.every(id => !!state.groupSessionData?.remarks?.[id]));
-        }
-      } finally {
-        state.entryGroupActionsInFlight--;
-        if (state.entryGroupActionsInFlight === 0 && state.groupRenderPending) {
-          state.groupRenderPending = false;
+          addGroupRemarksOptimistic(entries);
           renderGroupTargetContent();
         }
+      } catch (err) {
+        btn.disabled = false;
+        alert("Couldn't add remark — check your connection and try again.\n\n" + err.message);
       }
     });
   });
@@ -6470,17 +6513,12 @@ function attachGroupTargetListeners(target) {
   c.querySelectorAll(".btn-group-add-remark-pending").forEach(btn => {
     btn.addEventListener("click", async () => {
       btn.disabled = true;
-      btn.textContent = "Adding…";
-      state.entryGroupActionsInFlight++;
       try {
-        const { remId } = await ensureGroupActivityAndRemark(btn);
-        await waitForSessionData(() => !!state.groupSessionData?.remarks?.[remId]);
-      } finally {
-        state.entryGroupActionsInFlight--;
-        if (state.entryGroupActionsInFlight === 0 && state.groupRenderPending) {
-          state.groupRenderPending = false;
-          renderGroupTargetContent();
-        }
+        await ensureGroupActivityAndRemark(btn);
+        renderGroupTargetContent();
+      } catch (err) {
+        btn.disabled = false;
+        alert("Couldn't add remark — check your connection and try again.\n\n" + err.message);
       }
     });
   });
@@ -6504,41 +6542,21 @@ function attachGroupTargetListeners(target) {
 
   // + Add Remark & Trials (bottom of expanded card — always adds new remarks for all students)
   c.querySelectorAll(".btn-group-add-remark-more").forEach(btn => {
-    btn.addEventListener("click", async () => {
+    btn.addEventListener("click", () => {
       btn.disabled = true;
-      btn.textContent = "Adding…";
-      state.entryGroupActionsInFlight++;
-      try {
-        const actId = btn.dataset.actId;
-        const entries = state.groupAttendees.map(studentName => ({ actId, studentName }));
-        const remIds = await addGroupRemarksBatch(state.groupSessionId, entries);
-        await waitForSessionData(() => remIds.every(id => !!state.groupSessionData?.remarks?.[id]));
-      } finally {
-        state.entryGroupActionsInFlight--;
-        if (state.entryGroupActionsInFlight === 0 && state.groupRenderPending) {
-          state.groupRenderPending = false;
-          renderGroupTargetContent();
-        }
-      }
+      const actId = btn.dataset.actId;
+      const entries = state.groupAttendees.map(studentName => ({ actId, studentName }));
+      addGroupRemarksOptimistic(entries);
+      renderGroupTargetContent();
     });
   });
 
   // + Add Remark & Trials (student-grouped layout — bottom of card, adds another round for just this student)
   c.querySelectorAll(".btn-group-add-remark-student-more").forEach(btn => {
-    btn.addEventListener("click", async () => {
+    btn.addEventListener("click", () => {
       btn.disabled = true;
-      btn.textContent = "Adding…";
-      state.entryGroupActionsInFlight++;
-      try {
-        const remId = await addGroupRemark(state.groupSessionId, btn.dataset.actId, btn.dataset.student);
-        await waitForSessionData(() => !!state.groupSessionData?.remarks?.[remId]);
-      } finally {
-        state.entryGroupActionsInFlight--;
-        if (state.entryGroupActionsInFlight === 0 && state.groupRenderPending) {
-          state.groupRenderPending = false;
-          renderGroupTargetContent();
-        }
-      }
+      addGroupRemarksOptimistic([{ actId: btn.dataset.actId, studentName: btn.dataset.student }]);
+      renderGroupTargetContent();
     });
   });
 
@@ -6568,7 +6586,31 @@ function attachGroupTargetListeners(target) {
   });
 }
 
-// Helper: ensure activity + remark exist in Firestore for a pending row element
+// Writes one or more group remarks into local state immediately instead of
+// waiting on the Firestore round trip (callers render right after calling
+// this), then fires the real writes in the background — rolling back and
+// alerting if any of them fail.
+function addGroupRemarksOptimistic(entries) {
+  const data = state.groupSessionData;
+  data.remarks = data.remarks || {};
+  const now     = Date.now();
+  const remIds  = entries.map(() => generateId("r"));
+  entries.forEach(({ actId, studentName }, i) => {
+    data.remarks[remIds[i]] = { activityId: actId, studentName, text: "", trials: [], order: now };
+  });
+  addGroupRemarksBatch(state.groupSessionId, entries, remIds).catch(err => {
+    remIds.forEach(id => delete data.remarks[id]);
+    renderGroupTargetContent();
+    alert("Couldn't add remark — check your connection and try again.\n\n" + err.message);
+  });
+  return remIds;
+}
+
+// Helper: ensure activity + remark exist for a pending row element. The
+// remark write itself is optimistic (see addGroupRemarksOptimistic) — only
+// activity creation (rare: first time this predefined activity is used in
+// the session) still waits on the network, since the remark needs a real
+// activity ID to point at.
 async function ensureGroupActivityAndRemark(el) {
   const studentName = el.dataset.student;
   const actName     = el.dataset.actName;
@@ -6584,7 +6626,7 @@ async function ensureGroupActivityAndRemark(el) {
   const existing = Object.entries(data.remarks || {})
     .find(([, r]) => r.activityId === actId && r.studentName === studentName);
   if (existing) return { actId, remId: existing[0] };
-  const remId = await addGroupRemark(state.groupSessionId, actId, studentName);
+  const [remId] = addGroupRemarksOptimistic([{ actId, studentName }]);
   return { actId, remId };
 }
 
@@ -6632,20 +6674,14 @@ function renderGroupSessionsForMonth(group, month, monthSessions, byMonth) {
   $("session-picker-title").textContent = month;
   const sorted  = [...monthSessions].sort((a, b) => a.date.localeCompare(b.date));
   const display = [...sorted].reverse();
-  const today     = getTodayString();
-  const yesterday = getYesterdayString();
+  const today   = getTodayString();
   let html = `<button class="btn-picker-back">← Back</button>`;
-  for (const s of display) {
-    const num       = sorted.findIndex(x => x.id === s.id) + 1;
-    const label     = sessionDateLabel(s.date, today, yesterday, false);
-    const attendees = (s.attendees || []).join(", ");
-    html += `<div class="session-list-item" data-session-id="${s.id}">
-      <div class="session-list-meta">
-        <div class="session-list-label"><strong>Session ${num}</strong>: ${formatDate(s.date)}${label}</div>
-        ${attendees ? `<div class="session-list-date">${escHtml(attendees)}</div>` : ""}
-      </div>
-    </div>`;
-  }
+  html += renderSessionListRows(sorted, display, today, {
+    extraLine: s => {
+      const attendees = (s.attendees || []).join(", ");
+      return attendees ? `<div class="session-list-date">${escHtml(attendees)}</div>` : "";
+    }
+  });
   $("session-picker-list").innerHTML = html;
   $("session-picker-list").querySelector(".btn-picker-back").addEventListener("click", () =>
     renderGroupMonthGrid(group, byMonth)
@@ -6804,15 +6840,75 @@ function formatDate(dateStr) {
   const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
   return `${d} ${months[m - 1]} ${y}`;
 }
+function formatDateWithDay(dateStr) {
+  return `${dayAbbr(dateStr)}, ${formatDate(dateStr)}`;
+}
+function relativeDaySuffix(dateStr) {
+  return dateStr === getTodayString() ? " (Today)" : "";
+}
 function getYesterdayString() {
   const d = new Date();
   d.setDate(d.getDate() - 1);
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
 }
-function sessionDateLabel(date, today, yesterday, isCurrent) {
-  const parts = [];
-  if (isCurrent) parts.push("currently viewing");
-  if (date === today) parts.push("today");
-  else if (date === yesterday) parts.push("yesterday");
-  return parts.length ? ` (${parts.join(" · ")})` : "";
+function formatDateShort(dateStr) {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  return `${d} ${months[m - 1]}`;
+}
+function dayAbbr(dateStr) {
+  const days = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+  const [y, m, d] = dateStr.split("-").map(Number);
+  return days[new Date(y, m - 1, d).getDay()];
+}
+function startOfWeek(dateStr) {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const date = new Date(y, m - 1, d);
+  const dow = date.getDay();
+  date.setDate(date.getDate() - (dow === 0 ? 6 : dow - 1));
+  return date;
+}
+// Buckets a session date into "This week" / "Last week" / "Earlier" relative
+// to today, so the picker list can group sessions under short headers instead
+// of spelling the day/week out in every row.
+function sessionWeekSection(dateStr, todayStr) {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const date = new Date(y, m - 1, d);
+  const thisWeekStart = startOfWeek(todayStr);
+  const lastWeekStart = new Date(thisWeekStart);
+  lastWeekStart.setDate(lastWeekStart.getDate() - 7);
+  if (date >= thisWeekStart) return "This week";
+  if (date >= lastWeekStart) return "Last week";
+  return "Earlier";
+}
+function sessionItemLabel(dateStr, todayStr) {
+  const base = `${dayAbbr(dateStr)}, ${formatDateShort(dateStr)}`;
+  return dateStr === todayStr ? `${base} (Today)` : base;
+}
+// Shared renderer for the "Session N: ..." rows used by every session picker
+// (individual/group, normal/export/go-to) — groups rows under week headers
+// and lets callers add a per-row extra line (e.g. group attendees) or mark
+// one row as the currently-viewed session.
+function renderSessionListRows(sorted, display, today, { isCurrentId, extraLine } = {}) {
+  let html = "";
+  let lastSection = null;
+  for (const s of display) {
+    const section = sessionWeekSection(s.date, today);
+    if (section !== lastSection) {
+      html += `<div class="session-month-label">${escHtml(section)}</div>`;
+      lastSection = section;
+    }
+    const num       = sorted.findIndex(x => x.id === s.id) + 1;
+    const isCurrent = isCurrentId != null && s.id === isCurrentId;
+    const cls       = `session-list-item${isCurrent ? " session-list-current" : ""}`;
+    const label     = sessionItemLabel(s.date, today);
+    const extra     = extraLine ? extraLine(s) : "";
+    html += `<div class="${cls}" data-session-id="${s.id}">
+      <div class="session-list-meta">
+        <div class="session-list-label"><strong>Session ${num}</strong>: ${label}</div>
+        ${extra}
+      </div>
+    </div>`;
+  }
+  return html;
 }

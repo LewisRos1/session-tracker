@@ -47,6 +47,44 @@ html, body {
 
 .screen.hidden { display: none; }
 
+#screen-loading {
+  align-items: center;
+  justify-content: center;
+}
+
+.updating-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: .8rem;
+}
+.updating-content.hidden { display: none; }
+.updating-content .pin-logo { font-size: 3.5rem; }
+.updating-text {
+  font-size: 2rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+.updating-progress {
+  width: 14rem;
+  height: .5rem;
+  background: var(--primary-light);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.updating-progress-bar {
+  width: 0%;
+  height: 100%;
+  background: var(--primary);
+  border-radius: 999px;
+  transition: width .1s linear;
+}
+.updating-percent {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
 /* ─── LOADING / ERROR ────────────────────────────────────── */
 .loading {
   display: flex; align-items: center; justify-content: center;
@@ -145,11 +183,34 @@ html, body {
 
 .pin-error.hidden { display: none; }
 
+.pin-status {
+  color: var(--text-muted);
+  font-size: .9rem;
+  text-align: center;
+  margin-top: -.5rem;
+}
+.pin-status.hidden { display: none; }
+
+.pin-status-dot {
+  opacity: 0;
+  animation: pinStatusDotPulse 1.4s infinite;
+}
+.pin-status-dot:nth-of-type(2) { animation-delay: .2s; }
+.pin-status-dot:nth-of-type(3) { animation-delay: .4s; }
+@keyframes pinStatusDotPulse {
+  0%, 80%, 100% { opacity: 0; }
+  40% { opacity: 1; }
+}
+
 .pin-keypad {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: .6rem;
   width: 100%;
+}
+.pin-keypad.checking {
+  opacity: .5;
+  pointer-events: none;
 }
 
 .pin-key {
@@ -499,16 +560,32 @@ html, body {
   font-weight: 700;
 }
 .date-picker-day-future { color: #bbb; cursor: default; }
-.date-picker-day-taken  { cursor: default; }
+.date-picker-day-taken { cursor: default; }
+.date-picker-day-current.date-picker-day-taken {
+  background: var(--primary);
+  color: #fff;
+}
 .date-taken-dot, .day-dot-spacer {
   display: block;
-  width: .3rem; height: .3rem;
-  border-radius: 50%;
+  height: 1.1rem;
+  line-height: 1;
+  font-size: 1.05rem;
+  font-weight: 700;
+  font-family: Arial, Helvetica, sans-serif;
   flex-shrink: 0;
 }
-.date-taken-dot { background: var(--primary); }
-.date-picker-day-current .date-taken-dot { background: #fff; }
-.day-dot-spacer { background: transparent; }
+.date-taken-dot { color: var(--primary-dark); }
+.date-picker-day-current .date-taken-dot { color: #fff; }
+.day-dot-spacer { visibility: hidden; }
+.date-picker-legend .date-taken-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.1rem; height: 1.1rem;
+  border-radius: 3px;
+  background: var(--primary-light);
+  color: var(--primary-dark);
+}
 .date-picker-subtitle {
   font-size: 1rem;
   font-weight: 700;
