@@ -110,7 +110,7 @@ function versionLineText() {
   return `Made by Lewis · Version ${APP_VERSION}`;
 }
 
-const APP_VERSION = "491";
+const APP_VERSION = "521";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -171,28 +171,19 @@ const state = {
 
 const $ = id => document.getElementById(id);
 
-// True while a View/Edit-past-session screen's box is focused — used to
-// defer a render that would otherwise yank a remark box out from under the
-// user mid-edit. Identical logic for individual and group.
-//
-// Deliberately checks specific editable-field classes rather than
-// activeElement.isContentEditable — contenteditable="true" on the whole
-// session-view-body host inherits to every descendant that isn't marked
-// contenteditable="false", so that check also matches the host div itself.
-// A button's mousedown handler intentionally blocks the focus-shift that
-// would otherwise blur whatever was previously focused (that's the fix for
-// buttons needing 2 clicks) — so if the host (or any such inherited-editable
-// element) ever ends up focused, isContentEditable would stay true forever,
-// permanently blocking every future render until a manual page refresh.
+// Busy = an in-flight multi-step write only (see counterKey on
+// setupViewRemarkSaving — covers the Trials/mastery/etc. action buttons and
+// a ghost box's activity+remark creation). Typing/focus itself never needs
+// to defer a render — captureActiveEditState/restoreActiveEditState (see
+// renderSessionView/renderGroupSessionView) protect an in-progress edit
+// through any render regardless of timing, so gating on "is a box focused"
+// or "is there unsaved text mid-debounce" here would only ever add delay,
+// never safety.
 function isViewBusy() {
-  const active = document.activeElement;
-  return !!(active && (
-    active.tagName === "INPUT" || active.tagName === "TEXTAREA"
-    || active.matches?.(".view-remark-edit, .view-mastery-note")
-  ));
+  return state.viewActionsInFlight > 0;
 }
 function isGroupViewBusy() {
-  return isViewBusy();
+  return state.viewGroupActionsInFlight > 0;
 }
 
 // Wraps a View-screen action button's async handler so its own write always
@@ -200,6 +191,15 @@ function isGroupViewBusy() {
 // happened to be true at the moment the resulting Firestore snapshot
 // actually arrived (same idea as the Entry screens' entryActionsInFlight —
 // see the matching comment on state.viewActionsInFlight).
+// Renders immediately unless the view is mid-edit elsewhere (a focused
+// remark/mastery-note box that an immediate full rebuild would yank focus
+// out from under) — in that case the deferred-render flag is set instead,
+// and the existing onIdle/snapshot machinery picks it up once free.
+function renderViewOrDefer(pendingKey, isBusy, render) {
+  if (isBusy()) state[pendingKey] = true;
+  else render();
+}
+
 function withViewAction(counterKey, pendingKey, isBusy, render, fn) {
   return async (...args) => {
     state[counterKey]++;
@@ -255,10 +255,9 @@ function isEmptyActItem(a) {
 
 function openTextEditorSheet(originEl) {
   _sheetOriginEl = originEl;
-  // Session-entry boxes are real <textarea> elements now (plain text, "\n"
-  // for line breaks) — the sketch sheet itself stays contenteditable (it's
-  // shared with the View screens' boxes, which still are too), so bridge
-  // between the two formats going in and out.
+  // Both the Entry and View screens' remark boxes are real <textarea>
+  // elements (plain text, "\n" for line breaks) — the sketch sheet itself
+  // stays contenteditable, so bridge between the two formats going in and out.
   const isFormField = originEl.tagName === "TEXTAREA" || originEl.tagName === "INPUT";
   $("text-editor-content").innerHTML = isFormField
     ? remarkToHtml(originEl.value).replace(/\n/g, "<br>")
@@ -865,7 +864,7 @@ async function showSessionPicker(student) {
   $("session-picker-modal").classList.remove("hidden");
 
   let sessions = [];
-  try { sessions = await getRecentSessionsForStudent(student.id); } catch (_) {}
+  try { sessions = await getRecentSessionsForStudent(student.id); } catch (err) { console.error("getRecentSessionsForStudent failed:", err); }
 
   // Auto-delete sessions with no meaningful data for any currently existing target
   const currentTargetNames = new Set((student.targets || []).map(t => t.name));
@@ -1110,7 +1109,7 @@ async function showGoToAnotherSession(student) {
   $("session-picker-modal").classList.remove("hidden");
 
   let sessions = [];
-  try { sessions = await getRecentSessionsForStudent(student.id); } catch (_) {}
+  try { sessions = await getRecentSessionsForStudent(student.id); } catch (err) { console.error("getRecentSessionsForStudent failed:", err); }
 
   const currentTargetNames = new Set((student.targets || []).map(t => t.name));
   const stripEmpty = s => (s || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").replace(/ /g, " ").trim();
@@ -1201,7 +1200,7 @@ async function showEditDatePicker() {
   $("session-picker-modal").classList.remove("hidden");
 
   let sessions = [];
-  try { sessions = await getRecentSessionsForStudent(student.id); } catch (_) {}
+  try { sessions = await getRecentSessionsForStudent(student.id); } catch (err) { console.error("getRecentSessionsForStudent failed:", err); }
   // Dates already occupied by another session
   const takenDates = new Set(
     sessions.filter(s => s.id !== state.viewSessionId).map(s => s.date)
@@ -1631,6 +1630,12 @@ function renderTargetContent() {
   if (avgEl) avgEl.textContent = avg !== null ? avg + "%" : "—";
 
   const container = $("target-content");
+  // Replacing innerHTML resets the scrolling ancestor's scrollTop to 0 in
+  // every browser — capture/restore around the swap so clicking a button
+  // (which has no cursor position for captureActiveEditState to preserve)
+  // doesn't yank the page back to the top.
+  const scrollHost = container.closest(".session-body");
+  const scrollTop  = scrollHost?.scrollTop;
   const captured = captureActiveEditState(container);
   container.innerHTML = target.predefinedActivities?.length > 0
     ? renderFedcTarget(target)
@@ -1638,6 +1643,7 @@ function renderTargetContent() {
 
   attachTargetListeners(target);
   restoreActiveEditState(container, captured);
+  if (scrollHost) scrollHost.scrollTop = scrollTop;
 }
 
 // ─── FEDC TARGET ─────────────────────────────────────────────
@@ -2112,7 +2118,7 @@ function attachTargetListeners(target) {
 
   // ── Mastery level buttons ─────────────────────────────────
   c.querySelectorAll(".btn-mastery").forEach(btn => {
-    btn.addEventListener("click", async () => {
+    btn.addEventListener("click", () => {
       const container  = btn.closest(".remark-mastery-opts");
       const currentVal = container?.querySelector(".btn-mastery.active")?.dataset.val || "";
       const isActive   = btn.classList.contains("active");
@@ -2123,7 +2129,23 @@ function attachTargetListeners(target) {
       if (!confirm(`Change mastery level from "${fromLabel}" to "${toLabel}"?`)) return;
       container?.querySelectorAll(".btn-mastery").forEach(b => b.classList.remove("active"));
       if (!isActive) btn.classList.add("active");
-      await updateRemarkText(state.currentSessionId, btn.dataset.remId, newVal);
+      // Update local state synchronously, not just the DOM — leaveSession()'s
+      // cleanup-empty-remarks check reads state.sessionData straight off a
+      // snapshot taken on the way out, with no guard for an in-flight write
+      // from a button click. If only the Firestore write were fired and the
+      // boss left the screen before the listener echoed it back, the cleanup
+      // could see the OLD (e.g. blank) value and delete the remark she just
+      // set, even though the write itself had succeeded.
+      const remId = btn.dataset.remId;
+      const rem = state.sessionData?.remarks?.[remId];
+      const prevVal = rem?.text;
+      if (rem) rem.text = newVal;
+      updateRemarkText(state.currentSessionId, remId, newVal).catch(err => {
+        if (rem) rem.text = prevVal;
+        container?.querySelectorAll(".btn-mastery").forEach(b =>
+          b.classList.toggle("active", b.dataset.val === prevVal));
+        alert("Couldn't save — check your connection and try again.\n\n" + err.message);
+      });
     });
   });
 
@@ -2194,22 +2216,39 @@ function attachTargetListeners(target) {
 
   // ── Remark option buttons (single-select) ─────────────────
   c.querySelectorAll(".remark-preset-opts:not(.remark-preset-opts-multi) .btn-remark-opt").forEach(btn => {
-    btn.addEventListener("click", async () => {
+    btn.addEventListener("click", () => {
       const isActive = btn.classList.contains("active");
       btn.closest(".remark-preset-opts")?.querySelectorAll(".btn-remark-opt").forEach(b => b.classList.remove("active"));
       const newText = isActive ? "" : btn.dataset.opt;
       if (!isActive) btn.classList.add("active");
-      await updateRemarkText(state.currentSessionId, btn.dataset.remId, newText);
+      // See the .btn-mastery handler above for why this needs to update
+      // state.sessionData synchronously, not just the DOM.
+      const remId = btn.dataset.remId;
+      const rem = state.sessionData?.remarks?.[remId];
+      const prevText = rem?.text;
+      if (rem) rem.text = newText;
+      updateRemarkText(state.currentSessionId, remId, newText).catch(err => {
+        if (rem) rem.text = prevText;
+        alert("Couldn't save — check your connection and try again.\n\n" + err.message);
+      });
     });
   });
 
   // ── Remark option buttons (multi-select) ──────────────────
   c.querySelectorAll(".remark-preset-opts-multi .btn-remark-opt").forEach(btn => {
-    btn.addEventListener("click", async () => {
+    btn.addEventListener("click", () => {
       btn.classList.toggle("active");
       const container = btn.closest(".remark-preset-opts-multi");
       const selected = [...container.querySelectorAll(".btn-remark-opt.active")].map(b => b.dataset.opt);
-      await updateRemarkText(state.currentSessionId, btn.dataset.remId, selected.join(", "));
+      const newText = selected.join(", ");
+      const remId = btn.dataset.remId;
+      const rem = state.sessionData?.remarks?.[remId];
+      const prevText = rem?.text;
+      if (rem) rem.text = newText;
+      updateRemarkText(state.currentSessionId, remId, newText).catch(err => {
+        if (rem) rem.text = prevText;
+        alert("Couldn't save — check your connection and try again.\n\n" + err.message);
+      });
     });
   });
 
@@ -2245,9 +2284,18 @@ function attachTargetListeners(target) {
 
   // ── Delete remark ─────────────────────────────────────────
   c.querySelectorAll(".btn-delete-remark").forEach(btn => {
-    btn.addEventListener("click", async () => {
+    btn.addEventListener("click", () => {
       if (!confirm("Delete this remark and its trials?")) return;
-      await deleteRemark(state.currentSessionId, btn.dataset.remId);
+      const remId = btn.dataset.remId;
+      const rem = state.sessionData?.remarks?.[remId];
+      if (!rem) return;
+      delete state.sessionData.remarks[remId];
+      renderTargetContent();
+      deleteRemark(state.currentSessionId, remId).catch(err => {
+        state.sessionData.remarks[remId] = rem;
+        renderTargetContent();
+        alert("Couldn't delete remark — check your connection and try again.\n\n" + err.message);
+      });
     });
   });
 
@@ -2268,8 +2316,11 @@ function attachTargetListeners(target) {
       );
       const initialText = ghostInput?.value.trim() || "";
       const remId = await ensurePredefinedRemark(actId, btn.dataset.remName, initialText);
-      if (initialText) await updateRemarkText(state.currentSessionId, remId, initialText);
       openScorePicker(remId, tgt.maxPoints || 3);
+      // ensurePredefinedRemark already wrote initialText when creating a brand-new
+      // remark — this only matters for the rare case where it already existed
+      // with stale text, so don't block opening the score picker on it.
+      if (initialText) updateRemarkText(state.currentSessionId, remId, initialText).catch(() => {});
     });
   });
 
@@ -2283,12 +2334,19 @@ function attachTargetListeners(target) {
 
   // ── Delete trial ──────────────────────────────────────────
   c.querySelectorAll(".btn-trial-delete").forEach(btn => {
-    btn.addEventListener("click", async e => {
+    btn.addEventListener("click", e => {
       e.stopPropagation();
       const rem = state.sessionData?.remarks?.[btn.dataset.remId];
       if (!rem) return;
-      await deleteTrial(state.currentSessionId, btn.dataset.remId,
-        Number(btn.dataset.idx), rem.trials || []);
+      const idx = Number(btn.dataset.idx);
+      const prevTrials = rem.trials || [];
+      rem.trials = prevTrials.filter((_, i) => i !== idx);
+      renderTargetContent();
+      deleteTrial(state.currentSessionId, btn.dataset.remId, idx, prevTrials).catch(err => {
+        rem.trials = prevTrials;
+        renderTargetContent();
+        alert("Couldn't delete trial — check your connection and try again.\n\n" + err.message);
+      });
     });
   });
 
@@ -2539,13 +2597,11 @@ async function openSessionView(student, sessionId) {
   if (state.fbViewUnsubscribe) { state.fbViewUnsubscribe(); state.fbViewUnsubscribe = null; }
 
   state.viewRemarkSaver?.cleanup();
-  state.viewRemarkSaver = setupMergedRemarkSaving($("session-view-body"), () => state.viewSessionId, () => {
+  state.viewRemarkSaver = setupViewRemarkSaving($("session-view-body"), () => state.viewSessionId, "viewActionsInFlight", () => {
     if (!state.viewRenderPending || isViewBusy() || state.viewActionsInFlight > 0) return;
     state.viewRenderPending = false;
     renderSessionView();
   });
-  state.viewEnterKeyCleanup?.();
-  state.viewEnterKeyCleanup = setupViewEnterKeyDelegation($("session-view-body"), () => state.viewRemarkSaver);
 
   try {
     state.fbViewUnsubscribe = listenToSession(sessionId, data => {
@@ -2559,17 +2615,20 @@ async function openSessionView(student, sessionId) {
   }
 }
 
-function leaveSessionView() {
+async function leaveSessionView() {
   commitTextEditorSheet();
   $("text-editor-sheet").classList.add("hidden");
   $("btn-delete-session")?.classList.add("hidden");
   $("btn-goto-session")?.classList.add("hidden");
+  // Flush (and await it) while the Firestore listener is still live, same as
+  // leaveSession() does for the live entry screen — flush() only writes to
+  // Firestore, state.viewSessionData only updates once the listener echoes
+  // it back, so unsubscribing first or not waiting for the flush both risk
+  // the cleanup below seeing stale "empty" data for a remark just edited.
+  await state.viewRemarkSaver?.flush();
   if (state.fbViewUnsubscribe) { state.fbViewUnsubscribe(); state.fbViewUnsubscribe = null; }
-  state.viewRemarkSaver?.flush();
   state.viewRemarkSaver?.cleanup();
   state.viewRemarkSaver = null;
-  state.viewEnterKeyCleanup?.();
-  state.viewEnterKeyCleanup = null;
   const sessionId = state.viewSessionId;
   const data      = state.viewSessionData;
   const student   = state.viewStudent;
@@ -2643,11 +2702,18 @@ function renderSessionView() {
   const targets = getViewEffectiveTargets();
   const sorted  = [...targets].sort((a, b) => a.name.localeCompare(b.name));
 
-  $("session-view-body").innerHTML = sorted.length
+  const body = $("session-view-body");
+  // body itself scrolls (overflow-y:auto) — replacing its innerHTML resets
+  // scrollTop to 0 in every browser, so capture/restore around the swap.
+  const scrollTop = body.scrollTop;
+  const captured = captureActiveEditState(body);
+  body.innerHTML = sorted.length
     ? sorted.map(t => buildTargetViewTable(t, data)).join("")
     : `<p style="color:var(--text-muted);padding:1rem">No targets recorded.</p>`;
 
   attachViewListeners();
+  restoreActiveEditState(body, captured);
+  body.scrollTop = scrollTop;
 }
 
 function buildTargetViewTable(target, data) {
@@ -2726,6 +2792,7 @@ function buildTargetViewTable(target, data) {
         <tbody>${rows}</tbody>
       </table>
     </div>
+    <button class="view-add-remark-target" data-target="${escHtml(target.name)}">+ Add Remark &amp; Trials</button>
   </div>`;
 }
 
@@ -2755,12 +2822,12 @@ function viewActivityRows(no, actName, actId, data, target, isPredefined = true)
     const opts = parseOpts(inlineOptions);
     const showEmpty = opts.length === 0 && !isMastery;
     const emptyCell = showEmpty
-      ? `<div class="view-remark-edit view-remark-empty"
+      ? `<textarea class="view-remark-edit view-remark-empty" rows="1"
            data-act-id="${escHtml(actId || "")}"
            data-act-name="${escHtml(actName)}"
            data-target="${escHtml(target.name)}"
            data-is-predefined="${isPredefined}"
-           data-placeholder="Click to add remark…"></div>`
+           placeholder="Click to add remark…"></textarea>`
       : "";
     // "+ " shows even with no remark yet — clicking it creates the activity/
     // remark and a first trial in one go, so a score can be logged without
@@ -2784,15 +2851,21 @@ function viewActivityRows(no, actName, actId, data, target, isPredefined = true)
   )).join("");
 }
 
-function viewRemarkRow(no, actName, rem, target, inlineOptions = null, sentenceStarter = null, multiSelect = false, isMastery = false) {
-  const allTrials  = rem.trials || [];
-  const maxPts     = target.maxPoints || 3;
-  const validTrials = allTrials.filter(t => t !== -1);
-  const total      = validTrials.reduce((a, b) => a + b, 0);
-  const scorePct   = validTrials.length > 0
+// Shared by viewRemarkRow/viewGroupRemarkRow (initial render) and
+// refreshViewTrialRow/refreshGroupViewTrialRow (surgical in-place update
+// after a trial add/delete/score change — see the comment on
+// bindViewTrialCellListeners for why those don't go through a full render).
+function calcViewTrialSummary(trials, maxPts) {
+  const validTrials = (trials || []).filter(t => t !== -1);
+  const total       = validTrials.reduce((a, b) => a + b, 0);
+  const scorePct    = validTrials.length > 0
     ? Math.round(total / (validTrials.length * maxPts) * 100) + "%" : "";
+  return { validTrials, total, scorePct };
+}
 
-  const trialCells = allTrials.map((t, ti) => `
+function buildTrialCellsHtml(rem, maxPts) {
+  const allTrials = rem.trials || [];
+  return allTrials.map((t, ti) => `
     <span class="trial-cell">
       <select class="view-trial-select" data-rem-id="${escHtml(rem.id)}" data-trial-idx="${ti}">
         <option value="-1"${t === -1 ? " selected" : ""}>—</option>
@@ -2802,6 +2875,12 @@ function viewRemarkRow(no, actName, rem, target, inlineOptions = null, sentenceS
       <button class="view-trial-del" data-rem-id="${escHtml(rem.id)}" data-trial-idx="${ti}">×</button>
     </span>`).join("") +
     `<button class="view-add-trial" data-rem-id="${escHtml(rem.id)}">+</button>`;
+}
+
+function viewRemarkRow(no, actName, rem, target, inlineOptions = null, sentenceStarter = null, multiSelect = false, isMastery = false) {
+  const maxPts = target.maxPoints || 3;
+  const { validTrials, total, scorePct } = calcViewTrialSummary(rem.trials, maxPts);
+  const trialCells = buildTrialCellsHtml(rem, maxPts);
 
   const opts = parseOpts(inlineOptions);
 
@@ -2823,19 +2902,21 @@ function viewRemarkRow(no, actName, rem, target, inlineOptions = null, sentenceS
   }
 
   const optSelect = isMastery
-    ? `<div class="mastery-remark-wrap" contenteditable="false">
+    ? `<div class="mastery-remark-wrap">
         <div class="remark-mastery-opts view-mastery-opts" data-rem-id="${rem.id}">
           ${["In Progress", "Mastered", "Maintain"].map(v =>
             `<button class="btn-mastery${rem.text === v ? " active" : ""}" data-rem-id="${escHtml(rem.id)}" data-val="${v}">${v}</button>`
           ).join("")}
         </div>
         <div class="mastery-note-row">
-          <div class="view-mastery-note" contenteditable="true"
-            data-rem-id="${escHtml(rem.id)}" data-placeholder="Notes…">${rem.masteryNote || ""}</div>
+          <textarea class="view-mastery-note" rows="1" data-rem-id="${escHtml(rem.id)}"
+            data-saved-html="${escHtml(rem.masteryNote || "")}"
+            placeholder="Notes…">${escHtml(plainTextForEdit(rem.masteryNote))}</textarea>
         </div>
       </div>`
     : (makeViewOpts(rem.id, rem.text)
-        || `<div class="view-remark-edit" data-rem-id="${escHtml(rem.id)}" data-saved-html="${escHtml(remarkToHtml(rem.text))}">${remarkToHtml(rem.text)}</div>`);
+        || `<textarea class="view-remark-edit" rows="1" data-rem-id="${escHtml(rem.id)}"
+              data-saved-html="${escHtml(rem.text || "")}">${escHtml(plainTextForEdit(rem.text))}</textarea>`);
 
   let remarkCell;
   if (sentenceStarter) {
@@ -2886,177 +2967,126 @@ function calcViewDayAvg(data, target) {
   return avgs.length ? Math.round(avgs.reduce((a, b) => a + b, 0) / avgs.length) : null;
 }
 
-// ── Merged remark editing ────────────────────────────────────
-// All free-text remark boxes (.view-remark-edit, incl. the group "combined"
-// variant) on a view/edit-past-session screen share ONE contenteditable host
-// (the screen's body container) instead of each having its own. This lets
-// Grammarly (and similar tools) analyze every remark box on the page at once
-// instead of only the one currently focused — the same reason a single large
-// textarea gets checked in full while a page of many small inputs doesn't.
-// Everything else (activity names, scores, selects, buttons) is carved out
-// with contenteditable="false" in the HTML so only remark text is editable.
+// ── View-screen remark editing ───────────────────────────────
+// Replaces the old merged-contenteditable-host saver. The View screens'
+// remark/mastery-note boxes are real <textarea> elements now (same as the
+// already-proven Session Entry screens via setupEntryRemarkSaving) — native
+// Enter/backspace/Ctrl+A all just work per-field, with no nested-
+// contenteditable quirks to fight, and no buttons-need-2-clicks issue since
+// a normal table of buttons next to normal textareas never needs to
+// preventDefault its own mousedown.
 //
-// Because the boxes no longer have individual focus/blur events, saving moves
-// from "save on blur" to: diff every box's content on a short typing-pause
-// debounce, and again whenever focus actually leaves the shared host.
-function setupMergedRemarkSaving(body, getSessionId, onIdle) {
+// counterKey (state.viewActionsInFlight / state.viewGroupActionsInFlight) is
+// the same in-flight counter the screen's other action buttons already use
+// to keep the background snapshot listener from rendering mid-write. Ghost
+// boxes need it too: creating an activity/remark for a box that has none
+// yet is multi-step (addActivity, then addRemark), and a render landing
+// partway through would destroy this exact textarea — including the
+// dataset.creating/actId/remId tracking that lives only on it — leaving a
+// fresh-looking ghost box behind. If the user was still typing, that looked
+// like the typed text vanishing and then reappearing as a duplicate remark
+// a moment later, because the next flush had no way to know a remark was
+// already being created for it.
+function setupViewRemarkSaving(body, getSessionId, counterKey, onIdle) {
   let saveTimer = null;
 
   function flush() {
     clearTimeout(saveTimer);
     saveTimer = null;
     const sid = getSessionId();
-    if (!sid) return;
+    if (!sid) return Promise.resolve();
 
-    body.querySelectorAll(".view-remark-edit[data-rem-id]:not(.group-remark-input-combined)").forEach(div => {
-      const html = div.innerHTML;
-      if (div.dataset.savedHtml === html) return;
-      div.dataset.savedHtml = html;
-      updateRemarkText(sid, div.dataset.remId, html);
-    });
+    const pending = [];
+    const trackWrite = p => { pending.push(Promise.resolve(p)); };
 
-    body.querySelectorAll(".group-remark-input-combined[data-rem-ids]").forEach(div => {
-      const html = div.innerHTML;
-      if (div.dataset.savedHtml === html) return;
-      div.dataset.savedHtml = html;
-      const remIds = div.dataset.remIds.split(",").filter(Boolean);
-      Promise.all(remIds.map(id => updateRemarkText(sid, id, html)));
-    });
+    const diffAndSave = (selector, getValue, doSave) => {
+      body.querySelectorAll(selector).forEach(el => {
+        const value = getValue(el);
+        if (el.dataset.savedHtml === value) return;
+        el.dataset.savedHtml = value;
+        trackWrite(Promise.resolve(doSave(el, value)).catch(err => {
+          // savedHtml already says this is saved — if the write actually
+          // failed, leaving it pointing at the unsaved value means nothing
+          // ever retries it, and the next render (from anything else on the
+          // page) shows the server's older text instead, looking exactly
+          // like what was just typed silently vanished.
+          if (el.dataset.savedHtml === value) el.dataset.savedHtml = " ";
+          alert("Couldn't save remark — check your connection and try again.\n\n" + err.message);
+        }));
+      });
+    };
 
-    body.querySelectorAll(".view-remark-empty").forEach(div => {
-      const strip = s => (s || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").replace(/ /g, " ").trim();
-      const text = div.innerHTML;
-      if (!strip(text) || div.dataset.creating === "true") return;
-      // Once a remark has actually been created for this box, every later
-      // flush (e.g. the render that would replace this ghost box with a real
-      // .view-remark-edit got deferred while the user kept typing/pressed
-      // Enter again) must update that SAME remark, not create another one —
-      // div.dataset.actId was only ever read here, never written back, so a
-      // second flush before the re-render landed always looked like "no
-      // activity yet" and created a brand new duplicate remark each time.
-      if (div.dataset.remId) {
-        if (div.dataset.savedHtml === text) return;
-        div.dataset.savedHtml = text;
-        updateRemarkText(sid, div.dataset.remId, text);
-        return;
-      }
-      div.dataset.creating = "true";
-      (async () => {
+    diffAndSave(".view-remark-edit[data-rem-id]:not(.view-remark-empty)", el => htmlForStorage(el.value),
+      (el, html) => updateRemarkText(sid, el.dataset.remId, html));
+
+    diffAndSave(".view-mastery-note[data-rem-id]", el => htmlForStorage(el.value),
+      (el, html) => updateRemarkNote(sid, el.dataset.remId, html));
+
+    diffAndSave(".group-remark-input-combined[data-rem-ids]", el => htmlForStorage(el.value),
+      (el, html) => {
+        const remIds = el.dataset.remIds.split(",").filter(Boolean);
+        return Promise.all(remIds.map(id => updateRemarkText(sid, id, html)));
+      });
+
+    body.querySelectorAll(".view-remark-empty").forEach(el => {
+      const text = el.value.trim();
+      if (!text || el.dataset.creating === "true") return;
+      el.dataset.creating = "true";
+      state[counterKey]++;
+      const create = async () => {
         try {
-          let actId = div.dataset.actId;
+          let actId = el.dataset.actId;
           if (!actId) {
             actId = await addActivity(
-              sid, div.dataset.target, div.dataset.actName, Date.now(), div.dataset.isPredefined === "true"
+              sid, el.dataset.target, el.dataset.actName, Date.now(), el.dataset.isPredefined === "true"
             );
           }
           // Group view's empty boxes are scoped to one attendee (data-student);
-          // the individual view's aren't. Pass text straight into the create
-          // call (both accept it) instead of a separate updateRemarkText
-          // write after — one less sequential round-trip before the remark
-          // (and its "+ Trial" button) actually shows up.
-          const studentName = div.dataset.student;
+          // the individual view's aren't.
+          const studentName = el.dataset.student;
           const remId = studentName
             ? await addGroupRemark(sid, actId, studentName, text)
             : await addRemark(sid, actId, text);
-          div.dataset.actId      = actId;
-          div.dataset.remId      = remId;
-          div.dataset.savedHtml  = text;
+          el.dataset.actId     = actId;
+          el.dataset.remId     = remId;
+          el.dataset.savedHtml = htmlForStorage(text);
+        } catch (err) {
+          // Leaves remId/savedHtml unset — the next flush (next keystroke or
+          // focusout) sees "no remark created yet" and retries from scratch,
+          // instead of the typed text just sitting there unsaved forever.
+          alert("Couldn't add remark — check your connection and try again.\n\n" + err.message);
         } finally {
-          div.dataset.creating = "false";
+          el.dataset.creating = "false";
+          state[counterKey]--;
         }
-      })();
+      };
+      trackWrite(create());
     });
+
+    return Promise.all(pending);
   }
 
-  // Every other cell is carved out with contenteditable="false", so any "input"
-  // event reaching the shared host can only have come from a free-text remark box.
-  // The busy-check this saver pairs with (isViewBusy) treats ANY focused
-  // remark/note box as "still busy", not just the one that changed — so
-  // if the user moves on to typing in a different remark box right after,
-  // the render that would reveal the newly-created remark's "+ Trial" button
-  // stays deferred until they focus something non-editable. onIdle fires the
-  // moment a flush actually runs (debounce settled, data already saved) so
-  // the caller can re-check its deferred-render flag right then instead of
-  // waiting on an unrelated focusout that might not come for a while.
-  const onInput = () => {
+  const onInput = e => {
+    if (e.target.tagName === "TEXTAREA") autoResizeTextarea(e.target);
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => { flush(); onIdle?.(); }, 700);
   };
   const onFocusOut = () => { flush(); onIdle?.(); };
-  const onSelectionChange = () => {
-    body.querySelectorAll(".view-remark-edit.rem-edit-active").forEach(el => el.classList.remove("rem-edit-active"));
-    const sel  = document.getSelection();
-    const node = sel && sel.rangeCount > 0 ? sel.anchorNode : null;
-    if (!node || !body.contains(node)) return;
-    const el = (node.nodeType === 1 ? node : node.parentElement)?.closest(".view-remark-edit");
-    if (el) el.classList.add("rem-edit-active");
-  };
-  // Backstop against the browser's native paragraph/line-break insertion —
-  // each remark box's own keydown handler calls preventDefault() and inserts
-  // a manual <br> instead, but that alone isn't reliable inside a
-  // contenteditable="true" box nested in this larger contenteditable="true"
-  // host: Chrome's "beforeinput" event (the one that actually performs the
-  // native split into a new sibling element) can still fire and go through
-  // even after keydown was prevented. Catching it at the host level (it
-  // bubbles) blocks the native insert everywhere in one place.
-  //
-  // ALSO guards backspace/delete from escaping a box's own boundary — once a
-  // box is emptied, continuing to backspace can otherwise keep consuming the
-  // surrounding contenteditable="false" structure (labels, whole table rows)
-  // as if it were deletable content, for the same nested-contenteditable
-  // reason the paragraph insert needed a backstop.
-  const onBeforeInput = e => {
-    if (e.inputType === "insertParagraph" || e.inputType === "insertLineBreak") {
-      e.preventDefault();
-      return;
-    }
-    if (e.inputType !== "deleteContentBackward" && e.inputType !== "deleteContentForward") return;
-    const sel = document.getSelection();
-    if (!sel || sel.rangeCount === 0 || !sel.isCollapsed) return;
-    const node = sel.anchorNode;
-    const el = node && (node.nodeType === 1 ? node : node.parentElement)?.closest(".view-remark-edit");
-    if (!el || !body.contains(el)) return;
-    if (e.inputType === "deleteContentBackward" && isAtStartOf(el, sel.anchorNode, sel.anchorOffset)) {
-      e.preventDefault();
-    } else if (e.inputType === "deleteContentForward" && isAtEndOf(el, sel.anchorNode, sel.anchorOffset)) {
-      e.preventDefault();
-    }
-  };
-  // Buttons/selects nested inside this contenteditable host (Trials column
-  // "+"/"×", mastery buttons, etc. — all marked contenteditable="false") need
-  // an explicit mousedown preventDefault, or the browser's default "place a
-  // caret here" handling for the click can eat the first click on them
-  // entirely — the button only responds on a second click. Doesn't stop the
-  // click event itself (still fires normally), just stops the contenteditable
-  // region from also trying to claim the mousedown as a focus/selection
-  // change. Standard fix for buttons embedded in editable regions.
-  const onMouseDown = e => {
-    // Native form controls (the Trials column's score <select>, etc.) need
-    // their own default mousedown behavior (opening the dropdown, focusing)
-    // to fire — preventDefault() here would silently break that.
-    if (e.target.closest("select, input, textarea")) return;
-    if (e.target.closest('[contenteditable="false"]')) e.preventDefault();
-  };
+
   body.addEventListener("input", onInput);
   body.addEventListener("focusout", onFocusOut);
-  body.addEventListener("beforeinput", onBeforeInput);
-  body.addEventListener("mousedown", onMouseDown);
-  document.addEventListener("selectionchange", onSelectionChange);
 
   return {
     flush,
     cleanup() {
       clearTimeout(saveTimer);
-      body.removeEventListener("beforeinput", onBeforeInput);
       body.removeEventListener("input", onInput);
       body.removeEventListener("focusout", onFocusOut);
-      body.removeEventListener("mousedown", onMouseDown);
-      document.removeEventListener("selectionchange", onSelectionChange);
     }
   };
 }
 
-// Same idea as setupMergedRemarkSaving, but for the live Session Entry screens
+// Same idea as setupViewRemarkSaving, but for the live Session Entry screens
 // (#target-content / #group-target-content). The free-text boxes there are
 // real <textarea>/<input> elements, not contenteditable — but they're still
 // scattered across many activity/remark cards that get torn down and rebuilt
@@ -3174,7 +3204,8 @@ function setupEntryRemarkSaving(host, getSessionId, onIdle) {
 // <textarea>/<input> elements expose selectionStart/selectionEnd directly,
 // so this no longer needs any manual Range/offset math.
 const EDITABLE_BOX_SELECTOR =
-  ".remark-text-input, .mastery-note-input, .activity-name-input, .predef-remark-input-live, .group-remark-input, .group-remark-input-combined";
+  ".remark-text-input, .mastery-note-input, .activity-name-input, .predef-remark-input-live, .group-remark-input, .group-remark-input-combined, " +
+  ".view-remark-edit, .view-mastery-note, .view-act-edit, .view-starter-input";
 
 function captureActiveEditState(host) {
   const el = document.activeElement;
@@ -3202,59 +3233,6 @@ function restoreActiveEditState(host, captured) {
   if (el.tagName === "TEXTAREA") autoResizeTextarea(el);
   el.focus();
   el.setSelectionRange(captured.selectionStart, captured.selectionEnd);
-}
-
-// Manually insert a <br> at the current caret position, bypassing
-// document.execCommand("insertLineBreak") entirely — it turned out unreliable
-// inside this nested table-cell contenteditable structure (still let the
-// browser split into a new block-level element in some cases, which could
-// then escape its row and render as a stray floating box outside the table).
-function insertBrAtCaret() {
-  const sel = document.getSelection();
-  if (!sel || sel.rangeCount === 0) return;
-  const range = sel.getRangeAt(0);
-  range.deleteContents();
-  const br = document.createElement("br");
-  range.insertNode(br);
-  // A lone trailing <br> with nothing after it doesn't reliably get its own
-  // visible line in contenteditable — browsers only render the new empty
-  // line once there's a node anchoring it. Standard fix: add a second <br>
-  // right after as a placeholder (consumed the moment the user types), and
-  // park the caret between the two so the first one is guaranteed visible.
-  if (!br.nextSibling) br.after(document.createElement("br"));
-  range.setStartAfter(br);
-  range.collapse(true);
-  sel.removeAllRanges();
-  sel.addRange(range);
-}
-
-// True if there is nothing between the very start of el's content and the
-// given (node, offset) point — i.e. the caret is at el's own left boundary,
-// with no character/<br> left to delete before it.
-function isAtStartOf(el, node, offset) {
-  const probe = document.createRange();
-  probe.setStart(el, 0);
-  probe.setEnd(node, offset);
-  return probe.collapsed;
-}
-// Same idea, mirrored for el's right boundary (used for forward-delete).
-function isAtEndOf(el, node, offset) {
-  const probe = document.createRange();
-  probe.setStart(node, offset);
-  probe.setEnd(el, el.childNodes.length);
-  return probe.collapsed;
-}
-
-// Selects all of el's own content, instead of the browser's native Ctrl+A
-// default — which, in this nested-contenteditable setup, selects everything
-// in the whole merged editing host (all activities/remarks), not just the
-// box the caret happens to be in.
-function selectAllWithin(el) {
-  const range = document.createRange();
-  range.selectNodeContents(el);
-  const sel = document.getSelection();
-  sel.removeAllRanges();
-  sel.addRange(range);
 }
 
 // Delegated Escape/Ctrl+Enter handling for the individual session-entry
@@ -3299,72 +3277,155 @@ function setupEntryEnterKeyDelegation(host, getTarget) {
   return () => host.removeEventListener("keydown", onKeydown);
 }
 
-// Same idea for the view/edit-past-session screens' .view-remark-edit boxes
-// (individual and group share the same markup/class). getSaver returns
-// whichever merged-editing saver (state.viewRemarkSaver / .viewGroupRemarkSaver)
-// is currently active, so Ctrl+Enter can force an immediate flush.
-function setupViewEnterKeyDelegation(host, getSaver) {
-  const onKeydown = e => {
-    const isSelectAll = (e.key === "a" || e.key === "A") && (e.ctrlKey || e.metaKey);
-    if (e.key !== "Enter" && !isSelectAll) return;
-    // See the matching comment in setupEntryEnterKeyDelegation — an active
-    // IME/text-prediction composition consumes the first Enter as "commit",
-    // not "newline".
-    if (e.isComposing) return;
-    const sel  = document.getSelection();
-    const node = sel && sel.rangeCount > 0 ? sel.anchorNode : null;
-    const ta = node && (node.nodeType === 1 ? node : node.parentElement)?.closest(".view-remark-edit");
-    if (!ta || !host.contains(ta)) return;
-    if (isSelectAll) { e.preventDefault(); selectAllWithin(ta); return; }
-    if (e.ctrlKey || e.metaKey) { e.preventDefault(); getSaver()?.flush(); return; }
-    e.preventDefault();
-    setTimeout(() => {
-      insertBrAtCaret();
-      ta.dispatchEvent(new Event("input", { bubbles: true }));
-    }, 0);
-  };
-  host.addEventListener("keydown", onKeydown);
-  return () => host.removeEventListener("keydown", onKeydown);
+function getViewMaxPtsForRemark(remId) {
+  const data = state.viewSessionData;
+  const rem  = data?.remarks?.[remId];
+  const act  = rem && data.activities?.[rem.activityId];
+  const target = act && getViewEffectiveTargets().find(t => t.name === act.targetName);
+  return target?.maxPoints || 3;
+}
+
+// Patches just one remark's trial cells/running total/score in place instead
+// of going through a full renderSessionView() — a render is safe to do at
+// any time now (see isViewBusy/captureActiveEditState), but updating just
+// this one row's own cells is still faster and avoids momentarily rebuilding
+// anything else on the page for what's normally a quick, repeated action.
+// Updating just this row's own cells sidesteps that defer system entirely:
+// there's nothing else on the page this could disturb, so it's always safe
+// to do immediately, no busy-check needed.
+function refreshViewTrialRow(remId) {
+  const rem = state.viewSessionData?.remarks?.[remId];
+  if (!rem) return;
+  const body = $("session-view-body");
+  const tr   = body.querySelector(`.view-rem-del[data-rem-id="${remId}"]`)?.closest("tr");
+  if (!tr) return;
+  const maxPts = getViewMaxPtsForRemark(remId);
+  const { validTrials, total, scorePct } = calcViewTrialSummary(rem.trials, maxPts);
+  const trialCellsDiv = tr.querySelector(".trial-cells");
+  if (trialCellsDiv) {
+    trialCellsDiv.innerHTML = buildTrialCellsHtml(rem, maxPts);
+    bindViewTrialCellListeners(trialCellsDiv);
+  }
+  const totalTd = tr.querySelector(".vcol-total");
+  if (totalTd) totalTd.innerHTML = validTrials.length > 0 ? String(total) : "&nbsp;";
+  const scoreSpan = tr.querySelector(".vcol-score span");
+  if (scoreSpan) scoreSpan.textContent = scorePct;
+}
+
+// Each trial click fires its own independent Firestore write rather than
+// awaiting the previous one (so clicking + repeatedly stays instant) — but
+// openSessionView's snapshot listener overwrites state.viewSessionData and
+// can trigger a full renderSessionView() the moment it's not "busy",
+// regardless of whether every one of those writes has actually landed yet.
+// If a render lands using a snapshot that only reflects some of several
+// rapid-fire writes, it shows a stale (lower) trial count until the next
+// snapshot catches up — visible as cells appearing then disappearing.
+// Tracking each write against the same viewActionsInFlight counter the
+// snapshot listener already checks defers that render until every write
+// here has actually settled, instead of mid-flight.
+function trackViewTrialWrite(promise) {
+  state.viewActionsInFlight++;
+  promise.finally(() => {
+    state.viewActionsInFlight--;
+    if (state.viewActionsInFlight === 0 && state.viewRenderPending && !isViewBusy()) {
+      state.viewRenderPending = false;
+      renderSessionView();
+    }
+  });
+}
+
+function bindViewTrialCellListeners(container) {
+  container.querySelectorAll(".view-trial-select").forEach(sel => {
+    sel.addEventListener("change", () => {
+      const rem = state.viewSessionData?.remarks?.[sel.dataset.remId];
+      if (!rem) return;
+      const prevTrials = rem.trials || [];
+      const trials = [...prevTrials];
+      trials[Number(sel.dataset.trialIdx)] = Number(sel.value);
+      rem.trials = trials;
+      refreshViewTrialRow(sel.dataset.remId);
+      trackViewTrialWrite(setTrials(state.viewSessionId, sel.dataset.remId, trials).catch(err => {
+        rem.trials = prevTrials;
+        refreshViewTrialRow(sel.dataset.remId);
+        alert("Couldn't update — check your connection and try again.\n\n" + err.message);
+      }));
+    });
+  });
+
+  container.querySelectorAll(".view-trial-del").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const rem = state.viewSessionData?.remarks?.[btn.dataset.remId];
+      if (!rem) return;
+      const prevTrials = rem.trials || [];
+      const trials = prevTrials.filter((_, i) => i !== Number(btn.dataset.trialIdx));
+      rem.trials = trials;
+      refreshViewTrialRow(btn.dataset.remId);
+      trackViewTrialWrite(setTrials(state.viewSessionId, btn.dataset.remId, trials).catch(err => {
+        rem.trials = prevTrials;
+        refreshViewTrialRow(btn.dataset.remId);
+        alert("Couldn't update — check your connection and try again.\n\n" + err.message);
+      }));
+    });
+  });
+
+  container.querySelectorAll(".view-add-trial").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const rem = state.viewSessionData?.remarks?.[btn.dataset.remId];
+      if (!rem) return;
+      const prevTrials = rem.trials || [];
+      const trials = [...prevTrials, -1];
+      rem.trials = trials;
+      refreshViewTrialRow(btn.dataset.remId);
+      trackViewTrialWrite(setTrials(state.viewSessionId, btn.dataset.remId, trials).catch(err => {
+        rem.trials = prevTrials;
+        refreshViewTrialRow(btn.dataset.remId);
+        alert("Couldn't add trial — check your connection and try again.\n\n" + err.message);
+      }));
+    });
+  });
+}
+
+function showViewAddRemarkPicker(targetName) {
+  const data = state.viewSessionData;
+  const choices = Object.entries(data.activities || {})
+    .filter(([actId, a]) => a.targetName === targetName && viewGetRemarks(data, actId).length > 0)
+    .map(([actId, a]) => ({ actId, name: a.activityName }));
+
+  $("session-picker-title").textContent = "Add Remark & Trials to which Activity?";
+  $("session-picker-list").innerHTML = choices.length
+    ? `<div class="choice-list">` + choices.map(c => `
+        <button class="choice-btn view-add-remark-choice" data-act-id="${escHtml(c.actId)}">
+          <div class="choice-text"><div class="choice-label">${escHtml(c.name)}</div></div>
+        </button>`).join("") + `</div>`
+    : `<p class="empty-hint">No activities with a remark yet — use the + under an activity's Trials column to start one.</p>`;
+  $("session-picker-modal").classList.remove("hidden");
+
+  $("session-picker-list").querySelectorAll(".view-add-remark-choice").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const actId = btn.dataset.actId;
+      closeSessionPicker();
+      const remId = generateId("r");
+      state.viewSessionData.remarks = state.viewSessionData.remarks || {};
+      state.viewSessionData.remarks[remId] = { activityId: actId, text: "", trials: [], order: Date.now() };
+      renderViewOrDefer("viewRenderPending", isViewBusy, renderSessionView);
+      addRemark(state.viewSessionId, actId, "", null, remId).catch(err => {
+        delete state.viewSessionData.remarks[remId];
+        renderViewOrDefer("viewRenderPending", isViewBusy, renderSessionView);
+        alert("Couldn't add remark — check your connection and try again.\n\n" + err.message);
+      });
+    });
+  });
 }
 
 function attachViewListeners() {
   const body = $("session-view-body");
 
-  body.querySelectorAll(".view-trial-select").forEach(sel => {
-    sel.addEventListener("change", withViewAction("viewActionsInFlight", "viewRenderPending", isViewBusy, renderSessionView, async () => {
-      const rem = state.viewSessionData?.remarks?.[sel.dataset.remId];
-      if (!rem) return;
-      const trials = [...(rem.trials || [])];
-      trials[Number(sel.dataset.trialIdx)] = Number(sel.value);
-      await setTrials(state.viewSessionId, sel.dataset.remId, trials);
-    }));
-  });
+  body.querySelectorAll("textarea.view-remark-edit, textarea.view-mastery-note").forEach(autoResizeTextarea);
 
-  body.querySelectorAll(".view-trial-del").forEach(btn => {
-    btn.addEventListener("click", withViewAction("viewActionsInFlight", "viewRenderPending", isViewBusy, renderSessionView, async () => {
-      const rem = state.viewSessionData?.remarks?.[btn.dataset.remId];
-      if (!rem) return;
-      const trials = (rem.trials || []).filter((_, i) => i !== Number(btn.dataset.trialIdx));
-      await setTrials(state.viewSessionId, btn.dataset.remId, trials);
-    }));
-  });
+  bindViewTrialCellListeners(body);
 
-  body.querySelectorAll(".view-add-trial").forEach(btn => {
-    btn.addEventListener("click", withViewAction("viewActionsInFlight", "viewRenderPending", isViewBusy, renderSessionView, async () => {
-      const rem = state.viewSessionData?.remarks?.[btn.dataset.remId];
-      if (!rem) return;
-      const act    = state.viewSessionData?.activities?.[rem.activityId];
-      const target = act
-        ? getViewEffectiveTargets().find(t => t.name === act.targetName)
-        : null;
-      const maxPts = target?.maxPoints || 3;
-      const prevLen = (rem.trials || []).length;
-      await setTrials(state.viewSessionId, btn.dataset.remId, [...(rem.trials || []), -1]);
-      // setTrials() resolving only means the write was sent — wait for the
-      // local snapshot to actually have it before letting the render fire,
-      // or the new trial dropdown looks like it didn't appear at all.
-      await waitForSessionData(() => (state.viewSessionData?.remarks?.[btn.dataset.remId]?.trials || []).length > prevLen);
-    }));
+  body.querySelectorAll(".view-add-remark-target").forEach(btn => {
+    btn.addEventListener("click", () => showViewAddRemarkPicker(btn.dataset.target));
   });
 
   // ── Sketch board buttons (view screen) ────────────────────
@@ -3377,22 +3438,18 @@ function attachViewListeners() {
     });
   });
 
-  // Saving for .view-remark-edit / .view-remark-empty is handled by the shared
-  // merged-editing host (state.viewRemarkSaver) set up in openSessionView.
-  // Enter-key delegation is also set up once there (setupViewEnterKeyDelegation),
-  // not here — this function runs on every render, and the body persists
-  // across renders, so attaching it here would stack up duplicate listeners.
+  // Saving for .view-remark-edit / .view-remark-empty / .view-mastery-note is
+  // handled by the shared host saver (state.viewRemarkSaver) set up once in
+  // openSessionView, not here — this function runs on every render, and the
+  // body persists across renders, so attaching per-box listeners here would
+  // stack up duplicates.
 
-  body.querySelectorAll(".view-mastery-note").forEach(div => {
-    let orig = div.innerHTML;
-    div.addEventListener("blur", async () => {
-      const newNote = div.innerHTML;
-      if (newNote === orig) return;
-      orig = newNote;
-      await updateRemarkNote(state.viewSessionId, div.dataset.remId, newNote);
-    });
-  });
-
+  // These four handlers update state.viewSessionData synchronously (not
+  // just the DOM/Firestore) before awaiting the write — leaveSessionView()
+  // reads state.viewSessionData straight off a captured snapshot on the way
+  // out with no guard for an in-flight write, so without this, leaving the
+  // screen right after a click could see the OLD value and let
+  // cleanupEmptyEntries() delete a remark the boss just set.
   body.querySelectorAll(".view-mastery-opts .btn-mastery").forEach(btn => {
     btn.addEventListener("click", withViewAction("viewActionsInFlight", "viewRenderPending", isViewBusy, renderSessionView, async () => {
       const container  = btn.closest(".remark-mastery-opts");
@@ -3403,14 +3460,31 @@ function attachViewListeners() {
       if (!confirm(`Change mastery level from "${currentVal || "none"}" to "${newVal || "none"}"?`)) return;
       container?.querySelectorAll(".btn-mastery").forEach(b => b.classList.remove("active"));
       if (!isActive) btn.classList.add("active");
-      await updateRemarkText(state.viewSessionId, btn.dataset.remId, newVal);
+      const rem = state.viewSessionData?.remarks?.[btn.dataset.remId];
+      const prevVal = rem?.text;
+      if (rem) rem.text = newVal;
+      try {
+        await updateRemarkText(state.viewSessionId, btn.dataset.remId, newVal);
+      } catch (err) {
+        if (rem) rem.text = prevVal;
+        container?.querySelectorAll(".btn-mastery").forEach(b => b.classList.toggle("active", b.dataset.val === prevVal));
+        alert("Couldn't save — check your connection and try again.\n\n" + err.message);
+      }
     }));
   });
 
   body.querySelectorAll(".view-remark-preset-select").forEach(sel => {
     sel.addEventListener("change", withViewAction("viewActionsInFlight", "viewRenderPending", isViewBusy, renderSessionView, async () => {
       if (!sel.value) return;
-      await updateRemarkText(state.viewSessionId, sel.dataset.remId, sel.value);
+      const rem = state.viewSessionData?.remarks?.[sel.dataset.remId];
+      const prevText = rem?.text;
+      if (rem) rem.text = sel.value;
+      try {
+        await updateRemarkText(state.viewSessionId, sel.dataset.remId, sel.value);
+      } catch (err) {
+        if (rem) rem.text = prevText;
+        alert("Couldn't save — check your connection and try again.\n\n" + err.message);
+      }
     }));
   });
 
@@ -3419,7 +3493,16 @@ function attachViewListeners() {
       btn.classList.toggle("active");
       const container = btn.closest(".view-remark-multi-opts");
       const selected = [...container.querySelectorAll(".view-remark-multi-btn.active")].map(b => b.dataset.opt);
-      await updateRemarkText(state.viewSessionId, btn.dataset.remId, selected.join(", "));
+      const newText = selected.join(", ");
+      const rem = state.viewSessionData?.remarks?.[btn.dataset.remId];
+      const prevText = rem?.text;
+      if (rem) rem.text = newText;
+      try {
+        await updateRemarkText(state.viewSessionId, btn.dataset.remId, newText);
+      } catch (err) {
+        if (rem) rem.text = prevText;
+        alert("Couldn't save — check your connection and try again.\n\n" + err.message);
+      }
     }));
   });
 
@@ -3427,7 +3510,14 @@ function attachViewListeners() {
     input.addEventListener("blur", async () => {
       const rem = state.viewSessionData?.remarks?.[input.dataset.remId];
       if (!rem || input.value === (rem.text || "")) return;
-      await updateRemarkText(state.viewSessionId, input.dataset.remId, input.value);
+      const prevText = rem.text;
+      rem.text = input.value;
+      try {
+        await updateRemarkText(state.viewSessionId, input.dataset.remId, input.value);
+      } catch (err) {
+        rem.text = prevText;
+        alert("Couldn't save — check your connection and try again.\n\n" + err.message);
+      }
     });
   });
 
@@ -3480,10 +3570,19 @@ function attachViewListeners() {
   });
 
   body.querySelectorAll(".view-rem-del").forEach(btn => {
-    btn.addEventListener("click", withViewAction("viewActionsInFlight", "viewRenderPending", isViewBusy, renderSessionView, async () => {
+    btn.addEventListener("click", () => {
       if (!confirm("Delete this remark?")) return;
-      await deleteRemark(state.viewSessionId, btn.dataset.remId);
-    }));
+      const remId = btn.dataset.remId;
+      const rem = state.viewSessionData?.remarks?.[remId];
+      if (!rem) return;
+      delete state.viewSessionData.remarks[remId];
+      renderViewOrDefer("viewRenderPending", isViewBusy, renderSessionView);
+      deleteRemark(state.viewSessionId, remId).catch(err => {
+        state.viewSessionData.remarks[remId] = rem;
+        renderViewOrDefer("viewRenderPending", isViewBusy, renderSessionView);
+        alert("Couldn't delete remark — check your connection and try again.\n\n" + err.message);
+      });
+    });
   });
 
   body.querySelectorAll(".view-comment-edit").forEach(ta => {
@@ -3525,13 +3624,11 @@ async function openGroupSessionView(group, sessionId) {
   if (state.fbViewGroupUnsubscribe) { state.fbViewGroupUnsubscribe(); state.fbViewGroupUnsubscribe = null; }
 
   state.viewGroupRemarkSaver?.cleanup();
-  state.viewGroupRemarkSaver = setupMergedRemarkSaving($("group-session-view-body"), () => state.viewGroupSessionId, () => {
+  state.viewGroupRemarkSaver = setupViewRemarkSaving($("group-session-view-body"), () => state.viewGroupSessionId, "viewGroupActionsInFlight", () => {
     if (!state.viewGroupRenderPending || isGroupViewBusy() || state.viewGroupActionsInFlight > 0) return;
     state.viewGroupRenderPending = false;
     renderGroupSessionView();
   });
-  state.viewGroupEnterKeyCleanup?.();
-  state.viewGroupEnterKeyCleanup = setupViewEnterKeyDelegation($("group-session-view-body"), () => state.viewGroupRemarkSaver);
 
   try {
     state.fbViewGroupUnsubscribe = listenToSession(sessionId, data => {
@@ -3545,17 +3642,19 @@ async function openGroupSessionView(group, sessionId) {
   }
 }
 
-function leaveGroupSessionView() {
+async function leaveGroupSessionView() {
   commitTextEditorSheet();
   $("text-editor-sheet").classList.add("hidden");
   $("btn-group-delete-session")?.classList.add("hidden");
   $("btn-group-goto-session")?.classList.add("hidden");
+  // See the matching comment in leaveSessionView() — flush (and await it)
+  // before unsubscribing, not after, so the listener is still alive to
+  // reflect the flushed write into state.viewGroupSessionData before the
+  // cleanup below reads it.
+  await state.viewGroupRemarkSaver?.flush();
   if (state.fbViewGroupUnsubscribe) { state.fbViewGroupUnsubscribe(); state.fbViewGroupUnsubscribe = null; }
-  state.viewGroupRemarkSaver?.flush();
   state.viewGroupRemarkSaver?.cleanup();
   state.viewGroupRemarkSaver = null;
-  state.viewGroupEnterKeyCleanup?.();
-  state.viewGroupEnterKeyCleanup = null;
   const sessionId = state.viewGroupSessionId;
   const data      = state.viewGroupSessionData;
   const group     = state.viewGroup;
@@ -3630,11 +3729,16 @@ function renderGroupSessionView() {
   const targets   = getViewGroupEffectiveTargets();
   const sorted    = [...targets].sort((a, b) => a.name.localeCompare(b.name));
 
-  $("group-session-view-body").innerHTML = sorted.length
+  const body = $("group-session-view-body");
+  const scrollTop = body.scrollTop;
+  const captured = captureActiveEditState(body);
+  body.innerHTML = sorted.length
     ? sorted.map(t => buildGroupTargetViewTable(t, data, attendees)).join("")
     : `<p style="color:var(--text-muted);padding:1rem">No targets recorded.</p>`;
 
   attachGroupViewListeners();
+  restoreActiveEditState(body, captured);
+  body.scrollTop = scrollTop;
 }
 
 // Pairs each attending student's remarks for one activity into "rounds" by creation order,
@@ -3783,13 +3887,13 @@ function viewGroupActivityRows(no, actName, actId, data, target, attendees, isPr
         <td class="vcol-act" contenteditable="false">${idx === 0 ? actCellWithToggle : ""}</td>
         <td class="vcol-student" contenteditable="false">${escHtml(studentName)}</td>
         <td class="vcol-rem">
-          <div class="view-remark-edit view-remark-empty"
+          <textarea class="view-remark-edit view-remark-empty" rows="1"
             data-act-id="${escHtml(actId || "")}"
             data-act-name="${escHtml(actName)}"
             data-target="${escHtml(target.name)}"
             data-is-predefined="${isPredefined}"
             data-student="${escHtml(studentName)}"
-            data-placeholder="Click to add remark…"></div>
+            placeholder="Click to add remark…"></textarea>
         </td>
         <td class="vcol-trials" contenteditable="false">
           <button class="view-group-add-trial-new" data-act-id="${escHtml(actId || "")}"
@@ -3862,23 +3966,9 @@ function viewGroupActivityRows(no, actName, actId, data, target, attendees, isPr
 }
 
 function viewGroupRemarkRow(no, actName, studentName, rem, target, inlineOptions = null, sentenceStarter = null, multiSelect = false, isMastery = false, combineOpts = null) {
-  const allTrials   = rem.trials || [];
-  const maxPts      = target.maxPoints || 3;
-  const validTrials = allTrials.filter(t => t !== -1);
-  const total       = validTrials.reduce((a, b) => a + b, 0);
-  const scorePct    = validTrials.length > 0
-    ? Math.round(total / (validTrials.length * maxPts) * 100) + "%" : "";
-
-  const trialCells = allTrials.map((t, ti) => `
-    <span class="trial-cell">
-      <select class="view-trial-select" data-rem-id="${escHtml(rem.id)}" data-trial-idx="${ti}">
-        <option value="-1"${t === -1 ? " selected" : ""}>—</option>
-        ${Array.from({ length: maxPts + 1 }, (_, i) => maxPts - i)
-          .map(v => `<option value="${v}"${v === t ? " selected" : ""}>${v}</option>`).join("")}
-      </select>
-      <button class="view-trial-del" data-rem-id="${escHtml(rem.id)}" data-trial-idx="${ti}">×</button>
-    </span>`).join("") +
-    `<button class="view-add-trial" data-rem-id="${escHtml(rem.id)}">+</button>`;
+  const maxPts = target.maxPoints || 3;
+  const { validTrials, total, scorePct } = calcViewTrialSummary(rem.trials, maxPts);
+  const trialCells = buildTrialCellsHtml(rem, maxPts);
 
   let remarkTd = "";
   if (!combineOpts?.skipRemarkCell) {
@@ -3887,8 +3977,9 @@ function viewGroupRemarkRow(no, actName, studentName, rem, target, inlineOptions
       // group session editor's "Combined Remarks" mode, which is free-text only).
       const idList = combineOpts.combinedRemIds.join(",");
       remarkTd = `<td class="vcol-rem" rowspan="${combineOpts.rowspan}">
-        <div class="view-remark-edit group-remark-input-combined"
-          data-rem-ids="${idList}">${remarkToHtml(combineOpts.sharedText)}</div>
+        <textarea class="view-remark-edit group-remark-input-combined" rows="1"
+          data-rem-ids="${idList}"
+          data-saved-html="${escHtml(combineOpts.sharedText || "")}">${escHtml(plainTextForEdit(combineOpts.sharedText))}</textarea>
       </td>`;
     } else {
       const opts = parseOpts(inlineOptions);
@@ -3911,19 +4002,21 @@ function viewGroupRemarkRow(no, actName, studentName, rem, target, inlineOptions
       };
 
       const optSelect = isMastery
-        ? `<div class="mastery-remark-wrap" contenteditable="false">
+        ? `<div class="mastery-remark-wrap">
             <div class="remark-mastery-opts view-mastery-opts" data-rem-id="${rem.id}">
               ${["In Progress", "Mastered", "Maintain"].map(v =>
                 `<button class="btn-mastery${rem.text === v ? " active" : ""}" data-rem-id="${escHtml(rem.id)}" data-val="${v}">${v}</button>`
               ).join("")}
             </div>
             <div class="mastery-note-row">
-              <div class="view-mastery-note" contenteditable="true"
-                data-rem-id="${escHtml(rem.id)}" data-placeholder="Notes…">${rem.masteryNote || ""}</div>
+              <textarea class="view-mastery-note" rows="1" data-rem-id="${escHtml(rem.id)}"
+                data-saved-html="${escHtml(rem.masteryNote || "")}"
+                placeholder="Notes…">${escHtml(plainTextForEdit(rem.masteryNote))}</textarea>
             </div>
           </div>`
         : (makeViewOpts(rem.id, rem.text)
-            || `<div class="view-remark-edit" data-rem-id="${escHtml(rem.id)}" data-saved-html="${escHtml(remarkToHtml(rem.text))}">${remarkToHtml(rem.text)}</div>`);
+            || `<textarea class="view-remark-edit" rows="1" data-rem-id="${escHtml(rem.id)}"
+                  data-saved-html="${escHtml(rem.text || "")}">${escHtml(plainTextForEdit(rem.text))}</textarea>`);
 
       let remarkCell;
       if (sentenceStarter) {
@@ -3957,40 +4050,110 @@ function viewGroupRemarkRow(no, actName, studentName, rem, target, inlineOptions
   </tr>`;
 }
 
+function getGroupViewMaxPtsForRemark(remId) {
+  const data = state.viewGroupSessionData;
+  const rem  = data?.remarks?.[remId];
+  const act  = rem && data.activities?.[rem.activityId];
+  const target = act && getViewGroupEffectiveTargets().find(t => t.name === act.targetName);
+  return target?.maxPoints || 3;
+}
+
+// Group-view counterpart of refreshViewTrialRow — same reasoning applies
+// (see its comment): the Trials column's buttons can't blur the shared
+// contenteditable host, so a full renderGroupSessionView() after clicking
+// one gets deferred by isGroupViewBusy() until something unrelated finally
+// blurs the host. Patching just this row sidesteps that entirely.
+function refreshGroupViewTrialRow(remId) {
+  const rem = state.viewGroupSessionData?.remarks?.[remId];
+  if (!rem) return;
+  const body = $("group-session-view-body");
+  const tr   = body.querySelector(`.view-rem-del[data-rem-id="${remId}"]`)?.closest("tr");
+  if (!tr) return;
+  const maxPts = getGroupViewMaxPtsForRemark(remId);
+  const { validTrials, total, scorePct } = calcViewTrialSummary(rem.trials, maxPts);
+  const trialCellsDiv = tr.querySelector(".trial-cells");
+  if (trialCellsDiv) {
+    trialCellsDiv.innerHTML = buildTrialCellsHtml(rem, maxPts);
+    bindGroupViewTrialCellListeners(trialCellsDiv);
+  }
+  const totalTd = tr.querySelector(".vcol-total");
+  if (totalTd) totalTd.innerHTML = validTrials.length > 0 ? String(total) : "&nbsp;";
+  const scoreSpan = tr.querySelector(".vcol-score span");
+  if (scoreSpan) scoreSpan.textContent = scorePct;
+}
+
+// See trackViewTrialWrite's comment — same race, group-view counterpart.
+function trackGroupViewTrialWrite(promise) {
+  state.viewGroupActionsInFlight++;
+  promise.finally(() => {
+    state.viewGroupActionsInFlight--;
+    if (state.viewGroupActionsInFlight === 0 && state.viewGroupRenderPending && !isGroupViewBusy()) {
+      state.viewGroupRenderPending = false;
+      renderGroupSessionView();
+    }
+  });
+}
+
+function bindGroupViewTrialCellListeners(container) {
+  container.querySelectorAll(".view-trial-select").forEach(sel => {
+    sel.addEventListener("change", () => {
+      const rem = state.viewGroupSessionData?.remarks?.[sel.dataset.remId];
+      if (!rem) return;
+      const prevTrials = rem.trials || [];
+      const trials = [...prevTrials];
+      trials[Number(sel.dataset.trialIdx)] = Number(sel.value);
+      rem.trials = trials;
+      refreshGroupViewTrialRow(sel.dataset.remId);
+      trackGroupViewTrialWrite(setTrials(state.viewGroupSessionId, sel.dataset.remId, trials).catch(err => {
+        rem.trials = prevTrials;
+        refreshGroupViewTrialRow(sel.dataset.remId);
+        alert("Couldn't update — check your connection and try again.\n\n" + err.message);
+      }));
+    });
+  });
+
+  container.querySelectorAll(".view-trial-del").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const rem = state.viewGroupSessionData?.remarks?.[btn.dataset.remId];
+      if (!rem) return;
+      const prevTrials = rem.trials || [];
+      const trials = prevTrials.filter((_, i) => i !== Number(btn.dataset.trialIdx));
+      rem.trials = trials;
+      refreshGroupViewTrialRow(btn.dataset.remId);
+      trackGroupViewTrialWrite(setTrials(state.viewGroupSessionId, btn.dataset.remId, trials).catch(err => {
+        rem.trials = prevTrials;
+        refreshGroupViewTrialRow(btn.dataset.remId);
+        alert("Couldn't update — check your connection and try again.\n\n" + err.message);
+      }));
+    });
+  });
+
+  container.querySelectorAll(".view-add-trial").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const rem = state.viewGroupSessionData?.remarks?.[btn.dataset.remId];
+      if (!rem) return;
+      const prevTrials = rem.trials || [];
+      const trials = [...prevTrials, -1];
+      rem.trials = trials;
+      refreshGroupViewTrialRow(btn.dataset.remId);
+      trackGroupViewTrialWrite(setTrials(state.viewGroupSessionId, btn.dataset.remId, trials).catch(err => {
+        rem.trials = prevTrials;
+        refreshGroupViewTrialRow(btn.dataset.remId);
+        alert("Couldn't add trial — check your connection and try again.\n\n" + err.message);
+      }));
+    });
+  });
+}
+
 function attachGroupViewListeners() {
   const body = $("group-session-view-body");
   const sid  = () => state.viewGroupSessionId;
 
+  body.querySelectorAll("textarea.view-remark-edit, textarea.view-mastery-note").forEach(autoResizeTextarea);
+
   const wrap = fn => withViewAction("viewGroupActionsInFlight", "viewGroupRenderPending", isGroupViewBusy, renderGroupSessionView, fn);
 
-  body.querySelectorAll(".view-trial-select").forEach(sel => {
-    sel.addEventListener("change", wrap(async () => {
-      const rem = state.viewGroupSessionData?.remarks?.[sel.dataset.remId];
-      if (!rem) return;
-      const trials = [...(rem.trials || [])];
-      trials[Number(sel.dataset.trialIdx)] = Number(sel.value);
-      await setTrials(sid(), sel.dataset.remId, trials);
-    }));
-  });
-
-  body.querySelectorAll(".view-trial-del").forEach(btn => {
-    btn.addEventListener("click", wrap(async () => {
-      const rem = state.viewGroupSessionData?.remarks?.[btn.dataset.remId];
-      if (!rem) return;
-      const trials = (rem.trials || []).filter((_, i) => i !== Number(btn.dataset.trialIdx));
-      await setTrials(sid(), btn.dataset.remId, trials);
-    }));
-  });
-
-  body.querySelectorAll(".view-add-trial").forEach(btn => {
-    btn.addEventListener("click", wrap(async () => {
-      const rem = state.viewGroupSessionData?.remarks?.[btn.dataset.remId];
-      if (!rem) return;
-      const prevLen = (rem.trials || []).length;
-      await setTrials(sid(), btn.dataset.remId, [...(rem.trials || []), -1]);
-      await waitForSessionData(() => (state.viewGroupSessionData?.remarks?.[btn.dataset.remId]?.trials || []).length > prevLen);
-    }));
-  });
+  bindGroupViewTrialCellListeners(body);
 
   // ── Sketch board buttons (group view screen) ────────────────
   body.querySelectorAll(".btn-sketch[data-rem-id]").forEach(btn => {
@@ -4003,11 +4166,10 @@ function attachGroupViewListeners() {
   });
 
   // Saving for .view-remark-edit / .group-remark-input-combined is handled by
-  // the shared merged-editing host (state.viewGroupRemarkSaver) set up in
-  // openGroupSessionView. Enter-key delegation is also set up once there
-  // (setupViewEnterKeyDelegation), not here — this function runs on every
-  // render, and the body persists across renders, so attaching it here would
-  // stack up duplicate listeners.
+  // the shared host saver (state.viewGroupRemarkSaver) set up once in
+  // openGroupSessionView, not here — this function runs on every render, and
+  // the body persists across renders, so attaching per-box listeners here
+  // would stack up duplicates.
 
   // Combine/Separate remarks toggle (mirrors the live group session editor's confirm logic)
   body.querySelectorAll(".btn-combine-toggle").forEach(btn => {
@@ -4061,16 +4223,16 @@ function attachGroupViewListeners() {
     }));
   });
 
-  body.querySelectorAll(".view-mastery-note").forEach(div => {
-    let orig = div.innerHTML;
-    div.addEventListener("blur", async () => {
-      const newNote = div.innerHTML;
-      if (newNote === orig) return;
-      orig = newNote;
-      await updateRemarkNote(sid(), div.dataset.remId, newNote);
-    });
-  });
+  // Saving for .view-remark-edit / .view-remark-empty / .group-remark-input-
+  // combined / .view-mastery-note is handled by the shared host saver
+  // (state.viewGroupRemarkSaver) set up once in openGroupSessionView.
 
+  // These four handlers update state.viewGroupSessionData synchronously
+  // (not just the DOM/Firestore) before awaiting the write — see the matching
+  // comment on the individual view screen's equivalent handlers for why:
+  // leaveGroupSessionView()'s cleanup reads a captured snapshot with no guard
+  // for an in-flight write, which could otherwise let it delete a remark the
+  // boss just set.
   body.querySelectorAll(".view-mastery-opts .btn-mastery").forEach(btn => {
     btn.addEventListener("click", wrap(async () => {
       const container  = btn.closest(".remark-mastery-opts");
@@ -4081,14 +4243,31 @@ function attachGroupViewListeners() {
       if (!confirm(`Change mastery level from "${currentVal || "none"}" to "${newVal || "none"}"?`)) return;
       container?.querySelectorAll(".btn-mastery").forEach(b => b.classList.remove("active"));
       if (!isActive) btn.classList.add("active");
-      await updateRemarkText(sid(), btn.dataset.remId, newVal);
+      const rem = state.viewGroupSessionData?.remarks?.[btn.dataset.remId];
+      const prevVal = rem?.text;
+      if (rem) rem.text = newVal;
+      try {
+        await updateRemarkText(sid(), btn.dataset.remId, newVal);
+      } catch (err) {
+        if (rem) rem.text = prevVal;
+        container?.querySelectorAll(".btn-mastery").forEach(b => b.classList.toggle("active", b.dataset.val === prevVal));
+        alert("Couldn't save — check your connection and try again.\n\n" + err.message);
+      }
     }));
   });
 
   body.querySelectorAll(".view-remark-preset-select").forEach(sel => {
     sel.addEventListener("change", wrap(async () => {
       if (!sel.value) return;
-      await updateRemarkText(sid(), sel.dataset.remId, sel.value);
+      const rem = state.viewGroupSessionData?.remarks?.[sel.dataset.remId];
+      const prevText = rem?.text;
+      if (rem) rem.text = sel.value;
+      try {
+        await updateRemarkText(sid(), sel.dataset.remId, sel.value);
+      } catch (err) {
+        if (rem) rem.text = prevText;
+        alert("Couldn't save — check your connection and try again.\n\n" + err.message);
+      }
     }));
   });
 
@@ -4097,7 +4276,16 @@ function attachGroupViewListeners() {
       btn.classList.toggle("active");
       const container = btn.closest(".view-remark-multi-opts");
       const selected = [...container.querySelectorAll(".view-remark-multi-btn.active")].map(b => b.dataset.opt);
-      await updateRemarkText(sid(), btn.dataset.remId, selected.join(", "));
+      const newText = selected.join(", ");
+      const rem = state.viewGroupSessionData?.remarks?.[btn.dataset.remId];
+      const prevText = rem?.text;
+      if (rem) rem.text = newText;
+      try {
+        await updateRemarkText(sid(), btn.dataset.remId, newText);
+      } catch (err) {
+        if (rem) rem.text = prevText;
+        alert("Couldn't save — check your connection and try again.\n\n" + err.message);
+      }
     }));
   });
 
@@ -4105,7 +4293,14 @@ function attachGroupViewListeners() {
     input.addEventListener("blur", async () => {
       const rem = state.viewGroupSessionData?.remarks?.[input.dataset.remId];
       if (!rem || input.value === (rem.text || "")) return;
-      await updateRemarkText(sid(), input.dataset.remId, input.value);
+      const prevText = rem.text;
+      rem.text = input.value;
+      try {
+        await updateRemarkText(sid(), input.dataset.remId, input.value);
+      } catch (err) {
+        rem.text = prevText;
+        alert("Couldn't save — check your connection and try again.\n\n" + err.message);
+      }
     });
   });
 
@@ -4176,10 +4371,19 @@ function attachGroupViewListeners() {
   });
 
   body.querySelectorAll(".view-rem-del").forEach(btn => {
-    btn.addEventListener("click", wrap(async () => {
+    btn.addEventListener("click", () => {
       if (!confirm("Delete this remark?")) return;
-      await deleteRemark(sid(), btn.dataset.remId);
-    }));
+      const remId = btn.dataset.remId;
+      const rem = state.viewGroupSessionData?.remarks?.[remId];
+      if (!rem) return;
+      delete state.viewGroupSessionData.remarks[remId];
+      renderViewOrDefer("viewGroupRenderPending", isGroupViewBusy, renderGroupSessionView);
+      deleteRemark(sid(), remId).catch(err => {
+        state.viewGroupSessionData.remarks[remId] = rem;
+        renderViewOrDefer("viewGroupRenderPending", isGroupViewBusy, renderGroupSessionView);
+        alert("Couldn't delete remark — check your connection and try again.\n\n" + err.message);
+      });
+    });
   });
 
   body.querySelectorAll(".view-comment-edit").forEach(ta => {
@@ -6061,11 +6265,14 @@ function renderGroupTargetContent() {
 
   items.push(`<button class="btn-add-activity btn-group-add-activity" contenteditable="false">+ Add Activity (This activity only appears in this session)</button>`);
 
+  const scrollHost = content.closest(".session-body");
+  const scrollTop  = scrollHost?.scrollTop;
   const captured = captureActiveEditState(content);
   content.innerHTML = items.join("");
   updateGroupAvgChips(target, data);
   attachGroupTargetListeners(target);
   restoreActiveEditState(content, captured);
+  if (scrollHost) scrollHost.scrollTop = scrollTop;
 }
 
 // "Group students together": activity is the heading, students are listed underneath
@@ -6568,9 +6775,18 @@ function attachGroupTargetListeners(target) {
 
   // Delete round — remove all remarks in this set at once
   c.querySelectorAll(".btn-group-del-round").forEach(btn => {
-    btn.addEventListener("click", async () => {
+    btn.addEventListener("click", () => {
       const remIds = btn.dataset.remIds.split(",").filter(Boolean);
-      if (remIds.length) await deleteRemarksBatch(state.groupSessionId, remIds);
+      if (!remIds.length) return;
+      const data = state.groupSessionData;
+      const prevRemarks = {};
+      remIds.forEach(id => { prevRemarks[id] = data.remarks?.[id]; delete data.remarks?.[id]; });
+      renderGroupTargetContent();
+      deleteRemarksBatch(state.groupSessionId, remIds).catch(err => {
+        Object.assign(data.remarks, prevRemarks);
+        renderGroupTargetContent();
+        alert("Couldn't delete round — check your connection and try again.\n\n" + err.message);
+      });
     });
   });
 
@@ -6596,19 +6812,36 @@ function attachGroupTargetListeners(target) {
 
   // Delete a single round (student-grouped layout)
   c.querySelectorAll(".btn-group-del-student-remark").forEach(btn => {
-    btn.addEventListener("click", async () => {
-      await deleteRemark(state.groupSessionId, btn.dataset.remId);
+    btn.addEventListener("click", () => {
+      const remId = btn.dataset.remId;
+      const rem = state.groupSessionData?.remarks?.[remId];
+      if (!rem) return;
+      delete state.groupSessionData.remarks[remId];
+      renderGroupTargetContent();
+      deleteRemark(state.groupSessionId, remId).catch(err => {
+        state.groupSessionData.remarks[remId] = rem;
+        renderGroupTargetContent();
+        alert("Couldn't delete remark — check your connection and try again.\n\n" + err.message);
+      });
     });
   });
 
   // Delete trial badge
   c.querySelectorAll(".btn-group-trial-del").forEach(btn => {
-    btn.addEventListener("click", async () => {
+    btn.addEventListener("click", () => {
       const remId = btn.dataset.remId;
       const rem   = state.groupSessionData?.remarks?.[remId];
       if (!rem) return;
-      const updated = (rem.trials || []).filter((_, i) => i !== Number(btn.dataset.idx));
-      await setTrials(state.groupSessionId, remId, updated);
+      const idx = Number(btn.dataset.idx);
+      const prevTrials = rem.trials || [];
+      const updated = prevTrials.filter((_, i) => i !== idx);
+      rem.trials = updated;
+      renderGroupTargetContent();
+      setTrials(state.groupSessionId, remId, updated).catch(err => {
+        rem.trials = prevTrials;
+        renderGroupTargetContent();
+        alert("Couldn't delete trial — check your connection and try again.\n\n" + err.message);
+      });
     });
   });
 
