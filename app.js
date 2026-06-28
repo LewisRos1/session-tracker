@@ -44,14 +44,21 @@ import {
   updateSessionDate,
   updateGroupSessionDate,
   deleteTargetDataFromSessions,
+  renameActivityAcrossSessions,
+  renameGroupActivityAcrossSessions,
   signInWithPin,
   signOutUser,
   onAuthChange,
-  generateId
+  generateId,
+  getIndividualSessionsForStudent,
+  getGroupSessionsForStudent,
+  changeSessionNumber,
+  previewRegistryMigration,
+  runRegistryMigration
 } from "./firebase-service.js";
 import {
   exportStudentData, exportAllStudents, exportGroupMemberData,
-  exportStudentSingleSession, exportGroupMemberSingleSession
+  exportStudentSingleSessionWord, exportGroupMemberSingleSessionWord
 } from "./export.js";
 
 // ── SW update detection — must run at parse time, before DOMContentLoaded,
@@ -110,7 +117,7 @@ function versionLineText() {
   return `Made by Lewis · Version ${APP_VERSION}`;
 }
 
-const APP_VERSION = "521";
+const APP_VERSION = "573";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -240,6 +247,22 @@ let _sheetOriginEl = null;
 // When editing a target belonging to a group, this is set so that
 // renderTargetManageContent saves to the group instead of the student.
 let _groupForTargetEdit = null;
+
+// Activities are matched to session data by name text (see
+// renameActivityAcrossSessions in firebase-service.js for the full
+// explanation) — call this right after a rename is saved in Edit Target so
+// every session that already has a remark recorded under the old name
+// doesn't lose its link to it. Fire-and-forget: the rename itself already
+// saved by the time this runs, so a failure here is logged, not surfaced —
+// it just means old sessions keep showing the pre-existing orphaned-row
+// behavior rather than this being a new way to actually lose data.
+function propagateActivityRename(student, targetName, oldName, newName) {
+  if (!oldName || oldName === newName) return;
+  const promise = _groupForTargetEdit
+    ? renameGroupActivityAcrossSessions(_groupForTargetEdit.id, targetName, oldName, newName)
+    : renameActivityAcrossSessions(student.id, targetName, oldName, newName);
+  promise.catch(err => console.error("propagateActivityRename failed:", err));
+}
 // Tracks a newly-created group ID so it can be auto-deleted if closed with no students.
 let _newGroupId = null;
 // When the Edit Target/Template modal is open, holds { acts, save } so closeManageModal
@@ -251,6 +274,13 @@ function isEmptyActItem(a) {
   const strip = s => (s || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").replace(/ /g, " ").trim();
   if (a.isNote) return strip(a.text).length === 0;
   return strip(a.name).length === 0;
+}
+
+// Activity Name / Notes (actNote) fields format bold/underline directly in
+// their plain <textarea> (see wrapTextareaSelection) rather than through this
+// popup — the popup is only for remarks now, same as it always was.
+function isActivityMarkupField(el) {
+  return el.classList?.contains("mn-act-name-input") || el.classList?.contains("mn-act-note-input");
 }
 
 function openTextEditorSheet(originEl) {
@@ -338,7 +368,8 @@ document.addEventListener("DOMContentLoaded", async () => {
     }, 0);
   });
 
-  // Ctrl+B / Cmd+B: visual bold in contenteditable remark fields
+  // Ctrl+B / Cmd+B: visual bold in contenteditable remark fields, or a
+  // **marker** wrap directly in the Activity Name/Notes plain textareas.
   document.addEventListener("keydown", e => {
     if (!(e.key === "b" && (e.ctrlKey || e.metaKey))) return;
     const el = document.activeElement;
@@ -348,6 +379,38 @@ document.addEventListener("DOMContentLoaded", async () => {
       document.execCommand("bold");
       return;
     }
+    if (isActivityMarkupField(el)) {
+      e.preventDefault();
+      wrapTextareaSelection(el, "**");
+    }
+  });
+
+  // Ctrl+U / Cmd+U: same idea as Ctrl+B above, with an __underline__ marker —
+  // only Activity Name/Notes fields need this; remarks never asked for
+  // underline support.
+  document.addEventListener("keydown", e => {
+    if (!(e.key === "u" && (e.ctrlKey || e.metaKey))) return;
+    const el = document.activeElement;
+    if (!el) return;
+    if (el.isContentEditable) {
+      e.preventDefault();
+      document.execCommand("underline");
+      return;
+    }
+    if (isActivityMarkupField(el)) {
+      e.preventDefault();
+      wrapTextareaSelection(el, "__");
+    }
+  });
+
+  // Ctrl+Shift+L / Cmd+Shift+L: bullet point, same shortcut Word itself uses.
+  // Activity Name/Notes fields only — bullets aren't supported in remarks.
+  document.addEventListener("keydown", e => {
+    if (!(e.key === "L" || e.key === "l") || !e.shiftKey || !(e.ctrlKey || e.metaKey)) return;
+    const el = document.activeElement;
+    if (!el || !isActivityMarkupField(el)) return;
+    e.preventDefault();
+    toggleBulletSelection(el);
   });
 
   $("text-editor-done").addEventListener("click", () => {
@@ -557,6 +620,8 @@ async function showHome() {
   renderAssessmentStudentButtons();
   renderTemplateButtons();
   renderExportButtons();
+  renderRegistryMigrationButton();
+  renderStudentDatabaseButton();
 }
 
 $("btn-logout").addEventListener("click", () => {
@@ -565,8 +630,8 @@ $("btn-logout").addEventListener("click", () => {
 
 // ── Add student / template from home screen ───────────────────
 
-$("btn-add-existing-student").addEventListener("click", () => addNewStudent("existing"));
-$("btn-add-assessment-student").addEventListener("click", () => addNewStudent("assessment"));
+$("btn-add-existing-student").addEventListener("click", () => showRegisteredStudentPicker("existing"));
+$("btn-add-assessment-student").addEventListener("click", () => showRegisteredStudentPicker("assessment"));
 $("btn-add-template").addEventListener("click", addNewTemplate);
 $("btn-add-group").addEventListener("click", addNewGroup);
 $("search-existing").addEventListener("input", e => {
@@ -586,20 +651,243 @@ $("search-template").addEventListener("input", e => {
   renderTemplateButtons();
 });
 
-async function addNewStudent(type) {
-  const label = type === "assessment" ? "Assessment student name:" : "Student name:";
-  const name = prompt(label);
-  if (!name?.trim()) return;
-  const s = {
-    id: cfgId("s"),
-    name: name.trim(),
-    type,
-    order: state.students.length,
-    targets: []
+function renderStudentDatabaseButton() {
+  const container = $("student-database-button");
+  if (!container) return;
+  container.innerHTML = `<button class="export-btn export-btn-all" id="btn-open-student-registry">View</button>`;
+  $("btn-open-student-registry").addEventListener("click", () => openStudentRegistryScreen());
+}
+
+// highlightAdd: briefly glows "+ Add New Student" — used when redirected
+// here from another screen's "register a new student" option, instead of
+// a popup the boss has to stop and read.
+function openStudentRegistryScreen(opts = {}) {
+  showScreen("screen-student-registry");
+  renderStudentRegistryBody(opts);
+}
+
+// Full-page Student Database screen — table of every registered student
+// (No./First/Last/latest individual session/latest group session), with
+// "Add New Student" (inline editable row, both names required) and "Delete
+// Student" (pick by number, then type DELETE) actions above it. Clicking a
+// row still opens Manage Student for editing/transfer. Individual and group
+// session numbers are tracked as two separate lifetime sequences per
+// student (see getIndividualSessionsForStudent/getGroupSessionsForStudent),
+// so they get their own columns rather than one combined number.
+//
+// The table itself renders instantly from data already in memory
+// (state.students) — the per-student session-number lookups are genuinely
+// slow (2 Firestore queries each), so those fill in afterwards per-cell
+// instead of blocking the whole screen behind a "Loading…" spinner.
+async function renderStudentRegistryBody({ highlightAdd = false } = {}) {
+  const body = $("student-registry-body");
+  if (!body) return;
+
+  const sorted = [...state.students].sort((a, b) => a.name.localeCompare(b.name));
+
+  body.innerHTML = `
+    <div style="padding:1rem">
+      <div style="display:flex;gap:.6rem;margin-bottom:1rem;flex-wrap:wrap">
+        <button class="export-btn" id="btn-add-student-row">+ Add New Student</button>
+        <button class="export-btn" id="btn-delete-student-row" style="color:#dc2626">Delete Student</button>
+      </div>
+      <div class="view-table-wrapper">
+        <table class="view-table">
+          <colgroup>
+            <col style="width:42px">
+            <col style="width:30%">
+            <col style="width:30%">
+            <col style="width:160px">
+            <col style="width:150px">
+          </colgroup>
+          <thead>
+            <tr>
+              <th>No.</th>
+              <th>First Name</th>
+              <th>Last Name</th>
+              <th style="white-space:normal">Latest Individual Session Recorded</th>
+              <th style="white-space:normal">Latest Group Session Recorded</th>
+            </tr>
+          </thead>
+          <tbody id="student-registry-tbody">
+            ${sorted.map((s, i) => `
+              <tr class="registry-row" data-id="${escHtml(s.id)}" style="cursor:pointer">
+                <td style="text-align:center">${i + 1}</td>
+                <td style="text-align:center">${escHtml(s.firstName || s.name.split(/\s+/)[0] || "")}</td>
+                <td style="text-align:center">${escHtml(s.lastName || s.name.split(/\s+/).slice(1).join(" ") || "")}</td>
+                <td class="reg-indiv-num" data-id="${escHtml(s.id)}" style="text-align:center">…</td>
+                <td class="reg-group-num" data-id="${escHtml(s.id)}" style="text-align:center">…</td>
+              </tr>`).join("")}
+          </tbody>
+        </table>
+      </div>
+      ${sorted.length === 0 ? `<p class="empty-hint" style="padding:1rem">No students registered yet.</p>` : ""}
+    </div>`;
+
+  $("student-registry-body").querySelectorAll(".registry-row").forEach(row => {
+    row.addEventListener("click", () => {
+      const s = state.students.find(x => x.id === row.dataset.id);
+      if (s) openManageModal(s);
+    });
+  });
+
+  $("btn-add-student-row").addEventListener("click", startAddStudentRow);
+  $("btn-delete-student-row").addEventListener("click", promptDeleteStudentFromRegistry);
+
+  if (highlightAdd) {
+    const btn = $("btn-add-student-row");
+    btn.classList.add("btn-flash-hint");
+    setTimeout(() => btn.classList.remove("btn-flash-hint"), 3400);
+  }
+
+  const latestNumber = sessions => sessions.reduce((max, s) => Math.max(max, s.number || 0), 0);
+  sorted.forEach(s => {
+    Promise.all([
+      getIndividualSessionsForStudent(s.id).catch(() => []),
+      getGroupSessionsForStudent(s.id).catch(() => [])
+    ]).then(([indiv, group]) => {
+      const indivCell = body.querySelector(`.reg-indiv-num[data-id="${s.id}"]`);
+      const groupCell = body.querySelector(`.reg-group-num[data-id="${s.id}"]`);
+      if (indivCell) indivCell.textContent = latestNumber(indiv) || "—";
+      if (groupCell) groupCell.textContent = latestNumber(group) || "—";
+    });
+  });
+}
+
+function startAddStudentRow() {
+  const tbody = $("student-registry-tbody");
+  if (!tbody || $("new-student-row")) return;
+  $("btn-add-student-row").disabled = true;
+  const nextNo = tbody.querySelectorAll("tr").length + 1;
+  const tr = document.createElement("tr");
+  tr.id = "new-student-row";
+  tr.innerHTML = `
+    <td style="padding:.5rem .3rem;text-align:center">${nextNo}</td>
+    <td style="padding:.3rem"><input class="admin-input" id="new-student-first" placeholder="First name" style="width:100%;text-align:center" /></td>
+    <td style="padding:.3rem"><input class="admin-input" id="new-student-last" placeholder="Last name" style="width:100%;text-align:center" /></td>
+    <td colspan="2" style="padding:.3rem;display:flex;gap:.4rem">
+      <button class="btn-primary-sm" id="btn-save-new-student">Save</button>
+      <button class="btn-adm-edit" id="btn-cancel-new-student">Cancel</button>
+    </td>`;
+  tbody.appendChild(tr);
+  tr.scrollIntoView({ block: "center" });
+
+  const firstInput = $("new-student-first");
+  const lastInput  = $("new-student-last");
+  firstInput.focus();
+  firstInput.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); lastInput.focus(); } });
+  lastInput.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); $("btn-save-new-student").click(); } });
+
+  $("btn-save-new-student").addEventListener("click", async () => {
+    const firstName = firstInput.value.trim();
+    const lastName  = lastInput.value.trim();
+    if (!firstName || !lastName) {
+      alert("Please enter both a first name and a last name.");
+      return;
+    }
+    const s = {
+      id: cfgId("s"),
+      name: `${firstName} ${lastName}`,
+      firstName, lastName,
+      type: "unassigned",
+      order: state.students.length,
+      targets: []
+    };
+    state.students.push(s);
+    await withSaveFeedback($("btn-save-new-student"), saveStudent(s));
+    renderStudentRegistryBody();
+  });
+
+  $("btn-cancel-new-student").addEventListener("click", renderStudentRegistryBody);
+}
+
+async function promptDeleteStudentFromRegistry() {
+  if (state.students.length === 0) { alert("No students to delete."); return; }
+  const sorted = [...state.students].sort((a, b) => a.name.localeCompare(b.name));
+  const choice = prompt(
+    "Type the No. of the student to delete:\n" +
+    sorted.map((s, i) => `${i + 1}. ${s.name}`).join("\n")
+  );
+  if (choice === null) return;
+  const idx = Number(choice) - 1;
+  if (!Number.isInteger(idx) || idx < 0 || idx >= sorted.length) {
+    alert("Invalid number.");
+    return;
+  }
+  const student = sorted[idx];
+  const typed = prompt(`Type DELETE to permanently delete "${student.name}". Session data is kept in Firebase, but the student will be removed from all lists.`);
+  if (typed !== "DELETE") return;
+  state.students = state.students.filter(s => s.id !== student.id);
+  await deleteStudentConfig(student.id);
+  renderStudentRegistryBody();
+}
+
+// Choosing a student here adds them to Individual Sessions or Assessments.
+// One flat list, no separate "transfer" entry — an Assessment student
+// shows up right alongside everyone else in the Individual Sessions
+// picker, and clicking them just asks a one-line confirm tailored to what's
+// actually happening ("Move X from Assessment...?") instead of a special
+// menu item or a guard error sending the boss elsewhere. Doesn't create a
+// new person directly — "Register a New Student" sends the boss to the
+// Student Database page instead, which is the one place new students get
+// created (see openStudentRegistryScreen).
+function showRegisteredStudentPicker(targetType) {
+  $("session-picker-title").textContent =
+    targetType === "assessment" ? "Add to Assessments" : "Add to Individual Sessions";
+
+  const renderList = () => {
+    // Leave out students already in this exact bucket, and — since
+    // Individual Sessions and Assessment are mutually exclusive — also
+    // leave Individual Sessions students out of the Assessment picker.
+    const candidates = state.students
+      .filter(s => s.type !== targetType)
+      .filter(s => !(targetType === "assessment" && s.type === "existing"))
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    $("session-picker-list").innerHTML = `
+      <div class="choice-list">
+        <button class="choice-btn choice-register-new">
+          <span class="choice-icon">➕</span>
+          <div class="choice-text"><div class="choice-label">Register a New Student</div></div>
+        </button>
+        ${candidates.map(s => `
+          <button class="choice-btn reg-student-pick" data-id="${escHtml(s.id)}">
+            <div class="choice-text"><div class="choice-label">${escHtml(s.name)}</div></div>
+          </button>`).join("")}
+      </div>
+      ${candidates.length === 0 ? `<p class="empty-hint" style="padding:1rem">All registered students have already been added.</p>` : ""}`;
+
+    $("session-picker-list").querySelector(".choice-register-new").addEventListener("click", () => {
+      closeSessionPicker();
+      openStudentRegistryScreen({ highlightAdd: true });
+    });
+    $("session-picker-list").querySelectorAll(".reg-student-pick").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        const s = state.students.find(x => x.id === btn.dataset.id);
+        if (s) await assignStudentToBucket(s, targetType);
+      });
+    });
   };
-  state.students.push(s);
-  await saveStudent(s);
-  if (type === "existing") renderExistingStudentButtons();
+
+  renderList();
+  $("session-picker-modal").classList.remove("hidden");
+}
+
+async function assignStudentToBucket(student, targetType) {
+  if (student.type === targetType) {
+    alert(`"${student.name}" is already in ${targetType === "existing" ? "Individual Sessions" : "Assessments"}.`);
+    return;
+  }
+  if (student.type === "assessment" && targetType === "existing") {
+    if (!confirm(`Move "${student.name}" from Assessment to Individual Sessions?`)) return;
+  } else if (student.type === "existing" && targetType === "assessment") {
+    alert(`"${student.name}" is already in Individual Sessions.`);
+    return;
+  }
+  student.type = targetType;
+  await saveStudent(student);
+  closeSessionPicker();
+  if (targetType === "existing") renderExistingStudentButtons();
   else renderAssessmentStudentButtons();
 }
 
@@ -651,17 +939,23 @@ function renderStudentList(container, students, query = "") {
 }
 
 function renderExistingStudentButtons() {
-  const students = state.students.filter(s => !s.type || s.type === "existing");
+  // Pre-registry records have no type field at all (undefined) and should
+  // keep defaulting to "existing" for backward compatibility — only the new
+  // explicit "unassigned" (set when a student is registered via the Student
+  // Database page or a group roster picker) opts out of that default, so a
+  // freshly-registered student doesn't show here until she actually +Adds
+  // them via showRegisteredStudentPicker.
+  const students = state.students.filter(s => s.type !== "assessment" && s.type !== "unassigned");
   renderStudentList($("existing-student-buttons"), students, state.searchExisting);
 }
 
-async function addNewGroup() {
+function addNewGroup() {
   const g = { id: cfgId("g"), name: "", order: state.groups.length, students: [], targets: [] };
   state.groups.push(g);
-  await saveGroup(g);
   renderGroupButtons();
   _newGroupId = g.id;
   openGroupManageModal(g);
+  saveGroup(g).catch(() => {});
 }
 
 function groupAutoName(students) {
@@ -747,13 +1041,75 @@ function renderExportButtons() {
     btn.disabled = true;
     btn.textContent = "Generating…";
     try {
-      await exportAllStudents(state.students);
+      await exportAllStudents(state.students, state.groups);
     } catch (err) {
       alert("Export failed: " + err.message);
     } finally {
       btn.disabled = false;
       btn.textContent = "Export All (ZIP)";
       btn.style.width = "";
+    }
+  });
+}
+
+// One-time setup tool: links every group's free-typed attendee names to a
+// registered student record (auto-creating one for anyone who's never had
+// an individual session), then renumbers everyone's sessions into one
+// lifetime sequence spanning both individual and group attendance. Always
+// runs the dry-run report first — nothing is written until the boss
+// confirms after reading it.
+function renderRegistryMigrationButton() {
+  const container = $("registry-migration-button");
+  if (!container) return;
+
+  container.innerHTML = `<button class="export-btn" id="btn-run-registry-migration">Preview & Run Setup</button>`;
+
+  $("btn-run-registry-migration").addEventListener("click", async () => {
+    const btn = $("btn-run-registry-migration");
+    btn.disabled = true;
+    btn.textContent = "Checking…";
+    try {
+      const report = await previewRegistryMigration();
+      const nothingToDo = report.nameSplits.length === 0 && report.toLink.length === 0
+        && report.toCreate.length === 0 && report.sessionsToBackfill === 0;
+      if (nothingToDo) {
+        alert("Nothing to do — every student and group is already set up.");
+        return;
+      }
+      const lines = [
+        `This will make the following changes:`,
+        `- Split ${report.nameSplits.length} student name(s) into first/last name`,
+        `- Link ${report.toLink.length} group attendee name(s) to their matching registered student`,
+        `- Create ${report.toCreate.length} new student record(s) for group attendees who've never had an individual session`,
+        `- Update ${report.sessionsToBackfill} historical group session record(s)`,
+        ``,
+        report.toCreate.length
+          ? `New records will be created for:\n` + report.toCreate.map(c => `  • "${c.rosterName}" (in group "${c.groupName}")`).join("\n") + `\n`
+          : ``,
+        `This cannot be easily undone — make sure you have a recent Firestore backup. Proceed?`
+      ].filter(Boolean).join("\n");
+      if (!confirm(lines)) return;
+
+      btn.textContent = "Running…";
+      const createdLog = await runRegistryMigration();
+      state.students = await loadStudentsConfig();
+      state.groups   = await loadGroups();
+      renderExistingStudentButtons();
+      renderAssessmentStudentButtons();
+      renderGroupButtons();
+
+      alert(
+        "Setup complete." +
+        (createdLog.length
+          ? `\n\nNew student records were created for these group attendees — please check Manage Student for each to confirm their first/last name split correctly:\n`
+            + createdLog.map(c => `  • "${c.rosterName}" (in group "${c.groupName}")`).join("\n")
+          : "")
+      );
+    } catch (err) {
+      alert("Setup failed: " + err.message);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "Preview & Run Setup";
     }
   });
 }
@@ -785,21 +1141,33 @@ function showStudentChoice(student) {
           <div class="choice-label">Manage Student</div>
         </div>
       </button>
-      <button class="choice-btn choice-export">
-        <span class="choice-icon">📤</span>
+      <button class="choice-btn choice-export-excel">
+        <span class="choice-icon">📊</span>
         <div class="choice-text">
-          <div class="choice-label">Export to Excel</div>
+          <div class="choice-label">Export to Excel (Yearly Summary)</div>
+        </div>
+      </button>
+      <button class="choice-btn choice-export-word">
+        <span class="choice-icon">📝</span>
+        <div class="choice-text">
+          <div class="choice-label">Export to Word (Daily Session Note)</div>
         </div>
       </button>
     </div>`;
   $("session-picker-modal").classList.remove("hidden");
 
-  $("session-picker-list").querySelector(".choice-export").addEventListener("click", () => {
-    showExportChoiceGeneric(
+  $("session-picker-list").querySelector(".choice-export-excel").addEventListener("click", async e => {
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    btn.querySelector(".choice-label").textContent = "Generating…";
+    try { await exportStudentData(student); } catch (err) { alert("Export failed: " + err.message); }
+    closeSessionPicker();
+  });
+  $("session-picker-list").querySelector(".choice-export-word").addEventListener("click", () => {
+    showExportSessionPickerGeneric(
       student.name,
-      () => exportStudentData(student),
       () => getRecentSessionsForStudent(student.id),
-      session => exportStudentSingleSession(student, session)
+      session => exportStudentSingleSessionWord(student, session)
     );
   });
 
@@ -957,43 +1325,10 @@ function closeSessionPicker() {
 $("session-picker-close").addEventListener("click",    closeSessionPicker);
 $("session-picker-backdrop").addEventListener("click", closeSessionPicker);
 
-// ─── EXPORT NOTES TO EXCEL (shared by individual students and group members) ─
+// ─── EXPORT NOTES TO WORD (shared by individual students and group members) ─
 // entityLabel: display name shown in the picker.
-// onExportAll(): exports every session for this entity (full workbook).
 // getSessions(): fetches the full session list to populate the day picker.
-// onExportSingle(session): exports just the one picked session (light workbook).
-function showExportChoiceGeneric(entityLabel, onExportAll, getSessions, onExportSingle) {
-  $("session-picker-title").textContent = entityLabel;
-  $("session-picker-list").innerHTML = `
-    <div class="choice-list">
-      <button class="choice-btn choice-export-all">
-        <span class="choice-icon">📊</span>
-        <div class="choice-text"><div class="choice-label">Export All Session Notes</div></div>
-      </button>
-      <button class="choice-btn choice-export-one">
-        <span class="choice-icon">📅</span>
-        <div class="choice-text"><div class="choice-label">Export 1 Session Note Only</div></div>
-      </button>
-    </div>`;
-  $("session-picker-modal").classList.remove("hidden");
-
-  $("session-picker-list").querySelector(".choice-export-all").addEventListener("click", async e => {
-    const btn = e.currentTarget;
-    btn.disabled = true;
-    btn.querySelector(".choice-label").textContent = "Generating…";
-    try {
-      await onExportAll();
-    } catch (err) {
-      alert("Export failed: " + err.message);
-    }
-    closeSessionPicker();
-  });
-
-  $("session-picker-list").querySelector(".choice-export-one").addEventListener("click", () => {
-    showExportSessionPickerGeneric(entityLabel, getSessions, onExportSingle);
-  });
-}
-
+// onExportSingle(session): exports the one picked session as a Word doc.
 async function showExportSessionPickerGeneric(entityLabel, getSessions, onExportSingle) {
   $("session-picker-title").textContent = entityLabel;
   $("session-picker-list").innerHTML = `<div class="session-picker-loading">Loading sessions…</div>`;
@@ -1071,9 +1406,11 @@ function renderExportSessionsForMonth(entityLabel, month, monthSessions, byMonth
   });
 }
 
-// Group "Export Notes to Excel" exports one student at a time — ask which
-// student in this group first, then hand off to the same All/One-day flow.
-function showGroupExportStudentPicker(group) {
+// Group export (Excel or Word) exports one student at a time — ask which
+// student in this group first. mode "excel" exports that student's full
+// yearly summary directly; mode "word" opens the day picker for a single
+// session's daily note.
+function showGroupExportStudentPicker(group, mode) {
   $("session-picker-title").textContent = group.name;
   const students = group.students || [];
   $("session-picker-list").innerHTML = students.length
@@ -1089,14 +1426,20 @@ function showGroupExportStudentPicker(group) {
   $("session-picker-modal").classList.remove("hidden");
 
   $("session-picker-list").querySelectorAll(".choice-export-student").forEach(btn => {
-    btn.addEventListener("click", () => {
+    btn.addEventListener("click", async () => {
       const name = btn.dataset.name;
-      showExportChoiceGeneric(
-        `${name} (Group)`,
-        () => exportGroupMemberData(name, [group]),
-        () => getRecentGroupSessions(group.id),
-        session => exportGroupMemberSingleSession(name, [group], session)
-      );
+      if (mode === "word") {
+        showExportSessionPickerGeneric(
+          `${name} (Group)`,
+          () => getRecentGroupSessions(group.id),
+          session => exportGroupMemberSingleSessionWord(name, [group], session)
+        );
+        return;
+      }
+      btn.disabled = true;
+      btn.querySelector(".choice-label").textContent = "Generating…";
+      try { await exportGroupMemberData(name, [group]); } catch (err) { alert("Export failed: " + err.message); }
+      closeSessionPicker();
     });
   });
 }
@@ -1449,9 +1792,20 @@ async function openSession(student, existingSessionId = null, dateStr = null) {
         // Auto-create mastery remarks if previous session had values.
         // If any are created the Firestore write triggers another snapshot
         // which will render — so we return early here to avoid a stale render.
-        const filled = await autoFillMasteryRemarks(student, sessionId);
-        if (filled > 0) return;
+        // Wrapped in try/catch: an uncaught error here (e.g. malformed
+        // target config) would otherwise leave the screen stuck on
+        // "Loading…" forever, since nothing below this line would ever run.
+        try {
+          const filled = await autoFillMasteryRemarks(student, sessionId);
+          if (filled > 0) return;
+        } catch (err) { console.error("autoFillMasteryRemarks failed:", err); }
       }
+      // Mapped-score activities can become fillable any time during the
+      // session (not just on open), so this check isn't gated to firstLoad.
+      try {
+        const mappedFilled = await autoFillMappedRemarks(student, sessionId);
+        if (mappedFilled > 0) return;
+      } catch (err) { console.error("autoFillMappedRemarks failed:", err); }
       // Keep score modal trial badges in sync with Firestore
       if (state.scorePicker?.open && state.scorePicker?.remId) {
         renderScoreModalTrials(state.scorePicker.remId);
@@ -1523,7 +1877,10 @@ async function leaveSession() {
       deleteSession(sessionId).catch(() => {});
     } else {
       const allTargetNames = new Set(Object.values(data.activities || {}).map(a => a.targetName));
-      allTargetNames.forEach(name => cleanupEmptyEntries(sessionId, data, name).catch(() => {}));
+      allTargetNames.forEach(name => {
+        const target = (student?.targets || []).find(t => t.name === name);
+        cleanupEmptyEntries(sessionId, data, name, target).catch(() => {});
+      });
     }
   }
 
@@ -1533,14 +1890,26 @@ async function leaveSession() {
 function updateSessionHeader() {
   const d = state.sessionData;
   if (!d) return;
+  // sessionNumber is this student's lifetime individual-session count (see
+  // getIndividualSessionsForStudent — independent of their group session
+  // count) — no longer scoped to "this month", so it's shown plainly
+  // rather than as "X of [Month]".
   $("session-meta").textContent =
-    `Session ${d.sessionNumber} of ${d.month.split(" ")[0]} · ${formatDate(d.date)}`;
+    `Session ${d.sessionNumber} · ${formatDate(d.date)}`;
 }
 
 
+// Shared by individual + group target dropdowns, the Manage Targets reorder
+// list, and the Word/Excel exports — keeps display order consistent with
+// whatever the boss last dragged it to, falling back to alphabetical for
+// any target predating the order field.
+function sortTargetsByOrder(targets) {
+  return [...targets].sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || a.name.localeCompare(b.name));
+}
+
 function populateTargetDropdown(targets) {
   const sel = $("target-select");
-  const sorted = [...targets].sort((a, b) => a.name.localeCompare(b.name));
+  const sorted = sortTargetsByOrder(targets);
   const placeholder = sorted.length === 0
     ? `<option value="" disabled selected>— no targets yet —</option>` : "";
   sel.innerHTML = placeholder +
@@ -1548,11 +1917,17 @@ function populateTargetDropdown(targets) {
       `<option value="${escHtml(t.name)}">${escHtml(t.name)}</option>`
     ).join("") + `<option value="__add_target__">+ Add Target…</option>`;
 
-  sel.value = state.selectedTargetName || targets[0]?.name || "";
+  sel.value = state.selectedTargetName || sorted[0]?.name || "";
+
+  const reorderBtn = $("btn-reorder-targets");
+  if (reorderBtn) {
+    reorderBtn.classList.toggle("hidden", targets.length < 2);
+    reorderBtn.onclick = () => showTargetReorderList(state.currentStudent);
+  }
 
   sel.onchange = async () => {
     if (sel.value === "__add_target__") {
-      sel.value = state.selectedTargetName || targets[0]?.name || "";
+      sel.value = state.selectedTargetName || sorted[0]?.name || "";
       showAddTargetPicker(state.currentStudent);
       return;
     }
@@ -1567,7 +1942,8 @@ function populateTargetDropdown(targets) {
     state.pendingNewRemark   = null;
     // Clean up empty entries from the previous target (fire-and-forget)
     if (prevTarget && prevTarget !== sel.value) {
-      cleanupEmptyEntries(state.currentSessionId, state.sessionData, prevTarget).catch(() => {});
+      const prevTargetObj = (state.currentStudent?.targets || []).find(t => t.name === prevTarget);
+      cleanupEmptyEntries(state.currentSessionId, state.sessionData, prevTarget, prevTargetObj).catch(() => {});
     }
     // A <select> keeps focus after its own change event fires, and the
     // busy-check in openSession's listener treats "the dropdown is focused"
@@ -1584,15 +1960,46 @@ $("btn-back").addEventListener("click", leaveSession);
 // TARGET CONTENT RENDERING
 // ============================================================
 
-function calcDaysAverage(target) {
+// Resolves a mapped-score activity's live display: the label naming its
+// mapped target, and that target's current day average (null if unmapped,
+// the mapped target was deleted, or it has no data yet today).
+function resolveMappedScoreDisplay(pa, visited) {
+  const mappedTarget = pa.mappedTargetId
+    ? getEffectiveTargets().find(t => t.id === pa.mappedTargetId)
+    : null;
+  if (!mappedTarget) return { label: "Score (Not Mapped Yet)", pct: null };
+  return {
+    label: `Score (Mapped to ${mappedTarget.name}'s Average)`,
+    pct: calcDaysAverage(mappedTarget, visited)
+  };
+}
+
+// visited guards against a circular mapping chain (A maps to B, B maps back
+// to A) recursing forever — direct self-mapping is already blocked in the
+// Edit Target picker, but this is a defensive backstop, not the primary guard.
+function calcDaysAverage(target, visited = new Set()) {
+  if (visited.has(target.id)) return null;
+  visited.add(target.id);
+
   let totalScore = 0;
   let totalPossible = 0;
+  const maxPts = target.maxPoints || 3;
   for (const act of getActivitiesForTarget(target.name)) {
+    const pa = (target.predefinedActivities || []).find(p => p.isMapped && p.name === act.activityName);
+    if (pa) {
+      if (getRemarksForActivity(act.id).length === 0) continue;
+      const mappedPct = resolveMappedScoreDisplay(pa, visited).pct;
+      if (mappedPct !== null) {
+        totalScore    += mappedPct / 100 * maxPts;
+        totalPossible += maxPts;
+      }
+      continue;
+    }
     for (const rem of getRemarksForActivity(act.id)) {
       const trials = rem.trials || [];
       if (trials.length === 0) continue;
       totalScore    += trials.reduce((a, b) => a + b, 0);
-      totalPossible += trials.length * (target.maxPoints || 3);
+      totalPossible += trials.length * maxPts;
     }
   }
   return totalPossible > 0 ? Math.round(totalScore / totalPossible * 100) : null;
@@ -1679,17 +2086,18 @@ function renderFedcTarget(target) {
     const actId      = actData ? actData.id : null;
     const remarks    = actId ? getRemarksForActivity(actId) : [];
     const isPending  = state.pendingNewRemark?.pendingKey === pendingKey;
+    const mappedInfo = pa.isMapped ? resolveMappedScoreDisplay(pa) : null;
 
     html += `<div class="entry-block entry-block-predefined">
       <div class="entry-field" contenteditable="false">
         <span class="field-label">Activity</span>
-        <span class="field-value-fixed">${escHtml(pa.name)}</span>
+        <span class="field-value-fixed">${formatActivityMarkup(pa.name)}</span>
       </div>`;
 
     if (pa.actNote && pa.actNote.trim()) {
       html += `<div class="entry-field" contenteditable="false">
         <span class="field-label">Note</span>
-        <span class="field-value-note">${escHtml(pa.actNote)}</span>
+        <span class="field-value-note">${formatActivityMarkup(pa.actNote)}</span>
       </div>`;
     }
 
@@ -1712,7 +2120,7 @@ function renderFedcTarget(target) {
       }
     } else {
       for (const rem of remarks) {
-        html += renderRemarkFields(rem, target, getActivityInlineOptions(pa), pa.sentenceStarter || null, pa.optionsMulti || false, pa.isMastery || false);
+        html += renderRemarkFields(rem, target, getActivityInlineOptions(pa), pa.sentenceStarter || null, pa.optionsMulti || false, pa.isMastery || false, mappedInfo, pa.remarkHasNote || false);
       }
       if (isPending) {
         html += renderPendingRemarkFields(pendingKey, actId, pa.name, idx, target);
@@ -1722,7 +2130,7 @@ function renderFedcTarget(target) {
           data-act-id="${actId || ""}"
           data-pa-name="${escHtml(pa.name)}"
           data-pa-order="${idx}"
-          data-target="${escHtml(target.name)}">+ Add Remark &amp; Trials</button>`;
+          data-target="${escHtml(target.name)}">+ Add Remark${pa.isMapped ? "" : " &amp; Trials"}</button>`;
       }
     }
 
@@ -1883,9 +2291,167 @@ function htmlForStorage(text) {
   return escHtml(text || "").replace(/\n/g, "<br>");
 }
 
+// Read-only display of activity name/note text that may contain
+// **bold**/__underline__ markers (typed via wrapTextareaSelection below) —
+// escapes the raw text first so it can't inject arbitrary HTML, then turns
+// the markers into real tags.
+function formatActivityMarkup(text) {
+  return escHtml(text || "")
+    .replace(/\*\*(.+?)\*\*/g, "<b>$1</b>")
+    .replace(/__(.+?)__/g, "<u>$1</u>");
+}
+
+// A "word" for cursor-with-no-selection formatting — letters/digits/'/- so
+// "Self-Regulation" or "don't" count as one word, but stops at punctuation
+// like ":" or "(" so parenthesised text doesn't get swept in.
+function wordBoundsAt(value, pos) {
+  const isWordChar = c => /[A-Za-z0-9'-]/.test(c);
+  let start = pos, end = pos;
+  while (start > 0 && isWordChar(value[start - 1])) start--;
+  while (end < value.length && isWordChar(value[end])) end++;
+  return { start, end };
+}
+
+// Finds a marker...marker pair anywhere in the text whose span (including
+// the markers themselves) overlaps [selStart, selEnd] — covers all 3 ways a
+// boss might re-select already-formatted text: just the inner words, the
+// whole "**text**" including the markers, or just a bare cursor resting
+// somewhere inside it.
+function findMarkerSpan(value, selStart, selEnd, marker) {
+  const esc = marker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const re = new RegExp(esc + "(.+?)" + esc, "g");
+  let m;
+  while ((m = re.exec(value)) !== null) {
+    const mStart = m.index, mEnd = m.index + m[0].length;
+    if (mStart <= selEnd && mEnd >= selStart) return { start: mStart, end: mEnd, inner: m[1] };
+  }
+  return null;
+}
+
+// Formats the current selection in a plain <textarea>/<input> with a marker
+// (** for bold, __ for underline) without going through the contenteditable
+// sketch popup — Activity Name/Notes are the only fields that use this; a
+// plain textarea can't render the result as real bold/underline inline, but
+// this avoids the popup entirely, which is what the boss asked for.
+//
+// Same toggle behaviour as a word processor's Ctrl+B: if the cursor/selection
+// overlaps an existing marker pair *in any way* (see findMarkerSpan above),
+// that pair is removed — it can never stack into "****text****" no matter
+// how it's re-selected. Otherwise, a bare cursor (no selection) expands to
+// the whole word under it before wrapping, instead of dropping markers with
+// nothing between them. Caller is responsible for keeping the field focused
+// (see the mousedown handlers on the format buttons) so the selection
+// survives long enough to read it.
+function wrapTextareaSelection(el, marker) {
+  const value = el.value;
+  const mLen = marker.length;
+  let start = el.selectionStart, end = el.selectionEnd;
+
+  const existing = findMarkerSpan(value, start, end, marker);
+  if (existing) {
+    el.value = value.slice(0, existing.start) + existing.inner + value.slice(existing.end);
+    el.setSelectionRange(existing.start, existing.start + existing.inner.length);
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+    return;
+  }
+
+  if (start === end) {
+    const word = wordBoundsAt(value, start);
+    if (word.end === word.start) return; // no word under the cursor — nothing to format
+    start = word.start; end = word.end;
+  }
+
+  const before = value.slice(0, start);
+  const selected = value.slice(start, end);
+  const after = value.slice(end);
+  el.value = before + marker + selected + marker + after;
+  el.setSelectionRange(start + mLen, end + mLen);
+  el.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
+// Small "B"/"U"/"•" buttons next to an Activity Name/Notes field — same wrap
+// action as Ctrl+B/Ctrl+U/Ctrl+Shift+L, for anyone who doesn't know/use the shortcut.
+function formatButtonsHtml(inputId) {
+  return `<span class="fmt-btn-group">
+    <button class="btn-fmt btn-fmt-bold" type="button" data-input-id="${inputId}" title="Bold (Ctrl+B)">B</button>
+    <button class="btn-fmt btn-fmt-underline" type="button" data-input-id="${inputId}" title="Underline (Ctrl+U)">U</button>
+    <button class="btn-fmt btn-fmt-bullet" type="button" data-input-id="${inputId}" title="Bullet point (Ctrl+Shift+L)">•</button>
+  </span>`;
+}
+
+// Finds the start/end of the line containing `pos` in a plain textarea value.
+function lineBoundsAt(value, pos) {
+  const start = value.lastIndexOf("\n", pos - 1) + 1;
+  let end = value.indexOf("\n", pos);
+  if (end === -1) end = value.length;
+  return { start, end };
+}
+
+// A line "has a bullet" if it starts with the • marker (whatever indentation
+// precedes it) — checked with a plain regex, not a hidden flag, so a bullet
+// typed by hand (bypassing the button entirely) is still recognized and can
+// still be toggled off, same as the bold/underline markers.
+function isBulletLine(line) {
+  return /^\s*•\s?/.test(line);
+}
+function addBulletMarker(line) {
+  return isBulletLine(line) ? line : "• " + line.replace(/^\s+/, "");
+}
+function stripBulletMarker(line) {
+  return line.replace(/^(\s*)•\s?/, "$1");
+}
+
+// Toggle bullet points on the line(s) touched by the current selection in a
+// plain <textarea> — same "format like Word" intent as wrapTextareaSelection,
+// but bullets are a per-line prefix rather than a paired inline marker, so
+// the logic works on whole lines instead of an arbitrary text span:
+// - A highlighted range only needs to touch part of a line to affect the
+//   whole line (selecting one character is enough), matching how Word's
+//   bullet button always applies to the full paragraph(s) touched.
+// - Re-toggling never accumulates: every line's bullet state is read fresh
+//   from the text itself (via isBulletLine) each time, never assumed, so
+//   clicking twice always returns to the original state.
+// - A mixed selection (some lines already bulleted, some not) always adds
+//   bullets to every line, matching Word's behaviour for a mixed selection.
+// - Blank lines inside a multi-line selection are left alone (they're used
+//   as readability separators between rubric sections, not list items) —
+//   but a bare cursor resting on a single blank line starts a fresh bullet
+//   right there, same as clicking the bullet button on an empty paragraph.
+function toggleBulletSelection(el) {
+  const value = el.value;
+  const selStart = el.selectionStart, selEnd = el.selectionEnd;
+
+  if (selStart === selEnd) {
+    const { start, end } = lineBoundsAt(value, selStart);
+    if (value.slice(start, end).trim() === "") {
+      el.value = value.slice(0, start) + "• " + value.slice(end);
+      el.setSelectionRange(start + 2, start + 2);
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+      return;
+    }
+  }
+
+  const blockStart = lineBoundsAt(value, selStart).start;
+  const blockEnd = lineBoundsAt(value, Math.max(selEnd - 1, selStart)).end;
+  const lines = value.slice(blockStart, blockEnd).split("\n");
+
+  const nonBlank = lines.filter(ln => ln.trim() !== "");
+  const shouldAdd = nonBlank.length === 0 || !nonBlank.every(isBulletLine);
+
+  const newLines = lines.map(ln => {
+    if (ln.trim() === "") return ln;
+    return shouldAdd ? addBulletMarker(ln) : stripBulletMarker(ln);
+  });
+
+  const newBlock = newLines.join("\n");
+  el.value = value.slice(0, blockStart) + newBlock + value.slice(blockEnd);
+  el.setSelectionRange(blockStart, blockStart + newBlock.length);
+  el.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
 // ─── REMARK FIELDS ───────────────────────────────────────────
 
-function renderRemarkFields(rem, target, inlineOptions = null, sentenceStarter = null, multiSelect = false, isMastery = false) {
+function renderRemarkFields(rem, target, inlineOptions = null, sentenceStarter = null, multiSelect = false, isMastery = false, mappedInfo = null, remarkHasNote = false) {
   const opts = parseOpts(inlineOptions);
 
   const trials = rem.trials || [];
@@ -1893,6 +2459,25 @@ function renderRemarkFields(rem, target, inlineOptions = null, sentenceStarter =
     `<span class="trial-badge">${score === -1 ? "—" : score}<button class="btn-trial-delete"
       data-rem-id="${rem.id}" data-idx="${idx}">×</button></span>`
   ).join("");
+
+  // Shared by the mastery branch below and the normal branch further down —
+  // a mastery-typed remark can also be mapped-score (Remark Type and Mapped
+  // To are independent settings), so both branches need the same mappedInfo-
+  // vs-Trials choice instead of the mastery branch hardcoding Trials.
+  const trailingField = mappedInfo
+    ? `<div class="entry-field" contenteditable="false">
+        <span class="field-label">${escHtml(mappedInfo.label)}</span>
+        <span class="field-value-fixed">${mappedInfo.pct !== null ? mappedInfo.pct + "%" : "—"}</span>
+      </div>`
+    : `<div class="entry-field" contenteditable="false">
+        <span class="field-label">Trials</span>
+        <div class="trials-row">
+          <div class="trials-badges">${badgesHtml}</div>
+          <button class="btn-add-trial btn-primary-sm"
+            data-rem-id="${rem.id}"
+            data-target="${escHtml(target.name)}">+ Trial</button>
+        </div>
+      </div>`;
 
   if (isMastery) {
     const cur = rem.text || "";
@@ -1916,15 +2501,7 @@ function renderRemarkFields(rem, target, inlineOptions = null, sentenceStarter =
       <button class="btn-icon btn-delete-remark"
         data-rem-id="${rem.id}" title="Delete remark">🗑</button>
     </div>
-    <div class="entry-field" contenteditable="false">
-      <span class="field-label">Trials</span>
-      <div class="trials-row">
-        <div class="trials-badges">${badgesHtml}</div>
-        <button class="btn-add-trial btn-primary-sm"
-          data-rem-id="${rem.id}"
-          data-target="${escHtml(target.name)}">+ Trial</button>
-      </div>
-    </div>`;
+    ${trailingField}`;
   }
 
   function makeOptPills(remId, remText) {
@@ -1964,6 +2541,20 @@ function renderRemarkFields(rem, target, inlineOptions = null, sentenceStarter =
     remarkContent = optBtns;
   }
 
+  // Generalized version of Mastery's separate Notes field — same idea, but
+  // the select-one options above are whatever the boss configured (not
+  // hardcoded mastery values), so this reuses the same .mastery-note-input
+  // class/rem.masteryNote field to pick up the existing save wiring for free.
+  const noteField = remarkHasNote
+    ? `<div class="entry-field" contenteditable="false">
+        <span class="field-label">Notes</span>
+        <button class="btn-sketch" data-rem-id="${rem.id}" aria-label="Open sketch board">✏</button>
+        <textarea class="field-input mastery-note-input" rows="1"
+          data-rem-id="${rem.id}" placeholder="Notes…"
+          data-saved-html="${escHtml(rem.masteryNote || "")}">${escHtml(plainTextForEdit(rem.masteryNote || ""))}</textarea>
+      </div>`
+    : "";
+
   return `
     <div class="entry-divider" contenteditable="false"></div>
     <div class="entry-field">
@@ -1973,15 +2564,8 @@ function renderRemarkFields(rem, target, inlineOptions = null, sentenceStarter =
       <button class="btn-icon btn-delete-remark" contenteditable="false"
         data-rem-id="${rem.id}" title="Delete remark">🗑</button>
     </div>
-    <div class="entry-field" contenteditable="false">
-      <span class="field-label">Trials</span>
-      <div class="trials-row">
-        <div class="trials-badges">${badgesHtml}</div>
-        <button class="btn-add-trial btn-primary-sm"
-          data-rem-id="${rem.id}"
-          data-target="${escHtml(target.name)}">+ Trial</button>
-      </div>
-    </div>`;
+    ${noteField}
+    ${trailingField}`;
 }
 
 function renderPendingRemarkFields(pendingKey, actId, paName, paOrder, target) {
@@ -2124,9 +2708,6 @@ function attachTargetListeners(target) {
       const isActive   = btn.classList.contains("active");
       const newVal     = isActive ? "" : btn.dataset.val;
       if (currentVal === newVal) return;
-      const fromLabel = currentVal || "none";
-      const toLabel   = newVal     || "none";
-      if (!confirm(`Change mastery level from "${fromLabel}" to "${toLabel}"?`)) return;
       container?.querySelectorAll(".btn-mastery").forEach(b => b.classList.remove("active"));
       if (!isActive) btn.classList.add("active");
       // Update local state synchronously, not just the DOM — leaveSession()'s
@@ -2444,6 +3025,41 @@ async function autoFillMasteryRemarks(student, sessionId) {
   return count;
 }
 
+// Auto-create an empty remark for a mapped-score activity as soon as its
+// mapped target gains a computable average — otherwise the row stays
+// collapsed (no remark of its own) even after the target it pulls from has
+// real data. Unlike autoFillMasteryRemarks this runs on every snapshot, not
+// just first load: the trigger ("the other target now has data") can become
+// true at any point while this session stays open, not only when it's opened.
+async function autoFillMappedRemarks(student, sessionId) {
+  const data = state.sessionData;
+  let count = 0;
+  for (const target of (student.targets || [])) {
+    for (const pa of (target.predefinedActivities || [])) {
+      if (!pa.isMapped) continue;
+
+      const existingAct = Object.entries(data.activities || {})
+        .find(([, a]) => a.targetName === target.name && a.activityName === pa.name);
+      let actId = existingAct?.[0] || null;
+
+      if (actId) {
+        const hasRemark = Object.values(data.remarks || {}).some(r => r.activityId === actId);
+        if (hasRemark) continue;
+      }
+
+      const pct = resolveMappedScoreDisplay(pa, new Set()).pct;
+      if (pct === null) continue; // mapped target has no average yet — stay collapsed
+
+      if (!actId) {
+        actId = await addActivity(sessionId, target.name, pa.name, pa.order ?? 0, true);
+      }
+      await addRemark(sessionId, actId, "");
+      count++;
+    }
+  }
+  return count;
+}
+
 // Deletes remarks that have no text, no mastery note, and no valid trials for
 // the given target, then removes any activity that is left with no remarks.
 // A "-1" trial is the View/Edit screen's "+" placeholder for a slot that was
@@ -2451,10 +3067,15 @@ async function autoFillMasteryRemarks(student, sessionId) {
 // remark that's otherwise empty gets deleted outright (as if "+" was never
 // clicked), and one that has other real content just has that stray slot
 // quietly dropped from its trials array.
-async function cleanupEmptyEntries(sessionId, data, targetName) {
+async function cleanupEmptyEntries(sessionId, data, targetName, target = null) {
   if (!sessionId || !data) return;
+  // Mapped-score activities are designed to have no remark of their own until
+  // their mapped target gains an average (see autoFillMappedRemarks) — an
+  // empty one isn't stale data, it's the activity waiting to auto-fill. Treat
+  // them as exempt so this cleanup never races that auto-fill and deletes it.
+  const mappedNames = new Set((target?.predefinedActivities || []).filter(pa => pa.isMapped).map(pa => pa.name));
   const acts = Object.entries(data.activities || {})
-    .filter(([, a]) => a.targetName === targetName);
+    .filter(([, a]) => a.targetName === targetName && !mappedNames.has(a.activityName));
   for (const [actId] of acts) {
     const rems = Object.entries(data.remarks || {}).filter(([, r]) => r.activityId === actId);
     const stripEmpty = s => (s || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").replace(/ /g, " ").trim();
@@ -2601,11 +3222,15 @@ async function openSessionView(student, sessionId) {
     if (!state.viewRenderPending || isViewBusy() || state.viewActionsInFlight > 0) return;
     state.viewRenderPending = false;
     renderSessionView();
-  });
+  }, () => state.viewSessionData);
 
   try {
-    state.fbViewUnsubscribe = listenToSession(sessionId, data => {
+    state.fbViewUnsubscribe = listenToSession(sessionId, async data => {
       state.viewSessionData = data;
+      try {
+        const filled = await autoFillViewMappedRemarks(student, sessionId, data);
+        if (filled > 0) return; // the write triggers another snapshot, which renders
+      } catch (err) { console.error("autoFillViewMappedRemarks failed:", err); }
       if (isViewBusy() || state.viewActionsInFlight > 0) { state.viewRenderPending = true; }
       else               { renderSessionView(); }
     });
@@ -2653,7 +3278,10 @@ async function leaveSessionView() {
       deleteSession(sessionId).catch(() => {});
     } else {
       const allTargetNames = new Set(Object.values(data.activities || {}).map(a => a.targetName));
-      allTargetNames.forEach(name => cleanupEmptyEntries(sessionId, data, name).catch(() => {}));
+      allTargetNames.forEach(name => {
+        const target = (student?.targets || []).find(t => t.name === name);
+        cleanupEmptyEntries(sessionId, data, name, target).catch(() => {});
+      });
     }
   }
 
@@ -2661,6 +3289,7 @@ async function leaveSessionView() {
 }
 
 $("btn-view-back").addEventListener("click", leaveSessionView);
+$("btn-student-registry-back").addEventListener("click", showHome);
 
 function renderSessionView() {
   const data    = state.viewSessionData;
@@ -2691,7 +3320,7 @@ function renderSessionView() {
     newDelBtn.classList.remove("hidden");
     _delBtn.replaceWith(newDelBtn);
     newDelBtn.addEventListener("click", async () => {
-      const typed = prompt(`Delete Session ${data.sessionNumber} of ${data.month.split(" ")[0]} (${formatDate(data.date)})?\n\nThis cannot be undone. Type DELETE to confirm:`);
+      const typed = prompt(`Delete Session ${data.sessionNumber} (${formatDate(data.date)})?\n\nThis cannot be undone. Type DELETE to confirm:`);
       if (typed !== "DELETE") return;
       const sid = state.viewSessionId;
       leaveSessionView();
@@ -2700,7 +3329,7 @@ function renderSessionView() {
   }
 
   const targets = getViewEffectiveTargets();
-  const sorted  = [...targets].sort((a, b) => a.name.localeCompare(b.name));
+  const sorted  = sortTargetsByOrder(targets);
 
   const body = $("session-view-body");
   // body itself scrolls (overflow-y:auto) — replacing its innerHTML resets
@@ -2804,7 +3433,7 @@ function viewActivityRows(no, actName, actId, data, target, isPredefined = true)
     : null;
 
   const actCell = isPredefined
-    ? escHtml(actName) + (paEntry?.actNote?.trim() ? `<div class="view-act-note">${escHtml(paEntry.actNote)}</div>` : "")
+    ? formatActivityMarkup(actName) + (paEntry?.actNote?.trim() ? `<div class="view-act-note">${formatActivityMarkup(paEntry.actNote)}</div>` : "")
     : `<div style="display:flex;align-items:center;gap:.3rem">
         <input class="view-act-edit" type="text" value="${escHtml(actName)}"
           data-act-id="${escHtml(actId || "")}" data-original="${escHtml(actName)}" />
@@ -2816,38 +3445,68 @@ function viewActivityRows(no, actName, actId, data, target, isPredefined = true)
   const sentenceStarter = paEntry?.sentenceStarter || null;
   const multiSelect     = paEntry?.optionsMulti || false;
   const isMastery       = paEntry?.isMastery || false;
+  const remarkHasNote   = paEntry?.remarkHasNote || false;
+  const mappedInfo      = paEntry?.isMapped ? resolveViewMappedScoreDisplay(paEntry, data) : null;
 
   if (remarks.length === 0) {
     // For free-text remark types (no preset opts, not mastery), show a clickable empty input
     const opts = parseOpts(inlineOptions);
     const showEmpty = opts.length === 0 && !isMastery;
-    const emptyCell = showEmpty
-      ? `<textarea class="view-remark-edit view-remark-empty" rows="1"
+    if (showEmpty) {
+      const emptyCell = `<textarea class="view-remark-edit view-remark-empty" rows="1"
            data-act-id="${escHtml(actId || "")}"
            data-act-name="${escHtml(actName)}"
            data-target="${escHtml(target.name)}"
-           data-is-predefined="${isPredefined}"
-           placeholder="Click to add remark…"></textarea>`
-      : "";
-    // "+ " shows even with no remark yet — clicking it creates the activity/
-    // remark and a first trial in one go, so a score can be logged without
-    // first having to type something into the remark box.
-    const addTrialBtn = `<button class="view-add-trial-new" data-act-id="${escHtml(actId || "")}"
-      data-act-name="${escHtml(actName)}" data-target-name="${escHtml(target.name)}"
-      data-is-predefined="${isPredefined}">+</button>`;
+           data-is-predefined="${isPredefined}"></textarea>`;
+      // "+ " shows even with no remark yet — clicking it creates the activity/
+      // remark and a first trial in one go, so a score can be logged without
+      // first having to type something into the remark box. Mapped-score
+      // activities have no trials at all, so they skip this button entirely —
+      // typing into the empty box above is the only way to create the remark.
+      // No score/label shown here even though mappedInfo resolves to a real
+      // percentage — that percentage is the mapped TARGET's own average, which
+      // exists independently of whether THIS activity has any remark yet, so
+      // showing it here would look like this row already has live data when
+      // it actually contributes nothing until a remark exists (matches the
+      // group screen's equivalent empty case, which already left this blank).
+      const addTrialBtn = mappedInfo
+        ? ""
+        : `<button class="view-add-trial-new" data-act-id="${escHtml(actId || "")}"
+        data-act-name="${escHtml(actName)}" data-target-name="${escHtml(target.name)}"
+        data-is-predefined="${isPredefined}">+</button>`;
+      return `<tr>
+        <td class="vcol-no" contenteditable="false">${no}</td>
+        <td class="vcol-act" contenteditable="false">${actCell}</td>
+        <td class="vcol-rem">${emptyCell}</td>
+        <td class="vcol-trials" contenteditable="false">${addTrialBtn || "&nbsp;"}</td>
+        <td class="vcol-total" contenteditable="false">&nbsp;</td>
+        <td class="vcol-score" contenteditable="false">&nbsp;</td>
+      </tr>`;
+    }
+    // Preset-option / sentence-starter / mastery activities have no typeable
+    // empty box (there's no free text to click into), so without an explicit
+    // button here the Remark cell was just blank with no way to create the
+    // first remark at all.
+    const addRowLabel = opts.length > 0
+      ? "+ Show Selections"
+      : `+ Add Remark${mappedInfo ? "" : " &amp; Trials"}`;
     return `<tr>
       <td class="vcol-no" contenteditable="false">${no}</td>
       <td class="vcol-act" contenteditable="false">${actCell}</td>
-      <td class="vcol-rem">${emptyCell}</td>
-      <td class="vcol-trials" contenteditable="false">${addTrialBtn}</td>
+      <td class="vcol-rem" contenteditable="false">
+        <button class="view-add-remark-row" data-act-id="${escHtml(actId || "")}"
+          data-act-name="${escHtml(actName)}" data-target-name="${escHtml(target.name)}"
+          data-is-predefined="${isPredefined}">${addRowLabel}</button>
+      </td>
+      <td class="vcol-trials" contenteditable="false">&nbsp;</td>
       <td class="vcol-total" contenteditable="false">&nbsp;</td>
-      <td class="vcol-score" contenteditable="false">&nbsp;</td>
+      <td class="vcol-score" contenteditable="false">${mappedInfo ? (mappedInfo.pct !== null ? mappedInfo.pct + "%" : "—") : "&nbsp;"}</td>
     </tr>`;
   }
   return remarks.map((rem, ri) => viewRemarkRow(
     ri === 0 ? no : null,
     ri === 0 ? actCell : null,
-    rem, target, inlineOptions, sentenceStarter, multiSelect, isMastery
+    rem, target, inlineOptions, sentenceStarter, multiSelect, isMastery, mappedInfo, remarkHasNote
   )).join("");
 }
 
@@ -2877,10 +3536,16 @@ function buildTrialCellsHtml(rem, maxPts) {
     `<button class="view-add-trial" data-rem-id="${escHtml(rem.id)}">+</button>`;
 }
 
-function viewRemarkRow(no, actName, rem, target, inlineOptions = null, sentenceStarter = null, multiSelect = false, isMastery = false) {
+function viewRemarkRow(no, actName, rem, target, inlineOptions = null, sentenceStarter = null, multiSelect = false, isMastery = false, mappedInfo = null, remarkHasNote = false) {
   const maxPts = target.maxPoints || 3;
   const { validTrials, total, scorePct } = calcViewTrialSummary(rem.trials, maxPts);
-  const trialCells = buildTrialCellsHtml(rem, maxPts);
+  const trialCells = mappedInfo
+    ? `<span class="view-mapped-label">${escHtml(mappedInfo.label)}</span>`
+    : `<div class="trial-cells">${buildTrialCellsHtml(rem, maxPts)}</div>`;
+  const totalCell = mappedInfo ? "&nbsp;" : (validTrials.length > 0 ? total : "&nbsp;");
+  const scoreDisplay = mappedInfo
+    ? (mappedInfo.pct !== null ? mappedInfo.pct + "%" : "—")
+    : scorePct;
 
   const opts = parseOpts(inlineOptions);
 
@@ -2918,15 +3583,25 @@ function viewRemarkRow(no, actName, rem, target, inlineOptions = null, sentenceS
         || `<textarea class="view-remark-edit" rows="1" data-rem-id="${escHtml(rem.id)}"
               data-saved-html="${escHtml(rem.text || "")}">${escHtml(plainTextForEdit(rem.text))}</textarea>`);
 
+  const noteField = remarkHasNote
+    ? `<textarea class="view-mastery-note" rows="1" data-rem-id="${escHtml(rem.id)}"
+        data-saved-html="${escHtml(rem.masteryNote || "")}"
+        placeholder="Notes…">${escHtml(plainTextForEdit(rem.masteryNote))}</textarea>`
+    : "";
+
   let remarkCell;
   if (sentenceStarter) {
-    remarkCell = `<div class="view-starter-wrap" contenteditable="false">
-      <span class="view-starter-prefix">${escHtml(sentenceStarter)}</span>
+    const starterTopRow = `<span class="view-starter-prefix">${escHtml(sentenceStarter)}</span>
       ${makeViewOpts(rem.id, rem.text)
         || `<input type="text" class="view-starter-input" data-rem-id="${escHtml(rem.id)}"
             value="${escHtml(rem.text || "")}">`
-      }
-    </div>`;
+      }`;
+    remarkCell = remarkHasNote
+      ? `<div class="view-starter-wrap view-starter-wrap-note" contenteditable="false">
+          <div class="view-starter-top-row">${starterTopRow}</div>
+          ${noteField}
+        </div>`
+      : `<div class="view-starter-wrap" contenteditable="false">${starterTopRow}</div>`;
   } else {
     remarkCell = optSelect;
   }
@@ -2935,11 +3610,11 @@ function viewRemarkRow(no, actName, rem, target, inlineOptions = null, sentenceS
     <td class="vcol-no" contenteditable="false">${no !== null ? no : ""}</td>
     <td class="vcol-act" contenteditable="false">${actName !== null ? actName : ""}</td>
     <td class="vcol-rem">${remarkCell}</td>
-    <td class="vcol-trials" contenteditable="false"><div class="trial-cells">${trialCells}</div></td>
-    <td class="vcol-total" contenteditable="false">${validTrials.length > 0 ? total : "&nbsp;"}</td>
+    <td class="vcol-trials" contenteditable="false">${trialCells}</td>
+    <td class="vcol-total" contenteditable="false">${totalCell}</td>
     <td class="vcol-score" contenteditable="false">
       <div style="display:flex;align-items:center;gap:.3rem;justify-content:flex-end">
-        <span>${scorePct}</span>
+        <span>${scoreDisplay}</span>
         <button class="view-rem-del" data-rem-id="${escHtml(rem.id)}" title="Delete remark">×</button>
       </div>
     </td>
@@ -2953,11 +3628,45 @@ function viewGetRemarks(data, actId) {
     .map(([id, r]) => ({ id, ...r }));
 }
 
-function calcViewDayAvg(data, target) {
+// visited guards against a circular mapping chain recursing forever — see
+// calcDaysAverage's comment (this is the View-screen counterpart, working off
+// a passed-in `data` snapshot instead of the live session's global state, so
+// it doubles as both the individual and group View/Edit Past Sessions calc).
+// Group sessions fold in each attendee's own per-attendee mapped score
+// separately (one push per attendee with a remark on the activity) rather
+// than a single blended number, per the boss's "per-attendee" decision —
+// detected via data.attendees, same signal already used elsewhere for group
+// session data.
+function calcViewDayAvg(data, target, visited = new Set()) {
+  if (visited.has(target.id)) return null;
+  visited.add(target.id);
+
+  const attendees = data.attendees || state.viewGroup?.students || null;
   const avgs = [];
   Object.entries(data.activities || {})
     .filter(([, a]) => a.targetName === target.name)
-    .forEach(([actId]) => {
+    .forEach(([actId, act]) => {
+      const pa = (target.predefinedActivities || []).find(p => p.isMapped && p.name === act.activityName);
+      if (pa) {
+        const mappedTarget = pa.mappedTargetId
+          ? (state.viewGroup?.targets || state.viewStudent?.targets || []).find(t => t.id === pa.mappedTargetId)
+          : null;
+        if (!mappedTarget) return;
+        if (attendees) {
+          attendees.forEach(studentName => {
+            const hasRemark = Object.values(data.remarks || {})
+              .some(r => r.activityId === actId && r.studentName === studentName);
+            if (!hasRemark) return;
+            const pct = calcGroupStudentDaysAverage(mappedTarget, data, studentName, visited);
+            if (pct !== null) avgs.push(pct);
+          });
+        } else {
+          if (viewGetRemarks(data, actId).length === 0) return;
+          const pct = calcViewDayAvg(data, mappedTarget, visited);
+          if (pct !== null) avgs.push(pct);
+        }
+        return;
+      }
       viewGetRemarks(data, actId).forEach(rem => {
         const trials = (rem.trials || []).filter(t => t !== -1);
         if (!trials.length) return;
@@ -2965,6 +3674,96 @@ function calcViewDayAvg(data, target) {
       });
     });
   return avgs.length ? Math.round(avgs.reduce((a, b) => a + b, 0) / avgs.length) : null;
+}
+
+// Resolves a mapped-score activity's display on the individual View/Edit Past
+// Sessions screen — see resolveMappedScoreDisplay (live-entry counterpart).
+function resolveViewMappedScoreDisplay(pa, data, visited) {
+  const mappedTarget = pa.mappedTargetId
+    ? getViewEffectiveTargets().find(t => t.id === pa.mappedTargetId)
+    : null;
+  if (!mappedTarget) return { label: "Score (Not Mapped Yet)", pct: null };
+  return {
+    label: `Score (Mapped to ${mappedTarget.name}'s Average)`,
+    pct: calcViewDayAvg(data, mappedTarget, visited)
+  };
+}
+
+// View/Edit Past Sessions counterpart of autoFillMappedRemarks (live-entry
+// session) — same trigger (mapped target gained a computable average), but
+// runs on every snapshot here since this screen has no "first load" gate and
+// the mapped-to target's data could change at any time while it's open.
+async function autoFillViewMappedRemarks(student, sessionId, data) {
+  let count = 0;
+  for (const target of (student.targets || [])) {
+    for (const pa of (target.predefinedActivities || [])) {
+      if (!pa.isMapped) continue;
+
+      const existingAct = Object.entries(data.activities || {})
+        .find(([, a]) => a.targetName === target.name && a.activityName === pa.name);
+      let actId = existingAct?.[0] || null;
+
+      if (actId) {
+        const hasRemark = Object.values(data.remarks || {}).some(r => r.activityId === actId);
+        if (hasRemark) continue;
+      }
+
+      const pct = resolveViewMappedScoreDisplay(pa, data, new Set()).pct;
+      if (pct === null) continue;
+
+      if (!actId) {
+        actId = await addActivity(sessionId, target.name, pa.name, pa.order ?? 0, true);
+      }
+      await addRemark(sessionId, actId, "");
+      count++;
+    }
+  }
+  return count;
+}
+
+// Resolves a mapped-score activity's display for one attendee on the group
+// View/Edit Past Sessions screen — see resolveGroupMappedScoreDisplay
+// (live-entry counterpart). Per-attendee throughout, per the boss's decision.
+function resolveViewGroupMappedScoreDisplay(pa, data, studentName, visited) {
+  const mappedTarget = pa.mappedTargetId
+    ? getViewGroupEffectiveTargets().find(t => t.id === pa.mappedTargetId)
+    : null;
+  if (!mappedTarget) return { label: "Score (Not Mapped Yet)", pct: null };
+  return {
+    label: `Score (Mapped to ${mappedTarget.name}'s Average)`,
+    pct: calcGroupStudentDaysAverage(mappedTarget, data, studentName, visited)
+  };
+}
+
+// Group View/Edit Past Sessions counterpart of autoFillMappedRemarks — unlike
+// the live group entry version, this screen renders every target at once (no
+// per-target lazy loading), so it checks all of them on every snapshot, same
+// as the individual View screen's autoFillViewMappedRemarks.
+async function autoFillViewGroupMappedRemarks(group, sessionId, data) {
+  const attendees = data.attendees || group.students || [];
+  let count = 0;
+  for (const target of (group.targets || [])) {
+    for (const pa of (target.predefinedActivities || [])) {
+      if (!pa.isMapped) continue;
+      const existingAct = Object.entries(data.activities || {})
+        .find(([, a]) => a.targetName === target.name && a.activityName === pa.name);
+      let actId = existingAct?.[0] || null;
+
+      for (const studentName of attendees) {
+        const hasRemark = actId && Object.values(data.remarks || {})
+          .some(r => r.activityId === actId && r.studentName === studentName);
+        if (hasRemark) continue;
+        const pct = resolveViewGroupMappedScoreDisplay(pa, data, studentName, new Set()).pct;
+        if (pct === null) continue;
+        if (!actId) {
+          actId = await addActivity(sessionId, target.name, pa.name, pa.order ?? 0, true);
+        }
+        await addGroupRemark(sessionId, actId, studentName, "");
+        count++;
+      }
+    }
+  }
+  return count;
 }
 
 // ── View-screen remark editing ───────────────────────────────
@@ -2987,7 +3786,7 @@ function calcViewDayAvg(data, target) {
 // like the typed text vanishing and then reappearing as a duplicate remark
 // a moment later, because the next flush had no way to know a remark was
 // already being created for it.
-function setupViewRemarkSaving(body, getSessionId, counterKey, onIdle) {
+function setupViewRemarkSaving(body, getSessionId, counterKey, onIdle, getData) {
   let saveTimer = null;
 
   function flush() {
@@ -3030,7 +3829,14 @@ function setupViewRemarkSaving(body, getSessionId, counterKey, onIdle) {
 
     body.querySelectorAll(".view-remark-empty").forEach(el => {
       const text = el.value.trim();
-      if (!text || el.dataset.creating === "true") return;
+      // dataset.remId guards against flush() running a second time for this
+      // exact box before a re-render ever replaces its markup — e.g. the
+      // 700ms debounce timer firing and THEN focusout firing (or vice versa)
+      // both call flush(); without this check, the second call sees
+      // dataset.creating already reset to "false" by the first call's
+      // completion and the same typed text still sitting in the box, and
+      // creates a second, duplicate remark with identical text.
+      if (!text || el.dataset.creating === "true" || el.dataset.remId) return;
       el.dataset.creating = "true";
       state[counterKey]++;
       const create = async () => {
@@ -3050,6 +3856,18 @@ function setupViewRemarkSaving(body, getSessionId, counterKey, onIdle) {
           el.dataset.actId     = actId;
           el.dataset.remId     = remId;
           el.dataset.savedHtml = htmlForStorage(text);
+          // addRemark resolving doesn't mean state.viewSessionData has the new
+          // remark yet — the snapshot listener delivers that a beat later.
+          // Without waiting here, a render could land in that gap, see "no
+          // remark yet" (since this textarea's local dataset tracking lives
+          // only on the DOM, not in state), and redraw this exact box back to
+          // its empty starting markup — which is what caused the typed text
+          // to "vanish" and then get saved a second time as a duplicate when
+          // re-typed into the fresh-looking box.
+          await waitForSessionData(() => {
+            const d = getData?.();
+            return !!d?.activities?.[actId] && !!d?.remarks?.[remId];
+          });
         } catch (err) {
           // Leaves remId/savedHtml unset — the next flush (next keystroke or
           // focusout) sees "no remark created yet" and retries from scratch,
@@ -3457,7 +4275,6 @@ function attachViewListeners() {
       const isActive   = btn.classList.contains("active");
       const newVal     = isActive ? "" : btn.dataset.val;
       if (currentVal === newVal) return;
-      if (!confirm(`Change mastery level from "${currentVal || "none"}" to "${newVal || "none"}"?`)) return;
       container?.querySelectorAll(".btn-mastery").forEach(b => b.classList.remove("active"));
       if (!isActive) btn.classList.add("active");
       const rem = state.viewSessionData?.remarks?.[btn.dataset.remId];
@@ -3546,6 +4363,47 @@ function attachViewListeners() {
     }));
   });
 
+  // "+ Add Remark" for preset-option/sentence-starter/mastery activities with
+  // no remark yet — these don't get the typeable empty box (there's no free
+  // text to click into), so without this the Remark cell is just blank with
+  // no way to create the first remark at all.
+  // Writes to local state and renders immediately (optimistic) instead of
+  // awaiting both Firestore round trips first — addActivity/addRemark are
+  // handed the same ids used locally so the writes settle into the exact
+  // same keys once the snapshot listener catches up, with no mismatch.
+  body.querySelectorAll(".view-add-remark-row").forEach(btn => {
+    btn.addEventListener("click", () => {
+      if (btn.disabled) return;
+      btn.disabled = true;
+      const data       = state.viewSessionData;
+      const targetName = btn.dataset.targetName;
+      const actName    = btn.dataset.actName;
+      const isPredef   = btn.dataset.isPredefined === "true";
+      const isNewAct   = !btn.dataset.actId;
+      const actId      = btn.dataset.actId || generateId("a");
+      const remId      = generateId("r");
+      const actOrder   = Date.now();
+      data.activities = data.activities || {};
+      data.remarks    = data.remarks || {};
+      if (isNewAct) {
+        data.activities[actId] = { targetName, activityName: actName, order: actOrder, isPredefined: isPredef };
+      }
+      data.remarks[remId] = { activityId: actId, text: "", trials: [], order: actOrder };
+      renderSessionView();
+      (async () => {
+        try {
+          if (isNewAct) await addActivity(state.viewSessionId, targetName, actName, actOrder, isPredef, actId);
+          await addRemark(state.viewSessionId, actId, "", null, remId);
+        } catch (err) {
+          if (isNewAct) delete data.activities[actId];
+          delete data.remarks[remId];
+          renderSessionView();
+          alert("Couldn't add remark — check your connection and try again.\n\n" + err.message);
+        }
+      })();
+    });
+  });
+
   body.querySelectorAll(".view-act-edit").forEach(input => {
     input.addEventListener("blur", async () => {
       const newName = input.value.trim();
@@ -3628,11 +4486,15 @@ async function openGroupSessionView(group, sessionId) {
     if (!state.viewGroupRenderPending || isGroupViewBusy() || state.viewGroupActionsInFlight > 0) return;
     state.viewGroupRenderPending = false;
     renderGroupSessionView();
-  });
+  }, () => state.viewGroupSessionData);
 
   try {
-    state.fbViewGroupUnsubscribe = listenToSession(sessionId, data => {
+    state.fbViewGroupUnsubscribe = listenToSession(sessionId, async data => {
       state.viewGroupSessionData = data;
+      try {
+        const filled = await autoFillViewGroupMappedRemarks(group, sessionId, data);
+        if (filled > 0) return; // the write triggers another snapshot, which renders
+      } catch (err) { console.error("autoFillViewGroupMappedRemarks failed:", err); }
       if (isGroupViewBusy() || state.viewGroupActionsInFlight > 0) { state.viewGroupRenderPending = true; }
       else                   { renderGroupSessionView(); }
     });
@@ -3679,7 +4541,10 @@ async function leaveGroupSessionView() {
       deleteSession(sessionId).catch(() => {});
     } else {
       const allTargetNames = new Set(Object.values(data.activities || {}).map(a => a.targetName));
-      allTargetNames.forEach(name => cleanupEmptyEntries(sessionId, data, name).catch(() => {}));
+      allTargetNames.forEach(name => {
+        const target = (group?.targets || []).find(t => t.name === name);
+        cleanupEmptyEntries(sessionId, data, name, target).catch(() => {});
+      });
     }
   }
 
@@ -3727,7 +4592,7 @@ function renderGroupSessionView() {
 
   const attendees = data.attendees || group.students || [];
   const targets   = getViewGroupEffectiveTargets();
-  const sorted    = [...targets].sort((a, b) => a.name.localeCompare(b.name));
+  const sorted    = sortTargetsByOrder(targets);
 
   const body = $("group-session-view-body");
   const scrollTop = body.scrollTop;
@@ -3760,6 +4625,20 @@ function viewGroupGetRounds(data, actId, attendees) {
     }));
   }
   return rounds;
+}
+
+// Appends "(Session N)" to an attendee's displayed name if they're linked to
+// a registered student (see Manage Group's "Link to registered student")
+// and have a personal lifetime number recorded for this session — see
+// project_unified_session_numbering. Reads straight from the view screen's
+// globals rather than threading params through every render function that
+// shows a student name.
+function groupAttendeeLabel(studentName) {
+  const linkedId = state.viewGroup?.studentLinks?.[studentName];
+  const num = linkedId ? state.viewGroupSessionData?.attendeePersonalSessionNumbers?.[linkedId] : null;
+  return num != null
+    ? `${escHtml(studentName)} <span style="font-weight:400;color:var(--text-muted);font-size:.85em">(Session ${num})</span>`
+    : escHtml(studentName);
 }
 
 function buildGroupTargetViewTable(target, data, attendees) {
@@ -3850,13 +4729,57 @@ function viewGroupActivityRows(no, actName, actId, data, target, attendees, isPr
     : null;
 
   const actCell = isPredefined
-    ? escHtml(actName) + (paEntry?.actNote?.trim() ? `<div class="view-act-note">${escHtml(paEntry.actNote)}</div>` : "")
+    ? formatActivityMarkup(actName) + (paEntry?.actNote?.trim() ? `<div class="view-act-note">${formatActivityMarkup(paEntry.actNote)}</div>` : "")
     : `<div style="display:flex;align-items:center;gap:.3rem">
         <input class="view-act-edit" type="text" value="${escHtml(actName)}"
           data-act-id="${escHtml(actId || "")}" data-original="${escHtml(actName)}" />
         <button class="view-act-del" data-act-id="${escHtml(actId || "")}"
           data-target-name="${escHtml(target.name)}" title="Delete activity">×</button>
        </div>`;
+
+  // Mapped-score activities have no trials/combine-remarks concept — bypass
+  // the rounds/combine machinery entirely and list every attendee's own
+  // remark + their own per-attendee mapped score (see renderGroupActivityCard's
+  // live-entry counterpart for the same per-attendee bypass).
+  if (paEntry?.isMapped) {
+    const mappedInlineOptions   = getActivityInlineOptions(paEntry);
+    const mappedSentenceStarter = paEntry.sentenceStarter || null;
+    const mappedMultiSelect     = paEntry.optionsMulti || false;
+    const mappedIsMastery       = paEntry.isMastery || false;
+    const mappedHasNote         = paEntry.remarkHasNote || false;
+    let firstRow = true;
+    return attendees.map(studentName => {
+      const remarks = actId
+        ? Object.entries(data.remarks || {})
+            .filter(([, r]) => r.activityId === actId && r.studentName === studentName)
+            .sort(([, a], [, b]) => (a.order || 0) - (b.order || 0))
+            .map(([id, r]) => ({ id, ...r }))
+        : [];
+      const noVal  = firstRow ? no : null;
+      const actVal = firstRow ? actCell : null;
+      firstRow = false;
+      if (remarks.length === 0) {
+        return `<tr>
+          <td class="vcol-no" contenteditable="false">${noVal !== null ? noVal : ""}</td>
+          <td class="vcol-act" contenteditable="false">${actVal !== null ? actVal : ""}</td>
+          <td class="vcol-student" contenteditable="false">${groupAttendeeLabel(studentName)}</td>
+          <td class="vcol-rem" contenteditable="false">
+            <button class="btn-view-group-add-remark-mapped-pending" data-act-id="${escHtml(actId || "")}"
+              data-act-name="${escHtml(actName)}" data-target-name="${escHtml(target.name)}"
+              data-student="${escHtml(studentName)}">+ Add Remark</button>
+          </td>
+          <td class="vcol-trials" contenteditable="false">&nbsp;</td>
+          <td class="vcol-total" contenteditable="false">&nbsp;</td>
+          <td class="vcol-score" contenteditable="false">&nbsp;</td>
+        </tr>`;
+      }
+      const mappedInfo = resolveViewGroupMappedScoreDisplay(paEntry, data, studentName);
+      return remarks.map((rem, ri) => viewGroupRemarkRow(
+        ri === 0 ? noVal : null, ri === 0 ? actVal : null, studentName, rem, target,
+        mappedInlineOptions, mappedSentenceStarter, mappedMultiSelect, mappedIsMastery, null, mappedInfo, mappedHasNote
+      )).join("");
+    }).join("");
+  }
 
   const combineToggle = actId
     ? `<button class="btn-combine-toggle${combineFlagForAct ? " active" : ""}" data-act-id="${escHtml(actId)}">
@@ -3869,13 +4792,14 @@ function viewGroupActivityRows(no, actName, actId, data, target, attendees, isPr
   const sentenceStarter = paEntry?.sentenceStarter || null;
   const multiSelect     = paEntry?.optionsMulti || false;
   const isMastery       = paEntry?.isMastery || false;
+  const remarkHasNote   = paEntry?.remarkHasNote || false;
+  const opts            = parseOpts(inlineOptions);
 
   if (rounds.length === 0) {
     // Free-text activities (no presets, not mastery): show a ready-to-type empty
     // box per attendee, like the individual screen does, instead of a generic
     // "+ Add Remark & Trials" bulk button — this activity is already in "Separate
     // Remarks" mode, so each student gets their own row from the start.
-    const opts      = parseOpts(inlineOptions);
     const showEmpty = opts.length === 0 && !isMastery;
 
     if (showEmpty) {
@@ -3885,15 +4809,14 @@ function viewGroupActivityRows(no, actName, actId, data, target, attendees, isPr
       return attendees.map((studentName, idx) => `<tr>
         <td class="vcol-no" contenteditable="false">${idx === 0 ? no : ""}</td>
         <td class="vcol-act" contenteditable="false">${idx === 0 ? actCellWithToggle : ""}</td>
-        <td class="vcol-student" contenteditable="false">${escHtml(studentName)}</td>
+        <td class="vcol-student" contenteditable="false">${groupAttendeeLabel(studentName)}</td>
         <td class="vcol-rem">
           <textarea class="view-remark-edit view-remark-empty" rows="1"
             data-act-id="${escHtml(actId || "")}"
             data-act-name="${escHtml(actName)}"
             data-target="${escHtml(target.name)}"
             data-is-predefined="${isPredefined}"
-            data-student="${escHtml(studentName)}"
-            placeholder="Click to add remark…"></textarea>
+            data-student="${escHtml(studentName)}"></textarea>
         </td>
         <td class="vcol-trials" contenteditable="false">
           <button class="view-group-add-trial-new" data-act-id="${escHtml(actId || "")}"
@@ -3905,13 +4828,14 @@ function viewGroupActivityRows(no, actName, actId, data, target, attendees, isPr
       </tr>`).join("");
     }
 
+    const addAllLabel = opts.length > 0 ? "+ Show Selections" : "+ Add Remark &amp; Trials";
     return `<tr>
       <td class="vcol-no" contenteditable="false">${no}</td>
       <td class="vcol-act" contenteditable="false">${actCellWithToggle}</td>
       <td class="vcol-student" contenteditable="false"></td>
       <td class="vcol-rem" contenteditable="false">
         <button class="btn-view-group-add-remark-all" data-act-id="${escHtml(actId || "")}"
-          data-act-name="${escHtml(actName)}" data-target-name="${escHtml(target.name)}">+ Add Remark &amp; Trials</button>
+          data-act-name="${escHtml(actName)}" data-target-name="${escHtml(target.name)}">${addAllLabel}</button>
       </td>
       <td class="vcol-trials" contenteditable="false">&nbsp;</td>
       <td class="vcol-total" contenteditable="false">&nbsp;</td>
@@ -3936,10 +4860,10 @@ function viewGroupActivityRows(no, actName, actId, data, target, attendees, isPr
         html += `<tr>
           <td class="vcol-no" contenteditable="false">${noVal !== null ? noVal : ""}</td>
           <td class="vcol-act" contenteditable="false">${actVal !== null ? actVal : ""}</td>
-          <td class="vcol-student" contenteditable="false">${escHtml(entry.studentName)}</td>
+          <td class="vcol-student" contenteditable="false">${groupAttendeeLabel(entry.studentName)}</td>
           <td class="vcol-rem" contenteditable="false">
             <button class="btn-view-group-add-remark-pending" data-act-id="${escHtml(actId || "")}"
-              data-student="${escHtml(entry.studentName)}">+ Add Remark &amp; Trials</button>
+              data-student="${escHtml(entry.studentName)}">${opts.length > 0 ? "+ Show Selections" : "+ Add Remark &amp; Trials"}</button>
           </td>
           <td class="vcol-trials" contenteditable="false">&nbsp;</td>
           <td class="vcol-total" contenteditable="false">&nbsp;</td>
@@ -3957,7 +4881,7 @@ function viewGroupActivityRows(no, actName, actId, data, target, attendees, isPr
 
       html += viewGroupRemarkRow(
         noVal, actVal, entry.studentName, entry, target,
-        inlineOptions, sentenceStarter, multiSelect, isMastery, combineOpts
+        inlineOptions, sentenceStarter, multiSelect, isMastery, combineOpts, null, remarkHasNote
       );
       firstRowOverall = false;
     }
@@ -3965,10 +4889,16 @@ function viewGroupActivityRows(no, actName, actId, data, target, attendees, isPr
   return html;
 }
 
-function viewGroupRemarkRow(no, actName, studentName, rem, target, inlineOptions = null, sentenceStarter = null, multiSelect = false, isMastery = false, combineOpts = null) {
+function viewGroupRemarkRow(no, actName, studentName, rem, target, inlineOptions = null, sentenceStarter = null, multiSelect = false, isMastery = false, combineOpts = null, mappedInfo = null, remarkHasNote = false) {
   const maxPts = target.maxPoints || 3;
   const { validTrials, total, scorePct } = calcViewTrialSummary(rem.trials, maxPts);
-  const trialCells = buildTrialCellsHtml(rem, maxPts);
+  const trialCells = mappedInfo
+    ? `<span class="view-mapped-label">${escHtml(mappedInfo.label)}</span>`
+    : `<div class="trial-cells">${buildTrialCellsHtml(rem, maxPts)}</div>`;
+  const totalCell = mappedInfo ? "&nbsp;" : (validTrials.length > 0 ? total : "&nbsp;");
+  const scoreDisplay = mappedInfo
+    ? (mappedInfo.pct !== null ? mappedInfo.pct + "%" : "—")
+    : scorePct;
 
   let remarkTd = "";
   if (!combineOpts?.skipRemarkCell) {
@@ -4018,15 +4948,25 @@ function viewGroupRemarkRow(no, actName, studentName, rem, target, inlineOptions
             || `<textarea class="view-remark-edit" rows="1" data-rem-id="${escHtml(rem.id)}"
                   data-saved-html="${escHtml(rem.text || "")}">${escHtml(plainTextForEdit(rem.text))}</textarea>`);
 
+      const noteField = remarkHasNote
+        ? `<textarea class="view-mastery-note" rows="1" data-rem-id="${escHtml(rem.id)}"
+            data-saved-html="${escHtml(rem.masteryNote || "")}"
+            placeholder="Notes…">${escHtml(plainTextForEdit(rem.masteryNote))}</textarea>`
+        : "";
+
       let remarkCell;
       if (sentenceStarter) {
-        remarkCell = `<div class="view-starter-wrap" contenteditable="false">
-          <span class="view-starter-prefix">${escHtml(sentenceStarter)}</span>
+        const starterTopRow = `<span class="view-starter-prefix">${escHtml(sentenceStarter)}</span>
           ${makeViewOpts(rem.id, rem.text)
             || `<input type="text" class="view-starter-input" data-rem-id="${escHtml(rem.id)}"
                 value="${escHtml(rem.text || "")}">`
-          }
-        </div>`;
+          }`;
+        remarkCell = remarkHasNote
+          ? `<div class="view-starter-wrap view-starter-wrap-note" contenteditable="false">
+              <div class="view-starter-top-row">${starterTopRow}</div>
+              ${noteField}
+            </div>`
+          : `<div class="view-starter-wrap" contenteditable="false">${starterTopRow}</div>`;
       } else {
         remarkCell = optSelect;
       }
@@ -4037,13 +4977,13 @@ function viewGroupRemarkRow(no, actName, studentName, rem, target, inlineOptions
   return `<tr>
     <td class="vcol-no" contenteditable="false">${no !== null ? no : ""}</td>
     <td class="vcol-act" contenteditable="false">${actName !== null ? actName : ""}</td>
-    <td class="vcol-student" contenteditable="false">${escHtml(studentName)}</td>
+    <td class="vcol-student" contenteditable="false">${groupAttendeeLabel(studentName)}</td>
     ${remarkTd}
-    <td class="vcol-trials" contenteditable="false"><div class="trial-cells">${trialCells}</div></td>
-    <td class="vcol-total" contenteditable="false">${validTrials.length > 0 ? total : "&nbsp;"}</td>
+    <td class="vcol-trials" contenteditable="false">${trialCells}</td>
+    <td class="vcol-total" contenteditable="false">${totalCell}</td>
     <td class="vcol-score" contenteditable="false">
       <div style="display:flex;align-items:center;gap:.3rem;justify-content:flex-end">
-        <span>${scorePct}</span>
+        <span>${scoreDisplay}</span>
         <button class="view-rem-del" data-rem-id="${escHtml(rem.id)}" title="Delete remark">×</button>
       </div>
     </td>
@@ -4240,7 +5180,6 @@ function attachGroupViewListeners() {
       const isActive   = btn.classList.contains("active");
       const newVal     = isActive ? "" : btn.dataset.val;
       if (currentVal === newVal) return;
-      if (!confirm(`Change mastery level from "${currentVal || "none"}" to "${newVal || "none"}"?`)) return;
       container?.querySelectorAll(".btn-mastery").forEach(b => b.classList.remove("active"));
       if (!isActive) btn.classList.add("active");
       const rem = state.viewGroupSessionData?.remarks?.[btn.dataset.remId];
@@ -4304,30 +5243,112 @@ function attachGroupViewListeners() {
     });
   });
 
-  // "+ Add Remark & Trials" on a brand-new (round-less) activity — adds one remark for every attendee
+  // "+ Add Remark & Trials" on a brand-new (round-less) activity — adds one
+  // remark for every attendee. Writes to local state and renders immediately
+  // (optimistic) instead of awaiting addActivity + addGroupRemarksBatch
+  // first — both are handed the same ids used locally, so the background
+  // writes settle into the exact same keys once the snapshot catches up.
   body.querySelectorAll(".btn-view-group-add-remark-all").forEach(btn => {
-    btn.addEventListener("click", wrap(async () => {
+    btn.addEventListener("click", () => {
+      if (btn.disabled) return;
       btn.disabled = true;
       const data       = state.viewGroupSessionData;
       const targetName = btn.dataset.targetName;
+      const actName    = btn.dataset.actName;
       const attendees  = data.attendees || state.viewGroup?.students || [];
-      let actId = btn.dataset.actId || Object.entries(data.activities || {})
-        .find(([, a]) => a.targetName === targetName && a.activityName === btn.dataset.actName)?.[0] || null;
-      if (!actId) actId = await addActivity(sid(), targetName, btn.dataset.actName, Date.now(), true);
-      const entries = attendees
-        .filter(studentName => !Object.values(data.remarks || {})
-          .some(r => r.activityId === actId && r.studentName === studentName))
-        .map(studentName => ({ actId, studentName }));
-      if (entries.length) await addGroupRemarksBatch(sid(), entries);
-    }));
+      data.activities = data.activities || {};
+      data.remarks    = data.remarks || {};
+      let actId = btn.dataset.actId || Object.entries(data.activities)
+        .find(([, a]) => a.targetName === targetName && a.activityName === actName)?.[0] || null;
+      const isNewAct = !actId;
+      const actOrder = Date.now();
+      if (isNewAct) {
+        actId = generateId("a");
+        data.activities[actId] = { targetName, activityName: actName, order: actOrder, isPredefined: true };
+      }
+      const studentNames = attendees.filter(studentName => !Object.values(data.remarks)
+        .some(r => r.activityId === actId && r.studentName === studentName));
+      const remIds = studentNames.map(() => generateId("r"));
+      studentNames.forEach((studentName, i) => {
+        data.remarks[remIds[i]] = { activityId: actId, studentName, text: "", trials: [], order: actOrder };
+      });
+      renderGroupSessionView();
+      (async () => {
+        try {
+          if (isNewAct) await addActivity(sid(), targetName, actName, actOrder, true, actId);
+          if (studentNames.length) {
+            await addGroupRemarksBatch(sid(), studentNames.map(studentName => ({ actId, studentName })), remIds);
+          }
+        } catch (err) {
+          if (isNewAct) delete data.activities[actId];
+          remIds.forEach(id => delete data.remarks[id]);
+          renderGroupSessionView();
+          alert("Couldn't add remark — check your connection and try again.\n\n" + err.message);
+        }
+      })();
+    });
   });
 
-  // "+ Add Remark & Trials" on a pending (missing) student within an existing round
+  // "+ Add Remark & Trials" on a pending (missing) student within an existing
+  // round — actId always already exists here (the round itself came from an
+  // existing remark), so this is a single optimistic write.
   body.querySelectorAll(".btn-view-group-add-remark-pending").forEach(btn => {
-    btn.addEventListener("click", wrap(async () => {
+    btn.addEventListener("click", () => {
+      if (btn.disabled) return;
       btn.disabled = true;
-      await addGroupRemark(sid(), btn.dataset.actId, btn.dataset.student);
-    }));
+      const data        = state.viewGroupSessionData;
+      const actId        = btn.dataset.actId;
+      const studentName  = btn.dataset.student;
+      const remId        = generateId("r");
+      data.remarks = data.remarks || {};
+      data.remarks[remId] = { activityId: actId, studentName, text: "", trials: [], order: Date.now() };
+      renderGroupSessionView();
+      addGroupRemark(sid(), actId, studentName, "", remId).catch(err => {
+        delete data.remarks[remId];
+        renderGroupSessionView();
+        alert("Couldn't add remark — check your connection and try again.\n\n" + err.message);
+      });
+    });
+  });
+
+  // "+ Add Remark" for a mapped-score activity, one attendee at a time — unlike
+  // the plain pending button above, the activity may not exist yet at all
+  // (mapped activities skip the bulk "add for everyone" button), so this
+  // creates it on demand, same as ensureGroupActivityAndRemark's live-entry
+  // counterpart — also optimistic now, for the same reason as the buttons above.
+  body.querySelectorAll(".btn-view-group-add-remark-mapped-pending").forEach(btn => {
+    btn.addEventListener("click", () => {
+      if (btn.disabled) return;
+      btn.disabled = true;
+      const data       = state.viewGroupSessionData;
+      const targetName = btn.dataset.targetName;
+      const actName    = btn.dataset.actName;
+      const studentName = btn.dataset.student;
+      data.activities = data.activities || {};
+      data.remarks    = data.remarks || {};
+      let actId = btn.dataset.actId || Object.entries(data.activities)
+        .find(([, a]) => a.targetName === targetName && a.activityName === actName)?.[0] || null;
+      const isNewAct = !actId;
+      const actOrder = Date.now();
+      if (isNewAct) {
+        actId = generateId("a");
+        data.activities[actId] = { targetName, activityName: actName, order: actOrder, isPredefined: true };
+      }
+      const remId = generateId("r");
+      data.remarks[remId] = { activityId: actId, studentName, text: "", trials: [], order: actOrder };
+      renderGroupSessionView();
+      (async () => {
+        try {
+          if (isNewAct) await addActivity(sid(), targetName, actName, actOrder, true, actId);
+          await addGroupRemark(sid(), actId, studentName, "", remId);
+        } catch (err) {
+          if (isNewAct) delete data.activities[actId];
+          delete data.remarks[remId];
+          renderGroupSessionView();
+          alert("Couldn't add remark — check your connection and try again.\n\n" + err.message);
+        }
+      })();
+    });
   });
 
   // "+" under Trials with no remark yet — creates the activity/remark for
@@ -4598,6 +5619,44 @@ function openManageModal(student, targetOrNull, templateOrNull = null, remarkPre
 
 // ── Group Add Target picker ───────────────────────────────────
 
+// ── Reorder Targets (group) — same mechanism as the individual-student version ──
+function showGroupTargetReorderList(group) {
+  _pendingActsCleanup = null;
+  $("manage-modal-title").textContent = "Rearrange Targets";
+  $("manage-modal").classList.remove("hidden");
+  renderGroupTargetReorderList(group);
+}
+
+function renderGroupTargetReorderList(group) {
+  const sorted = sortTargetsByOrder(group.targets);
+  $("manage-modal-body").innerHTML = `
+    <p class="admin-hint" style="padding:0 .1rem .9rem;color:var(--text-muted);font-size:.85rem">
+      Drag to reorder. This is the order targets appear in the dropdown and in exported session notes.
+    </p>
+    <div class="admin-list" id="mn-target-reorder-list">
+      ${sorted.map((t, idx) => `
+        <div class="admin-list-item" data-idx="${idx}">
+          <span class="drag-handle">⠿</span>
+          <span style="flex:1">${escHtml(t.name)}</span>
+        </div>`).join("")}
+    </div>
+    <div style="margin-top:1.5rem;padding-bottom:1.5rem">
+      <button class="btn-primary-sm" id="btn-mn-done-reorder" style="width:100%;padding:.75rem">Done</button>
+    </div>`;
+
+  initDragSort($("mn-target-reorder-list"), async newOrder => {
+    const reordered = newOrder.map(oldIdx => sorted[oldIdx]);
+    reordered.forEach((t, i) => t.order = i);
+    group.targets = reordered;
+    const gi = state.groups.findIndex(g => g.id === group.id);
+    if (gi >= 0) state.groups[gi] = group;
+    await saveGroup(group);
+    renderGroupTargetReorderList(group);
+  });
+
+  $("btn-mn-done-reorder").addEventListener("click", closeManageModal);
+}
+
 function showGroupAddTargetPicker(group) {
   _pendingActsCleanup = null;
   $("manage-modal-title").textContent = "Add Target";
@@ -4652,7 +5711,7 @@ function showGroupAddTargetPicker(group) {
 }
 
 function showGroupDupFromCurrent(group) {
-  const sorted = [...group.targets].sort((a, b) => a.name.localeCompare(b.name));
+  const sorted = sortTargetsByOrder(group.targets);
   $("manage-modal-body").innerHTML = `
     <div class="admin-section-title" style="margin-bottom:.5rem">Choose a target to duplicate</div>
     <div class="admin-list">
@@ -4714,7 +5773,7 @@ function showGroupDupFromOther(group, otherGroups) {
 }
 
 function showGroupDupFromOtherPickTarget(group, sourceGroup) {
-  const sorted = [...(sourceGroup.targets || [])].sort((a, b) => a.name.localeCompare(b.name));
+  const sorted = sortTargetsByOrder(sourceGroup.targets || []);
   if (!sorted.length) { alert(`${sourceGroup.name} has no targets.`); showGroupAddTargetPicker(group); return; }
   $("manage-modal-body").innerHTML = `
     <div class="admin-section-title" style="margin-bottom:.5rem">Choose a target from ${escHtml(sourceGroup.name)}</div>
@@ -4827,10 +5886,13 @@ async function closeManageModal() {
       }
     }
   }
-  // If a brand-new group was being created but has no students, remove it
+  // If a brand-new group was being created but has no students, remove it.
+  // filter(Boolean) (not .length) because an untouched/cleared roster slot
+  // can leave an empty-string or sparse-array hole at some index — that's
+  // still an empty group, just not one with .length === 0.
   if (_newGroupId) {
     const g = state.groups.find(x => x.id === _newGroupId);
-    if (g && (!g.students || g.students.length === 0)) {
+    if (g && (!g.students || g.students.filter(Boolean).length === 0)) {
       const gi = state.groups.findIndex(x => x.id === _newGroupId);
       if (gi >= 0) state.groups.splice(gi, 1);
       deleteGroup(_newGroupId).catch(() => {});
@@ -4850,8 +5912,13 @@ async function closeManageModal() {
       autoFillGroupSession(
         state.currentGroup, state.groupSessionId, state.groupSessionData,
         state.selectedGroupTargetName, state.groupAttendees
-      ).then(filled => { if (filled === 0) renderGroupTargetContent(); })
-       .catch(() => renderGroupTargetContent());
+      ).then(filled => {
+        if (filled > 0) return;
+        return autoFillGroupMappedRemarks(
+          state.currentGroup, state.groupSessionId, state.groupSessionData,
+          state.selectedGroupTargetName, state.groupAttendees
+        ).then(mappedFilled => { if (mappedFilled === 0) renderGroupTargetContent(); });
+      }).catch(() => renderGroupTargetContent());
     } else if (state.groupSessionId) {
       renderGroupTargetContent();
     }
@@ -4861,7 +5928,14 @@ async function closeManageModal() {
   renderAssessmentStudentButtons();
   renderTemplateButtons();
   renderExportButtons();
+  renderRegistryMigrationButton();
   renderGroupButtons();
+  // Manage Student can be opened from on top of the Student Database page
+  // (clicking a row there) — refresh its table too, otherwise a rename or
+  // session-number change made in the modal doesn't show up underneath it.
+  if ($("screen-student-registry")?.classList.contains("active")) {
+    renderStudentRegistryBody();
+  }
 }
 
 $("manage-modal-close").addEventListener("click",    closeManageModal);
@@ -4878,6 +5952,46 @@ $("btn-manage-targets").addEventListener("click", () => {
 });
 
 // ── Add Target picker (replaces confirm/prompt flow) ──────────
+
+// ── Reorder Targets (drag-to-reorder, same mechanism as activity reordering) ──
+// Persisted order drives the dropdown, the View/Edit Past Sessions table, and
+// the Word/Excel exports — see sortTargetsByOrder.
+function showTargetReorderList(student) {
+  _pendingActsCleanup = null;
+  $("manage-modal-title").textContent = "Rearrange Targets";
+  $("manage-modal").classList.remove("hidden");
+  renderTargetReorderList(student);
+}
+
+function renderTargetReorderList(student) {
+  const sorted = sortTargetsByOrder(student.targets);
+  $("manage-modal-body").innerHTML = `
+    <p class="admin-hint" style="padding:0 .1rem .9rem;color:var(--text-muted);font-size:.85rem">
+      Drag to reorder. This is the order targets appear in the dropdown and in exported session notes.
+    </p>
+    <div class="admin-list" id="mn-target-reorder-list">
+      ${sorted.map((t, idx) => `
+        <div class="admin-list-item" data-idx="${idx}">
+          <span class="drag-handle">⠿</span>
+          <span style="flex:1">${escHtml(t.name)}</span>
+        </div>`).join("")}
+    </div>
+    <div style="margin-top:1.5rem;padding-bottom:1.5rem">
+      <button class="btn-primary-sm" id="btn-mn-done-reorder" style="width:100%;padding:.75rem">Done</button>
+    </div>`;
+
+  initDragSort($("mn-target-reorder-list"), async newOrder => {
+    const reordered = newOrder.map(oldIdx => sorted[oldIdx]);
+    reordered.forEach((t, i) => t.order = i);
+    student.targets = reordered;
+    const si = state.students.findIndex(s => s.id === student.id);
+    if (si >= 0) state.students[si] = student;
+    await saveStudent(student);
+    renderTargetReorderList(student);
+  });
+
+  $("btn-mn-done-reorder").addEventListener("click", closeManageModal);
+}
 
 function showAddTargetPicker(student) {
   _pendingActsCleanup = null;
@@ -4952,7 +6066,7 @@ function showAddTargetPicker(student) {
 }
 
 function showDupFromCurrentStudent(student) {
-  const sorted = [...student.targets].sort((a, b) => a.name.localeCompare(b.name));
+  const sorted = sortTargetsByOrder(student.targets);
   $("manage-modal-body").innerHTML = `
     <div class="admin-section-title" style="margin-bottom:.5rem">Choose a target to duplicate</div>
     <div class="admin-list">
@@ -5045,7 +6159,7 @@ function showDupFromOtherStudent_pickStudent(student, otherStudents) {
 }
 
 function showDupFromOtherStudent_pickTarget(student, sourceStudent) {
-  const sorted = [...sourceStudent.targets].sort((a, b) => a.name.localeCompare(b.name));
+  const sorted = sortTargetsByOrder(sourceStudent.targets);
   if (sorted.length === 0) {
     alert(`${sourceStudent.name} has no targets to duplicate.`);
     showAddTargetPicker(student);
@@ -5155,14 +6269,22 @@ function renderStudentManageContent(student) {
   _pendingActsCleanup = null;
   $("manage-modal-title").textContent = student.name;
   const isAssessment = student.type === "assessment";
+  // Older records (pre-registry) only have a single combined name — fall
+  // back to splitting it for display until the migration backfills these.
+  const firstName = student.firstName || student.name?.split(/\s+/)[0] || "";
+  const lastName  = student.lastName  || student.name?.split(/\s+/).slice(1).join(" ") || "";
 
   const html = `
-    <div class="admin-section">
+    <div class="admin-section" style="margin-bottom:1.5rem">
       <label class="admin-label">Student Name</label>
-      <div style="display:flex;gap:.5rem;align-items:center">
-        <input class="admin-input" id="mn-s-name" value="${escHtml(student.name)}" style="flex:1" />
+      <div style="display:flex;gap:.6rem;align-items:center">
+        <input class="admin-input" id="mn-s-firstname" value="${escHtml(firstName)}" placeholder="First name" style="flex:1" />
+        <input class="admin-input" id="mn-s-lastname" value="${escHtml(lastName)}" placeholder="Last name" style="flex:1" />
         <button class="btn-primary-sm" id="btn-mn-rename">Save</button>
       </div>
+    </div>
+    <div class="admin-section">
+      <div id="mn-s-session-number-area">Loading…</div>
     </div>
     ${isAssessment ? `
     <div class="admin-section">
@@ -5178,16 +6300,24 @@ function renderStudentManageContent(student) {
   $("manage-modal-body").innerHTML = html;
 
   $("btn-mn-rename").addEventListener("click", async () => {
-    const v = $("mn-s-name").value.trim();
-    if (!v || v === student.name) return;
-    student.name = v;
-    await saveStudent(student);
-    $("manage-modal-title").textContent = v;
-    flashSaved($("mn-s-name"));
+    const fn = $("mn-s-firstname").value.trim();
+    const ln = $("mn-s-lastname").value.trim();
+    if (!fn || !ln) { alert("First and last name are both required."); return; }
+    const newName = `${fn} ${ln}`;
+    if (fn === student.firstName && ln === student.lastName && newName === student.name) return;
+    student.firstName = fn;
+    student.lastName  = ln;
+    student.name      = newName;
+    await withSaveFeedback($("btn-mn-rename"), saveStudent(student));
+    $("manage-modal-title").textContent = newName;
   });
-  $("mn-s-name").addEventListener("keydown", e => {
-    if (e.key === "Enter") $("btn-mn-rename").click();
+  [$("mn-s-firstname"), $("mn-s-lastname")].forEach(input => {
+    input.addEventListener("keydown", e => {
+      if (e.key === "Enter") $("btn-mn-rename").click();
+    });
   });
+
+  renderSessionNumberSection(student);
 
   $("btn-mn-move-to-existing")?.addEventListener("click", async () => {
     if (!confirm(`Move "${student.name}" to Existing Students?`)) return;
@@ -5201,6 +6331,111 @@ function renderStudentManageContent(student) {
     await deleteStudentConfig(student.id);
     state.students = state.students.filter(s => s.id !== student.id);
     closeManageModal();
+  });
+}
+
+// Lets the boss correct a veteran student's lifetime session count (e.g. they
+// were tracked on paper for years before this app) — pick one of their
+// existing sessions and type its true number; every one of their sessions
+// of that SAME kind shifts by the same amount to keep order/spacing.
+// Individual and group session counts are separate lifetime sequences (a
+// group session never affects an individual number or vice versa), so each
+// gets its own picker rather than one shared one.
+async function renderSessionNumberSection(student) {
+  const area = $("mn-s-session-number-area");
+  if (!area) return;
+  const [indivSessions, groupSessions] = await Promise.all([
+    getIndividualSessionsForStudent(student.id),
+    getGroupSessionsForStudent(student.id)
+  ]);
+  if (!area.isConnected) return; // modal closed while the fetch was in flight
+
+  area.innerHTML = `
+    <div id="mn-s-sessnum-individual"></div>
+    <div id="mn-s-sessnum-group" style="margin-top:1.1rem"></div>`;
+
+  renderSessionNumberKindSubsection(student, "individual", "Individual Sessions",
+    indivSessions.sort((a, b) => a.date.localeCompare(b.date)), $("mn-s-sessnum-individual"));
+  renderSessionNumberKindSubsection(student, "group", "Group Sessions",
+    groupSessions.sort((a, b) => a.date.localeCompare(b.date)), $("mn-s-sessnum-group"));
+}
+
+function renderSessionNumberKindSubsection(student, kind, label, sessions, container) {
+  if (!container) return;
+  if (sessions.length === 0) {
+    container.innerHTML = `
+      <p class="admin-label" style="margin-bottom:.3rem">${label}</p>
+      <p class="empty-hint" style="padding:.4rem 0">No ${kind} sessions recorded yet.</p>`;
+    return;
+  }
+
+  const id = suffix => `mn-s-sessnum-${kind}-${suffix}`;
+  // Dropdown lists newest-first so the latest session is the default
+  // selection — sessions itself stays oldest-first (needed below for the
+  // "earliest session" floor check), this is purely display order.
+  const dropdownOrder = [...sessions].reverse();
+  container.innerHTML = `
+    <p class="admin-label" style="margin-bottom:.35rem">${label}</p>
+    <select class="admin-input" id="${id("date")}">
+      ${dropdownOrder.map(s => `<option value="${s.id}">${formatDate(s.date)} — currently Session ${s.number}</option>`).join("")}
+    </select>
+    <div style="display:flex;align-items:center;gap:.5rem;margin-top:.6rem">
+      <span style="font-size:.85rem;color:var(--text-muted);white-space:nowrap">Change Session Number To:</span>
+      <button type="button" class="btn-adm-edit" id="${id("minus")}" style="padding:.5rem .8rem;line-height:1;font-size:1.05rem">−</button>
+      <input class="admin-input" id="${id("value")}" type="number" min="1" style="width:5rem;text-align:center;flex:0 0 auto" />
+      <button type="button" class="btn-adm-edit" id="${id("plus")}" style="padding:.5rem .8rem;line-height:1;font-size:1.05rem">+</button>
+      <button class="btn-primary-sm" id="${id("save")}" style="margin-left:.3rem">Save</button>
+    </div>`;
+
+  // Keeps the stepper's starting value in sync with whichever session the
+  // dropdown above currently has selected (it already shows the date).
+  const syncToSelectedDate = () => {
+    const anchor = sessions.find(s => s.id === $(id("date")).value);
+    $(id("value")).value = anchor.number;
+  };
+  syncToSelectedDate();
+  $(id("date")).addEventListener("change", syncToSelectedDate);
+
+  $(id("minus")).addEventListener("click", () => {
+    const input = $(id("value"));
+    input.value = Math.max(1, (Number(input.value) || 1) - 1);
+  });
+  $(id("plus")).addEventListener("click", () => {
+    const input = $(id("value"));
+    input.value = (Number(input.value) || 0) + 1;
+  });
+
+  $(id("save")).addEventListener("click", async () => {
+    const sessionId = $(id("date")).value;
+    const newNumber = Number($(id("value")).value);
+    if (!newNumber || newNumber < 1) { alert("Enter a valid session number."); return; }
+    const anchor = sessions.find(s => s.id === sessionId);
+    const delta = newNumber - anchor.number;
+    if (delta === 0) return;
+    // sessions is sorted oldest-first, so sessions[0] is the earliest —
+    // every session of this kind shifts by the same delta, so that's the
+    // one that would go below Session 1 first if the typed number is too low.
+    const earliest = sessions[0];
+    const earliestNewNumber = earliest.number + delta;
+    if (earliestNewNumber < 1) {
+      alert(
+        `If you set this to Session ${newNumber}, ${formatDate(earliest.date)} ` +
+        `(this student's earliest recorded ${kind} session) would become Session ${earliestNewNumber}. ` +
+        `Choose a different number.`
+      );
+      return;
+    }
+    try {
+      await withSaveFeedback($(id("save")), changeSessionNumber(student.id, sessionId, newNumber, kind));
+      // Mirror the same uniform shift locally instead of re-fetching from
+      // Firestore — a fresh fetch right after the write was leaving a
+      // confusing gap where the button said "Save" again but the dropdown
+      // still showed the old number until the (slow) re-fetch finished.
+      sessions.forEach(s => { s.number += delta; });
+      renderSessionNumberKindSubsection(student, kind, label, sessions, container);
+    } catch (err) {
+      alert(err.message);
+    }
   });
 }
 
@@ -5344,6 +6579,42 @@ function stripNoteHtml(text) {
     .trim();
 }
 
+// Shared by the normal-activity and mapped-score-activity rows in
+// renderTargetManageContent — both let the boss configure how the Remark
+// field is captured (free text / preset options / sentence starter / mastery
+// levels), independently of where the Score comes from.
+function buildRemarkTypeControls(a, idx) {
+  const type = a.isMastery ? "mastery"
+    : a.remarkHasNote ? "starter_fixed_note"
+    : (a.sentenceStarter && a.inlineOptions && a.optionsMulti) ? "starter_fixed_multi"
+    : (a.sentenceStarter && a.inlineOptions) ? "starter_fixed"
+    : a.sentenceStarter ? "starter"
+    : (a.inlineOptions && a.optionsMulti) ? "fixed_multi"
+    : (a.inlineOptions || a.remarkPresetId) ? "fixed" : "";
+  const convertBtn = a.isMastery
+    ? `<button class="btn-mn-convert mn-convert-mastery" data-idx="${idx}" type="button">Convert to "Sentence Starter + Select One + Free Text"</button>`
+    : "";
+  return `<select class="act-preset-select mn-act-preset" data-idx="${idx}">
+      <option value="">Free text</option>
+      <option value="fixed"${type === "fixed" ? " selected" : ""}>Select one</option>
+      <option value="fixed_multi"${type === "fixed_multi" ? " selected" : ""}>Tick boxes</option>
+      <option value="starter"${type === "starter" ? " selected" : ""}>Sentence Starter + Free Text</option>
+      <option value="starter_fixed"${type === "starter_fixed" ? " selected" : ""}>Sentence Starter + Select one</option>
+      <option value="starter_fixed_multi"${type === "starter_fixed_multi" ? " selected" : ""}>Sentence Starter + Tick boxes</option>
+      <option value="starter_fixed_note"${type === "starter_fixed_note" ? " selected" : ""}>Sentence Starter + Select One + Free Text</option>
+      <option value="mastery"${type === "mastery" ? " selected" : ""}>Mastery Level + Free Text</option>
+    </select>
+    <input class="admin-input mn-act-starter-text" data-idx="${idx}"
+      placeholder="Starter phrase…"
+      value="${escHtml(a.sentenceStarter || "")}"
+      style="${type === "starter" || type === "starter_fixed" || type === "starter_fixed_multi" || type === "starter_fixed_note" ? "" : "display:none"}">
+    <input class="admin-input mn-act-inline-opts" data-idx="${idx}"
+      placeholder="Options separated by /  e.g. Low/Medium/High"
+      value="${escHtml(a.inlineOptions || (a.remarkPresetId ? (state.remarkPresets.find(p=>p.id===a.remarkPresetId)?.options||[]).join("/") : ""))}"
+      style="${type === "fixed" || type === "fixed_multi" || type === "starter_fixed" || type === "starter_fixed_multi" || type === "starter_fixed_note" ? "" : "display:none"}">
+    ${convertBtn}`;
+}
+
 function renderTargetManageContent(student, target) {
   $("manage-modal-title").textContent = target.name;
   target.predefinedActivities = normalizeActivitiesFormat(target.predefinedActivities || []);
@@ -5357,6 +6628,10 @@ function renderTargetManageContent(student, target) {
   }
 
   const acts = target.predefinedActivities;
+  // Other targets this target's mapped-score activities can point at — never
+  // itself (self-mapping would make a target's average depend on itself).
+  const siblingTargets = (_groupForTargetEdit ? _groupForTargetEdit.targets : student.targets)
+    .filter(t => t.id !== target.id);
 
   let html = `
     <div class="admin-section">
@@ -5405,40 +6680,65 @@ function renderTargetManageContent(student, target) {
     } else if (a.isNote) {
       html += `<div class="admin-list-item admin-note-item" data-idx="${idx}">
         <span class="drag-handle">⠿</span>
-        <textarea class="admin-input" id="mn-act-name-${idx}" data-idx="${idx}"
+        ${formatButtonsHtml(`mn-act-name-${idx}`)}
+        <textarea class="admin-input mn-act-name-input" id="mn-act-name-${idx}" data-idx="${idx}"
           rows="1" placeholder="Enter Note"
           style="flex:1;overflow-y:hidden;resize:none">${escHtml(stripNoteHtml(a.text || ""))}</textarea>
         <button class="btn-adm-del mn-del-act" data-idx="${idx}">🗑</button>
       </div>`;
-    } else {
-      const type = a.isMastery ? "mastery" : (a.sentenceStarter && a.inlineOptions && a.optionsMulti) ? "starter_fixed_multi" : (a.sentenceStarter && a.inlineOptions) ? "starter_fixed" : a.sentenceStarter ? "starter" : (a.inlineOptions && a.optionsMulti) ? "fixed_multi" : (a.inlineOptions || a.remarkPresetId) ? "fixed" : "";
-      const remarkTypeSelect = `<select class="act-preset-select mn-act-preset" data-idx="${idx}">
-          <option value="">Free text</option>
-          <option value="fixed"${type === "fixed" ? " selected" : ""}>Select one</option>
-          <option value="fixed_multi"${type === "fixed_multi" ? " selected" : ""}>Tick boxes</option>
-          <option value="starter"${type === "starter" ? " selected" : ""}>Sentence Starter + Free Text</option>
-          <option value="starter_fixed"${type === "starter_fixed" ? " selected" : ""}>Sentence Starter + Select one</option>
-          <option value="starter_fixed_multi"${type === "starter_fixed_multi" ? " selected" : ""}>Sentence Starter + Tick boxes</option>
-          <option value="mastery"${type === "mastery" ? " selected" : ""}>Mastery Level + Free Text</option>
-        </select>
-        <input class="admin-input mn-act-starter-text" data-idx="${idx}"
-          placeholder="Starter phrase…"
-          value="${escHtml(a.sentenceStarter || "")}"
-          style="${type === "starter" || type === "starter_fixed" || type === "starter_fixed_multi" ? "" : "display:none"}">
-        <input class="admin-input mn-act-inline-opts" data-idx="${idx}"
-          placeholder="Options separated by /  e.g. Low/Medium/High"
-          value="${escHtml(a.inlineOptions || (a.remarkPresetId ? (state.remarkPresets.find(p=>p.id===a.remarkPresetId)?.options||[]).join("/") : ""))}"
-          style="${type === "fixed" || type === "fixed_multi" || type === "starter_fixed" || type === "starter_fixed_multi" ? "" : "display:none"}">`;
-      const noteRow = a.actNote !== undefined
-        ? `<textarea class="admin-input mn-act-note-input" id="mn-act-note-${idx}" data-idx="${idx}"
-            rows="1" placeholder="Enter Note"
-            style="overflow-y:hidden;resize:none">${escHtml(a.actNote || "")}</textarea>`
+    } else if (a.isMapped) {
+      const mappedOptions = siblingTargets.map(t =>
+        `<option value="${escHtml(t.id)}"${a.mappedTargetId === t.id ? " selected" : ""}>${escHtml(t.name)}</option>`
+      ).join("");
+      const mappedNoteRow = a.actNote !== undefined
+        ? `<div style="display:flex;align-items:flex-start;gap:.3rem">
+            ${formatButtonsHtml(`mn-act-note-${idx}`)}
+            <textarea class="admin-input mn-act-note-input" id="mn-act-note-${idx}" data-idx="${idx}"
+              rows="1" placeholder="Enter Note"
+              style="flex:1;overflow-y:hidden;resize:none">${escHtml(a.actNote || "")}</textarea>
+          </div>`
         : "";
       html += `<div class="admin-list-item" data-idx="${idx}">
         <span class="drag-handle">⠿</span>
         <div style="flex:1;display:flex;flex-direction:column;gap:.3rem">
-          <textarea class="admin-input" id="mn-act-name-${idx}" data-idx="${idx}"
-            rows="1" placeholder="Enter Activity">${escHtml(a.name || "")}</textarea>
+          <div style="display:flex;align-items:flex-start;gap:.3rem">
+            ${formatButtonsHtml(`mn-act-name-${idx}`)}
+            <textarea class="admin-input mn-act-name-input" id="mn-act-name-${idx}" data-idx="${idx}"
+              rows="1" placeholder="Enter Activity" style="flex:1">${escHtml(a.name || "")}</textarea>
+          </div>
+          ${mappedNoteRow}
+          <div style="display:flex;align-items:center;gap:.5rem">
+            <span style="font-size:.75rem;color:#6b7280;white-space:nowrap;font-weight:600">Remark Type:</span>
+            ${buildRemarkTypeControls(a, idx)}
+          </div>
+          <div style="display:flex;align-items:center;gap:.5rem">
+            <span style="font-size:.75rem;color:#6b7280;white-space:nowrap;font-weight:600">Mapped To Which Target's Average:</span>
+            <select class="admin-input mn-mapped-target-select" data-idx="${idx}" style="flex:1">
+              <option value="">— select target —</option>
+              ${mappedOptions}
+            </select>
+          </div>
+        </div>
+        <button class="btn-adm-del mn-del-act" data-idx="${idx}">🗑</button>
+      </div>`;
+    } else {
+      const remarkTypeSelect = buildRemarkTypeControls(a, idx);
+      const noteRow = a.actNote !== undefined
+        ? `<div style="display:flex;align-items:flex-start;gap:.3rem">
+            ${formatButtonsHtml(`mn-act-note-${idx}`)}
+            <textarea class="admin-input mn-act-note-input" id="mn-act-note-${idx}" data-idx="${idx}"
+              rows="1" placeholder="Enter Note"
+              style="flex:1;overflow-y:hidden;resize:none">${escHtml(a.actNote || "")}</textarea>
+          </div>`
+        : "";
+      html += `<div class="admin-list-item" data-idx="${idx}">
+        <span class="drag-handle">⠿</span>
+        <div style="flex:1;display:flex;flex-direction:column;gap:.3rem">
+          <div style="display:flex;align-items:flex-start;gap:.3rem">
+            ${formatButtonsHtml(`mn-act-name-${idx}`)}
+            <textarea class="admin-input mn-act-name-input" id="mn-act-name-${idx}" data-idx="${idx}"
+              rows="1" placeholder="Enter Activity" style="flex:1">${escHtml(a.name || "")}</textarea>
+          </div>
           ${noteRow}
           <div style="display:flex;align-items:center;gap:.5rem">
             <span style="font-size:.75rem;color:#6b7280;white-space:nowrap;font-weight:600">Remark Type:</span>
@@ -5452,10 +6752,12 @@ function renderTargetManageContent(student, target) {
 
   html += `</div>
     <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.25rem">
-      <button class="btn-admin-add" id="btn-mn-add-act" style="flex:1">+ Add Activity</button>
-      <button class="btn-admin-add" id="btn-mn-add-act-note" style="flex:1">+ Add Activity &amp; Note</button>
-      <button class="btn-admin-add" id="btn-mn-add-heading" style="flex:1">+ Add Section Heading</button>
-      <button class="btn-admin-add" id="btn-mn-add-note" style="flex:1">+ Add Note</button>
+      <button class="btn-admin-add" id="btn-mn-add-act" style="flex:0 0 auto;width:auto">+ Add Activity</button>
+      <button class="btn-admin-add" id="btn-mn-add-act-note" style="flex:0 0 auto;width:auto">+ Add Activity &amp; Note</button>
+      <button class="btn-admin-add" id="btn-mn-add-heading" style="flex:0 0 auto;width:auto">+ Add Section Heading</button>
+      <button class="btn-admin-add" id="btn-mn-add-note" style="flex:0 0 auto;width:auto">+ Add Note</button>
+      <button class="btn-admin-add" id="btn-mn-add-mapped" style="flex:0 0 auto;width:auto">+ Add Activity &amp; Mapped Score</button>
+      <button class="btn-admin-add" id="btn-mn-add-act-note-mapped" style="flex:0 0 auto;width:auto">+ Add Activity &amp; Note &amp; Mapped Score</button>
     </div>
     <div style="margin-top:2rem;padding-bottom:1.5rem">
       <button class="btn-primary-sm" id="btn-mn-done-target"
@@ -5539,6 +6841,7 @@ function renderTargetManageContent(student, target) {
       });
     }
     input?.addEventListener("blur", async () => {
+      let oldName = null;
       if (a.isNote) {
         const v = input.value;
         if (v === (a.text || "")) return;
@@ -5546,10 +6849,12 @@ function renderTargetManageContent(student, target) {
       } else {
         const v = input.value.trim();
         if (!v || v === a.name) return;
+        oldName = a.name;
         a.name = v;
       }
       await saveTarget();
       flashSaved(input);
+      if (oldName) propagateActivityRename(student, target.name, oldName, a.name);
     });
     if (!a.isNote) input?.addEventListener("input", () => autoResizeTextarea(input));
 
@@ -5573,11 +6878,26 @@ function renderTargetManageContent(student, target) {
     }
   });
 
+  $("manage-modal-body").querySelectorAll(".btn-fmt").forEach(btn => {
+    // Prevent the textarea from losing focus/selection on click — by the
+    // time "click" fires the selection would otherwise already be gone.
+    btn.addEventListener("mousedown", e => e.preventDefault());
+    btn.addEventListener("click", () => {
+      const field = $(btn.dataset.inputId);
+      if (!field) return;
+      if (btn.classList.contains("btn-fmt-bullet")) {
+        toggleBulletSelection(field);
+      } else {
+        wrapTextareaSelection(field, btn.classList.contains("btn-fmt-bold") ? "**" : "__");
+      }
+    });
+  });
+
   $("manage-modal-body").querySelectorAll(".mn-del-act").forEach(btn => {
     btn.addEventListener("click", async () => {
       const idx = Number(btn.dataset.idx);
       const item = acts[idx];
-      const label = item?.isHeading ? "section heading" : item?.isNote ? "reference note" : "activity";
+      const label = item?.isHeading ? "section heading" : item?.isNote ? "reference note" : item?.isMapped ? "mapped-score activity" : "activity";
       if (!confirm(`Delete this ${label}?`)) return;
       acts.splice(idx, 1);
       acts.forEach((a, i) => a.order = i);
@@ -5617,6 +6937,30 @@ function renderTargetManageContent(student, target) {
     renderTargetManageContent(student, target);
   });
 
+  $("btn-mn-add-mapped").addEventListener("click", async () => {
+    acts.push({ id: cfgId("m"), isMapped: true, name: "", mappedTargetId: null, order: acts.length });
+    target.predefinedActivities = acts;
+    await saveTarget();
+    renderTargetManageContent(student, target);
+  });
+
+  $("btn-mn-add-act-note-mapped").addEventListener("click", async () => {
+    acts.push({ id: cfgId("m"), isMapped: true, name: "", actNote: "", mappedTargetId: null, order: acts.length });
+    target.predefinedActivities = acts;
+    await saveTarget();
+    renderTargetManageContent(student, target);
+  });
+
+  $("manage-modal-body").querySelectorAll(".mn-mapped-target-select").forEach(sel => {
+    sel.addEventListener("change", async () => {
+      const idx = Number(sel.dataset.idx);
+      acts[idx].mappedTargetId = sel.value || null;
+      target.predefinedActivities = acts;
+      await saveTarget();
+      flashSaved(sel);
+    });
+  });
+
   $("manage-modal-body").querySelectorAll(".mn-act-preset").forEach(sel => {
     sel.addEventListener("change", async () => {
       const idx = Number(sel.dataset.idx);
@@ -5629,11 +6973,33 @@ function renderTargetManageContent(student, target) {
       acts[idx].inlineOptions   = null;
       acts[idx].optionsMulti    = (type === "fixed_multi" || type === "starter_fixed_multi");
       acts[idx].isMastery       = (type === "mastery");
-      starterInput.style.display = (type === "starter" || type === "starter_fixed" || type === "starter_fixed_multi") ? "" : "none";
-      optsInput.style.display    = (type === "fixed" || type === "fixed_multi" || type === "starter_fixed" || type === "starter_fixed_multi") ? "" : "none";
-      if (type === "starter" || type === "starter_fixed" || type === "starter_fixed_multi") { starterInput.focus(); }
+      acts[idx].remarkHasNote   = (type === "starter_fixed_note");
+      starterInput.style.display = (type === "starter" || type === "starter_fixed" || type === "starter_fixed_multi" || type === "starter_fixed_note") ? "" : "none";
+      optsInput.style.display    = (type === "fixed" || type === "fixed_multi" || type === "starter_fixed" || type === "starter_fixed_multi" || type === "starter_fixed_note") ? "" : "none";
+      if (type === "starter" || type === "starter_fixed" || type === "starter_fixed_multi" || type === "starter_fixed_note") { starterInput.focus(); }
       else if (type === "fixed" || type === "fixed_multi") { optsInput.focus(); }
       else { target.predefinedActivities = acts; await saveTarget(); }
+    });
+  });
+
+  // One-click migration for old "Mastery Level + Free Text" activities — flips
+  // the activity's own config to the generic Sentence Starter + Select One +
+  // Free Text type without touching any remark documents at all: existing
+  // remarks' rem.text ("In Progress"/"Mastered"/"Maintain") and rem.masteryNote
+  // already line up exactly with the new type's select options and notes
+  // field, so they render correctly the moment the config changes.
+  $("manage-modal-body").querySelectorAll(".mn-convert-mastery").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const idx = Number(btn.dataset.idx);
+      acts[idx].sentenceStarter = "Mastery Level";
+      acts[idx].inlineOptions   = "In Progress/Mastered/Maintain";
+      acts[idx].optionsMulti    = false;
+      acts[idx].remarkPresetId  = null;
+      acts[idx].isMastery       = false;
+      acts[idx].remarkHasNote   = true;
+      target.predefinedActivities = acts;
+      await saveTarget();
+      renderTargetManageContent(student, target);
     });
   });
 
@@ -5724,40 +7090,30 @@ function renderTemplateManageContent(template) {
     } else if (a.isNote) {
       html += `<div class="admin-list-item admin-note-item" data-idx="${idx}">
         <span class="drag-handle">⠿</span>
-        <textarea class="admin-input" id="mn-act-name-${idx}" data-idx="${idx}"
+        ${formatButtonsHtml(`mn-act-name-${idx}`)}
+        <textarea class="admin-input mn-act-name-input" id="mn-act-name-${idx}" data-idx="${idx}"
           rows="1" placeholder="Enter Note"
           style="flex:1;overflow-y:hidden;resize:none">${escHtml(stripNoteHtml(a.text || ""))}</textarea>
         <button class="btn-adm-del mn-del-act" data-idx="${idx}">🗑</button>
       </div>`;
     } else {
-      const type = a.isMastery ? "mastery" : (a.sentenceStarter && a.inlineOptions && a.optionsMulti) ? "starter_fixed_multi" : (a.sentenceStarter && a.inlineOptions) ? "starter_fixed" : a.sentenceStarter ? "starter" : (a.inlineOptions && a.optionsMulti) ? "fixed_multi" : (a.inlineOptions || a.remarkPresetId) ? "fixed" : "";
-      const remarkTypeSelect = `<select class="act-preset-select mn-act-preset" data-idx="${idx}">
-          <option value="">Free text</option>
-          <option value="fixed"${type === "fixed" ? " selected" : ""}>Select one</option>
-          <option value="fixed_multi"${type === "fixed_multi" ? " selected" : ""}>Tick boxes</option>
-          <option value="starter"${type === "starter" ? " selected" : ""}>Sentence Starter + Free Text</option>
-          <option value="starter_fixed"${type === "starter_fixed" ? " selected" : ""}>Sentence Starter + Select one</option>
-          <option value="starter_fixed_multi"${type === "starter_fixed_multi" ? " selected" : ""}>Sentence Starter + Tick boxes</option>
-          <option value="mastery"${type === "mastery" ? " selected" : ""}>Mastery Level + Free Text</option>
-        </select>
-        <input class="admin-input mn-act-starter-text" data-idx="${idx}"
-          placeholder="Starter phrase…"
-          value="${escHtml(a.sentenceStarter || "")}"
-          style="${type === "starter" || type === "starter_fixed" || type === "starter_fixed_multi" ? "" : "display:none"}">
-        <input class="admin-input mn-act-inline-opts" data-idx="${idx}"
-          placeholder="Options separated by /  e.g. Low/Medium/High"
-          value="${escHtml(a.inlineOptions || (a.remarkPresetId ? (state.remarkPresets.find(p=>p.id===a.remarkPresetId)?.options||[]).join("/") : ""))}"
-          style="${type === "fixed" || type === "fixed_multi" || type === "starter_fixed" || type === "starter_fixed_multi" ? "" : "display:none"}">`;
+      const remarkTypeSelect = buildRemarkTypeControls(a, idx);
       const noteRow = a.actNote !== undefined
-        ? `<textarea class="admin-input mn-act-note-input" id="mn-act-note-${idx}" data-idx="${idx}"
-            rows="1" placeholder="Enter Note"
-            style="overflow-y:hidden;resize:none">${escHtml(a.actNote || "")}</textarea>`
+        ? `<div style="display:flex;align-items:flex-start;gap:.3rem">
+            ${formatButtonsHtml(`mn-act-note-${idx}`)}
+            <textarea class="admin-input mn-act-note-input" id="mn-act-note-${idx}" data-idx="${idx}"
+              rows="1" placeholder="Enter Note"
+              style="flex:1;overflow-y:hidden;resize:none">${escHtml(a.actNote || "")}</textarea>
+          </div>`
         : "";
       html += `<div class="admin-list-item" data-idx="${idx}">
         <span class="drag-handle">⠿</span>
         <div style="flex:1;display:flex;flex-direction:column;gap:.3rem">
-          <textarea class="admin-input" id="mn-act-name-${idx}" data-idx="${idx}"
-            rows="1" placeholder="Enter Activity">${escHtml(a.name || "")}</textarea>
+          <div style="display:flex;align-items:flex-start;gap:.3rem">
+            ${formatButtonsHtml(`mn-act-name-${idx}`)}
+            <textarea class="admin-input mn-act-name-input" id="mn-act-name-${idx}" data-idx="${idx}"
+              rows="1" placeholder="Enter Activity" style="flex:1">${escHtml(a.name || "")}</textarea>
+          </div>
           ${noteRow}
           <div style="display:flex;align-items:center;gap:.5rem">
             <span style="font-size:.75rem;color:#6b7280;white-space:nowrap;font-weight:600">Remark Type:</span>
@@ -5771,10 +7127,10 @@ function renderTemplateManageContent(template) {
 
   html += `</div>
     <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.25rem">
-      <button class="btn-admin-add" id="btn-mn-add-act" style="flex:1">+ Add Activity</button>
-      <button class="btn-admin-add" id="btn-mn-add-act-note" style="flex:1">+ Add Activity &amp; Note</button>
-      <button class="btn-admin-add" id="btn-mn-add-heading" style="flex:1">+ Add Section Heading</button>
-      <button class="btn-admin-add" id="btn-mn-add-note" style="flex:1">+ Add Note</button>
+      <button class="btn-admin-add" id="btn-mn-add-act" style="flex:0 0 auto;width:auto">+ Add Activity</button>
+      <button class="btn-admin-add" id="btn-mn-add-act-note" style="flex:0 0 auto;width:auto">+ Add Activity &amp; Note</button>
+      <button class="btn-admin-add" id="btn-mn-add-heading" style="flex:0 0 auto;width:auto">+ Add Section Heading</button>
+      <button class="btn-admin-add" id="btn-mn-add-note" style="flex:0 0 auto;width:auto">+ Add Note</button>
     </div>
     <div style="margin-top:2rem;padding-bottom:1.5rem">
       <button class="btn-primary-sm" id="btn-mn-done-template"
@@ -5874,6 +7230,21 @@ function renderTemplateManageContent(template) {
     }
   });
 
+  $("manage-modal-body").querySelectorAll(".btn-fmt").forEach(btn => {
+    // Prevent the textarea from losing focus/selection on click — by the
+    // time "click" fires the selection would otherwise already be gone.
+    btn.addEventListener("mousedown", e => e.preventDefault());
+    btn.addEventListener("click", () => {
+      const field = $(btn.dataset.inputId);
+      if (!field) return;
+      if (btn.classList.contains("btn-fmt-bullet")) {
+        toggleBulletSelection(field);
+      } else {
+        wrapTextareaSelection(field, btn.classList.contains("btn-fmt-bold") ? "**" : "__");
+      }
+    });
+  });
+
   $("manage-modal-body").querySelectorAll(".mn-del-act").forEach(btn => {
     btn.addEventListener("click", async () => {
       const idx = Number(btn.dataset.idx);
@@ -5930,11 +7301,29 @@ function renderTemplateManageContent(template) {
       acts[idx].inlineOptions   = null;
       acts[idx].optionsMulti    = (type === "fixed_multi" || type === "starter_fixed_multi");
       acts[idx].isMastery       = (type === "mastery");
-      starterInput.style.display = (type === "starter" || type === "starter_fixed" || type === "starter_fixed_multi") ? "" : "none";
-      optsInput.style.display    = (type === "fixed" || type === "fixed_multi" || type === "starter_fixed" || type === "starter_fixed_multi") ? "" : "none";
-      if (type === "starter" || type === "starter_fixed" || type === "starter_fixed_multi") { starterInput.focus(); }
+      acts[idx].remarkHasNote   = (type === "starter_fixed_note");
+      starterInput.style.display = (type === "starter" || type === "starter_fixed" || type === "starter_fixed_multi" || type === "starter_fixed_note") ? "" : "none";
+      optsInput.style.display    = (type === "fixed" || type === "fixed_multi" || type === "starter_fixed" || type === "starter_fixed_multi" || type === "starter_fixed_note") ? "" : "none";
+      if (type === "starter" || type === "starter_fixed" || type === "starter_fixed_multi" || type === "starter_fixed_note") { starterInput.focus(); }
       else if (type === "fixed" || type === "fixed_multi") { optsInput.focus(); }
       else { template.predefinedActivities = acts; await saveTemplateFn(); }
+    });
+  });
+
+  // See the matching handler in renderTargetManageContent for why this is a
+  // pure config flip with no remark-data migration needed.
+  $("manage-modal-body").querySelectorAll(".mn-convert-mastery").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const idx = Number(btn.dataset.idx);
+      acts[idx].sentenceStarter = "Mastery Level";
+      acts[idx].inlineOptions   = "In Progress/Mastered/Maintain";
+      acts[idx].optionsMulti    = false;
+      acts[idx].remarkPresetId  = null;
+      acts[idx].isMastery       = false;
+      acts[idx].remarkHasNote   = true;
+      template.predefinedActivities = acts;
+      await saveTemplateFn();
+      renderTemplateManageContent(template);
     });
   });
 
@@ -6007,15 +7396,22 @@ function showGroupChoice(group) {
         <span class="choice-icon">✏️</span>
         <div class="choice-text"><div class="choice-label">Manage Group</div></div>
       </button>
-      <button class="choice-btn choice-export">
-        <span class="choice-icon">📤</span>
-        <div class="choice-text"><div class="choice-label">Export to Excel</div></div>
+      <button class="choice-btn choice-export-excel">
+        <span class="choice-icon">📊</span>
+        <div class="choice-text"><div class="choice-label">Export to Excel (Yearly Summary)</div></div>
+      </button>
+      <button class="choice-btn choice-export-word">
+        <span class="choice-icon">📝</span>
+        <div class="choice-text"><div class="choice-label">Export to Word (Daily Session Note)</div></div>
       </button>
     </div>`;
   $("session-picker-modal").classList.remove("hidden");
 
-  $("session-picker-list").querySelector(".choice-export").addEventListener("click", () => {
-    showGroupExportStudentPicker(group);
+  $("session-picker-list").querySelector(".choice-export-excel").addEventListener("click", () => {
+    showGroupExportStudentPicker(group, "excel");
+  });
+  $("session-picker-list").querySelector(".choice-export-word").addEventListener("click", () => {
+    showGroupExportStudentPicker(group, "word");
   });
 
   const today = getTodayString();
@@ -6090,7 +7486,7 @@ async function openGroupSession(group, dateStr, attendees) {
   $("group-target-content").innerHTML = `<div class="loading">Loading…</div>`;
 
   try {
-    const sid = await getOrCreateGroupSessionForDate(group.id, dateStr, group.targets, attendees);
+    const sid = await getOrCreateGroupSessionForDate(group.id, dateStr, group.targets, attendees, group.studentLinks || {});
     state.groupSessionId = sid;
     let firstLoad = true;
     state.fbGroupUnsubscribe = listenToSession(sid, async data => {
@@ -6098,11 +7494,15 @@ async function openGroupSession(group, dateStr, attendees) {
       renderGroupSessionHeader(data);
       if (firstLoad) {
         firstLoad = false;
-        state.selectedGroupTargetName = state.selectedGroupTargetName || group.targets.sort((a,b)=>a.name.localeCompare(b.name))[0]?.name || null;
+        state.selectedGroupTargetName = state.selectedGroupTargetName || sortTargetsByOrder(group.targets)[0]?.name || null;
         populateGroupTargetDropdown(group.targets);
         if (state.selectedGroupTargetName) {
-          const filled = await autoFillGroupSession(group, sid, data, state.selectedGroupTargetName, attendees);
-          if (filled > 0) return;
+          try {
+            const filled = await autoFillGroupSession(group, sid, data, state.selectedGroupTargetName, attendees);
+            if (filled > 0) return;
+            const mappedFilled = await autoFillGroupMappedRemarks(group, sid, data, state.selectedGroupTargetName, attendees);
+            if (mappedFilled > 0) return;
+          } catch (err) { console.error("Group session auto-fill failed:", err); }
         }
       }
       if (state.scorePicker?.open && state.scorePicker?.isGroup) renderScoreModalTrials(state.scorePicker.remId);
@@ -6137,7 +7537,7 @@ function renderGroupSessionHeader(data) {
 function populateGroupTargetDropdown(targets) {
   const sel = $("group-target-select");
   if (!sel) return;
-  const sorted = [...targets].sort((a, b) => a.name.localeCompare(b.name));
+  const sorted = sortTargetsByOrder(targets);
   const placeholder = sorted.length === 0
     ? `<option value="" disabled selected>— no targets yet —</option>` : "";
   sel.innerHTML = placeholder +
@@ -6155,6 +7555,12 @@ function populateGroupTargetDropdown(targets) {
     };
   }
 
+  const reorderBtn = $("btn-group-reorder-targets");
+  if (reorderBtn) {
+    reorderBtn.classList.toggle("hidden", targets.length < 2);
+    reorderBtn.onclick = () => showGroupTargetReorderList(state.currentGroup);
+  }
+
   // Wire change handler — same pattern as individual session's populateTargetDropdown
   sel.onchange = async () => {
     if (sel.value === "__add_target__") {
@@ -6170,7 +7576,8 @@ function populateGroupTargetDropdown(targets) {
     await state.entryGroupRemarkSaver?.flush();
     state.selectedGroupTargetName = sel.value || null;
     if (prevTarget && prevTarget !== sel.value) {
-      cleanupEmptyEntries(state.groupSessionId, state.groupSessionData, prevTarget).catch(() => {});
+      const prevTargetObj = (state.currentGroup?.targets || []).find(t => t.name === prevTarget);
+      cleanupEmptyEntries(state.groupSessionId, state.groupSessionData, prevTarget, prevTargetObj).catch(() => {});
     }
     // See individual session's populateTargetDropdown for why this matters:
     // a <select> keeps focus after its own change event, and nothing else
@@ -6181,11 +7588,18 @@ function populateGroupTargetDropdown(targets) {
     if (!state.selectedGroupTargetName) { renderGroupTargetContent(); return; }
     const data = state.groupSessionData;
     if (data) {
-      const filled = await autoFillGroupSession(
-        state.currentGroup, state.groupSessionId, data,
-        state.selectedGroupTargetName, state.groupAttendees
-      );
-      if (filled > 0) return;
+      try {
+        const filled = await autoFillGroupSession(
+          state.currentGroup, state.groupSessionId, data,
+          state.selectedGroupTargetName, state.groupAttendees
+        );
+        if (filled > 0) return;
+        const mappedFilled = await autoFillGroupMappedRemarks(
+          state.currentGroup, state.groupSessionId, data,
+          state.selectedGroupTargetName, state.groupAttendees
+        );
+        if (mappedFilled > 0) return;
+      } catch (err) { console.error("Group target auto-fill failed:", err); }
     }
     renderGroupTargetContent();
   };
@@ -6208,6 +7622,35 @@ async function autoFillGroupSession(group, sessionId, data, targetName, attendee
   return created;
 }
 
+// Group-entry counterpart of autoFillMappedRemarks — only checks the
+// currently selected target (group activity stubs are filled in lazily per
+// selected target too, via autoFillGroupSession above, not for every target
+// up front), per attendee. Call only after confirming autoFillGroupSession
+// didn't just create a brand-new stub for this target — that write triggers
+// its own snapshot, which gets a fresh look at this on the next pass.
+async function autoFillGroupMappedRemarks(group, sessionId, data, targetName, attendees) {
+  const target = group.targets.find(t => t.name === targetName);
+  if (!target) return 0;
+  let count = 0;
+  for (const pa of (target.predefinedActivities || [])) {
+    if (!pa.isMapped) continue;
+    const existingAct = Object.entries(data.activities || {})
+      .find(([, a]) => a.targetName === targetName && a.activityName === pa.name);
+    const actId = existingAct?.[0];
+    if (!actId) continue;
+    for (const studentName of attendees) {
+      const hasRemark = Object.values(data.remarks || {})
+        .some(r => r.activityId === actId && r.studentName === studentName);
+      if (hasRemark) continue;
+      const pct = resolveGroupMappedScoreDisplay(pa, target, data, studentName, new Set()).pct;
+      if (pct === null) continue;
+      await addGroupRemark(sessionId, actId, studentName, "");
+      count++;
+    }
+  }
+  return count;
+}
+
 async function leaveGroupSession() {
   commitTextEditorSheet();
   $("text-editor-sheet").classList.add("hidden");
@@ -6219,6 +7662,7 @@ async function leaveGroupSession() {
   if (state.fbGroupUnsubscribe) { state.fbGroupUnsubscribe(); state.fbGroupUnsubscribe = null; }
   const sessionId = state.groupSessionId;
   const data      = state.groupSessionData;
+  const group     = state.currentGroup;
   state.currentGroup            = null;
   state.groupSessionId          = null;
   state.groupSessionData        = null;
@@ -6236,7 +7680,10 @@ async function leaveGroupSession() {
       deleteSession(sessionId).catch(() => {});
     } else {
       const allTargetNames = new Set(Object.values(data.activities || {}).map(a => a.targetName));
-      allTargetNames.forEach(name => cleanupEmptyEntries(sessionId, data, name).catch(() => {}));
+      allTargetNames.forEach(name => {
+        const target = (group?.targets || []).find(t => t.name === name);
+        cleanupEmptyEntries(sessionId, data, name, target).catch(() => {});
+      });
     }
   }
   showHome();
@@ -6291,7 +7738,7 @@ function buildGroupItemsByActivity(target, data, attendees) {
     }
     const actId = Object.entries(data.activities || {})
       .find(([, a]) => a.targetName === target.name && a.activityName === pa.name)?.[0] || null;
-    items.push(renderGroupActivityCard(pa.name, actId, target, data, attendees, pa.actNote));
+    items.push(renderGroupActivityCard(pa.name, actId, target, data, attendees, pa.actNote, pa.isMapped ? pa : null));
   }
 
   // Manually added (non-predefined) activities
@@ -6325,7 +7772,7 @@ function renderGroupStudentBlock(studentName, target, data) {
     if (pa.isNote || pa.isHeading || !pa.name) continue;
     const actId = Object.entries(data.activities || {})
       .find(([, a]) => a.targetName === target.name && a.activityName === pa.name)?.[0] || null;
-    activityEntries.push({ actId, actName: pa.name, actNote: pa.actNote });
+    activityEntries.push({ actId, actName: pa.name, actNote: pa.actNote, pa });
   }
   Object.entries(data.activities || {})
     .filter(([, a]) => a.targetName === target.name && !a.isPredefined)
@@ -6333,17 +7780,17 @@ function renderGroupStudentBlock(studentName, target, data) {
     .forEach(([actId, act]) => activityEntries.push({ actId, actName: act.activityName }));
 
   const cards = activityEntries.length
-    ? activityEntries.map(({ actId, actName, actNote }) =>
-        renderGroupStudentActivityCard(studentName, actName, actId, target, data, actNote)).join("")
+    ? activityEntries.map(({ actId, actName, actNote, pa }) =>
+        renderGroupStudentActivityCard(studentName, actName, actId, target, data, actNote, pa?.isMapped ? pa : null)).join("")
     : `<p class="empty-hint" contenteditable="false" style="padding:1rem">No activities yet. Add them under Edit Target.</p>`;
 
   return `<div class="group-by-student-block" data-student="${escHtml(studentName)}">
-    <div class="activity-group-heading" contenteditable="false">${escHtml(studentName)}</div>
+    <div class="activity-group-heading" contenteditable="false">${liveGroupAttendeeLabel(studentName)}</div>
     ${cards}
   </div>`;
 }
 
-function renderGroupStudentActivityCard(studentName, actName, actId, target, data, actNote = null) {
+function renderGroupStudentActivityCard(studentName, actName, actId, target, data, actNote = null, mappedPa = null) {
   const remarksForThisStudent = actId
     ? Object.entries(data.remarks || {})
         .filter(([, r]) => r.activityId === actId && r.studentName === studentName)
@@ -6353,19 +7800,21 @@ function renderGroupStudentActivityCard(studentName, actName, actId, target, dat
   const noteRow = actNote && actNote.trim()
     ? `<div class="entry-field" contenteditable="false">
         <span class="field-label">Note</span>
-        <span class="field-value-note">${escHtml(actNote)}</span>
+        <span class="field-value-note">${formatActivityMarkup(actNote)}</span>
       </div>`
     : "";
 
   let html = `<div class="entry-block entry-block-predefined" data-act-name="${escHtml(actName)}" data-act-id="${escHtml(actId || "")}">
     <div class="entry-field" contenteditable="false">
       <span class="field-label">Activity</span>
-      <span class="field-value-fixed">${escHtml(actName)}</span>
+      <span class="field-value-fixed">${formatActivityMarkup(actName)}</span>
     </div>
     ${noteRow}`;
 
+  const mappedInfo = mappedPa ? resolveGroupMappedScoreDisplay(mappedPa, target, data, studentName) : null;
+
   for (const [remId, rem] of remarksForThisStudent) {
-    html += renderGroupStudentRowCompact(remId, rem, target);
+    html += renderGroupStudentRowCompact(remId, rem, target, mappedInfo);
   }
 
   html += remarksForThisStudent.length === 0
@@ -6373,20 +7822,43 @@ function renderGroupStudentActivityCard(studentName, actName, actId, target, dat
         data-student="${escHtml(studentName)}"
         data-act-id="${escHtml(actId || "")}"
         data-act-name="${escHtml(actName)}"
-        data-target="${escHtml(target.name)}">+ Add Remark &amp; Trials</button>`
+        data-target="${escHtml(target.name)}">+ Add Remark${mappedPa ? "" : " &amp; Trials"}</button>`
     : `<button class="btn-add-remark btn-group-add-remark-student-more" contenteditable="false"
         data-act-id="${escHtml(actId || "")}"
-        data-student="${escHtml(studentName)}">+ Add Remark &amp; Trials</button>`;
+        data-student="${escHtml(studentName)}">+ Add Remark${mappedPa ? "" : " &amp; Trials"}</button>`;
 
   html += `</div>`;
   return html;
 }
 
-function renderGroupStudentRowCompact(remId, rem, target) {
+// Live-entry-screen counterpart of groupAttendeeLabel (View/Edit Past
+// Sessions) — same idea, reads the live screen's globals instead.
+function liveGroupAttendeeLabel(studentName) {
+  const linkedId = state.currentGroup?.studentLinks?.[studentName];
+  const num = linkedId ? state.groupSessionData?.attendeePersonalSessionNumbers?.[linkedId] : null;
+  return num != null
+    ? `${escHtml(studentName)} <span style="font-weight:400;color:var(--text-muted);font-size:.85em">(Session ${num})</span>`
+    : escHtml(studentName);
+}
+
+function renderGroupStudentRowCompact(remId, rem, target, mappedInfo = null) {
   const trials = rem.trials || [];
   const badges = trials.map((t, i) =>
     `<span class="trial-badge">${t === -1 ? "—" : t}<button class="btn-trial-delete btn-group-trial-del" data-rem-id="${remId}" data-idx="${i}">×</button></span>`
   ).join("");
+  const trailingField = mappedInfo
+    ? `<div class="entry-field" contenteditable="false">
+        <span class="field-label">${escHtml(mappedInfo.label)}</span>
+        <span class="field-value-fixed">${mappedInfo.pct !== null ? mappedInfo.pct + "%" : "—"}</span>
+      </div>`
+    : `<div class="entry-field" contenteditable="false">
+        <span class="field-label">Trials</span>
+        <div class="trials-row">
+          <div class="trials-badges">${badges}</div>
+          <button class="btn-primary-sm btn-add-trial btn-group-add-trial"
+            data-rem-id="${remId}" data-target="${escHtml(target.name)}">+ Trial</button>
+        </div>
+      </div>`;
   return `
     <div class="entry-divider" contenteditable="false"></div>
     <div class="entry-field">
@@ -6397,23 +7869,41 @@ function renderGroupStudentRowCompact(remId, rem, target) {
         data-saved-html="${escHtml(rem.text || "")}">${escHtml(plainTextForEdit(rem.text))}</textarea>
       <button class="btn-icon btn-group-del-student-remark" contenteditable="false" data-rem-id="${remId}" title="Delete remark">🗑</button>
     </div>
-    <div class="entry-field" contenteditable="false">
-      <span class="field-label">Trials</span>
-      <div class="trials-row">
-        <div class="trials-badges">${badges}</div>
-        <button class="btn-primary-sm btn-add-trial btn-group-add-trial"
-          data-rem-id="${remId}" data-target="${escHtml(target.name)}">+ Trial</button>
-      </div>
-    </div>`;
+    ${trailingField}`;
 }
 
-function renderGroupActivityCard(actName, actId, target, data, attendees, actNote = null) {
+function renderGroupActivityCard(actName, actId, target, data, attendees, actNote = null, mappedPa = null) {
   const noteRow = actNote && actNote.trim()
     ? `<div class="entry-field" contenteditable="false">
         <span class="field-label">Note</span>
-        <span class="field-value-note">${escHtml(actNote)}</span>
+        <span class="field-value-note">${formatActivityMarkup(actNote)}</span>
       </div>`
     : "";
+
+  // Mapped-score activities have no trials/combine-remarks concept at all —
+  // bypass the rounds/combine machinery below entirely and just list every
+  // attendee's own remark + their own per-attendee mapped score.
+  if (mappedPa) {
+    const rows = attendees.map(studentName => {
+      const remarks = actId
+        ? Object.entries(data.remarks || {})
+            .filter(([, r]) => r.activityId === actId && r.studentName === studentName)
+            .sort(([, a], [, b]) => (a.order || 0) - (b.order || 0))
+        : [];
+      if (remarks.length === 0) return renderGroupStudentPendingRow(studentName, actId, actName, target, true);
+      const mappedInfo = resolveGroupMappedScoreDisplay(mappedPa, target, data, studentName);
+      return remarks.map(([remId, rem]) => renderGroupStudentRow(studentName, remId, rem, target, mappedInfo)).join("");
+    }).join("");
+    return `<div class="entry-block entry-block-predefined" data-act-name="${escHtml(actName)}" data-act-id="${escHtml(actId || "")}">
+      <div class="entry-field" contenteditable="false">
+        <span class="field-label">Activity</span>
+        <span class="field-value-fixed">${formatActivityMarkup(actName)}</span>
+      </div>
+      ${noteRow}
+      <div class="entry-divider" contenteditable="false"></div>
+      ${rows}
+    </div>`;
+  }
 
   const combineRemarks = !!(actId && data.activities?.[actId]?.combineRemarks);
   const combineToggle = actId
@@ -6432,7 +7922,7 @@ function renderGroupActivityCard(actName, actId, target, data, attendees, actNot
     return `<div class="entry-block entry-block-predefined" data-act-name="${escHtml(actName)}" data-act-id="${escHtml(actId || "")}">
       <div class="entry-field" contenteditable="false">
         <span class="field-label">Activity</span>
-        <span class="field-value-fixed">${escHtml(actName)}</span>
+        <span class="field-value-fixed">${formatActivityMarkup(actName)}</span>
         ${combineToggle}
       </div>
       ${noteRow}
@@ -6496,7 +7986,7 @@ function renderGroupActivityCard(actName, actId, target, data, attendees, actNot
   return `<div class="entry-block entry-block-predefined" data-act-name="${escHtml(actName)}" data-act-id="${escHtml(actId || "")}">
     <div class="entry-field" contenteditable="false">
       <span class="field-label">Activity</span>
-      <span class="field-value-fixed">${escHtml(actName)}</span>
+      <span class="field-value-fixed">${formatActivityMarkup(actName)}</span>
       ${combineToggle}
     </div>
     ${noteRow}
@@ -6530,7 +8020,7 @@ function renderGroupStudentTrialsOnlyRow(studentName, remId, rem, target) {
   ).join("");
   return `<div class="group-student-section" data-rem-id="${remId}" data-student="${escHtml(studentName)}">
     <div class="group-student-name-row" contenteditable="false">
-      <span class="group-student-name-label">${escHtml(studentName)}</span>
+      <span class="group-student-name-label">${liveGroupAttendeeLabel(studentName)}</span>
     </div>
     <div class="entry-field" contenteditable="false">
       <span class="field-label">Trials</span>
@@ -6543,14 +8033,27 @@ function renderGroupStudentTrialsOnlyRow(studentName, remId, rem, target) {
   </div>`;
 }
 
-function renderGroupStudentRow(studentName, remId, rem, target) {
+function renderGroupStudentRow(studentName, remId, rem, target, mappedInfo = null) {
   const trials = rem.trials || [];
   const badges = trials.map((t, i) =>
     `<span class="trial-badge">${t === -1 ? "—" : t}<button class="btn-trial-delete btn-group-trial-del" data-rem-id="${remId}" data-idx="${i}">×</button></span>`
   ).join("");
+  const trailingField = mappedInfo
+    ? `<div class="entry-field" contenteditable="false">
+        <span class="field-label">${escHtml(mappedInfo.label)}</span>
+        <span class="field-value-fixed">${mappedInfo.pct !== null ? mappedInfo.pct + "%" : "—"}</span>
+      </div>`
+    : `<div class="entry-field" contenteditable="false">
+        <span class="field-label">Trials</span>
+        <div class="trials-row">
+          <div class="trials-badges">${badges}</div>
+          <button class="btn-primary-sm btn-add-trial btn-group-add-trial"
+            data-rem-id="${remId}" data-target="${escHtml(target.name)}">+ Trial</button>
+        </div>
+      </div>`;
   return `<div class="group-student-section" data-rem-id="${remId}" data-student="${escHtml(studentName)}">
     <div class="group-student-name-row" contenteditable="false">
-      <span class="group-student-name-label">${escHtml(studentName)}</span>
+      <span class="group-student-name-label">${liveGroupAttendeeLabel(studentName)}</span>
     </div>
     <div class="entry-field">
       <span class="field-label" contenteditable="false">Remark</span>
@@ -6559,32 +8062,69 @@ function renderGroupStudentRow(studentName, remId, rem, target) {
         data-rem-id="${remId}" placeholder="Remark…"
         data-saved-html="${escHtml(rem.text || "")}">${escHtml(plainTextForEdit(rem.text))}</textarea>
     </div>
-    <div class="entry-field" contenteditable="false">
-      <span class="field-label">Trials</span>
-      <div class="trials-row">
-        <div class="trials-badges">${badges}</div>
-        <button class="btn-primary-sm btn-add-trial btn-group-add-trial"
-          data-rem-id="${remId}" data-target="${escHtml(target.name)}">+ Trial</button>
-      </div>
-    </div>
+    ${trailingField}
   </div>`;
 }
 
-function renderGroupStudentPendingRow(studentName, actId, actName, target) {
+function renderGroupStudentPendingRow(studentName, actId, actName, target, mapped = false) {
   return `<div class="group-student-section group-student-pending" contenteditable="false"
     data-student="${escHtml(studentName)}"
     data-act-id="${escHtml(actId || "")}"
     data-act-name="${escHtml(actName)}"
     data-target="${escHtml(target.name)}">
     <div class="group-student-name-row">
-      <span class="group-student-name-label">${escHtml(studentName)}</span>
+      <span class="group-student-name-label">${liveGroupAttendeeLabel(studentName)}</span>
       <button class="btn-add-remark btn-group-add-remark-pending"
         data-student="${escHtml(studentName)}"
         data-act-id="${escHtml(actId || "")}"
         data-act-name="${escHtml(actName)}"
-        data-target="${escHtml(target.name)}">+ Add Remark &amp; Trials</button>
+        data-target="${escHtml(target.name)}">+ Add Remark${mapped ? "" : " &amp; Trials"}</button>
     </div>
   </div>`;
+}
+
+// One attendee's own day average for a group target — per-attendee throughout
+// (group sessions score each attendee separately even on a shared target).
+// visited (keyed "targetId::studentName") guards a circular mapping chain.
+function calcGroupStudentDaysAverage(target, data, studentName, visited = new Set()) {
+  const key = target.id + "::" + studentName;
+  if (visited.has(key)) return null;
+  visited.add(key);
+
+  const maxPts = target.maxPoints || 3;
+  let totalScore = 0, totalPossible = 0;
+  const actsForTarget = Object.entries(data.activities || {})
+    .filter(([, a]) => a.targetName === target.name);
+
+  for (const [actId, act] of actsForTarget) {
+    const remarksForStudent = Object.values(data.remarks || {})
+      .filter(r => r.activityId === actId && r.studentName === studentName);
+    const pa = (target.predefinedActivities || []).find(p => p.isMapped && p.name === act.activityName);
+    if (pa) {
+      if (remarksForStudent.length === 0) continue;
+      const mappedPct = resolveGroupMappedScoreDisplay(pa, target, data, studentName, visited).pct;
+      if (mappedPct !== null) { totalScore += mappedPct / 100 * maxPts; totalPossible += maxPts; }
+      continue;
+    }
+    const trials = remarksForStudent.flatMap(r => (r.trials || []).filter(t => t !== -1));
+    if (trials.length === 0) continue;
+    totalScore    += trials.reduce((a, b) => a + b, 0);
+    totalPossible += trials.length * maxPts;
+  }
+  return totalPossible > 0 ? Math.round(totalScore / totalPossible * 100) : null;
+}
+
+// Resolves a mapped-score activity's live display for one attendee — see
+// calcDaysAverage's individual-session counterpart, resolveMappedScoreDisplay.
+function resolveGroupMappedScoreDisplay(pa, target, data, studentName, visited) {
+  const mappedTarget = pa.mappedTargetId
+    ? (state.currentGroup?.targets || []).find(t => t.id === pa.mappedTargetId)
+    : null;
+  if (!mappedTarget) return { label: "Score (Not Mapped Yet)", pct: null };
+  return {
+    label: `Score (Mapped to ${mappedTarget.name}'s Average)`,
+    pct: calcGroupStudentDaysAverage(mappedTarget, data, studentName, visited)
+  };
 }
 
 function updateGroupAvgChips(target, data) {
@@ -6600,19 +8140,11 @@ function updateGroupAvgChips(target, data) {
     ).join("");
     return;
   }
-  const maxPts = target.maxPoints || 3;
   container.innerHTML = attendees.map(name => {
-    const actIds = Object.entries(data.activities || {})
-      .filter(([, a]) => a.targetName === target.name).map(([id]) => id);
-    const valid = Object.values(data.remarks || {})
-      .filter(r => actIds.includes(r.activityId) && r.studentName === name)
-      .flatMap(r => (r.trials || []).filter(t => t !== -1));
-    const avg = valid.length
-      ? Math.round(valid.reduce((a, b) => a + b, 0) / (valid.length * maxPts) * 100) + "%"
-      : "—";
+    const avg = calcGroupStudentDaysAverage(target, data, name);
     return `<div class="days-average-chip">
       <span class="days-average-label">${escHtml(name)}'s Avg</span>
-      <span class="days-average-value">${avg}</span>
+      <span class="days-average-value">${avg !== null ? avg + "%" : "—"}</span>
     </div>`;
   }).join("");
 }
@@ -6978,14 +8510,25 @@ function renderGroupManageContent(group) {
   _pendingActsCleanup = null;
   $("manage-modal-title").textContent = group.name || "New Group";
 
-  // 3 fixed student rows — always show exactly 3
-  const studentRowsHtml = [0, 1, 2].map(i => `
-    <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.45rem">
+  // 3 fixed student slots — always show exactly 3. Each is a single picker
+  // into the central student registry (not a free-text name field), so a
+  // roster slot is always linked to a real student.id and naturally counts
+  // toward that person's lifetime group session number — see
+  // getGroupSessionsForStudent / [[project_unified_session_numbering]].
+  const registryOptions = [...state.students].sort((a, b) => a.name.localeCompare(b.name));
+  const studentRowsHtml = [0, 1, 2].map(i => {
+    const name = group.students?.[i] || "";
+    const linkedId = group.studentLinks?.[name] || "";
+    return `
+    <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.45rem;flex-wrap:wrap">
       <span style="min-width:5.5rem;font-size:.85rem;font-weight:600;color:var(--text-muted)">Student ${i + 1}</span>
-      <input class="admin-input mn-g-student-field" data-idx="${i}"
-        value="${escHtml(group.students?.[i] || "")}"
-        placeholder="Enter name…" style="flex:1" />
-    </div>`).join("");
+      <select class="admin-input mn-g-student-pick" data-idx="${i}" style="flex:1;min-width:9rem">
+        <option value="">— empty —</option>
+        <option value="__new__">+ Register a new student…</option>
+        ${registryOptions.map(s => `<option value="${s.id}"${s.id === linkedId ? " selected" : ""}>${escHtml(s.name)}</option>`).join("")}
+      </select>
+    </div>`;
+  }).join("");
 
   $("manage-modal-body").innerHTML = `
     <div class="admin-section">
@@ -6996,7 +8539,7 @@ function renderGroupManageContent(group) {
                font-style:${group.name ? "normal" : "italic"};cursor:default;line-height:1.4">
         ${group.name
           ? escHtml(group.name)
-          : "The group name is automatically set based on the student names entered below. Just fill in the students and this field will be filled automatically."}
+          : "The group name is automatically set based on the students picked below. Just fill in the students and this field will be filled automatically."}
       </div>
     </div>
     <div class="admin-section">
@@ -7009,28 +8552,55 @@ function renderGroupManageContent(group) {
       <button class="btn-adm-danger" id="btn-mn-del-group">Delete Group</button>
     </div>`;
 
-  // Save student fields on blur — reads all 3 inputs, filters empty, updates group
-  const saveStudents = async () => {
-    const wasAuto = groupNameIsAuto(group);
-    group.students = [...$("manage-modal-body").querySelectorAll(".mn-g-student-field")]
-      .map(f => f.value.trim()).filter(Boolean);
-    if (wasAuto) group.name = groupAutoName(group.students);
-    if (group.students.length > 0) _newGroupId = null; // group is no longer empty
-    const nameEl = $("mn-g-name");
-    if (nameEl) {
-      nameEl.textContent = group.name || "The group name is automatically set based on the student names entered below. Just fill in the students and this field will be filled automatically.";
-      nameEl.style.color = group.name ? "var(--text)" : "var(--text-muted)";
-      nameEl.style.fontStyle = group.name ? "normal" : "italic";
-    }
-    $("manage-modal-title").textContent = group.name || "New Group";
-    const gi = state.groups.findIndex(g => g.id === group.id);
-    if (gi >= 0) state.groups[gi] = group;
-    await saveGroup(group);
-    renderGroupButtons();
-  };
-  $("manage-modal-body").querySelectorAll(".mn-g-student-field").forEach(input => {
-    input.addEventListener("blur", saveStudents);
-    input.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); input.blur(); } });
+  $("manage-modal-body").querySelectorAll(".mn-g-student-pick").forEach(sel => {
+    sel.addEventListener("change", async () => {
+      const idx = Number(sel.dataset.idx);
+      const prevName = group.students?.[idx] || "";
+
+      if (sel.value === "__new__") {
+        sel.value = group.studentLinks?.[prevName] || "";
+        // Just hide the modal rather than closeManageModal()'s full cleanup —
+        // that cleanup deletes a brand-new, still-empty group (tracked via
+        // _newGroupId), which would wipe out the group she's mid-creating.
+        $("manage-modal").classList.add("hidden");
+        openStudentRegistryScreen({ highlightAdd: true });
+        return;
+      }
+      const pickedStudent = sel.value ? (state.students.find(s => s.id === sel.value) || null) : null;
+
+      // Guard against picking the same registered student into two slots
+      // of the same group — a real mistake, not a valid roster shape.
+      if (pickedStudent && group.students?.some((n, j) => j !== idx && group.studentLinks?.[n] === pickedStudent.id)) {
+        alert(`"${pickedStudent.name}" is already in another slot in this group.`);
+        sel.value = group.studentLinks?.[prevName] || "";
+        return;
+      }
+
+      const wasAuto = groupNameIsAuto(group);
+      // Pad to exactly 3 real entries (never sparse/holes) before assigning
+      // by index — a sparse array's .length looks "non-empty" even when
+      // every slot is blank (e.g. opening then clearing slot 2 without
+      // touching slot 1 leaves a hole at index 0), which let a fully-empty
+      // brand-new group survive closeManageModal()'s empty-group cleanup.
+      group.students = [0, 1, 2].map(i => group.students?.[i] || "");
+      group.studentLinks = group.studentLinks || {};
+      if (prevName) delete group.studentLinks[prevName];
+      if (pickedStudent) {
+        group.students[idx] = pickedStudent.name;
+        group.studentLinks[pickedStudent.name] = pickedStudent.id;
+      } else {
+        group.students[idx] = "";
+      }
+      const filledNames = group.students.filter(Boolean);
+      if (wasAuto) group.name = groupAutoName(filledNames);
+      if (filledNames.length > 0) _newGroupId = null; // group is no longer empty
+
+      const gi = state.groups.findIndex(g => g.id === group.id);
+      if (gi >= 0) state.groups[gi] = group;
+      await saveGroup(group);
+      renderGroupButtons();
+      renderGroupManageContent(group); // re-render so other slots see the updated registry/links
+    });
   });
 
   // Done
@@ -7061,6 +8631,35 @@ function showAutosaved() {
 // ─── SAVED FLASH ─────────────────────────────────────────────
 
 function flashSaved() {}
+
+// Wraps a "Save" button's click handler so it only shows "Saving…" if the
+// save is actually slow enough to need it, and always confirms with a
+// brief "Saved!" afterwards — answers "did that actually save?" without
+// making a fast save feel sluggish by flashing a loading state nobody
+// needed to see. Resolves once "Saved!" has actually been visible for a
+// moment, so callers that re-render/destroy the button right after saving
+// (e.g. Student Database's inline add-row) should await this first.
+function withSaveFeedback(btn, promise, { savingDelay = 250, savedHold = 700 } = {}) {
+  const original = btn.textContent;
+  btn.disabled = true;
+  const timer = setTimeout(() => { btn.textContent = "Saving…"; }, savingDelay);
+  return promise.then(
+    async result => {
+      clearTimeout(timer);
+      btn.textContent = "Saved!";
+      await new Promise(r => setTimeout(r, savedHold));
+      btn.textContent = original;
+      btn.disabled = false;
+      return result;
+    },
+    err => {
+      clearTimeout(timer);
+      btn.textContent = original;
+      btn.disabled = false;
+      throw err;
+    }
+  );
+}
 
 // ─── SCREEN MANAGEMENT ───────────────────────────────────────
 
@@ -7165,14 +8764,13 @@ function renderSessionListRows(sorted, display, today, { isCurrentId, extraLine 
       html += `<div class="session-month-label">${escHtml(section)}</div>`;
       lastSection = section;
     }
-    const num       = sorted.findIndex(x => x.id === s.id) + 1;
     const isCurrent = isCurrentId != null && s.id === isCurrentId;
     const cls       = `session-list-item${isCurrent ? " session-list-current" : ""}`;
     const label     = sessionItemLabel(s.date, today);
     const extra     = extraLine ? extraLine(s) : "";
     html += `<div class="${cls}" data-session-id="${s.id}">
       <div class="session-list-meta">
-        <div class="session-list-label"><strong>Session ${num}</strong>: ${label}</div>
+        <div class="session-list-label"><strong>Session ${s.sessionNumber}</strong>: ${label}</div>
         ${extra}
       </div>
     </div>`;

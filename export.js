@@ -5,9 +5,25 @@
 
 import { getAllSessionsForStudent, getAllSessionsForGroup, sanitizeKey } from "./firebase-service.js";
 
-// Strip HTML tags from remark text (stored as HTML for visual bold support)
+// Strip HTML tags from remark text (stored as HTML for visual bold support).
+// Line breaks are stored as <br>/<div>/<p> (see app.js's htmlForStorage) —
+// convert those to real newlines first so multi-line remarks don't collapse
+// onto one line once the tags are stripped.
 function stripRemarkHtml(s) {
-  return (s || "").replace(/<[^>]*>/g, "");
+  return (s || "")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/div>/gi, "\n").replace(/<div>/gi, "")
+    .replace(/<\/p>/gi, "\n").replace(/<p>/gi, "")
+    .replace(/<[^>]*>/g, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+// Excel doesn't attempt rich (partial-bold) text for Activity Name/Notes the
+// way the Word export does (see parseInlineMarkup) — just drop the **/__
+// markers so they don't show up literally in the cell text.
+function stripActivityMarkup(s) {
+  return (s || "").replace(/\*\*(.+?)\*\*/g, "$1").replace(/__(.+?)__/g, "$1");
 }
 
 // ─── STYLE CONSTANTS ─────────────────────────────────────────
@@ -157,52 +173,6 @@ function addSummarySheets(wb, allTargets, sessions) {
   applyBorders(detWs, detMaxCols);
 }
 
-// ── Single-session export: Daily Summary (Target + that day's score only) ──
-function addDailySummarySheet(wb, entityName, allTargets, session) {
-  const rows = [
-    [`${entityName}: Daily Summary — ${fmtDate(session.date)}`, ""],
-    ["Target", "Score"]
-  ];
-  for (const target of allTargets) {
-    const snap   = (session.targetsSnapshot || []).find(t => t.name === target.name);
-    const eff    = snap ? { ...target, maxPoints: snap.maxPoints } : target;
-    const dayAvg = calcDailyAverage(session, eff);
-    rows.push([target.name, dayAvg !== null ? pct(dayAvg) : ""]);
-  }
-
-  const ws = wb.addWorksheet("Daily Summary");
-  rows.forEach(row => ws.addRow(row));
-  ws.getColumn(1).width     = 36;
-  ws.getColumn(2).width     = 16;
-  ws.getColumn(1).alignment = { vertical: "middle" };
-  ws.getColumn(2).alignment = { horizontal: "center", vertical: "middle" };
-
-  try { ws.mergeCells("A1:B1"); } catch (_) {}
-  const title     = ws.getRow(1).getCell(1);
-  title.fill      = STYLE_SESSION.fill;
-  title.font      = STYLE_SESSION.font;
-  title.alignment = { horizontal: "center", vertical: "middle" };
-  fitTitleRow(ws, 1, 52);
-
-  for (let c = 1; c <= 2; c++) {
-    const cell     = ws.getRow(2).getCell(c);
-    cell.fill      = STYLE_COL_HEADER.fill;
-    cell.font      = STYLE_COL_HEADER.font;
-    cell.alignment = STYLE_COL_HEADER.alignment;
-  }
-
-  applyBorders(ws, 2);
-}
-
-function targetHasDataInSession(target, session) {
-  const actIds = new Set(
-    Object.entries(session.activities || {})
-      .filter(([, a]) => a.targetName === target.name)
-      .map(([id]) => id)
-  );
-  return Object.values(session.remarks || {}).some(r => actIds.has(r.activityId));
-}
-
 // Union of targets across every group a student belongs to (first occurrence by name wins)
 function unionTargetsByName(groups) {
   const allTargets = [];
@@ -235,8 +205,8 @@ function addBaselineVsCurrentSheet(wb, entityName, allTargets, sortedSessions) {
     const effF   = snapF ? { ...target, maxPoints: snapF.maxPoints } : target;
     const snapL  = (lastSession.targetsSnapshot  || []).find(t => t.name === target.name);
     const effL   = snapL ? { ...target, maxPoints: snapL.maxPoints } : target;
-    const scoreF = calcDailyAverage(firstSession, effF);
-    const scoreL = calcDailyAverage(lastSession,  effL);
+    const scoreF = calcDailyAverage(firstSession, effF, allTargets);
+    const scoreL = calcDailyAverage(lastSession,  effL, allTargets);
 
     bvcRows.push([
       target.name,
@@ -307,7 +277,7 @@ function addChartsSheet(wb, allTargets, sortedSessions) {
     for (const session of sortedSessions) {
       const snap  = (session.targetsSnapshot || []).find(t => t.name === target.name);
       const eff   = snap ? { ...target, maxPoints: snap.maxPoints } : target;
-      const score = calcDailyAverage(session, eff);
+      const score = calcDailyAverage(session, eff, allTargets);
       if (score !== null) { yValues.push(Math.round(score)); datesWithData.push(session.date); }
     }
     if (yValues.length < 2) { chartIdx++; continue; }
@@ -330,7 +300,7 @@ function addChartsSheet(wb, allTargets, sortedSessions) {
 function addIndividualTargetSheets(wb, allTargets, sessions, studentName) {
   for (const target of allTargets) {
     const { rows, monthHeaderRows, colHeaderRows, activityHeadingRows, noteRows, sessionDateBlocks, spacerRows } =
-      buildTargetSheet(target, sessions);
+      buildTargetSheet(target, sessions, allTargets);
     const ws = wb.addWorksheet(target.name.slice(0, 31));
     rows.forEach(row => ws.addRow(row));
 
@@ -425,7 +395,7 @@ async function buildStudentWorkbook(student, sessions) {
   // A session only counts as real once at least one remark (which carries trial scores) exists.
   sessions = sessions.filter(s => Object.keys(s.remarks || {}).length > 0);
 
-  const allTargets = getAllTargets(student).slice().sort((a, b) => a.name.localeCompare(b.name));
+  const allTargets = getAllTargets(student).slice().sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || a.name.localeCompare(b.name));
   const wb = new ExcelJS.Workbook();
   const sortedSessions = sessions.slice().sort((a, b) => a.date.localeCompare(b.date));
 
@@ -450,7 +420,7 @@ async function buildGroupMemberWorkbook(studentName, allTargets, sessions) {
     }))
     .filter(s => Object.keys(s.remarks).length > 0);
 
-  const sortedTargets  = allTargets.slice().sort((a, b) => a.name.localeCompare(b.name));
+  const sortedTargets  = allTargets.slice().sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || a.name.localeCompare(b.name));
   const wb              = new ExcelJS.Workbook();
   const sortedSessions  = filtered.slice().sort((a, b) => a.date.localeCompare(b.date));
 
@@ -462,15 +432,22 @@ async function buildGroupMemberWorkbook(studentName, allTargets, sessions) {
   return wb.xlsx.writeBuffer();
 }
 
-// Filename format: "{Name} - {Individual/Group Session} - {dd.mm.yyyy} - {hh-mm}.xlsx"
-// Date/time always reflect the moment of export, not any session date.
-function formatExportFilename(name, sessionType, now) {
-  const dd   = String(now.getDate()).padStart(2, "0");
-  const mm   = String(now.getMonth() + 1).padStart(2, "0");
+// "Exported On {D Mon YYYY}, {HH.MM}" — date in the same "D Mon YYYY" style as
+// fmtDate below, time as 24h HH.MM. Shared by both the Excel and Word
+// filename formats; always reflects the moment of export, never any
+// session date.
+function exportedOnSuffix(now) {
   const yyyy = now.getFullYear();
+  const mm   = String(now.getMonth() + 1).padStart(2, "0");
+  const dd   = String(now.getDate()).padStart(2, "0");
   const hh   = String(now.getHours()).padStart(2, "0");
   const min  = String(now.getMinutes()).padStart(2, "0");
-  return `${name} - ${sessionType} - ${dd}.${mm}.${yyyy} - ${hh}-${min}.xlsx`;
+  return `Exported On ${fmtDate(`${yyyy}-${mm}-${dd}`)}, ${hh}.${min}`;
+}
+
+// Filename format: "{Name} - Yearly Summary (Exported On {D Mon YYYY}, {HH.MM})"
+function formatExportFilename(name, now) {
+  return `${name} - Yearly Summary (${exportedOnSuffix(now)}).xlsx`;
 }
 
 export async function exportStudentData(student) {
@@ -488,7 +465,7 @@ export async function exportStudentData(student) {
   const url    = URL.createObjectURL(blob);
   const a      = document.createElement("a");
   a.href       = url;
-  a.download   = formatExportFilename(student.name, "Individual Session", now);
+  a.download   = formatExportFilename(student.name, now);
   a.click();
   URL.revokeObjectURL(url);
 }
@@ -515,174 +492,421 @@ export async function exportGroupMemberData(studentName, groups) {
   const url    = URL.createObjectURL(blob);
   const a      = document.createElement("a");
   a.href       = url;
-  a.download   = formatExportFilename(studentName, "Group Session", now);
+  a.download   = formatExportFilename(studentName, now);
   a.click();
   URL.revokeObjectURL(url);
 }
 
-// ── Single-session export (one specific day) ─────────────────
-// Much lighter than the full export: just two sheets — one combined sheet with
-// every target's data for that day, and a Daily Summary table — no monthly or
-// detailed summary, no per-target sheets, no baseline-vs-current, no charts.
+// ── Word export (single session, "Daily Session Note") ───────
+// Same content as the Excel single-session export above, but: no Date or
+// Avg Score columns (Student/Session/Date moved into the page header
+// instead, so repeating them in the table is redundant), and each target's
+// title is just its name (no "— Score: X%", since that's only really
+// useful when comparing across many sessions, not a single day's note).
+// docx is loaded globally via a <script> tag in index.html, same pattern
+// as ExcelJS/JSZip/Chart elsewhere in this file.
 
-function buildCombinedSessionRows(allTargets, session, entityName) {
-  const rows                = [];
-  const targetHeaderRows    = new Set();
-  const colHeaderRows       = new Set();
-  const activityHeadingRows = new Set();
-  const noteRows            = new Set();
-  const sessionDateBlocks   = [];
-  const spacerRows          = new Set();
+// Builds the Remark column's content as an array of "lines" (each an array
+// of {text, bold} runs) for richCell. For sentence-starter activities, the
+// starter + colon is bold and the selected option isn't; a free-text Notes
+// field (masteryNote) lands two lines below the starter line, not inline
+// after an em dash, so it reads as its own paragraph rather than a caption.
+function buildRemarkLines(starter, text, masteryNote) {
+  const lines = [];
+  if (starter || text) {
+    // Only the first line gets the bold starter prefix — further lines of a
+    // multi-line remark continue as plain text, same paragraph.
+    (text || "").split("\n").forEach((ln, i) => {
+      if (i === 0) {
+        const runs = [];
+        if (starter) runs.push({ text: `${starter}:`, bold: true });
+        if (ln) runs.push({ text: starter ? ` ${ln}` : ln });
+        lines.push(runs);
+      } else {
+        lines.push([{ text: ln }]);
+      }
+    });
+  }
+  if (masteryNote) {
+    if (lines.length > 0) lines.push([{ text: "" }]);
+    masteryNote.split("\n").forEach(ln => lines.push([{ text: ln }]));
+  }
+  if (lines.length === 0) lines.push([{ text: "" }]);
+  return lines;
+}
 
-  const titleRow = rows.length;
-  rows.push([`${entityName} — Session Note — ${fmtDate(session.date)}`, "", "", "", ""]);
-  spacerRows.add(rows.length);
-  rows.push(["", "", "", "", ""]);
+// Splits a string into richCell's "array of lines, each an array of
+// {text, bold, underline} runs" shape — first on real line breaks (Activity
+// Name is a multi-line textarea, e.g. a reference block with one bullet per
+// line), then on **bold**/__underline__ markers within each line. Activity
+// Name is the only export field that can carry these markers (see app.js's
+// sketch editor on the Edit Target Activity Name/Notes fields) — remarks
+// never type them.
+function parseInlineMarkup(text) {
+  return (text || "").split("\n").map(line => parseInlineMarkupLine(line));
+}
+function parseInlineMarkupLine(line) {
+  const runs = [];
+  // Combined-marker alternatives (**__x__** / __**x**__) must come before the
+  // single-marker ones — a boss who selects already-bolded text and also
+  // presses underline (or vice versa) ends up with nested markers, and the
+  // single-marker alternatives alone would swallow the inner pair as part of
+  // their own captured text (literal "__" showing up inside a bold run)
+  // instead of recognizing it as bold+underline together.
+  const re = /\*\*__(.+?)__\*\*|__\*\*(.+?)\*\*__|\*\*(.+?)\*\*|__(.+?)__/g;
+  let lastIndex = 0, m;
+  while ((m = re.exec(line)) !== null) {
+    if (m.index > lastIndex) runs.push({ text: line.slice(lastIndex, m.index) });
+    if (m[1] !== undefined) runs.push({ text: m[1], bold: true, underline: true });
+    else if (m[2] !== undefined) runs.push({ text: m[2], bold: true, underline: true });
+    else if (m[3] !== undefined) runs.push({ text: m[3], bold: true });
+    else runs.push({ text: m[4], underline: true });
+    lastIndex = re.lastIndex;
+  }
+  if (lastIndex < line.length) runs.push({ text: line.slice(lastIndex) });
+  if (runs.length === 0) runs.push({ text: line });
+  return runs;
+}
+
+function wordTargetRows(target, session, allTargets) {
+  const rows = [];
+  const activities = getAllActivitiesForTarget(session, target);
+
+  if (activities.length === 0) {
+    rows.push({ merge: true, text: "(no data recorded)" });
+    return rows;
+  }
+
+  for (const act of activities) {
+    if (act.isHeading) {
+      rows.push({ merge: true, text: act.activityName, style: "heading" });
+      continue;
+    }
+
+    // Free-standing "+ Add Note" rows are reference text for the facilitator,
+    // not session data — Excel keeps them, but the boss asked Word to leave
+    // them out entirely.
+    if (act.isNote) continue;
+
+    // An activity's own attached note (from "+ Add Activity & Note") is also
+    // facilitator-reference text, not session data — Word treats this exactly
+    // like a plain "+ Add Activity" and drops the note, same reasoning as above.
+    const activityLabel = act.activityName;
+
+    if (act.empty) {
+      rows.push({ cells: [activityLabel, "", ""], actLines: parseInlineMarkup(activityLabel) });
+      continue;
+    }
+
+    const remarks = getRemarksForActivity(session, act.id);
+    const starter = (target.predefinedActivities || []).find(
+      p => !p.isHeading && !p.isNote && p.name === act.activityName
+    )?.sentenceStarter || null;
+
+    if (remarks.length === 0) {
+      rows.push({ cells: [activityLabel, "", ""], actLines: parseInlineMarkup(activityLabel) });
+      continue;
+    }
+
+    const mappedScore = act.isMapped ? resolveExportMappedScore(act, session, allTargets) : null;
+
+    let first = true;
+    for (const rem of remarks) {
+      const validTrials = (rem.trials || []).filter(t => t !== -1);
+      const remarkAvg   = act.isMapped ? mappedScore : calcRemarkAvg(validTrials, target.maxPoints);
+      const masteryNote = stripRemarkHtml(rem.masteryNote || "");
+      const text        = stripRemarkHtml(rem.text);
+      rows.push({
+        cells: [first ? activityLabel : "", "", remarkAvg !== null ? pct(remarkAvg) : ""],
+        actLines: first ? parseInlineMarkup(activityLabel) : null,
+        remarkLines: buildRemarkLines(starter, text, masteryNote)
+      });
+      first = false;
+    }
+  }
+
+  if (target.hasComment) {
+    const commentText = (session.fedcComments || {})[sanitizeKey(target.name)] || "";
+    if (commentText) rows.push({ cells: ["Comment", commentText, ""] });
+  }
+
+  return rows;
+}
+
+// Column widths in twips (1 inch = 1440 twips): Activity 2.37", Highlights of
+// Observation 3.38", Score 0.52".
+const WORD_COL_ACTIVITY = 3413;
+const WORD_COL_REMARK   = 4867;
+const WORD_COL_SCORE    = 749;
+const WORD_COL_TOTAL    = WORD_COL_ACTIVITY + WORD_COL_REMARK + WORD_COL_SCORE;
+
+// Cached so the stamp image is only fetched once even if multiple exports
+// happen in the same session.
+let stampImageBufferPromise = null;
+function getStampImageBuffer() {
+  if (!stampImageBufferPromise) {
+    stampImageBufferPromise = fetch("zora-stamp.png")
+      .then(r => (r.ok ? r.arrayBuffer() : null))
+      .catch(() => null);
+  }
+  return stampImageBufferPromise;
+}
+
+function buildSessionDocxBody(entityName, sessionLabel, allTargets, session, stampImageBuffer) {
+  const {
+    Paragraph, TextRun, Table, TableRow, TableCell, ImageRun,
+    AlignmentType, WidthType, BorderStyle, ShadingType, TableLayoutType,
+    Header, Footer, PageNumber, TabStopType
+  } = docx;
+
+  const HEADER_FILL = "C8DFF2";
+  const TARGET_FILL = "A8C8E8";
+  const NOTE_FILL   = "FFF8ED";
+  const FACILITATION_BORDER = "000000";
+
+  const cellBorders = {
+    top:    { style: BorderStyle.SINGLE, size: 2, color: "B0C8E0" },
+    bottom: { style: BorderStyle.SINGLE, size: 2, color: "B0C8E0" },
+    left:   { style: BorderStyle.SINGLE, size: 2, color: "B0C8E0" },
+    right:  { style: BorderStyle.SINGLE, size: 2, color: "B0C8E0" }
+  };
+
+  function textLines(text, opts) {
+    const lines = (text || "").split("\n");
+    const runs = [];
+    lines.forEach((line, i) => {
+      if (i > 0) runs.push(new TextRun({ text: "", break: 1 }));
+      runs.push(new TextRun({ text: line, ...opts }));
+    });
+    return runs;
+  }
+
+  function cell(text, { bold = false, italics = false, fill = null, colSpan = 1, align = AlignmentType.JUSTIFIED, width = null } = {}) {
+    return new TableCell({
+      columnSpan: colSpan,
+      width: width != null ? { size: width, type: WidthType.DXA } : undefined,
+      shading: fill ? { type: ShadingType.CLEAR, color: "auto", fill } : undefined,
+      borders: cellBorders,
+      margins: { top: 80, bottom: 80, left: 100, right: 100 },
+      children: [new Paragraph({ alignment: align, children: textLines(text, { bold, italics }) })]
+    });
+  }
+
+  // Like textLines, but each "line" is an array of {text, bold, underline}
+  // runs instead of one uniform string — needed for the Remark column, whose
+  // sentence-starter prefix is bold while the rest of the line isn't.
+  function richTextLines(lines) {
+    const runs = [];
+    lines.forEach((lineRuns, i) => {
+      if (i > 0) runs.push(new TextRun({ text: "", break: 1 }));
+      lineRuns.forEach(r => runs.push(new TextRun({
+        text: r.text, bold: !!r.bold, underline: r.underline ? {} : undefined
+      })));
+    });
+    return runs;
+  }
+
+  function richCell(lines, { fill = null, colSpan = 1, align = AlignmentType.JUSTIFIED, width = null } = {}) {
+    return new TableCell({
+      columnSpan: colSpan,
+      width: width != null ? { size: width, type: WidthType.DXA } : undefined,
+      shading: fill ? { type: ShadingType.CLEAR, color: "auto", fill } : undefined,
+      borders: cellBorders,
+      margins: { top: 80, bottom: 80, left: 100, right: 100 },
+      children: [new Paragraph({ alignment: align, children: richTextLines(lines) })]
+    });
+  }
+
+  const body = [];
+  const anyTarget = allTargets.length > 0;
 
   for (const target of allTargets) {
-    if (!targetHasDataInSession(target, session)) continue;
+    body.push(new Paragraph({
+      spacing: { before: 240, after: 80 },
+      children: [new TextRun({ text: target.name, bold: true, size: 26 })]
+    }));
 
-    const snap   = (session.targetsSnapshot || []).find(t => t.name === target.name);
-    const eff    = snap ? { ...target, maxPoints: snap.maxPoints } : target;
-    const dayAvg = calcDailyAverage(session, eff);
+    const tableRows = [
+      new TableRow({
+        tableHeader: true,
+        children: [
+          cell("Activity",                  { bold: true, fill: HEADER_FILL, align: AlignmentType.CENTER, width: WORD_COL_ACTIVITY }),
+          cell("Highlights of Observation",  { bold: true, fill: HEADER_FILL, align: AlignmentType.CENTER, width: WORD_COL_REMARK }),
+          cell("Score",                      { bold: true, fill: HEADER_FILL, align: AlignmentType.CENTER, width: WORD_COL_SCORE })
+        ]
+      })
+    ];
 
-    if (targetHeaderRows.size > 0) { spacerRows.add(rows.length); rows.push(["", "", "", "", ""]); }
-
-    targetHeaderRows.add(rows.length);
-    rows.push([`${target.name}  —  Score: ${dayAvg !== null ? pct(dayAvg) : "N/A"}`, "", "", "", ""]);
-
-    colHeaderRows.add(rows.length);
-    rows.push(["Date", "Activity", "Remark", "Score", "Avg Score"]);
-
-    appendSessionRows(rows, sessionDateBlocks, activityHeadingRows, noteRows, session, eff);
-  }
-
-  return { rows, titleRow, targetHeaderRows, colHeaderRows, activityHeadingRows, noteRows, sessionDateBlocks, spacerRows };
-}
-
-// One sheet combining every target's data for the single exported day
-// (mirrors addIndividualTargetSheets' styling, but per-target header blocks
-// instead of per-target sheets).
-function addCombinedSessionSheet(wb, allTargets, session, entityName) {
-  const { rows, titleRow, targetHeaderRows, colHeaderRows, activityHeadingRows, noteRows, sessionDateBlocks, spacerRows } =
-    buildCombinedSessionRows(allTargets, session, entityName);
-
-  const ws = wb.addWorksheet("Session Note");
-  rows.forEach(row => ws.addRow(row));
-
-  ws.getColumn(1).width     = 6.33;
-  ws.getColumn(2).width     = 40.89;
-  ws.getColumn(3).width     = 62;
-  ws.getColumn(4).width     = 6.78;
-  ws.getColumn(5).width     = 8.56;
-  ws.getColumn(1).alignment = { horizontal: "center", vertical: "top" };
-  ws.getColumn(2).alignment = { wrapText: true, vertical: "top" };
-  ws.getColumn(3).alignment = { wrapText: true, vertical: "top" };
-  ws.getColumn(4).alignment = { horizontal: "center", vertical: "top" };
-  ws.getColumn(5).alignment = { horizontal: "center", vertical: "top" };
-
-  {
-    const n = titleRow + 1;
-    try { ws.mergeCells(`A${n}:E${n}`); } catch (_) {}
-    const cell = ws.getRow(n).getCell(1);
-    cell.fill      = STYLE_TARGET_MONTH.fill;
-    cell.font      = STYLE_TARGET_MONTH.font;
-    cell.alignment = { horizontal: "center", vertical: "middle" };
-    fitTitleRow(ws, n, 110);
-  }
-
-  for (const rowIdx of targetHeaderRows) {
-    const n = rowIdx + 1;
-    try { ws.mergeCells(`A${n}:E${n}`); } catch (_) {}
-    const cell = ws.getRow(n).getCell(1);
-    cell.fill      = STYLE_TARGET_MONTH.fill;
-    cell.font      = STYLE_TARGET_MONTH.font;
-    cell.alignment = STYLE_TARGET_MONTH.alignment;
-  }
-
-  for (const rowIdx of colHeaderRows) {
-    const n = rowIdx + 1;
-    for (let c = 1; c <= 5; c++) {
-      const cell = ws.getRow(n).getCell(c);
-      cell.fill      = STYLE_TARGET_COLHDR.fill;
-      cell.font      = STYLE_TARGET_COLHDR.font;
-      cell.alignment = STYLE_TARGET_COLHDR.alignment;
+    for (const r of wordTargetRows(target, session, allTargets)) {
+      if (r.merge) {
+        tableRows.push(new TableRow({
+          children: [cell(r.text, {
+            colSpan: 3,
+            width: WORD_COL_TOTAL,
+            italics: r.style === "note",
+            fill: r.style === "heading" ? TARGET_FILL : (r.style === "note" ? NOTE_FILL : null)
+          })]
+        }));
+      } else {
+        tableRows.push(new TableRow({
+          children: [
+            r.actLines
+              ? richCell(r.actLines, { width: WORD_COL_ACTIVITY })
+              : cell(r.cells[0], { width: WORD_COL_ACTIVITY }),
+            r.remarkLines
+              ? richCell(r.remarkLines, { width: WORD_COL_REMARK })
+              : cell(r.cells[1], { width: WORD_COL_REMARK }),
+            cell(r.cells[2], { align: AlignmentType.CENTER, width: WORD_COL_SCORE })
+          ]
+        }));
+      }
     }
+
+    body.push(new Table({
+      width: { size: WORD_COL_TOTAL, type: WidthType.DXA },
+      columnWidths: [WORD_COL_ACTIVITY, WORD_COL_REMARK, WORD_COL_SCORE],
+      layout: TableLayoutType.FIXED,
+      rows: tableRows
+    }));
   }
 
-  for (const rowIdx of activityHeadingRows) {
-    const n = rowIdx + 1;
-    try { ws.mergeCells(`B${n}:D${n}`); } catch (_) {}
-    const cell = ws.getRow(n).getCell(2);
-    cell.fill      = STYLE_ACT_HEADING.fill;
-    cell.font      = STYLE_ACT_HEADING.font;
-    cell.alignment = { vertical: "top" };
+  if (!anyTarget) {
+    body.push(new Paragraph({ alignment: AlignmentType.JUSTIFIED, children: [new TextRun({ text: "No data recorded for this session." })] }));
   }
 
-  for (const rowIdx of noteRows) {
-    const n = rowIdx + 1;
-    try { ws.mergeCells(`B${n}:D${n}`); } catch (_) {}
-    const cell = ws.getRow(n).getCell(2);
-    cell.fill      = STYLE_NOTE.fill;
-    cell.font      = STYLE_NOTE.font;
-    cell.alignment = { wrapText: true, vertical: "top" };
-    const text = (cell.value || "").toString();
-    const visLines = text.split("\n").reduce((sum, seg) =>
-      sum + Math.max(1, Math.ceil((seg.length || 1) / 90)), 0);
-    ws.getRow(n).height = Math.max(18, visLines * 15);
+  // ── Facilitation note + company stamp (every exported note ends with this) ──
+  // Single plain-bordered white box (no shading) holding both programs, so it
+  // reads as a quiet footnote rather than competing with the target tables.
+  function facilitationBox(items) {
+    const facilitationBorders = {
+      top:    { style: BorderStyle.SINGLE, size: 4, color: FACILITATION_BORDER },
+      bottom: { style: BorderStyle.SINGLE, size: 4, color: FACILITATION_BORDER },
+      left:   { style: BorderStyle.SINGLE, size: 4, color: FACILITATION_BORDER },
+      right:  { style: BorderStyle.SINGLE, size: 4, color: FACILITATION_BORDER }
+    };
+    const children = [];
+    items.forEach(({ heading, text }, i) => {
+      if (i > 0) children.push(new Paragraph({ spacing: { before: 200 }, children: [] }));
+      children.push(new Paragraph({ spacing: { after: 60 }, children: [new TextRun({ text: heading, bold: true })] }));
+      children.push(new Paragraph({ alignment: AlignmentType.JUSTIFIED, children: [new TextRun({ text })] }));
+    });
+    return new Table({
+      width: { size: 100, type: WidthType.PERCENTAGE },
+      rows: [new TableRow({
+        children: [new TableCell({
+          borders: facilitationBorders,
+          margins: { top: 160, bottom: 160, left: 200, right: 200 },
+          children
+        })]
+      })]
+    });
   }
 
-  for (const { startRow, endRow, dateLabel, avgScore } of sessionDateBlocks) {
-    const startN = startRow + 1;
-    const endN   = endRow + 1;
-    if (startN < endN) {
-      try { ws.mergeCells(`A${startN}:A${endN}`); } catch (_) {}
-      try { ws.mergeCells(`E${startN}:E${endN}`); } catch (_) {}
-    }
-    const dateCell = ws.getRow(startN).getCell(1);
-    dateCell.value     = dateLabel;
-    dateCell.alignment = { horizontal: "center", vertical: "top" };
+  body.push(
+    new Paragraph({ spacing: { before: 400, after: 120 }, children: [new TextRun({ text: "The session is facilitated according to:", bold: true })] }),
+    facilitationBox([
+      {
+        heading: "ABA evidence-based treatment program",
+        text: "VB MAPP is a functional language program. It teaches children vocalisation, imitation of sounds, labels, and requests (ranging from the lowest to the highest order of language and functional communication skills). Thus, the goal is to equip the child to be both a listener and a speaker, thereby developing academic skills and social interaction."
+      },
+      {
+        heading: "DIRFloortime evidence-based practice",
+        text: "It honours a child's sensory processing system during a session to promote self-regulation and information processing and to build a relationship with the facilitator."
+      }
+    ])
+  );
 
-    const avgCell = ws.getRow(startN).getCell(5);
-    avgCell.value     = avgScore;
-    avgCell.font      = { color: { argb: "FF000000" } };
-    avgCell.alignment = { horizontal: "center", vertical: "top" };
+  if (stampImageBuffer) {
+    body.push(
+      new Paragraph({ spacing: { before: 280 }, children: [] }),
+      new Paragraph({
+        alignment: AlignmentType.LEFT,
+        children: [new ImageRun({ type: "png", data: stampImageBuffer, transformation: { width: 264, height: 167 } })]
+      })
+    );
   }
 
-  ws.headerFooter.oddFooter = `&LZORA Behavioural Intervention&C${entityName}&R&P`;
-
-  ws.eachRow((row, rowNumber) => {
-    if (spacerRows.has(rowNumber - 1)) return;
-    for (let c = 1; c <= 5; c++) row.getCell(c).border = TARGET_CELL_BORDER;
+  const header = new Header({
+    children: [new Paragraph({
+      tabStops: [
+        { type: TabStopType.CENTER, position: 4680 },
+        { type: TabStopType.RIGHT,  position: 9360 }
+      ],
+      children: [
+        new TextRun({ text: entityName }),
+        new TextRun({ text: "\t" }),
+        new TextRun({ text: sessionLabel }),
+        new TextRun({ text: "\t" }),
+        new TextRun({ text: fmtDate(session.date) })
+      ]
+    })]
   });
+
+  const footer = new Footer({
+    children: [new Paragraph({
+      alignment: AlignmentType.RIGHT,
+      children: [new TextRun({ children: [PageNumber.CURRENT] })]
+    })]
+  });
+
+  return { header, footer, body };
 }
 
-async function buildSingleSessionWorkbook(entityName, allTargets, session) {
-  const sortedTargets = allTargets.slice().sort((a, b) => a.name.localeCompare(b.name));
-  const wb = new ExcelJS.Workbook();
-
-  addCombinedSessionSheet(wb, sortedTargets, session, entityName);
-  addDailySummarySheet(wb, entityName, sortedTargets, session);
-
-  return wb.xlsx.writeBuffer();
+async function buildSingleSessionWordBlob(entityName, sessionLabel, allTargets, session) {
+  const { Document, Packer, LineRuleType } = docx;
+  const stampImageBuffer = await getStampImageBuffer();
+  const { header, footer, body } = buildSessionDocxBody(entityName, sessionLabel, allTargets, session, stampImageBuffer);
+  const doc = new Document({
+    // 1.5 line spacing document-wide (360 = 1.5 * the single-spacing unit of
+    // 240) — every Paragraph inherits this unless it sets its own "spacing",
+    // so table cells, headings, and body text all get it without having to
+    // touch each individual Paragraph call site.
+    styles: {
+      default: {
+        document: {
+          paragraph: { spacing: { line: 360, lineRule: LineRuleType.AUTO } }
+        }
+      }
+    },
+    sections: [{ headers: { default: header }, footers: { default: footer }, children: body }]
+  });
+  return Packer.toBlob(doc);
 }
 
-export async function exportStudentSingleSession(student, session) {
-  if (!student || !session) return;
+// Filename format: "{Name} - Session {N} - {D Mon YYYY} (Exported On {D Mon YYYY}, {HH.MM})"
+function formatExportFilenameWord(name, sessionLabel, dateStr, now) {
+  const sessionPart = sessionLabel ? `${sessionLabel} - ` : "";
+  return `${name} - ${sessionPart}${fmtDate(dateStr)} (${exportedOnSuffix(now)}).docx`;
+}
 
-  const allTargets = getAllTargets(student);
-  const buffer = await buildSingleSessionWorkbook(student.name, allTargets, session);
-  const blob   = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-  const url    = URL.createObjectURL(blob);
-  const a      = document.createElement("a");
-  a.href       = url;
-  a.download   = formatExportFilename(student.name, "Individual Session", new Date());
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a   = document.createElement("a");
+  a.href     = url;
+  a.download = filename;
   a.click();
   URL.revokeObjectURL(url);
 }
 
-export async function exportGroupMemberSingleSession(studentName, groups, session) {
+export async function exportStudentSingleSessionWord(student, session) {
+  if (!student || !session) return;
+  if (typeof docx === "undefined") {
+    alert("Word export isn't available right now (the docx library didn't load) — check your internet connection and try again.");
+    return;
+  }
+
+  const allTargets   = getAllTargets(student).slice().sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || a.name.localeCompare(b.name));
+  const sessionLabel = session.sessionNumber != null ? `Session ${session.sessionNumber}` : "";
+  const blob = await buildSingleSessionWordBlob(student.name, sessionLabel, allTargets, session);
+  downloadBlob(blob, formatExportFilenameWord(student.name, sessionLabel, session.date, new Date()));
+}
+
+export async function exportGroupMemberSingleSessionWord(studentName, groups, session) {
   if (!studentName || !groups?.length || !session) return;
+  if (typeof docx === "undefined") {
+    alert("Word export isn't available right now (the docx library didn't load) — check your internet connection and try again.");
+    return;
+  }
 
   const filteredRemarks = Object.fromEntries(
     Object.entries(session.remarks || {}).filter(([, r]) => r.studentName === studentName)
@@ -692,20 +916,23 @@ export async function exportGroupMemberSingleSession(studentName, groups, sessio
     return;
   }
 
-  const allTargets    = unionTargetsByName(groups);
-  const entityName     = `${studentName} (Group)`;
+  const studentId      = groups.map(g => g.studentLinks?.[studentName]).find(Boolean);
+  const personalNumber = studentId ? session.attendeePersonalSessionNumbers?.[studentId] : null;
+  const sessionLabel   = personalNumber != null ? `Session ${personalNumber}` : "";
+
+  const allTargets      = unionTargetsByName(groups).slice().sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || a.name.localeCompare(b.name));
   const filteredSession = { ...session, remarks: filteredRemarks };
-  const buffer = await buildSingleSessionWorkbook(entityName, allTargets, filteredSession);
-  const blob   = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-  const url    = URL.createObjectURL(blob);
-  const a      = document.createElement("a");
-  a.href       = url;
-  a.download   = formatExportFilename(studentName, "Group Session", new Date());
-  a.click();
-  URL.revokeObjectURL(url);
+  const blob = await buildSingleSessionWordBlob(studentName, sessionLabel, allTargets, filteredSession);
+  downloadBlob(blob, formatExportFilenameWord(studentName, sessionLabel, session.date, new Date()));
 }
 
-export async function exportAllStudents(students) {
+// `groups` is optional (defaults to none, so existing callers that only
+// pass students still work) — when given, each student's group-session
+// data is bundled in too, alongside their individual sessions. Both use the
+// same "{Name} - Yearly Summary (...)" filename now, so they're kept in
+// separate "Individual Sessions"/"Group Sessions" folders inside the zip to
+// avoid one overwriting the other.
+export async function exportAllStudents(students, groups = []) {
   if (!students || students.length === 0) return;
 
   const zip = new JSZip();
@@ -714,10 +941,31 @@ export async function exportAllStudents(students) {
 
   for (const student of students) {
     const sessions = await getAllSessionsForStudent(student.id);
-    if (sessions.length === 0) continue;
-    const buffer = await buildStudentWorkbook(student, sessions);
-    zip.file(formatExportFilename(student.name, "Individual Session", now), buffer);
-    exported++;
+    if (sessions.length > 0) {
+      const buffer = await buildStudentWorkbook(student, sessions);
+      zip.file(`Individual Sessions/${formatExportFilename(student.name, now)}`, buffer);
+      exported++;
+    }
+
+    // A student can be linked into a group under a free-typed name that
+    // doesn't exactly match their registered name — same lookup the
+    // single-group "Export" button next to a group attendee already uses
+    // (see exportGroupMemberData), just generalized across every group they
+    // appear in instead of one.
+    const studentGroups = groups.filter(g => Object.values(g.studentLinks || {}).includes(student.id));
+    if (studentGroups.length > 0) {
+      const groupName = Object.entries(studentGroups[0].studentLinks || {}).find(([, id]) => id === student.id)?.[0];
+      let groupSessions = [];
+      for (const group of studentGroups) {
+        groupSessions.push(...await getAllSessionsForGroup(group.id));
+      }
+      if (groupName && groupSessions.length > 0) {
+        const allTargets = unionTargetsByName(studentGroups);
+        const buffer = await buildGroupMemberWorkbook(groupName, allTargets, groupSessions);
+        zip.file(`Group Sessions/${formatExportFilename(student.name, now)}`, buffer);
+        exported++;
+      }
+    }
   }
 
   if (exported === 0) {
@@ -810,7 +1058,7 @@ function buildSummarySheet(allTargets, sessions) {
         .map(s => {
           const snap = (s.targetsSnapshot || []).find(t => t.name === target.name);
           const eff  = snap ? { ...target, maxPoints: snap.maxPoints } : target;
-          return calcDailyAverage(s, eff);
+          return calcDailyAverage(s, eff, allTargets);
         })
         .filter(v => v !== null);
       row.push(dailyAvgs.length > 0 ? pct(avg(dailyAvgs)) : "");
@@ -858,7 +1106,7 @@ function buildDetailedSummarySheet(allTargets, sessions) {
       const sessionAvgs = monthSessions.map(session => {
         const snap = (session.targetsSnapshot || []).find(t => t.name === target.name);
         const eff  = snap ? { ...target, maxPoints: snap.maxPoints } : target;
-        return calcDailyAverage(session, eff);
+        return calcDailyAverage(session, eff, allTargets);
       });
       const validAvgs  = sessionAvgs.filter(v => v !== null);
       const monthlyAvg = validAvgs.length > 0 ? avg(validAvgs) : null;
@@ -884,7 +1132,7 @@ function parseMonth(monthStr) {
 
 // ─── TARGET DETAIL SHEET ─────────────────────────────────────
 
-function buildTargetSheet(target, sessions) {
+function buildTargetSheet(target, sessions, allTargets) {
   const byMonth = new Map();
   for (const s of sessions) {
     if (!byMonth.has(s.month)) byMonth.set(s.month, []);
@@ -907,7 +1155,7 @@ function buildTargetSheet(target, sessions) {
         const eff  = snap
           ? { ...target, maxPoints: snap.maxPoints, predefinedActivities: snap.predefinedActivities || target.predefinedActivities || [] }
           : target;
-        return calcDailyAverage(s, eff);
+        return calcDailyAverage(s, eff, allTargets);
       })
       .filter(v => v !== null);
     const monthlyAvg = dailyAvgsForMonth.length > 0 ? avg(dailyAvgsForMonth) : null;
@@ -936,7 +1184,7 @@ function buildTargetSheet(target, sessions) {
 
       const snap = (session.targetsSnapshot || []).find(t => t.name === target.name);
       const effectiveTarget = snap ? { ...target, maxPoints: snap.maxPoints } : target;
-      appendSessionRows(rows, sessionDateBlocks, activityHeadingRows, noteRows, session, effectiveTarget);
+      appendSessionRows(rows, sessionDateBlocks, activityHeadingRows, noteRows, session, effectiveTarget, allTargets);
     }
   }
 
@@ -945,7 +1193,7 @@ function buildTargetSheet(target, sessions) {
 
 // ─── SESSION ROWS ────────────────────────────────────────────
 
-function appendSessionRows(rows, sessionDateBlocks, activityHeadingRows, noteRows, session, target) {
+function appendSessionRows(rows, sessionDateBlocks, activityHeadingRows, noteRows, session, target, allTargets) {
   const [, m, d] = session.date.split("-").map(Number);
   const shortMonths = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
   const dateLabel = `${d} ${shortMonths[m - 1]}`;
@@ -960,20 +1208,19 @@ function appendSessionRows(rows, sessionDateBlocks, activityHeadingRows, noteRow
     for (const act of activities) {
       if (act.isHeading) {
         activityHeadingRows.add(rows.length);
-        rows.push(["", act.activityName, "", "", ""]);
+        rows.push(["", stripActivityMarkup(act.activityName), "", "", ""]);
         continue;
       }
 
       if (act.isNote) {
         noteRows.add(rows.length);
-        const noteText = (act.activityName || "")
+        const noteText = stripActivityMarkup((act.activityName || "")
           .replace(/<br\s*\/?>/gi, "\n")
           .replace(/<\/div>/gi, "\n").replace(/<div>/gi, "")
           .replace(/<\/p>/gi, "\n").replace(/<p>/gi, "")
           .replace(/<[^>]*>/g, "")
-          .replace(/\*\*/g, "")
           .replace(/\n{3,}/g, "\n\n")
-          .trim();
+          .trim());
         rows.push(["", `Note: ${noteText}`, "", "", ""]);
         continue;
       }
@@ -982,8 +1229,8 @@ function appendSessionRows(rows, sessionDateBlocks, activityHeadingRows, noteRow
         p => !p.isHeading && !p.isNote && p.name === act.activityName
       )?.actNote;
       const activityCell = (actNoteText && actNoteText.trim())
-        ? richTextActivityWithNote(act.activityName, actNoteText.trim())
-        : act.activityName;
+        ? richTextActivityWithNote(stripActivityMarkup(act.activityName), stripActivityMarkup(actNoteText.trim()))
+        : stripActivityMarkup(act.activityName);
 
       if (act.empty) {
         rows.push(["", activityCell, "", "", ""]);
@@ -1000,12 +1247,14 @@ function appendSessionRows(rows, sessionDateBlocks, activityHeadingRows, noteRow
         continue;
       }
 
+      const mappedScore = act.isMapped ? resolveExportMappedScore(act, session, allTargets) : null;
+
       let firstRemark = true;
       for (const rem of remarks) {
         const validTrials = (rem.trials || []).filter(t => t !== -1);
-        const remarkAvg   = calcRemarkAvg(validTrials, target.maxPoints);
+        const remarkAvg   = act.isMapped ? mappedScore : calcRemarkAvg(validTrials, target.maxPoints);
         const masteryNote = stripRemarkHtml(rem.masteryNote || "");
-        const baseText    = starter ? `${starter} ${stripRemarkHtml(rem.text)}`.trim() : stripRemarkHtml(rem.text);
+        const baseText    = starter ? `${starter}: ${stripRemarkHtml(rem.text)}`.trim() : stripRemarkHtml(rem.text);
         const remarkText  = masteryNote ? `${baseText} — ${masteryNote}` : baseText;
         rows.push([
           "",
@@ -1024,7 +1273,7 @@ function appendSessionRows(rows, sessionDateBlocks, activityHeadingRows, noteRow
     }
   }
 
-  const daily = calcDailyAverage(session, target);
+  const daily = calcDailyAverage(session, target, allTargets);
   sessionDateBlocks.push({
     startRow,
     endRow: rows.length - 1,
@@ -1064,9 +1313,12 @@ function getAllActivitiesForTarget(session, target) {
     const sessionAct = sessionActs.find(a => a.activityName === pa.name && a.isPredefined);
     if (sessionAct) {
       usedIds.add(sessionAct.id);
-      result.push(sessionAct);
+      result.push(pa.isMapped ? { ...sessionAct, isMapped: true, mappedTargetId: pa.mappedTargetId || null } : sessionAct);
     } else {
-      result.push({ id: null, activityName: pa.name, isPredefined: true, empty: true });
+      result.push({
+        id: null, activityName: pa.name, isPredefined: true, empty: true,
+        isMapped: pa.isMapped || false, mappedTargetId: pa.mappedTargetId || null
+      });
     }
   }
 
@@ -1100,10 +1352,25 @@ function calcRemarkAvg(trials, maxPoints) {
   return valid.reduce((a, b) => a + b, 0) / (valid.length * maxPoints) * 100;
 }
 
-function calcDailyAverage(session, target) {
+// visited guards against a circular mapping chain recursing forever — direct
+// self-mapping is already blocked in the Edit Target picker, this is a
+// defensive backstop. allTargets is needed to resolve a mapped activity's
+// sibling target by id; group-member exports already pre-filter `session`
+// down to one student's remarks before this is ever called, so the
+// per-attendee semantics fall out for free without any export-side branching.
+function calcDailyAverage(session, target, allTargets = [], visited = new Set()) {
+  if (visited.has(target.id)) return null;
+  visited.add(target.id);
+
   const avgs = [];
   for (const act of getAllActivitiesForTarget(session, target)) {
     if (act.isHeading || act.isNote || act.empty) continue;
+    if (act.isMapped) {
+      if (getRemarksForActivity(session, act.id).length === 0) continue;
+      const a = resolveExportMappedScore(act, session, allTargets, visited);
+      if (a !== null) avgs.push(a);
+      continue;
+    }
     for (const rem of getRemarksForActivity(session, act.id)) {
       const validTrials = (rem.trials || []).filter(t => t !== -1);
       const a = calcRemarkAvg(validTrials, target.maxPoints);
@@ -1111,6 +1378,14 @@ function calcDailyAverage(session, target) {
     }
   }
   return avgs.length > 0 ? avg(avgs) : null;
+}
+
+// Resolves a mapped-score activity's value for export — see calcDaysAverage's
+// live-entry counterpart (app.js) for the same idea.
+function resolveExportMappedScore(act, session, allTargets, visited) {
+  const mappedTarget = act.mappedTargetId ? allTargets.find(t => t.id === act.mappedTargetId) : null;
+  if (!mappedTarget) return null;
+  return calcDailyAverage(session, mappedTarget, allTargets, visited);
 }
 
 function avg(arr) { return arr.reduce((a, b) => a + b, 0) / arr.length; }

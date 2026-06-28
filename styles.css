@@ -202,6 +202,19 @@ html, body {
   40% { opacity: 1; }
 }
 
+/* Brief glow drawing attention to a button right after landing on a screen
+   (e.g. Student Database's "+ Add New Student" after being redirected here
+   from another screen's "register a new student" picker option) — a
+   wordless way to say "use this" instead of a popup the user has to read. */
+.btn-flash-hint {
+  animation: btnFlashHint .85s ease-in-out 4;
+  position: relative;
+}
+@keyframes btnFlashHint {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(99, 102, 241, .75); background: var(--white); transform: scale(1); }
+  50%      { box-shadow: 0 0 0 12px rgba(99, 102, 241, 0); background: var(--primary-light); transform: scale(1.06); }
+}
+
 .pin-keypad {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -2011,6 +2024,21 @@ div.admin-note-editable:empty::before {
 }
 .btn-admin-add:hover { background: var(--primary-light); }
 
+/* One-click migration button shown only on old Mastery-typed activity rows */
+.btn-mn-convert {
+  align-self: flex-start;
+  margin-top: .15rem;
+  padding: .3rem .6rem;
+  background: var(--white);
+  border: 1.5px dashed var(--primary);
+  border-radius: var(--radius-sm);
+  font-size: .72rem;
+  font-weight: 600;
+  color: var(--primary);
+  cursor: pointer;
+}
+.btn-mn-convert:hover { background: var(--primary-light); }
+
 /* ─── Add target type buttons ───────────────────────────── */
 .btn-target-type {
   width: 100%;
@@ -2076,6 +2104,7 @@ div.admin-note-editable:empty::before {
   white-space: pre-wrap;
   word-break: break-word;
   cursor: text;
+  font-family: var(--font);
 }
 .mastery-note-input::placeholder,
 .view-mastery-note::placeholder {
@@ -2124,6 +2153,29 @@ div.admin-note-editable:empty::before {
   align-items: center;
   gap: .3rem;
 }
+/* Sentence Starter + Select One + Free Text: prefix+select stay on one row,
+   the free-text note drops to its own full-width row below instead of
+   squeezing into whatever horizontal space the row had left. */
+.view-starter-wrap-note {
+  flex-direction: column;
+  align-items: stretch;
+  gap: .35rem;
+}
+.view-starter-top-row {
+  display: flex;
+  align-items: center;
+  gap: .3rem;
+}
+.view-starter-wrap-note .view-mastery-note {
+  width: 100%;
+  border: 1px solid var(--border);
+  background: #fafafa;
+  font-size: .85rem;
+  color: var(--text);
+  padding: .3rem .4rem;
+  min-height: 1.8rem;
+}
+.view-starter-wrap-note .view-mastery-note:focus { border-color: var(--primary); background: #fff; }
 .view-starter-prefix {
   font-size: .8rem;
   color: var(--text-muted);
@@ -2526,6 +2578,15 @@ div.admin-note-editable:empty::before {
 
 .trial-cell { display: inline-flex; align-items: center; gap: 1px; }
 
+/* Mapped-score activities have no trials — this sits in the Trials column
+   instead, naming the target the score is pulled from. */
+.view-mapped-label {
+  display: inline-block;
+  font-size: .75rem;
+  line-height: 1.25;
+  color: var(--text-muted);
+}
+
 .view-trial-select {
   width: 42px;
   padding: .2rem .1rem;
@@ -2741,6 +2802,30 @@ div.admin-note-editable:empty::before {
   align-self: flex-start;
 }
 .btn-sketch:active { background: #c7d2fe; }
+
+/* ── Bold/Underline/Bullet buttons beside Activity Name/Notes (Edit Target) ── */
+.fmt-btn-group {
+  display: flex;
+  flex-direction: column;
+  gap: .2rem;
+  flex-shrink: 0;
+  align-self: flex-start;
+}
+.btn-fmt {
+  background: var(--primary-light);
+  border: none;
+  border-radius: var(--radius-sm);
+  width: 1.6rem;
+  height: 1.4rem;
+  font-size: .75rem;
+  font-weight: 700;
+  cursor: pointer;
+  line-height: 1;
+  color: var(--primary-dark);
+}
+.btn-fmt-underline { text-decoration: underline; }
+.btn-fmt-bullet { font-size: 1rem; }
+.btn-fmt:active { background: #c7d2fe; }
 
 /* Mastery note row: sketch button + note input side by side */
 .mastery-note-row {

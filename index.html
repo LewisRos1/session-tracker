@@ -24,6 +24,8 @@
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
   <!-- Chart.js (chart images for Excel export) -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+  <!-- docx (Word export for single-session daily notes) -->
+  <script src="https://cdn.jsdelivr.net/npm/docx@8/build/index.umd.min.js"></script>
 </head>
 <body>
 
@@ -83,6 +85,12 @@
     <main class="home-main">
       <section>
         <div class="section-header">
+          <h2 class="section-title">Student Database</h2>
+        </div>
+        <div id="student-database-button"></div>
+      </section>
+      <section>
+        <div class="section-header">
           <h2 class="section-title">Individual Sessions</h2>
           <input type="search" class="section-search" id="search-existing"
             placeholder="Search…" autocomplete="off" />
@@ -119,9 +127,15 @@
       </section>
       <section>
         <div class="section-header">
-          <h2 class="section-title">EXPORT ALL <span style="font-size:.7em;font-weight:400;color:var(--text-muted)">(For Lewis use only, he will backup all data every Saturday)</span></h2>
+          <h2 class="section-title">BACKUP DATABASE <span style="font-size:.7em;font-weight:400;color:var(--text-muted)">(For Lewis use only, he will backup all data every Saturday)</span></h2>
         </div>
         <div id="export-all-button"></div>
+      </section>
+      <section>
+        <div class="section-header">
+          <h2 class="section-title">STUDENT REGISTRY SETUP <span style="font-size:.7em;font-weight:400;color:var(--text-muted)">(One-time — links group attendees to registered students for unified session numbering)</span></h2>
+        </div>
+        <div id="registry-migration-button"></div>
       </section>
     </main>
   </div>
@@ -153,6 +167,7 @@
           <span class="days-average-label">Target's Avg</span>
           <span class="days-average-value" id="days-average-value">—</span>
         </div>
+        <button id="btn-reorder-targets" class="btn-manage-targets hidden">↕ Rearrange Targets</button>
         <button id="btn-manage-targets" class="btn-manage-targets hidden">Edit Target</button>
       </div>
 
@@ -207,6 +222,7 @@
           <option value="">— select —</option>
         </select>
         <div id="group-avg-chips" style="display:flex;gap:.4rem;align-items:center"></div>
+        <button id="btn-group-reorder-targets" class="btn-manage-targets hidden">↕ Rearrange Targets</button>
         <button id="btn-group-manage-targets" class="btn-manage-targets hidden">Edit Target</button>
       </div>
       <div id="group-target-content" class="target-content"></div>
@@ -233,6 +249,23 @@
       </div>
     </header>
     <div class="session-view-body" id="group-session-view-body">
+      <!-- populated by JS -->
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════
+       STUDENT DATABASE SCREEN
+       ══════════════════════════════════════════════════════ -->
+  <div id="screen-student-registry" class="screen hidden">
+    <header class="session-header session-header-view">
+      <div class="view-header-left">
+        <button class="btn-back" id="btn-student-registry-back" aria-label="Back to home">←</button>
+        <div class="session-info">
+          <span class="session-student-name">Student Database</span>
+        </div>
+      </div>
+    </header>
+    <div class="session-view-body" id="student-registry-body">
       <!-- populated by JS -->
     </div>
   </div>
