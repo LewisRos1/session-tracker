@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//c/Users/User/Documents/GitHub/session-tracker-live/**)",
+      "Edit(//c/Users/User/Documents/GitHub/session-tracker-live/**)",
+      "Write(//c/Users/User/Documents/GitHub/session-tracker-live/**)",
+      "Grep",
+      "Glob",
+      "Bash(git push *)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)"
+    ]
+  }
+}
