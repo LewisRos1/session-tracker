@@ -37,12 +37,12 @@ import {
 // Replace every "YOUR_..." placeholder with your project's values.
 // Find these in: Firebase Console → Project Settings → Your apps → SDK setup
 const FIREBASE_CONFIG = {
-  apiKey:            "AIzaSyAPcXOMAN-alX8y_PgCX5m-09iJwRgzzE0",
-  authDomain:        "session-tracker-b663a.firebaseapp.com",
-  projectId:         "session-tracker-b663a",
-  storageBucket:     "session-tracker-b663a.firebasestorage.app",
-  messagingSenderId: "1011584567383",
-  appId:             "1:1011584567383:web:3eff4340c16260de977b12"
+  apiKey:            "AIzaSyDzIdlSu_ipdbPtg9TEdWorGaznkslqsGI",
+  authDomain:        "session-tracker-staging.firebaseapp.com",
+  projectId:         "session-tracker-staging",
+  storageBucket:     "session-tracker-staging.firebasestorage.app",
+  messagingSenderId: "43697728086",
+  appId:             "1:43697728086:web:505e802505e14b0346a9f7"
 };
 // ────────────────────────────────────────────────────────────
 
@@ -711,6 +711,12 @@ export async function resequenceIndividualSessions(studentId) {
 }
 
 // ─── EXPORT DATA ─────────────────────────────────────────────
+
+/** Fetch a single session document by ID. Used to get fresh data right before exporting. */
+export async function getSessionById(sessionId) {
+  const snap = await getDoc(doc(db, "sessions", sessionId));
+  return snap.exists() ? { id: snap.id, ...snap.data() } : null;
+}
 
 /** Fetch recent sessions for a student, newest-first (for session picker). */
 export async function getRecentSessionsForStudent(studentId, maxCount = 60) {
