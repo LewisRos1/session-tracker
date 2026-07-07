@@ -1,5 +1,5 @@
-﻿// ============================================================
-// APP.JS â€” Main application controller
+// ============================================================
+// APP.JS — Main application controller
 // ============================================================
 
 import { CONFIG } from "./config.js";
@@ -80,7 +80,7 @@ import {
   exportStudentSingleSessionWord, exportGroupMemberSingleSessionWord
 } from "./export.js";
 
-// â”€â”€ SW update detection â€” must run at parse time, before DOMContentLoaded,
+// ── SW update detection — must run at parse time, before DOMContentLoaded,
 //   so the listener is in place before the new SW can fire controllerchange.
 if ("serviceWorker" in navigator) {
   let _reloadQueued = false;
@@ -96,7 +96,7 @@ if ("serviceWorker" in navigator) {
     // Reload whenever the controller changes AND there is now a controller.
     // Previously guarded by hadController (captured at parse time), but that
     // variable stays false for the whole page load if the user opened the app
-    // without an active SW (hard refresh, cleared cache, iOS PWA restart) â€”
+    // without an active SW (hard refresh, cleared cache, iOS PWA restart) —
     // meaning any subsequent update that session would silently fail to reload.
     // Checking navigator.serviceWorker.controller at event time is always accurate.
     if (navigator.serviceWorker.controller) _doUpdateReload();
@@ -110,8 +110,8 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-// Set when this page load is showing "App Updatingâ€¦" right after a SW
-// update reload â€” holds the timestamp it was revealed so the caller can
+// Set when this page load is showing "App Updating…" right after a SW
+// update reload — holds the timestamp it was revealed so the caller can
 // guarantee a minimum visible time before moving on, regardless of how
 // fast sign-in/data-loading actually finishes.
 let updatingScreenShownAt = null;
@@ -124,7 +124,7 @@ async function waitForUpdatingScreenMinimum(minMs = UPDATING_SCREEN_MIN_MS) {
   if (remaining > 0) await new Promise(r => setTimeout(r, remaining));
 }
 
-// Fills the "App Updatingâ€¦" progress bar and percentage text from 0 to 100
+// Fills the "App Updating…" progress bar and percentage text from 0 to 100
 // over durationMs (matching waitForUpdatingScreenMinimum's own minimum), so
 // it reads as real progress rather than a generic spinner. Holds at 100% if
 // the actual load ends up taking longer than durationMs.
@@ -143,12 +143,12 @@ function animateUpdatingProgress(durationMs = UPDATING_SCREEN_MIN_MS) {
 }
 
 function versionLineText() {
-  return `Made by Lewis Â· Version ${APP_VERSION}`;
+  return `Made by Lewis · Version ${APP_VERSION}`;
 }
 
-const APP_VERSION = "770";
+const APP_VERSION = "771";
 
-// â”€â”€â”€ STATE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── STATE ───────────────────────────────────────────────────
 const state = {
   authenticated:      false,
   students:           [],
@@ -171,7 +171,7 @@ const state = {
   entryActionsInFlight:      0,
   entryGroupActionsInFlight: 0,
   // Same idea for the View/Edit-past-session screens' own action buttons
-  // (Trials column +/Ã—, option-pill buttons, etc.) â€” these don't rely on a
+  // (Trials column +/×, option-pill buttons, etc.) — these don't rely on a
   // remark box's blur to trigger a render, so without this, a click can
   // land while isViewBusy() is still true and its result silently waits on
   // a render that never gets re-checked.
@@ -209,9 +209,9 @@ const state = {
 const $ = id => document.getElementById(id);
 
 // Busy = an in-flight multi-step write only (see counterKey on
-// setupViewRemarkSaving â€” covers the Trials/mastery/etc. action buttons and
+// setupViewRemarkSaving — covers the Trials/mastery/etc. action buttons and
 // a ghost box's activity+remark creation). Typing/focus itself never needs
-// to defer a render â€” captureActiveEditState/restoreActiveEditState (see
+// to defer a render — captureActiveEditState/restoreActiveEditState (see
 // renderSessionView/renderGroupSessionView) protect an in-progress edit
 // through any render regardless of timing, so gating on "is a box focused"
 // or "is there unsaved text mid-debounce" here would only ever add delay,
@@ -226,11 +226,11 @@ function isGroupViewBusy() {
 // Wraps a View-screen action button's async handler so its own write always
 // results in a render once it settles, regardless of whether isViewBusy()
 // happened to be true at the moment the resulting Firestore snapshot
-// actually arrived (same idea as the Entry screens' entryActionsInFlight â€”
+// actually arrived (same idea as the Entry screens' entryActionsInFlight —
 // see the matching comment on state.viewActionsInFlight).
 // Renders immediately unless the view is mid-edit elsewhere (a focused
 // remark/mastery-note box that an immediate full rebuild would yank focus
-// out from under) â€” in that case the deferred-render flag is set instead,
+// out from under) — in that case the deferred-render flag is set instead,
 // and the existing onIdle/snapshot machinery picks it up once free.
 function renderViewOrDefer(pendingKey, isBusy, render) {
   if (isBusy()) state[pendingKey] = true;
@@ -257,7 +257,7 @@ function withViewAction(counterKey, pendingKey, isBusy, render, fn) {
 // state.groupSessionData can deliver that update a beat later. Rendering
 // right after the await can therefore render the OLD data (new remark not
 // in it yet), which looks like the click did nothing. Poll instead of
-// guessing a delay â€” resolves the instant the local snapshot has the data.
+// guessing a delay — resolves the instant the local snapshot has the data.
 function waitForSessionData(check, timeoutMs = 4000) {
   return new Promise(resolve => {
     if (check()) { resolve(); return; }
@@ -270,16 +270,16 @@ function waitForSessionData(check, timeoutMs = 4000) {
   });
 }
 
-// â”€â”€â”€ BOTTOM-SHEET TEXT EDITOR â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── BOTTOM-SHEET TEXT EDITOR ────────────────────────────────
 let _sheetOriginEl = null;
 
-// â”€â”€â”€ GROUP TARGET EDIT OVERRIDE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── GROUP TARGET EDIT OVERRIDE ──────────────────────────────
 // When editing a target belonging to a group, this is set so that
 // renderTargetManageContent saves to the group instead of the student.
 let _groupForTargetEdit = null;
 
 // Tracks in-flight rename-propagation operations so the manage modal can show
-// "Syncing historyâ€¦" while they run, and warn the boss if one fails silently.
+// "Syncing history…" while they run, and warn the boss if one fails silently.
 let _pendingPropagations = 0;
 function _propagationBegin() {
   _pendingPropagations++;
@@ -294,19 +294,19 @@ function _propagationEnd(ok) {
   if (!ok) {
     const ai = $("manage-autosave-indicator");
     if (ai) {
-      ai.textContent = "âš  Sync failed â€” run Data Integrity Check";
+      ai.textContent = "⚠ Sync failed — run Data Integrity Check";
       ai.style.color = "#dc2626";
-      setTimeout(() => { if (ai.textContent.startsWith("âš ")) { ai.textContent = ""; ai.style.color = ""; } }, 9000);
+      setTimeout(() => { if (ai.textContent.startsWith("⚠")) { ai.textContent = ""; ai.style.color = ""; } }, 9000);
     }
   }
 }
 
 // Activities are matched to session data by name text (see
 // renameActivityAcrossSessions in firebase-service.js for the full
-// explanation) â€” call this right after a rename is saved in Edit Target so
+// explanation) — call this right after a rename is saved in Edit Target so
 // every session that already has a remark recorded under the old name
 // doesn't lose its link to it. Fire-and-forget: the rename itself already
-// saved by the time this runs, so a failure here is logged, not surfaced â€”
+// saved by the time this runs, so a failure here is logged, not surfaced —
 // it just means old sessions keep showing the pre-existing orphaned-row
 // behavior rather than this being a new way to actually lose data.
 //
@@ -315,7 +315,7 @@ function _propagationEnd(ok) {
 // final wording) used to race: each call's getDocs()+updateDoc() pair runs
 // independently, so a later rename's query could read Firestore before an
 // earlier rename's writes had landed, find zero matches under the
-// intermediate name, and silently break the chain â€” exactly what happened to
+// intermediate name, and silently break the chain — exactly what happened to
 // Caden Tan's "FEDC 1" activity (see runOneOffRepairs). Queue every
 // propagation for the same student/group so each one only starts once the
 // previous one's writes have actually committed.
@@ -335,7 +335,7 @@ function propagateActivityRename(student, targetName, oldName, newName) {
 }
 
 // Same orphaning risk as propagateActivityRename above, but for the target's
-// own name â€” call this right after a target rename is saved in Edit Target.
+// own name — call this right after a target rename is saved in Edit Target.
 // Shares the same per-student/group queue so a target rename and an activity
 // rename fired close together (e.g. editing both during the same blur-heavy
 // session) still serialize instead of racing each other's Firestore writes.
@@ -355,13 +355,13 @@ function propagateTargetRename(student, oldName, newName) {
 
 // Same orphaning risk again, one level deeper: a Select-one/Tick-boxes
 // activity's recorded answer is the literal option text, not a stable
-// index â€” retyping wording in the "/"-separated options box (e.g. "Low" â†’
+// index — retyping wording in the "/"-separated options box (e.g. "Low" →
 // "Fair") would otherwise leave old recorded answers stuck under text that
 // no longer matches any current pill, just like an activity/target rename.
 // oldOptsStr/newOptsStr are the raw "/"-separated strings before/after the
 // edit. Since the options box is a single free-typed field (not a
 // per-option rename control), this can only safely infer intent when the
-// same NUMBER of options were swapped out â€” pairs each option that
+// same NUMBER of options were swapped out — pairs each option that
 // disappeared with one that appeared, in the order they occur in the
 // string. A pure add or pure remove (different counts) has nothing to pair
 // against, so it's left alone rather than guessing wrong.
@@ -389,11 +389,11 @@ function propagateRemarkOptionRename(student, target, pa, oldOptsStr, newOptsStr
 
 // A student's own profile name (changed via "Change Student's Name" in the
 // Student Database) is also baked as plain text into any group roster slot
-// linked to them â€” group.students/group.studentLinks key off the name
+// linked to them — group.students/group.studentLinks key off the name
 // string, and every historical group session's attendees/
 // remarks.studentName carry that same text. Nothing else refreshes those
 // automatically, so without this a renamed student's groups would keep
-// silently recording under the pre-rename name forever â€” the exact same
+// silently recording under the pre-rename name forever — the exact same
 // denormalized-name trap that already cost real data twice (see
 // [[feedback_activity_rename_race_fix]]), just not yet visible since both
 // sides stay mutually stale together. Resync proactively instead of
@@ -426,7 +426,7 @@ let _newGroupId = null;
 // can strip out activities/notes/headings the boss never typed anything into.
 let _pendingActsCleanup = null;
 
-// An activity/note/heading with no text is meaningless â€” drop it instead of saving it.
+// An activity/note/heading with no text is meaningless — drop it instead of saving it.
 function isEmptyActItem(a) {
   const strip = s => (s || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").replace(/ /g, " ").trim();
   if (a.isNote || a.isExportNote) return strip(a.text).length === 0;
@@ -436,7 +436,7 @@ function isEmptyActItem(a) {
 
 // Activity Name / Notes (actNote) fields format bold/underline directly in
 // their plain <textarea> (see wrapTextareaSelection) rather than through this
-// popup â€” the popup is only for remarks now, same as it always was.
+// popup — the popup is only for remarks now, same as it always was.
 function isActivityMarkupField(el) {
   return el.classList?.contains("mn-act-name-input") || el.classList?.contains("mn-fixed-remark-input");
 }
@@ -444,7 +444,7 @@ function isActivityMarkupField(el) {
 function openTextEditorSheet(originEl) {
   _sheetOriginEl = originEl;
   // Both the Entry and View screens' remark boxes are real <textarea>
-  // elements (plain text, "\n" for line breaks) â€” the sketch sheet itself
+  // elements (plain text, "\n" for line breaks) — the sketch sheet itself
   // stays contenteditable, so bridge between the two formats going in and out.
   const isFormField = originEl.tagName === "TEXTAREA" || originEl.tagName === "INPUT";
   $("text-editor-content").innerHTML = isFormField
@@ -465,7 +465,7 @@ function commitTextEditorSheet() {
   }
   _sheetOriginEl.dispatchEvent(new Event("blur"));
   // .view-remark-edit boxes on the view/edit-past-session screens no longer have
-  // their own blur listener (saving is handled by the shared merged-editing host) â€”
+  // their own blur listener (saving is handled by the shared merged-editing host) —
   // bubble an "input" so that host's debounced flush picks up this change too.
   _sheetOriginEl.dispatchEvent(new Event("input", { bubbles: true }));
   _sheetOriginEl = null;
@@ -479,14 +479,14 @@ function closeTextEditorSheet() {
   if (state.viewRenderPending) { state.viewRenderPending = false; renderSessionView(); }
 }
 
-// â”€â”€â”€ INIT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── INIT ────────────────────────────────────────────────────
 document.addEventListener("DOMContentLoaded", async () => {
 
-  // Register SW immediately â€” don't wait for Firebase so updates are never blocked.
+  // Register SW immediately — don't wait for Firebase so updates are never blocked.
   registerServiceWorker();
 
-  // Picks the "App Updatingâ€¦" message back up on the fresh page (it was
-  // already showing on the old page right before this reload happened) â€”
+  // Picks the "App Updating…" message back up on the fresh page (it was
+  // already showing on the old page right before this reload happened) —
   // #screen-loading is already the default-visible screen at this point,
   // so this just reveals its content; initPin()/showHome() naturally hides
   // the whole thing once sign-in state is known.
@@ -543,7 +543,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   });
 
-  // Ctrl+U / Cmd+U: same idea as Ctrl+B above, with an _underline_ marker â€”
+  // Ctrl+U / Cmd+U: same idea as Ctrl+B above, with an _underline_ marker —
   // only Activity Name/Notes fields need this; remarks never asked for
   // underline support.
   document.addEventListener("keydown", e => {
@@ -562,7 +562,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   });
 
   // Ctrl+Shift+L / Cmd+Shift+L: bullet point, same shortcut Word itself uses.
-  // Activity Name/Notes fields only â€” bullets aren't supported in remarks.
+  // Activity Name/Notes fields only — bullets aren't supported in remarks.
   document.addEventListener("keydown", e => {
     if (!(e.key === "L" || e.key === "l") || !e.shiftKey || !(e.ctrlKey || e.metaKey)) return;
     const el = document.activeElement;
@@ -578,7 +578,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   // Firestore now requires a real signed-in user (see firebase-service.js).
   // Sign-in persists across reloads, but only counts for the calendar day
-  // it happened on â€” a persisted sign-in from an earlier day gets silently
+  // it happened on — a persisted sign-in from an earlier day gets silently
   // signed back out here, which makes onAuthChange fire again with
   // user = null and fall into the PIN branch below.
   onAuthChange(async user => {
@@ -606,9 +606,9 @@ function markLoggedInToday() {
   localStorage.setItem(LAST_LOGIN_DATE_KEY, getTodayString());
 }
 
-// Student/template/group/remark-preset config â€” only fetchable once signed in.
+// Student/template/group/remark-preset config — only fetchable once signed in.
 async function loadAppData() {
-  // These 4 reads are independent of each other â€” fire them all at once
+  // These 4 reads are independent of each other — fire them all at once
   // instead of one-after-another, or their wait times just add up.
   const [studentsR, templatesR, groupsR, presetsR] = await Promise.allSettled([
     loadStudentsConfig(),
@@ -651,7 +651,7 @@ function registerServiceWorker() {
         if (document.visibilityState === "visible") reg.update();
       });
       // Catches updates even if the tab is just left open in the foreground
-      // the whole time â€” visibilitychange alone never fires then, so an
+      // the whole time — visibilitychange alone never fires then, so an
       // update could otherwise sit undetected until the boss happens to
       // switch away and back, or manually refreshes.
       setInterval(() => reg.update(), 60000);
@@ -676,9 +676,9 @@ function initPin() {
   let checking = false;
 
   // A previous successful login leaves statusMsg's "hidden" class removed
-  // (only the error path explicitly re-hides it â€” success just navigates
+  // (only the error path explicitly re-hides it — success just navigates
   // away from this whole screen). Reset both on every fresh entry so
-  // "Logging inâ€¦" can't still be showing before anything's been typed.
+  // "Logging in…" can't still be showing before anything's been typed.
   errMsg.classList.add("hidden");
   statusMsg.classList.add("hidden");
 
@@ -704,19 +704,19 @@ function initPin() {
     errMsg.classList.add("hidden");
     statusMsg.classList.remove("hidden");
     try {
-      // Marked *before* signing in, not after â€” onAuthChange's listener can
+      // Marked *before* signing in, not after — onAuthChange's listener can
       // fire as soon as Firebase's internal state updates, which can race
       // ahead of this async function's own continuation after the await.
       // If hasLoggedInToday() were still false at that moment, onAuthChange
       // would immediately sign this brand-new login back out again (it
       // looks identical to a stale persisted session from a previous day),
-      // leaving "Logging inâ€¦" stuck forever since the screen never moves on
+      // leaving "Logging in…" stuck forever since the screen never moves on
       // to home OR back to a fresh PIN entry.
       markLoggedInToday();
       await signInWithPin(value);
       // Success: onAuthChange (registered once in DOMContentLoaded) picks up
       // the new signed-in user, loads data, and shows home from there. Leave
-      // "Logging inâ€¦" up the whole time â€” loading that data after sign-in
+      // "Logging in…" up the whole time — loading that data after sign-in
       // can itself take a few seconds, and showScreen() will hide this
       // entire PIN screen (status message included) once home appears, so
       // there's no gap where nothing is showing.
@@ -787,7 +787,7 @@ async function showHome() {
 // but whose damage needs a one-time correction in already-written Firestore
 // data. Each repair is scoped to an exact studentId+targetName+oldName match,
 // so it's a no-op (and safe to leave running) once that exact mismatch no
-// longer exists â€” remove the call once confirmed fixed rather than leaving
+// longer exists — remove the call once confirmed fixed rather than leaving
 // it as permanent dead weight.
 let _ranOneOffRepairs = false;
 function runOneOffRepairs() {
@@ -804,9 +804,9 @@ function runOneOffRepairs() {
       .catch(err => console.error("runOneOffRepairs (Caden Tan FEDC 1 Comment) failed:", err));
   }
 
-  // Caden Tan's "Self Regulation" â†’ "Self-Regulation" rename had the same
+  // Caden Tan's "Self Regulation" → "Self-Regulation" rename had the same
   // missing-propagation bug as the FEDC 1 fix above. The "Functional
-  // Communication" â†’ "Two-Way Communication" repairs that were here (v602,
+  // Communication" → "Two-Way Communication" repairs that were here (v602,
   // v603) are now REVERSED: the target was renamed back to "Functional
   // Communication" in the student doc, so all session activities that were
   // previously migrated to "Two-Way Communication" (or the earlier typo
@@ -823,7 +823,7 @@ function runOneOffRepairs() {
   migrateAwayFromMasteryType()
     .catch(err => console.error("runOneOffRepairs (mastery removal) failed:", err));
 
-  // v608 Data Integrity Check backlog â€” confirmed batch 1. Every pair here
+  // v608 Data Integrity Check backlog — confirmed batch 1. Every pair here
   // was surfaced by the report and manually reviewed (not auto-merged):
   // either a wording/typo cleanup of the same activity, a list
   // renumbering (only the leading letter/number changed), or the v606
@@ -894,7 +894,7 @@ function runOneOffRepairs() {
   }
 }
 
-// "Mastery Level + Free Text" was removed as a Remark Type â€” this converts
+// "Mastery Level + Free Text" was removed as a Remark Type — this converts
 // any activity still configured as isMastery into the equivalent Sentence
 // Starter + Select One + Free Text config, the exact same pure config flip
 // the old per-activity "Convert" button used to do: existing remarks'
@@ -944,7 +944,7 @@ $("btn-logout").addEventListener("click", () => {
   signOutUser();
 });
 
-// â”€â”€ Add student / template from home screen â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Add student / template from home screen ───────────────────
 
 $("btn-add-existing-student").addEventListener("click", () => showRegisteredStudentPicker("existing"));
 $("btn-add-assessment-student").addEventListener("click", () => showRegisteredStudentPicker("assessment"));
@@ -974,7 +974,7 @@ function renderStudentDatabaseButton() {
   $("btn-open-student-registry").addEventListener("click", () => openStudentRegistryScreen());
 }
 
-// highlightAdd: briefly glows "+ Add New Student" â€” used when redirected
+// highlightAdd: briefly glows "+ Add New Student" — used when redirected
 // here from another screen's "register a new student" option, instead of
 // a popup the boss has to stop and read.
 function openStudentRegistryScreen(opts = {}) {
@@ -982,7 +982,7 @@ function openStudentRegistryScreen(opts = {}) {
   renderStudentRegistryBody(opts);
 }
 
-// Full-page Student Database screen â€” table of every registered student
+// Full-page Student Database screen — table of every registered student
 // (No./First/Last/latest individual session/latest group session), with
 // "Add New Student" (inline editable row, both names required) and "Delete
 // Student" (pick by number, then type DELETE) actions above it. Clicking a
@@ -992,9 +992,9 @@ function openStudentRegistryScreen(opts = {}) {
 // so they get their own columns rather than one combined number.
 //
 // The table itself renders instantly from data already in memory
-// (state.students) â€” the per-student session-number lookups are genuinely
+// (state.students) — the per-student session-number lookups are genuinely
 // slow (2 Firestore queries each), so those fill in afterwards per-cell
-// instead of blocking the whole screen behind a "Loadingâ€¦" spinner.
+// instead of blocking the whole screen behind a "Loading…" spinner.
 async function renderStudentRegistryBody({ highlightAdd = false } = {}) {
   const body = $("student-registry-body");
   if (!body) return;
@@ -1036,11 +1036,11 @@ async function renderStudentRegistryBody({ highlightAdd = false } = {}) {
                 <td style="text-align:center">
                   <button class="btn-word-export-ready${s.readyForWordExport ? " is-ready" : ""}"
                     data-id="${escHtml(s.id)}" data-ready="${s.readyForWordExport ? "1" : "0"}">
-                    ${s.readyForWordExport ? "âœ“ Ready" : "No"}
+                    ${s.readyForWordExport ? "✓ Ready" : "No"}
                   </button>
                 </td>
-                <td class="reg-indiv-num" data-id="${escHtml(s.id)}" style="text-align:center">â€¦</td>
-                <td class="reg-group-num" data-id="${escHtml(s.id)}" style="text-align:center">â€¦</td>
+                <td class="reg-indiv-num" data-id="${escHtml(s.id)}" style="text-align:center">…</td>
+                <td class="reg-group-num" data-id="${escHtml(s.id)}" style="text-align:center">…</td>
               </tr>`).join("")}
           </tbody>
         </table>
@@ -1070,7 +1070,7 @@ async function renderStudentRegistryBody({ highlightAdd = false } = {}) {
         await setStudentWordExportReady(studentId, newReady);
         s.readyForWordExport = newReady;
         btn.dataset.ready = newReady ? "1" : "0";
-        btn.textContent = newReady ? "âœ“ Ready" : "No";
+        btn.textContent = newReady ? "✓ Ready" : "No";
         btn.classList.toggle("is-ready", newReady);
       } finally {
         btn.disabled = false;
@@ -1095,8 +1095,8 @@ async function renderStudentRegistryBody({ highlightAdd = false } = {}) {
     ]).then(([indiv, group]) => {
       const indivCell = body.querySelector(`.reg-indiv-num[data-id="${s.id}"]`);
       const groupCell = body.querySelector(`.reg-group-num[data-id="${s.id}"]`);
-      if (indivCell) indivCell.textContent = latestNumber(indiv) || "â€”";
-      if (groupCell) groupCell.textContent = latestNumber(group) || "â€”";
+      if (indivCell) indivCell.textContent = latestNumber(indiv) || "—";
+      if (groupCell) groupCell.textContent = latestNumber(group) || "—";
     });
   });
 }
@@ -1169,12 +1169,12 @@ async function promptDeleteStudentFromRegistry() {
   renderStudentRegistryBody();
 }
 
-// Dice's coefficient over character bigrams â€” a cheap, dependency-free way
+// Dice's coefficient over character bigrams — a cheap, dependency-free way
 // to score "is this basically the same text, just reworded/typo'd" (high
 // score) vs "this is a different activity entirely" (low score). Used by
 // runDataIntegrityCheck to separate likely propagation-failure renames from
 // activities that were deliberately deleted/restructured (where the old
-// recorded data is CORRECTLY preserved under its original name forever â€”
+// recorded data is CORRECTLY preserved under its original name forever —
 // not a bug, and should never be auto-merged into an unrelated activity).
 function stringSimilarity(a, b) {
   const norm = s => (s || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
@@ -1197,17 +1197,17 @@ function stringSimilarity(a, b) {
   return (totalA + totalB) === 0 ? 0 : (2 * shared) / (totalA + totalB);
 }
 
-// Temporary diagnostic tool (v606/v607) â€” scans every student and group's
+// Temporary diagnostic tool (v606/v607) — scans every student and group's
 // full session history for "orphaned" activities: real, recorded remark
 // data sitting under an activityName text that no current
 // predefinedActivities entry matches for that target. This is the exact
 // shape left behind by the heading-rename bug fixed in v606 (and the older
-// FEDC1/Comment race from v596) â€” but it's ALSO the exact shape left behind
+// FEDC1/Comment race from v596) — but it's ALSO the exact shape left behind
 // by deliberately deleting/restructuring a target's activity list, which is
 // correct, intended data preservation, not a bug. stringSimilarity above
 // splits findings into "likely a simple rename" (high text overlap with a
-// current activity â€” worth reviewing) vs "likely deliberate restructuring"
-// (low overlap with everything â€” left collapsed, no action implied).
+// current activity — worth reviewing) vs "likely deliberate restructuring"
+// (low overlap with everything — left collapsed, no action implied).
 // Read-only: it only reports findings so the boss can confirm each one
 // before any repair is written, rather than guessing and silently merging
 // data that might not actually belong together. Remove this button/
@@ -1216,7 +1216,7 @@ const LIKELY_RENAME_THRESHOLD = 0.45;
 
 // Findings live here (not just in the rendered HTML) so the Merge buttons
 // below can hand the exact in-memory orphanName/bestMatch strings straight
-// to renameActivityAcrossSessions â€” no round-trip through rendered HTML,
+// to renameActivityAcrossSessions — no round-trip through rendered HTML,
 // copy-paste into chat, and hand-retyped code, which is exactly how 4 of
 // the 38 v609 batch-1 repairs silently no-op'd (an invisible whitespace/
 // quote-style difference between the boss's pasted report text and the
@@ -1225,7 +1225,7 @@ const LIKELY_RENAME_THRESHOLD = 0.45;
 // string never leaves memory.
 let _dataIntegrityFindings = [];
 // Separate from the rename findings above: this catches a DIFFERENT shape
-// of problem â€” two activities created in the SAME session under the exact
+// of problem — two activities created in the SAME session under the exact
 // same (targetName, activityName), where the name matches the current
 // config perfectly (so the rename-detection above sees nothing wrong) but
 // whichever duplicate isn't picked by the first-match lookup used
@@ -1235,14 +1235,14 @@ let _dataIntegrityFindings = [];
 // separate devices/tabs/reloads).
 let _dataIntegrityDuplicates = [];
 // Separate from the above: activities whose act.targetName doesn't match ANY
-// current target â€” most likely from a target rename where propagation didn't
+// current target — most likely from a target rename where propagation didn't
 // complete. The existing scan above only checks within each current target;
 // this catches the "target name itself went missing" shape of the same bug.
 let _dataIntegrityOrphanTargets = [];
 
 async function runDataIntegrityCheck() {
   $("manage-modal-title").textContent = "Data Integrity Check";
-  $("manage-modal-body").innerHTML = `<p style="padding:1rem">Scanning every student and group's full session historyâ€¦ this can take a little while.</p>`;
+  $("manage-modal-body").innerHTML = `<p style="padding:1rem">Scanning every student and group's full session history… this can take a little while.</p>`;
   $("manage-modal").classList.remove("hidden");
 
   const findings = [];
@@ -1265,7 +1265,7 @@ async function runDataIntegrityCheck() {
           actIdsByName.get(act.activityName).push(actId);
           if (validNameSet.has(act.activityName)) continue;
           const remarks = Object.values(session.remarks || {}).filter(r => r.activityId === actId);
-          if (remarks.length === 0) continue; // no real data â€” not worth reporting
+          if (remarks.length === 0) continue; // no real data — not worth reporting
           const entry = byOrphanName.get(act.activityName) || { count: 0, dates: [], sample: null };
           entry.count++;
           entry.dates.push(session.date);
@@ -1298,7 +1298,7 @@ async function runDataIntegrityCheck() {
         findings.push({
           who, entityId, isGroup, targetName: target.name, orphanName,
           sessionCount: info.count,
-          dateRange: dates.length > 1 ? `${dates[0]} â†’ ${dates[dates.length - 1]}` : dates[0],
+          dateRange: dates.length > 1 ? `${dates[0]} → ${dates[dates.length - 1]}` : dates[0],
           sample: info.sample,
           bestMatch, bestSim, merged: false
         });
@@ -1307,7 +1307,7 @@ async function runDataIntegrityCheck() {
   };
 
   // Scan for activities stored under a target name that no longer exists in
-  // the config â€” this is the "failed target rename" shape: the target's own
+  // the config — this is the "failed target rename" shape: the target's own
   // name was changed but the propagation that updates act.targetName in every
   // historical session didn't complete, leaving those sessions invisible.
   const orphanTargets = [];
@@ -1340,7 +1340,7 @@ async function runDataIntegrityCheck() {
       orphanTargets.push({
         who, entityId, isGroup, orphanTargetName,
         sessionCount: info.count,
-        dateRange: dates.length > 1 ? `${dates[0]} â†’ ${dates[dates.length - 1]}` : dates[0],
+        dateRange: dates.length > 1 ? `${dates[0]} → ${dates[dates.length - 1]}` : dates[0],
         bestMatch, bestSim, fixed: false
       });
     }
@@ -1386,45 +1386,45 @@ function renderDataIntegrityReport() {
 
   $("manage-modal-body").innerHTML = `
     <div style="padding:1rem">
-      <p style="margin-bottom:1rem">Scanned everyone's full history â€” ${findings.length} orphaned activit${findings.length === 1 ? "y" : "ies"} with real recorded data found, ${_dataIntegrityDuplicates.length} duplicate activit${_dataIntegrityDuplicates.length === 1 ? "y" : "ies"} within a single session, and ${orphanTgtsOpen.length + orphanTgtsFixed.length} orphaned target name${orphanTgtsOpen.length + orphanTgtsFixed.length === 1 ? "" : "s"}.</p>
+      <p style="margin-bottom:1rem">Scanned everyone's full history — ${findings.length} orphaned activit${findings.length === 1 ? "y" : "ies"} with real recorded data found, ${_dataIntegrityDuplicates.length} duplicate activit${_dataIntegrityDuplicates.length === 1 ? "y" : "ies"} within a single session, and ${orphanTgtsOpen.length + orphanTgtsFixed.length} orphaned target name${orphanTgtsOpen.length + orphanTgtsFixed.length === 1 ? "" : "s"}.</p>
 
-      <h3 style="margin:.5rem 0">Orphaned target names â€” target renamed but history not updated (${orphanTgtsOpen.length})</h3>
-      <p style="color:var(--text-muted);font-size:.85rem;margin-bottom:.5rem">These sessions have data stored under a target name that no longer exists â€” most likely from a target rename where the background sync didn't finish before the page was closed. "Re-link" migrates the data to the matching current target so it becomes visible again.</p>
+      <h3 style="margin:.5rem 0">Orphaned target names — target renamed but history not updated (${orphanTgtsOpen.length})</h3>
+      <p style="color:var(--text-muted);font-size:.85rem;margin-bottom:.5rem">These sessions have data stored under a target name that no longer exists — most likely from a target rename where the background sync didn't finish before the page was closed. "Re-link" migrates the data to the matching current target so it becomes visible again.</p>
       ${orphanTgtsOpen.length === 0 ? `<p style="color:var(--text-muted);font-size:.85rem">None found.</p>` : orphanTgtsOpen.map(f => `
         <div style="border:2px solid #fca5a5;border-radius:8px;padding:.75rem;margin-bottom:.75rem;background:#fef2f2">
           <div><strong>${escHtml(f.who)}</strong></div>
           <div style="margin-top:.3rem">Orphaned target: <strong>${escHtml(f.orphanTargetName)}</strong></div>
           <div style="margin-top:.3rem">Best match: <strong>${escHtml(f.bestMatch || "(no match)")}</strong> <span style="color:var(--text-muted);font-size:.85rem">(${Math.round(f.bestSim * 100)}% similarity)</span></div>
           <div style="margin-top:.3rem;color:var(--text-muted);font-size:.85rem">Affects ${f.sessionCount} session${f.sessionCount === 1 ? "" : "s"} (${escHtml(f.dateRange || "")})</div>
-          ${f.bestMatch ? `<button class="btn-primary-sm btn-integrity-fix-target" data-ot-idx="${_dataIntegrityOrphanTargets.indexOf(f)}" style="margin-top:.5rem">Re-link to "${escHtml(f.bestMatch)}"</button>` : `<span style="color:var(--text-muted);font-size:.85rem">No current target matches â€” edit the target name manually in Edit Target first, then re-scan.</span>`}
+          ${f.bestMatch ? `<button class="btn-primary-sm btn-integrity-fix-target" data-ot-idx="${_dataIntegrityOrphanTargets.indexOf(f)}" style="margin-top:.5rem">Re-link to "${escHtml(f.bestMatch)}"</button>` : `<span style="color:var(--text-muted);font-size:.85rem">No current target matches — edit the target name manually in Edit Target first, then re-scan.</span>`}
         </div>
       `).join("")}
 
       ${orphanTgtsFixed.length === 0 ? "" : `
         <h3 style="margin:1.5rem 0 .5rem;color:#16a34a">Orphaned targets re-linked just now (${orphanTgtsFixed.length})</h3>
-        ${orphanTgtsFixed.map(f => `<div style="padding:.4rem 0;border-bottom:1px solid var(--border);font-size:.85rem">${escHtml(f.who)}: "${escHtml(f.orphanTargetName)}" â†’ "${escHtml(f.bestMatch)}"</div>`).join("")}
+        ${orphanTgtsFixed.map(f => `<div style="padding:.4rem 0;border-bottom:1px solid var(--border);font-size:.85rem">${escHtml(f.who)}: "${escHtml(f.orphanTargetName)}" → "${escHtml(f.bestMatch)}"</div>`).join("")}
       `}
 
-      <h3 style="margin:.5rem 0">Duplicate activities in one session â€” same name, two records (${dupesOpen.length})</h3>
-      <p style="color:var(--text-muted);font-size:.85rem;margin-bottom:.5rem">The name matches the current config fine â€” the problem is two separate activity records exist for that one name in the same session (usually from a sync race), and only one of them ever shows up on the entry/View screens. Merging moves any remarks off the empty/lesser one onto the one already being displayed, then removes the now-empty duplicate.</p>
+      <h3 style="margin:.5rem 0">Duplicate activities in one session — same name, two records (${dupesOpen.length})</h3>
+      <p style="color:var(--text-muted);font-size:.85rem;margin-bottom:.5rem">The name matches the current config fine — the problem is two separate activity records exist for that one name in the same session (usually from a sync race), and only one of them ever shows up on the entry/View screens. Merging moves any remarks off the empty/lesser one onto the one already being displayed, then removes the now-empty duplicate.</p>
       ${dupesOpen.length === 0 ? `<p style="color:var(--text-muted);font-size:.85rem">None found.</p>` : dupesOpen.map(d => `
         <div style="border:1px solid var(--border);border-radius:8px;padding:.75rem;margin-bottom:.75rem">
-          <div><strong>${escHtml(d.who)}</strong> â€” ${escHtml(d.targetName)} â€” ${escHtml(d.sessionDate)}</div>
+          <div><strong>${escHtml(d.who)}</strong> — ${escHtml(d.targetName)} — ${escHtml(d.sessionDate)}</div>
           <div style="margin-top:.3rem">Activity: <strong>${escHtml(d.activityName)}</strong></div>
-          <div style="margin-top:.3rem;color:var(--text-muted);font-size:.85rem">${d.remarkCounts.length} records found â€” remark counts: ${d.remarkCounts.map(w => w.remarkCount).join(", ")} (keeping the one with the most, folding the rest into it)</div>
+          <div style="margin-top:.3rem;color:var(--text-muted);font-size:.85rem">${d.remarkCounts.length} records found — remark counts: ${d.remarkCounts.map(w => w.remarkCount).join(", ")} (keeping the one with the most, folding the rest into it)</div>
           <button class="btn-primary-sm btn-integrity-merge-dup" data-idx="${_dataIntegrityDuplicates.indexOf(d)}" style="margin-top:.5rem">Merge duplicates</button>
         </div>
       `).join("")}
 
       ${dupesMerged.length === 0 ? "" : `
         <h3 style="margin:1.5rem 0 .5rem;color:#16a34a">Duplicates merged just now (${dupesMerged.length})</h3>
-        ${dupesMerged.map(d => `<div style="padding:.4rem 0;border-bottom:1px solid var(--border);font-size:.85rem">${escHtml(d.who)} â€” ${escHtml(d.targetName)} â€” ${escHtml(d.sessionDate)}: "${escHtml(d.activityName)}"</div>`).join("")}
+        ${dupesMerged.map(d => `<div style="padding:.4rem 0;border-bottom:1px solid var(--border);font-size:.85rem">${escHtml(d.who)} — ${escHtml(d.targetName)} — ${escHtml(d.sessionDate)}: "${escHtml(d.activityName)}"</div>`).join("")}
       `}
 
-      <h3 style="margin:1.5rem 0 .5rem">Likely simple renames â€” worth reviewing (${likely.length})</h3>
+      <h3 style="margin:1.5rem 0 .5rem">Likely simple renames — worth reviewing (${likely.length})</h3>
       ${likely.length === 0 ? `<p style="color:var(--text-muted);font-size:.85rem">None found.</p>` : likely.map(f => `
         <div style="border:1px solid var(--border);border-radius:8px;padding:.75rem;margin-bottom:.75rem">
-          <div><strong>${escHtml(f.who)}</strong> â€” ${escHtml(f.targetName)}</div>
+          <div><strong>${escHtml(f.who)}</strong> — ${escHtml(f.targetName)}</div>
           <div style="margin-top:.3rem">Old name: <strong>${escHtml(f.orphanName)}</strong></div>
           <div style="margin-top:.3rem">Best current match: <strong>${escHtml(f.bestMatch || "(none)")}</strong> <span style="color:var(--text-muted);font-size:.85rem">(${Math.round(f.bestSim * 100)}% text overlap)</span></div>
           <div style="margin-top:.3rem;color:var(--text-muted);font-size:.85rem">Affects ${f.sessionCount} session${f.sessionCount === 1 ? "" : "s"} (${escHtml(f.dateRange)})</div>
@@ -1435,16 +1435,16 @@ function renderDataIntegrityReport() {
 
       ${merged.length === 0 ? "" : `
         <h3 style="margin:1.5rem 0 .5rem;color:#16a34a">Merged just now (${merged.length})</h3>
-        ${merged.map(f => `<div style="padding:.4rem 0;border-bottom:1px solid var(--border);font-size:.85rem">${escHtml(f.who)} â€” ${escHtml(f.targetName)}: "${escHtml(f.orphanName)}" â†’ "${escHtml(f.bestMatch)}"</div>`).join("")}
+        ${merged.map(f => `<div style="padding:.4rem 0;border-bottom:1px solid var(--border);font-size:.85rem">${escHtml(f.who)} — ${escHtml(f.targetName)}: "${escHtml(f.orphanName)}" → "${escHtml(f.bestMatch)}"</div>`).join("")}
       `}
 
-      <h3 style="margin:1.5rem 0 .5rem">Looks like deliberate restructuring â€” no action needed (${structural.length})</h3>
-      <p style="color:var(--text-muted);font-size:.85rem;margin-bottom:.5rem">These old names don't closely match anything currently in their target, which usually means the activity list was rebuilt on purpose. If you want to permanently remove this data from all past sessions (so it stops appearing in Excel exports), click "Delete from all sessions" â€” this is irreversible.</p>
+      <h3 style="margin:1.5rem 0 .5rem">Looks like deliberate restructuring — no action needed (${structural.length})</h3>
+      <p style="color:var(--text-muted);font-size:.85rem;margin-bottom:.5rem">These old names don't closely match anything currently in their target, which usually means the activity list was rebuilt on purpose. If you want to permanently remove this data from all past sessions (so it stops appearing in Excel exports), click "Delete from all sessions" — this is irreversible.</p>
       ${structural.length === 0 ? "" : `<details>
         <summary style="cursor:pointer">Show the list anyway</summary>
         ${structural.map(f => `
           <div style="border:1px solid var(--border);border-radius:8px;padding:.75rem;margin:.5rem 0">
-            <div><strong>${escHtml(f.who)}</strong> â€” ${escHtml(f.targetName)}</div>
+            <div><strong>${escHtml(f.who)}</strong> — ${escHtml(f.targetName)}</div>
             <div style="margin-top:.3rem;font-size:.9rem">Orphaned name: <strong>${escHtml(f.orphanName)}</strong></div>
             <div style="margin-top:.3rem;color:var(--text-muted);font-size:.85rem">Affects ${f.sessionCount} session${f.sessionCount === 1 ? "" : "s"} (${escHtml(f.dateRange || "")})</div>
             ${f.sample ? `<div style="margin-top:.3rem;color:var(--text-muted);font-size:.85rem">Sample: "${escHtml(f.sample)}"</div>` : ""}
@@ -1456,7 +1456,7 @@ function renderDataIntegrityReport() {
 
       ${(() => { const deleted = findings.filter(f => f.deleted); return deleted.length === 0 ? "" : `
         <h3 style="margin:1.5rem 0 .5rem;color:#dc2626">Permanently deleted just now (${deleted.length})</h3>
-        ${deleted.map(f => `<div style="padding:.4rem 0;border-bottom:1px solid var(--border);font-size:.85rem">${escHtml(f.who)} â€” ${escHtml(f.targetName)}: "${escHtml(f.orphanName)}"</div>`).join("")}
+        ${deleted.map(f => `<div style="padding:.4rem 0;border-bottom:1px solid var(--border);font-size:.85rem">${escHtml(f.who)} — ${escHtml(f.targetName)}: "${escHtml(f.orphanName)}"</div>`).join("")}
       `; })()}
     </div>`;
 
@@ -1465,7 +1465,7 @@ function renderDataIntegrityReport() {
       const f = _dataIntegrityFindings[Number(btn.dataset.idx)];
       if (!f || f.merged) return;
       btn.disabled = true;
-      btn.textContent = "Mergingâ€¦";
+      btn.textContent = "Merging…";
       try {
         if (f.isGroup) {
           await renameGroupActivityAcrossSessions(f.entityId, f.targetName, f.orphanName, f.bestMatch);
@@ -1477,7 +1477,7 @@ function renderDataIntegrityReport() {
       } catch (err) {
         console.error("Data integrity merge failed:", err);
         btn.disabled = false;
-        btn.textContent = `Merge into "${f.bestMatch}" (failed â€” try again)`;
+        btn.textContent = `Merge into "${f.bestMatch}" (failed — try again)`;
       }
     });
   });
@@ -1487,7 +1487,7 @@ function renderDataIntegrityReport() {
       const d = _dataIntegrityDuplicates[Number(btn.dataset.idx)];
       if (!d || d.merged) return;
       btn.disabled = true;
-      btn.textContent = "Mergingâ€¦";
+      btn.textContent = "Merging…";
       try {
         for (const dupActId of d.duplicateActIds) {
           await mergeDuplicateActivity(d.sessionId, d.primaryActId, dupActId);
@@ -1497,7 +1497,7 @@ function renderDataIntegrityReport() {
       } catch (err) {
         console.error("Duplicate merge failed:", err);
         btn.disabled = false;
-        btn.textContent = "Merge duplicates (failed â€” try again)";
+        btn.textContent = "Merge duplicates (failed — try again)";
       }
     });
   });
@@ -1508,7 +1508,7 @@ function renderDataIntegrityReport() {
       if (!f || f.deleted) return;
       if (btn.dataset.confirming !== "1") {
         btn.dataset.confirming = "1";
-        btn.textContent = "âš ï¸ Confirm â€” permanently delete?";
+        btn.textContent = "⚠️ Confirm — permanently delete?";
         setTimeout(() => {
           if (btn.dataset.confirming === "1") {
             btn.dataset.confirming = "";
@@ -1518,7 +1518,7 @@ function renderDataIntegrityReport() {
         return;
       }
       btn.disabled = true;
-      btn.textContent = "Moving to trashâ€¦";
+      btn.textContent = "Moving to trash…";
       try {
         await softDeleteActivityAcrossSessions(
           f.isGroup ? "group" : "student",
@@ -1531,7 +1531,7 @@ function renderDataIntegrityReport() {
         console.error("Orphan soft-delete failed:", err);
         btn.disabled = false;
         btn.dataset.confirming = "";
-        btn.textContent = "Delete from all sessions (failed â€” try again)";
+        btn.textContent = "Delete from all sessions (failed — try again)";
       }
     });
   });
@@ -1541,7 +1541,7 @@ function renderDataIntegrityReport() {
       const f = _dataIntegrityOrphanTargets[Number(btn.dataset.otIdx)];
       if (!f || f.fixed || !f.bestMatch) return;
       btn.disabled = true;
-      btn.textContent = "Re-linkingâ€¦";
+      btn.textContent = "Re-linking…";
       try {
         if (f.isGroup) {
           await renameGroupTargetAcrossSessions(f.entityId, f.orphanTargetName, f.bestMatch);
@@ -1553,19 +1553,19 @@ function renderDataIntegrityReport() {
       } catch (err) {
         console.error("Orphaned target re-link failed:", err);
         btn.disabled = false;
-        btn.textContent = `Re-link to "${f.bestMatch}" (failed â€” try again)`;
+        btn.textContent = `Re-link to "${f.bestMatch}" (failed — try again)`;
       }
     });
   });
 }
 
 // Choosing a student here adds them to Individual Sessions or Assessments.
-// One flat list, no separate "transfer" entry â€” an Assessment student
+// One flat list, no separate "transfer" entry — an Assessment student
 // shows up right alongside everyone else in the Individual Sessions
 // picker, and clicking them just asks a one-line confirm tailored to what's
 // actually happening ("Move X from Assessment...?") instead of a special
 // menu item or a guard error sending the boss elsewhere. Doesn't create a
-// new person directly â€” "Register a New Student" sends the boss to the
+// new person directly — "Register a New Student" sends the boss to the
 // Student Database page instead, which is the one place new students get
 // created (see openStudentRegistryScreen).
 function showRegisteredStudentPicker(targetType) {
@@ -1573,8 +1573,8 @@ function showRegisteredStudentPicker(targetType) {
     targetType === "assessment" ? "Add to Assessments" : "Add to Individual Sessions";
 
   const renderList = () => {
-    // Leave out students already in this exact bucket, and â€” since
-    // Individual Sessions and Assessment are mutually exclusive â€” also
+    // Leave out students already in this exact bucket, and — since
+    // Individual Sessions and Assessment are mutually exclusive — also
     // leave Individual Sessions students out of the Assessment picker.
     const candidates = state.students
       .filter(s => s.type !== targetType)
@@ -1584,7 +1584,7 @@ function showRegisteredStudentPicker(targetType) {
     $("session-picker-list").innerHTML = `
       <div class="choice-list">
         <button class="choice-btn choice-register-new">
-          <span class="choice-icon">âž•</span>
+          <span class="choice-icon">➕</span>
           <div class="choice-text"><div class="choice-label">Register a New Student</div></div>
         </button>
         ${candidates.map(s => `
@@ -1645,7 +1645,7 @@ async function addNewTemplate() {
   openManageModal(null, null, t);
 }
 
-// â”€â”€ Render helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Render helpers ────────────────────────────────────────────
 
 function renderStudentList(container, students, query = "") {
   if (!container) return;
@@ -1677,7 +1677,7 @@ function renderStudentList(container, students, query = "") {
 
 function renderExistingStudentButtons() {
   // Pre-registry records have no type field at all (undefined) and should
-  // keep defaulting to "existing" for backward compatibility â€” only the new
+  // keep defaulting to "existing" for backward compatibility — only the new
   // explicit "unassigned" (set when a student is registered via the Student
   // Database page or a group roster picker) opts out of that default, so a
   // freshly-registered student doesn't show here until she actually +Adds
@@ -1767,8 +1767,8 @@ function renderExportButtons() {
   exportAllContainer.innerHTML = `
     <div style="display:flex;gap:.6rem;flex-wrap:wrap">
       <button class="export-btn export-btn-all" id="btn-export-all-trials">Backup All Excel (ZIP)</button>
-      <button class="export-btn" id="btn-data-integrity-check">ðŸ” Run Data Integrity Check</button>
-      <button class="export-btn" id="btn-recently-deleted">ðŸ—‘ Recently Deleted (30 days)</button>
+      <button class="export-btn" id="btn-data-integrity-check">🔍 Run Data Integrity Check</button>
+      <button class="export-btn" id="btn-recently-deleted">🗑 Recently Deleted (30 days)</button>
     </div>`;
 
   const wire = (btnId, defaultLabel, includeTrials) => {
@@ -1776,7 +1776,7 @@ function renderExportButtons() {
       const btn = $(btnId);
       btn.style.width = btn.offsetWidth + "px";
       btn.disabled = true;
-      btn.textContent = "Generatingâ€¦";
+      btn.textContent = "Generating…";
       try {
         await exportAllStudents(state.students, state.groups, includeTrials);
       } catch (err) {
@@ -1795,7 +1795,7 @@ function renderExportButtons() {
 
 async function renderRecentlyDeleted() {
   $("manage-modal-title").textContent = "Recently Deleted (30 days)";
-  $("manage-modal-body").innerHTML = `<p style="padding:1rem;color:var(--text-muted)">Loadingâ€¦</p>`;
+  $("manage-modal-body").innerHTML = `<p style="padding:1rem;color:var(--text-muted)">Loading…</p>`;
   $("manage-modal").classList.remove("hidden");
 
   let items;
@@ -1819,22 +1819,22 @@ async function renderRecentlyDeleted() {
     const sessionWord = item.sessionCount === 1 ? "session" : "sessions";
     return `
       <div style="border:1px solid #e5e7eb;border-radius:.6rem;padding:.9rem 1rem;margin:.6rem .75rem">
-        <div style="font-size:.8rem;color:var(--text-muted);margin-bottom:.25rem">${escHtml(item.entityName)} Â· ${escHtml(item.targetName)}</div>
+        <div style="font-size:.8rem;color:var(--text-muted);margin-bottom:.25rem">${escHtml(item.entityName)} · ${escHtml(item.targetName)}</div>
         <div style="font-weight:600;font-size:.9rem;margin-bottom:.35rem">${escHtml(item.activityName)}</div>
         <div style="font-size:.8rem;color:var(--text-muted);margin-bottom:.6rem">
-          ${item.sessionCount} ${sessionWord} of data Â· deleted ${dateStr} Â·
+          ${item.sessionCount} ${sessionWord} of data · deleted ${dateStr} ·
           <span style="color:${daysLeft <= 3 ? "#dc2626" : "#6b7280"}">${daysLeft} day${daysLeft !== 1 ? "s" : ""} left</span>
         </div>
         <div style="display:flex;gap:.5rem">
-          <button class="btn-primary-sm btn-trash-restore" data-idx="${i}" style="flex:1">â†© Restore</button>
-          <button class="btn-adm-danger btn-trash-delete" data-idx="${i}" style="flex:1">ðŸ—‘ Delete permanently</button>
+          <button class="btn-primary-sm btn-trash-restore" data-idx="${i}" style="flex:1">↩ Restore</button>
+          <button class="btn-adm-danger btn-trash-delete" data-idx="${i}" style="flex:1">🗑 Delete permanently</button>
         </div>
       </div>`;
   }).join("");
 
   $("manage-modal-body").innerHTML = `
     <p style="padding:.75rem 1rem .25rem;font-size:.8rem;color:var(--text-muted)">
-      ${items.length} item${items.length !== 1 ? "s" : ""} in trash â€” automatically purged after 30 days.
+      ${items.length} item${items.length !== 1 ? "s" : ""} in trash — automatically purged after 30 days.
     </p>${rows}`;
 
   $("manage-modal-body").querySelectorAll(".btn-trash-restore").forEach(btn => {
@@ -1842,14 +1842,14 @@ async function renderRecentlyDeleted() {
       const item = items[Number(btn.dataset.idx)];
       if (!item) return;
       btn.disabled = true;
-      btn.textContent = "Restoringâ€¦";
+      btn.textContent = "Restoring…";
       try {
         await restoreTrashItem(item.id);
         renderRecentlyDeleted();
       } catch (err) {
         console.error("Restore failed:", err);
         btn.disabled = false;
-        btn.textContent = "â†© Restore";
+        btn.textContent = "↩ Restore";
         alert("Restore failed: " + err.message);
       }
     });
@@ -1865,7 +1865,7 @@ async function renderRecentlyDeleted() {
       overlay.dataset.delOverlay = "1";
       overlay.style.cssText = "position:absolute;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:200;border-radius:.75rem";
       overlay.innerHTML = `<div style="background:#fff;padding:1.25rem 1.25rem 1rem;border-radius:.75rem;width:min(280px,90%);box-shadow:0 4px 24px rgba(0,0,0,.25)">
-        <p style="font-size:.85rem;margin:0 0 .5rem;color:#111;font-weight:600">âš ï¸ Permanently delete <span style="color:#dc2626">${item.sessionCount} session${item.sessionCount !== 1 ? "s" : ""}</span> of data for "${escHtml(item.activityName)}"? This cannot be undone.</p>
+        <p style="font-size:.85rem;margin:0 0 .5rem;color:#111;font-weight:600">⚠️ Permanently delete <span style="color:#dc2626">${item.sessionCount} session${item.sessionCount !== 1 ? "s" : ""}</span> of data for "${escHtml(item.activityName)}"? This cannot be undone.</p>
         <p style="font-size:.8rem;margin:0 0 .6rem;color:#6b7280">Type <strong>${confirmWord}</strong> to confirm:</p>
         <input id="del-type-input" type="text" autocomplete="off" inputmode="numeric"
           style="width:100%;box-sizing:border-box;padding:.45rem .6rem;border:2px solid #d1d5db;border-radius:.4rem;font-size:1.1rem;text-align:center;outline:none;margin-bottom:.75rem" placeholder="${confirmWord}">
@@ -1910,31 +1910,31 @@ function showStudentChoice(student) {
   $("session-picker-list").innerHTML = `
     <div class="choice-list">
       <button class="choice-btn choice-today">
-        <span class="choice-icon">â–¶ï¸</span>
+        <span class="choice-icon">▶️</span>
         <div class="choice-text">
           <div class="choice-label">Start Session</div>
         </div>
       </button>
       <button class="choice-btn choice-other">
-        <span class="choice-icon">ðŸ—‚ï¸</span>
+        <span class="choice-icon">🗂️</span>
         <div class="choice-text">
           <div class="choice-label">View/Edit Past Sessions</div>
         </div>
       </button>
       <button class="choice-btn choice-manage">
-        <span class="choice-icon">âœï¸</span>
+        <span class="choice-icon">✏️</span>
         <div class="choice-text">
           <div class="choice-label">Manage Student</div>
         </div>
       </button>
       <button class="choice-btn choice-export-excel">
-        <span class="choice-icon">ðŸ“Š</span>
+        <span class="choice-icon">📊</span>
         <div class="choice-text">
           <div class="choice-label">Export to Excel (Yearly Summary)</div>
         </div>
       </button>
       <button class="choice-btn choice-export-word">
-        <span class="choice-icon">ðŸ“</span>
+        <span class="choice-icon">📝</span>
         <div class="choice-text">
           <div class="choice-label">Export to Word (Daily Session Note)</div>
         </div>
@@ -1991,7 +1991,7 @@ function showStudentChoice(student) {
       const displayDate = `${ty}-${String(tm).padStart(2,"0")}-01`;
       // Render immediately so iPad doesn't see a frozen UI while waiting for network
       renderStartSessionCalendar(student, today, displayDate, new Set());
-      // Use the pre-fetched promise â€” likely already resolved by now
+      // Use the pre-fetched promise — likely already resolved by now
       sessionsFetch
         .then(sessions => {
           // Filter out empty sessions so stale Firestore docs don't show phantom checkmarks.
@@ -2028,7 +2028,7 @@ function showStudentChoice(student) {
 async function showSessionPicker(student) {
   $("session-picker-title").textContent = student.name;
   $("session-picker-list").innerHTML =
-    `<div class="session-picker-loading">Loading sessionsâ€¦</div>`;
+    `<div class="session-picker-loading">Loading sessions…</div>`;
   $("session-picker-modal").classList.remove("hidden");
 
   let sessions = [];
@@ -2107,7 +2107,7 @@ function renderSessionsForMonth(student, month, monthSessions, byMonth, today, s
   $("session-picker-title").textContent = month;
 
   const list = $("session-picker-list");
-  let html = `<button class="btn-picker-back">â† Back</button>`;
+  let html = `<button class="btn-picker-back">← Back</button>`;
 
   const sorted  = [...monthSessions].sort((a, b) => a.date.localeCompare(b.date));
   const display = [...sorted].reverse();
@@ -2128,7 +2128,7 @@ function renderSessionsForMonth(student, month, monthSessions, byMonth, today, s
 }
 
 // "Pick a Date" calendar: jump straight to any past/today date's View/Edit
-// screen â€” if that date has no session yet, one is created blank (and will
+// screen — if that date has no session yet, one is created blank (and will
 // be auto-deleted on the way out, same as any other empty session, if
 // nothing ends up typed into it).
 function renderPickDateCalendar(student, sessions, byMonth, today, displayDate) {
@@ -2143,14 +2143,14 @@ function renderPickDateCalendar(student, sessions, byMonth, today, displayDate) 
   const firstDow  = new Date(y, m - 1, 1).getDay();
   const daysInMon = new Date(y, m, 0).getDate();
 
-  let html = `<button class="btn-picker-back">â† Back</button>
+  let html = `<button class="btn-picker-back">← Back</button>
     <div class="date-picker-wrap">
-    <p class="date-picker-legend"><span class="date-taken-dot">âœ“ï¸Ž</span> Session recorded on this day</p>
+    <p class="date-picker-legend"><span class="date-taken-dot">✓︎</span> Session recorded on this day</p>
     <div class="date-picker-cal">
       <div class="date-picker-nav">
-        <button class="btn-date-prev">â€¹</button>
+        <button class="btn-date-prev">‹</button>
         <span class="date-picker-month-label">${escHtml(monthLabel)}</span>
-        <button class="btn-date-next"${canNext ? "" : " disabled"}>â€º</button>
+        <button class="btn-date-next"${canNext ? "" : " disabled"}>›</button>
       </div>
       <div class="date-picker-day-headers">
         <span>Su</span><span>Mo</span><span>Tu</span><span>We</span>
@@ -2168,7 +2168,7 @@ function renderPickDateCalendar(student, sessions, byMonth, today, displayDate) 
     if (isFut)   cls += " date-picker-day-future";
     if (isTaken) cls += " date-picker-day-taken";
     const dotCls = isTaken ? "date-taken-dot" : "day-dot-spacer";
-    html += `<button class="${cls}" data-date="${ds}"${isFut ? " disabled" : ""}><span class="day-num">${d}</span><span class="${dotCls}">${isTaken ? "âœ“ï¸Ž" : ""}</span></button>`;
+    html += `<button class="${cls}" data-date="${ds}"${isFut ? " disabled" : ""}><span class="day-num">${d}</span><span class="${dotCls}">${isTaken ? "✓︎" : ""}</span></button>`;
   }
   html += `</div></div></div>`;
 
@@ -2203,9 +2203,9 @@ function closeSessionPicker() {
 $("session-picker-close").addEventListener("click",    closeSessionPicker);
 $("session-picker-backdrop").addEventListener("click", closeSessionPicker);
 
-// â”€â”€â”€ EXPORT TO EXCEL: Trials column choice â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── EXPORT TO EXCEL: Trials column choice ───────────────────
 // Shared by individual students, group members, and the home screen's
-// Backup Database â€” Excel export always asks this explicitly with two
+// Backup Database — Excel export always asks this explicitly with two
 // buttons rather than a browser confirm() dialog. onExport(includeTrials)
 // does the actual export.
 function showExportTrialsChoice(entityLabel, onExport) {
@@ -2213,11 +2213,11 @@ function showExportTrialsChoice(entityLabel, onExport) {
   $("session-picker-list").innerHTML = `
     <div class="choice-list">
       <button class="choice-btn choice-trials-yes">
-        <span class="choice-icon">ðŸ“Š</span>
+        <span class="choice-icon">📊</span>
         <div class="choice-text"><div class="choice-label">Export with Trials</div></div>
       </button>
       <button class="choice-btn choice-trials-no">
-        <span class="choice-icon">ðŸ“Š</span>
+        <span class="choice-icon">📊</span>
         <div class="choice-text"><div class="choice-label">Export without Trials</div></div>
       </button>
     </div>`;
@@ -2225,7 +2225,7 @@ function showExportTrialsChoice(entityLabel, onExport) {
 
   const run = async (btn, includeTrials) => {
     btn.disabled = true;
-    btn.querySelector(".choice-label").textContent = "Generatingâ€¦";
+    btn.querySelector(".choice-label").textContent = "Generating…";
     try { await onExport(includeTrials); } catch (err) { alert("Export failed: " + err.message); }
     closeSessionPicker();
   };
@@ -2233,13 +2233,13 @@ function showExportTrialsChoice(entityLabel, onExport) {
   $("session-picker-list").querySelector(".choice-trials-no").addEventListener("click", e => run(e.currentTarget, false));
 }
 
-// â”€â”€â”€ EXPORT NOTES TO WORD (shared by individual students and group members) â”€
+// ─── EXPORT NOTES TO WORD (shared by individual students and group members) ─
 // entityLabel: display name shown in the picker.
 // getSessions(): fetches the full session list to populate the day picker.
 // onExportSingle(session): exports the one picked session as a Word doc.
 async function showExportSessionPickerGeneric(entityLabel, getSessions, onExportSingle) {
   $("session-picker-title").textContent = entityLabel;
-  $("session-picker-list").innerHTML = `<div class="session-picker-loading">Loading sessionsâ€¦</div>`;
+  $("session-picker-list").innerHTML = `<div class="session-picker-loading">Loading sessions…</div>`;
   $("session-picker-modal").classList.remove("hidden");
 
   let sessions = [];
@@ -2287,7 +2287,7 @@ function renderExportSessionsForMonth(entityLabel, month, monthSessions, byMonth
   $("session-picker-title").textContent = month;
 
   const list = $("session-picker-list");
-  let html = `<button class="btn-picker-back">â† Back</button>`;
+  let html = `<button class="btn-picker-back">← Back</button>`;
   html += `<p class="session-date-prompt">Choose a session note to export:</p>`;
 
   const sorted  = [...monthSessions].sort((a, b) => a.date.localeCompare(b.date));
@@ -2303,7 +2303,7 @@ function renderExportSessionsForMonth(entityLabel, month, monthSessions, byMonth
   list.querySelectorAll(".session-list-item").forEach(item => {
     item.addEventListener("click", async () => {
       const session = sorted.find(s => s.id === item.dataset.sessionId);
-      $("session-picker-title").textContent = "Generatingâ€¦";
+      $("session-picker-title").textContent = "Generating…";
       closeSessionPicker();
       try {
         await onExportSingle(session);
@@ -2314,7 +2314,7 @@ function renderExportSessionsForMonth(entityLabel, month, monthSessions, byMonth
   });
 }
 
-// Group export (Excel or Word) exports one student at a time â€” ask which
+// Group export (Excel or Word) exports one student at a time — ask which
 // student in this group first. mode "excel" exports that student's full
 // yearly summary directly; mode "word" opens the day picker for a single
 // session's daily note.
@@ -2325,7 +2325,7 @@ function showGroupExportStudentPicker(group, mode) {
     ? `<div class="choice-list">` +
         students.map(name => `
           <button class="choice-btn choice-export-student" data-name="${escHtml(name)}">
-            <span class="choice-icon">ðŸ“¤</span>
+            <span class="choice-icon">📤</span>
             <div class="choice-text"><div class="choice-label">${escHtml(name)}</div></div>
           </button>
         `).join("") +
@@ -2349,11 +2349,11 @@ function showGroupExportStudentPicker(group, mode) {
   });
 }
 
-// â”€â”€â”€ GO TO ANOTHER SESSION â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── GO TO ANOTHER SESSION ───────────────────────────────────
 // Opens session-picker starting at the current session's month.
 async function showGoToAnotherSession(student) {
   $("session-picker-title").textContent = student.name;
-  $("session-picker-list").innerHTML = `<div class="session-picker-loading">Loading sessionsâ€¦</div>`;
+  $("session-picker-list").innerHTML = `<div class="session-picker-loading">Loading sessions…</div>`;
   $("session-picker-modal").classList.remove("hidden");
 
   let sessions = [];
@@ -2423,7 +2423,7 @@ function renderGoToSessionsForMonth(student, month, monthSessions, byMonth, toda
   $("session-picker-title").textContent = month;
   const sorted  = [...monthSessions].sort((a, b) => a.date.localeCompare(b.date));
   const display = [...sorted].reverse();
-  let html = `<button class="btn-picker-back">â† Back</button>`;
+  let html = `<button class="btn-picker-back">← Back</button>`;
   html += renderSessionListRows(sorted, display, today, { isCurrentId: state.viewSessionId });
   const list = $("session-picker-list");
   list.innerHTML = html;
@@ -2439,13 +2439,13 @@ function renderGoToSessionsForMonth(student, month, monthSessions, byMonth, toda
   });
 }
 
-// Header "Go To Another Session" button on the live entry screen â€” same
+// Header "Go To Another Session" button on the live entry screen — same
 // month-grid-then-list flow as the View screen's equivalent button, but
 // jumps into live entry instead of View/Edit (openSession instead of
 // openSessionView) when a session is picked.
 async function showGoToAnotherSessionForEntry(student) {
   $("session-picker-title").textContent = student.name;
-  $("session-picker-list").innerHTML = `<div class="session-picker-loading">Loading sessionsâ€¦</div>`;
+  $("session-picker-list").innerHTML = `<div class="session-picker-loading">Loading sessions…</div>`;
   $("session-picker-modal").classList.remove("hidden");
 
   let sessions = [];
@@ -2514,7 +2514,7 @@ function renderGoToSessionsForMonthEntry(student, month, monthSessions, byMonth,
   $("session-picker-title").textContent = month;
   const sorted  = [...monthSessions].sort((a, b) => a.date.localeCompare(b.date));
   const display = [...sorted].reverse();
-  let html = `<button class="btn-picker-back">â† Back</button>`;
+  let html = `<button class="btn-picker-back">← Back</button>`;
   html += renderSessionListRows(sorted, display, today, { isCurrentId: state.currentSessionId });
   const list = $("session-picker-list");
   list.innerHTML = html;
@@ -2530,13 +2530,13 @@ function renderGoToSessionsForMonthEntry(student, month, monthSessions, byMonth,
   });
 }
 
-// â”€â”€â”€ CUSTOM DATE PICKER â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── CUSTOM DATE PICKER ───────────────────────────────────────
 async function showEditDatePicker() {
   const student     = state.viewStudent;
   const currentDate = state.viewSessionData.date;
 
   $("session-picker-title").textContent = "Edit Date";
-  $("session-picker-list").innerHTML = `<div class="session-picker-loading">Loadingâ€¦</div>`;
+  $("session-picker-list").innerHTML = `<div class="session-picker-loading">Loading…</div>`;
   $("session-picker-modal").classList.remove("hidden");
 
   let sessions = [];
@@ -2561,12 +2561,12 @@ function renderStartSessionCalendar(student, today, displayDate, takenDates = ne
   const daysInMon = new Date(y, m, 0).getDate();
 
   let html = `<div class="date-picker-wrap">
-    <p class="date-picker-legend"><span class="date-taken-dot">âœ“ï¸Ž</span> Session exists on this day</p>
+    <p class="date-picker-legend"><span class="date-taken-dot">✓︎</span> Session exists on this day</p>
     <div class="date-picker-cal">
       <div class="date-picker-nav">
-        <button class="btn-date-prev">â€¹</button>
+        <button class="btn-date-prev">‹</button>
         <span class="date-picker-month-label">${escHtml(monthLabel)}</span>
-        <button class="btn-date-next"${canNext ? "" : " disabled"}>â€º</button>
+        <button class="btn-date-next"${canNext ? "" : " disabled"}>›</button>
       </div>
       <div class="date-picker-day-headers">
         <span>Su</span><span>Mo</span><span>Tu</span><span>We</span>
@@ -2584,7 +2584,7 @@ function renderStartSessionCalendar(student, today, displayDate, takenDates = ne
     if (isFut)   cls += " date-picker-day-future";
     if (isTaken) cls += " date-picker-day-taken";
     const dotCls = isTaken ? "date-taken-dot" : "day-dot-spacer";
-    html += `<button class="${cls}" data-date="${ds}"${isFut ? " disabled" : ""}><span class="day-num">${d}</span><span class="${dotCls}">${isTaken ? "âœ“ï¸Ž" : ""}</span></button>`;
+    html += `<button class="${cls}" data-date="${ds}"${isFut ? " disabled" : ""}><span class="day-num">${d}</span><span class="${dotCls}">${isTaken ? "✓︎" : ""}</span></button>`;
   }
   html += `</div></div></div>`;
 
@@ -2620,12 +2620,12 @@ function renderGroupStartSessionCalendar(group, today, displayDate, takenDates =
   const daysInMon = new Date(y, m, 0).getDate();
 
   let html = `<div class="date-picker-wrap">
-    <p class="date-picker-legend"><span class="date-taken-dot">âœ“ï¸Ž</span> Session exists on this day</p>
+    <p class="date-picker-legend"><span class="date-taken-dot">✓︎</span> Session exists on this day</p>
     <div class="date-picker-cal">
       <div class="date-picker-nav">
-        <button class="btn-date-prev">â€¹</button>
+        <button class="btn-date-prev">‹</button>
         <span class="date-picker-month-label">${escHtml(monthLabel)}</span>
-        <button class="btn-date-next"${canNext ? "" : " disabled"}>â€º</button>
+        <button class="btn-date-next"${canNext ? "" : " disabled"}>›</button>
       </div>
       <div class="date-picker-day-headers">
         <span>Su</span><span>Mo</span><span>Tu</span><span>We</span>
@@ -2643,7 +2643,7 @@ function renderGroupStartSessionCalendar(group, today, displayDate, takenDates =
     if (isFut)   cls += " date-picker-day-future";
     if (isTaken) cls += " date-picker-day-taken";
     const dotCls = isTaken ? "date-taken-dot" : "day-dot-spacer";
-    html += `<button class="${cls}" data-date="${ds}"${isFut ? " disabled" : ""}><span class="day-num">${d}</span><span class="${dotCls}">${isTaken ? "âœ“ï¸Ž" : ""}</span></button>`;
+    html += `<button class="${cls}" data-date="${ds}"${isFut ? " disabled" : ""}><span class="day-num">${d}</span><span class="${dotCls}">${isTaken ? "✓︎" : ""}</span></button>`;
   }
   html += `</div></div></div>`;
 
@@ -2682,12 +2682,12 @@ function renderDatePickerCalendar(displayDate, takenDates, today, currentDate) {
 
   let html = `<div class="date-picker-wrap">
     <p class="date-picker-subtitle">Select a new date</p>
-    <p class="date-picker-legend"><span class="date-taken-dot">âœ“ï¸Ž</span> Session exists on this day</p>
+    <p class="date-picker-legend"><span class="date-taken-dot">✓︎</span> Session exists on this day</p>
     <div class="date-picker-cal">
       <div class="date-picker-nav">
-        <button class="btn-date-prev">â€¹</button>
+        <button class="btn-date-prev">‹</button>
         <span class="date-picker-month-label">${escHtml(monthLabel)}</span>
-        <button class="btn-date-next"${canNext ? "" : " disabled"}>â€º</button>
+        <button class="btn-date-next"${canNext ? "" : " disabled"}>›</button>
       </div>
       <div class="date-picker-day-headers">
         <span>Su</span><span>Mo</span><span>Tu</span><span>We</span>
@@ -2709,7 +2709,7 @@ function renderDatePickerCalendar(displayDate, takenDates, today, currentDate) {
     if (isFut)   cls += " date-picker-day-future";
     if (isTaken) cls += " date-picker-day-taken";
     const dotCls = isTaken ? "date-taken-dot" : "day-dot-spacer";
-    html += `<button class="${cls}" data-date="${ds}"${dis ? " disabled" : ""}><span class="day-num">${d}</span><span class="${dotCls}">${isTaken ? "âœ“ï¸Ž" : ""}</span></button>`;
+    html += `<button class="${cls}" data-date="${ds}"${dis ? " disabled" : ""}><span class="day-num">${d}</span><span class="${dotCls}">${isTaken ? "✓︎" : ""}</span></button>`;
   }
   html += `</div></div></div>`;
 
@@ -2749,7 +2749,7 @@ function getEffectiveTargets() {
 async function openSession(student, existingSessionId = null, dateStr = null) {
   // Jumping to another date for the SAME student via "Go To Another
   // Session" should land back on whatever target they were already
-  // looking at, not silently reset to the first target in the list â€”
+  // looking at, not silently reset to the first target in the list —
   // only a genuine student switch starts fresh.
   const preservedTargetName = state.currentStudent?.id === student.id ? state.selectedTargetName : null;
   state.currentStudent     = student;
@@ -2762,8 +2762,8 @@ async function openSession(student, existingSessionId = null, dateStr = null) {
   showScreen("screen-session");
   $("session-student-name").textContent = student.name;
   $("session-meta").textContent = "";
-  $("target-content").innerHTML = `<div class="loading">Loadingâ€¦</div>`;
-  $("target-select").innerHTML  = `<option value="">â€” loading â€”</option>`;
+  $("target-content").innerHTML = `<div class="loading">Loading…</div>`;
+  $("target-select").innerHTML  = `<option value="">— loading —</option>`;
   $("btn-manage-targets")?.classList.add("hidden");
   $("target-type-chip")?.classList.add("hidden");
 
@@ -2803,12 +2803,12 @@ async function openSession(student, existingSessionId = null, dateStr = null) {
         // (Select one / Tick boxes / Sentence Starter + either, or + Select
         // One + Free Text) so the boss can start picking immediately
         // instead of clicking "+ Add Remark & Trials" first. Free text and
-        // Sentence Starter + Free Text stay collapsed â€” there's nothing to
+        // Sentence Starter + Free Text stay collapsed — there's nothing to
         // pre-open for those. If any are created the Firestore write
-        // triggers another snapshot which will render â€” so we return early
+        // triggers another snapshot which will render — so we return early
         // here to avoid a stale render. Wrapped in try/catch: an uncaught
         // error here (e.g. malformed target config) would otherwise leave
-        // the screen stuck on "Loadingâ€¦" forever, since nothing below this
+        // the screen stuck on "Loading…" forever, since nothing below this
         // line would ever run.
         try {
           const structuredFilled = await autoFillStructuredRemarks(student, sessionId);
@@ -2826,11 +2826,11 @@ async function openSession(student, existingSessionId = null, dateStr = null) {
         renderScoreModalTrials(state.scorePicker.remId);
       }
       // Busy = dropdown open, or a button's own multi-step Firestore write
-      // still in flight. Typing/focus itself never needs to defer a render â€”
+      // still in flight. Typing/focus itself never needs to defer a render —
       // captureActiveEditState/restoreActiveEditState (see renderTargetContent)
       // protect an in-progress edit through any render regardless of timing,
       // so gating on "is a box focused" here would only ever add delay, never
-      // safety â€” including deferring forever while the user keeps typing
+      // safety — including deferring forever while the user keeps typing
       // (which is exactly what made "+Add Remark & Trials" look like it
       // wasn't registering when clicked soon after typing elsewhere).
       const isEntryBusy = () => document.activeElement === $("target-select")
@@ -2838,7 +2838,7 @@ async function openSession(student, existingSessionId = null, dateStr = null) {
       if (isEntryBusy()) {
         state.renderPending = true;
       } else {
-        // Re-check at fire time, not just now â€” an action button can be
+        // Re-check at fire time, not just now — an action button can be
         // mousedown'd (and thus guarded via entryActionsInFlight, see its
         // "mousedown" listener) in the gap between scheduling and running
         // this timeout, and rendering would destroy that button before its
@@ -2878,13 +2878,13 @@ async function leaveSession() {
   state.renderPending      = false;
 
   if (sessionId && data) {
-    const stripEmpty = s => (s || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").replace(/Â /g, " ").trim();
+    const stripEmpty = s => (s || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").replace(/ /g, " ").trim();
     const currentTargetNames = new Set((student?.targets || []).map(t => t.name));
     const fedcHasData = Object.values(data.fedcComments || {}).some(c => stripEmpty(c).length > 0);
     const remarkHasData = Object.values(data.remarks || {}).some(r => {
       const act = (data.activities || {})[r.activityId];
       if (!act) return false;
-      // Count data under ANY targetName â€” if a target was renamed and the
+      // Count data under ANY targetName — if a target was renamed and the
       // propagation didn't finish, activities under the old name still contain
       // real data that must not make this session look "empty" and get deleted.
       return stripEmpty(r.text).length > 0
@@ -2909,16 +2909,16 @@ function updateSessionHeader() {
   const d = state.sessionData;
   if (!d) return;
   // sessionNumber is this student's lifetime individual-session count (see
-  // getIndividualSessionsForStudent â€” independent of their group session
-  // count) â€” no longer scoped to "this month", so it's shown plainly
+  // getIndividualSessionsForStudent — independent of their group session
+  // count) — no longer scoped to "this month", so it's shown plainly
   // rather than as "X of [Month]".
   $("session-meta").textContent =
-    `Session ${d.sessionNumber} Â· ${formatDate(d.date)}`;
+    `Session ${d.sessionNumber} · ${formatDate(d.date)}`;
 }
 
 
 // Shared by individual + group target dropdowns, the Manage Targets reorder
-// list, and the Word/Excel exports â€” keeps display order consistent with
+// list, and the Word/Excel exports — keeps display order consistent with
 // whatever the boss last dragged it to, falling back to alphabetical for
 // any target predating the order field.
 function sortTargetsByOrder(targets) {
@@ -2929,11 +2929,11 @@ function populateTargetDropdown(targets) {
   const sel = $("target-select");
   const sorted = sortTargetsByOrder(targets);
   const placeholder = sorted.length === 0
-    ? `<option value="" disabled selected>â€” no targets yet â€”</option>` : "";
+    ? `<option value="" disabled selected>— no targets yet —</option>` : "";
   sel.innerHTML = placeholder +
     sorted.map(t =>
       `<option value="${escHtml(t.name)}">${escHtml(t.name)}</option>`
-    ).join("") + `<option value="__add_target__">+ Add Targetâ€¦</option>`;
+    ).join("") + `<option value="__add_target__">+ Add Target…</option>`;
 
   sel.value = state.selectedTargetName || sorted[0]?.name || "";
 
@@ -2951,7 +2951,7 @@ function populateTargetDropdown(targets) {
     }
     const prevTarget = state.selectedTargetName;
     // Flush any not-yet-saved typing on the target we're leaving before the
-    // cleanup below decides what's "empty" â€” otherwise a just-typed remark
+    // cleanup below decides what's "empty" — otherwise a just-typed remark
     // can lose the race against the still-stale local session data and get
     // deleted as if it were never entered.
     await state.entryRemarkSaver?.flush();
@@ -2965,7 +2965,7 @@ function populateTargetDropdown(targets) {
     }
     // A <select> keeps focus after its own change event fires, and the
     // busy-check in openSession's listener treats "the dropdown is focused"
-    // as "still choosing" â€” so leaving it focused here would block every
+    // as "still choosing" — so leaving it focused here would block every
     // future render until the user happens to click elsewhere.
     sel.blur();
     // Also run auto-fills on target switch: the Firestore snapshot listener
@@ -2984,9 +2984,9 @@ function populateTargetDropdown(targets) {
 
 $("btn-back").addEventListener("click", leaveSession);
 
-// â”€â”€ Session page zoom controls â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Session page zoom controls ────────────────────────────────
 // Stored in localStorage so zoom level persists across sessions.
-// Applies CSS zoom to session-body only â€” header stays fixed size.
+// Applies CSS zoom to session-body only — header stays fixed size.
 (function initSessionZoom() {
   const ZOOM_KEY  = "session-zoom";
   const ZOOM_MIN  = 0.7;
@@ -3036,9 +3036,9 @@ function resolveMappedScoreDisplay(pa, visited) {
 }
 
 // visited guards against a circular mapping chain (A maps to B, B maps back
-// to A) recursing forever â€” direct self-mapping is already blocked in the
+// to A) recursing forever — direct self-mapping is already blocked in the
 // Edit Target picker, but this is a defensive backstop, not the primary guard.
-// One percentage per remark/activity, averaged equally â€” same method as
+// One percentage per remark/activity, averaged equally — same method as
 // calcViewDayAvg (View screen) and export.js's calcDailyAverage, so the live
 // entry screen's day average always agrees with the View screen and every
 // export instead of pooling raw trial points (which let activities with more
@@ -3103,11 +3103,11 @@ function renderTargetContent() {
 
   const avg = calcDaysAverage(target);
   const avgEl = $("days-average-value");
-  if (avgEl) avgEl.textContent = avg !== null ? avg + "%" : "â€”";
+  if (avgEl) avgEl.textContent = avg !== null ? avg + "%" : "—";
 
   const container = $("target-content");
   // Replacing innerHTML resets the scrolling ancestor's scrollTop to 0 in
-  // every browser â€” capture/restore around the swap so clicking a button
+  // every browser — capture/restore around the swap so clicking a button
   // (which has no cursor position for captureActiveEditState to preserve)
   // doesn't yank the page back to the top.
   const scrollHost = container.closest(".session-body");
@@ -3122,7 +3122,7 @@ function renderTargetContent() {
   if (scrollHost) scrollHost.scrollTop = scrollTop;
 }
 
-// â”€â”€â”€ FEDC TARGET â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── FEDC TARGET ─────────────────────────────────────────────
 
 function renderFedcTarget(target) {
   let html = "";
@@ -3146,12 +3146,12 @@ function renderFedcTarget(target) {
     if (!isActivityActive(pa, sessionDateForFilter)) return;
     // Sub-activities are rendered within their parent's group block
     if (pa.parentActivity) return;
-    // Note item â€” render inline in order, styled like a section heading
+    // Note item — render inline in order, styled like a section heading
     if (pa.isNote || pa.isExportNote) {
       if (pa.text) {
         const noteTag = pa.isExportNote
-          ? `<div style="font-size:.82rem;color:#c2410c;margin-bottom:.25rem">ðŸ“„ Included in Word export</div>`
-          : `<div style="font-size:.82rem;color:#9a3412;margin-bottom:.25rem">ðŸ”’ This note is for ZORA's use only. Excluded from Word report</div>`;
+          ? `<div style="font-size:.82rem;color:#c2410c;margin-bottom:.25rem">📄 Included in Word export</div>`
+          : `<div style="font-size:.82rem;color:#9a3412;margin-bottom:.25rem">🔒 This note is for ZORA's use only. Excluded from Word report</div>`;
         html += `<div class="entry-block" contenteditable="false" style="border-left:4px solid #f59e0b;">
           <div class="entry-field">
             <span class="field-label" style="color:#b45309">Note</span>
@@ -3162,7 +3162,7 @@ function renderFedcTarget(target) {
       return;
     }
 
-    // Heading rows â€” blue, gray, or green based on headingColor property
+    // Heading rows — blue, gray, or green based on headingColor property
     if (pa.isHeading || pa.isMaintainHeading) {
       const isGray  = pa.headingColor === "gray" || pa.isMaintainHeading;
       const isGreen = pa.headingColor === "green";
@@ -3177,7 +3177,7 @@ function renderFedcTarget(target) {
     if (pa.isCompleted || pa.isArchived || pa.isStopped) return;
 
     actNum++;
-    // Fixed remark activity â€” shown read-only with color block styling
+    // Fixed remark activity — shown read-only with color block styling
     const isFixed = pa.fixedRemark !== undefined || pa.isMaintain;
     if (isFixed) {
       const fixedText = pa.fixedRemark ?? pa.maintainRemark ?? "";
@@ -3209,7 +3209,7 @@ function renderFedcTarget(target) {
       lastGroup = null;
     }
 
-    // Parent activity with sub-activities â€” render as a connected visual group
+    // Parent activity with sub-activities — render as a connected visual group
     const children = subActsByParent.get(pa.name) || [];
     if (children.length > 0) {
       const isGrayP  = pa.activityColor === "gray" || pa.isMaintainLive;
@@ -3296,7 +3296,7 @@ function renderFedcTarget(target) {
       </div>`;
     }
 
-    // Reference notes (a, b, câ€¦ sub-items)
+    // Reference notes (a, b, c… sub-items)
     if (pa.note && pa.note.length > 0) {
       const noteHtml = pa.note.map((line, i) =>
         `${letters[i]}) ${escHtml(line)}`
@@ -3350,7 +3350,7 @@ function renderFedcTarget(target) {
           data-original="${escHtml(act.activityName)}"
           data-saved-html="${escHtml(act.activityName)}" value="${escHtml(act.activityName)}" />
         <button class="btn-icon btn-delete-activity" contenteditable="false"
-          data-act-id="${act.id}" title="Delete activity">ðŸ—‘</button>
+          data-act-id="${act.id}" title="Delete activity">🗑</button>
       </div>`;
 
     for (const rem of remarks) {
@@ -3373,8 +3373,8 @@ function renderFedcTarget(target) {
       <div class="entry-field">
         <span class="field-label" contenteditable="false">Activity</span>
         <input type="text" id="new-activity-textarea" class="field-input"
-          placeholder="Type activity nameâ€¦ (Ctrl+Enter to save)" />
-        <button class="btn-icon btn-cancel-new-activity" contenteditable="false" title="Cancel">âœ•</button>
+          placeholder="Type activity name… (Ctrl+Enter to save)" />
+        <button class="btn-icon btn-cancel-new-activity" contenteditable="false" title="Cancel">✕</button>
       </div>
     </div>`;
   }
@@ -3397,8 +3397,8 @@ function renderFedcTarget(target) {
       if (pa.isNote || pa.isExportNote) {
         if (!pa.text) return '';
         const noteTag = pa.isExportNote
-          ? `<div style="font-size:.82rem;color:#c2410c;margin-bottom:.25rem">ðŸ“„ Included in Word export</div>`
-          : `<div style="font-size:.82rem;color:#9a3412;margin-bottom:.25rem">ðŸ”’ This note is for ZORA's use only. Excluded from Word report</div>`;
+          ? `<div style="font-size:.82rem;color:#c2410c;margin-bottom:.25rem">📄 Included in Word export</div>`
+          : `<div style="font-size:.82rem;color:#9a3412;margin-bottom:.25rem">🔒 This note is for ZORA's use only. Excluded from Word report</div>`;
         return `<div class="entry-block" contenteditable="false" style="border-left:4px solid #f59e0b;opacity:.3">
           <div class="entry-field">
             <span class="field-label" style="color:#b45309">Note</span>
@@ -3429,7 +3429,7 @@ function renderFedcTarget(target) {
       const items = pas.map(renderInactiveItem).filter(Boolean).join('');
       return `<div style="margin-top:.5rem">
         <button class="btn-inactive-toggle" contenteditable="false" style="display:flex;align-items:center;gap:.4rem;width:100%;padding:.4rem .6rem;background:none;border:1px dashed #d1d5db;border-radius:.4rem;cursor:pointer;font-size:.8rem;color:${color};text-align:left">
-          <span class="inactive-chevron" style="font-size:.7rem">â–¶</span> ${label} (${pas.length})
+          <span class="inactive-chevron" style="font-size:.7rem">▶</span> ${label} (${pas.length})
         </button>
         <div class="inactive-list" style="display:none;flex-direction:column;gap:.25rem;margin-top:.35rem">${items}</div>
       </div>`;
@@ -3444,7 +3444,7 @@ function renderFedcTarget(target) {
   return html;
 }
 
-// â”€â”€â”€ REGULAR TARGET â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── REGULAR TARGET ──────────────────────────────────────────
 
 function renderRegularTarget(target) {
   const activities = getActivitiesForTarget(target.name);
@@ -3453,7 +3453,7 @@ function renderRegularTarget(target) {
   if (target.notes?.length > 0) {
     html += `<div class="target-notes" contenteditable="false">`;
     for (const n of target.notes) {
-      if (n.text) html += `<div class="target-note-item">ðŸ“Œ ${escHtml(n.text)}</div>`;
+      if (n.text) html += `<div class="target-note-item">📌 ${escHtml(n.text)}</div>`;
     }
     html += `</div>`;
   }
@@ -3471,7 +3471,7 @@ function renderRegularTarget(target) {
           data-original="${escHtml(act.activityName)}"
           data-saved-html="${escHtml(act.activityName)}" value="${escHtml(act.activityName)}" />
         <button class="btn-icon btn-delete-activity" contenteditable="false"
-          data-act-id="${act.id}" title="Delete activity">ðŸ—‘</button>
+          data-act-id="${act.id}" title="Delete activity">🗑</button>
       </div>`;
 
     for (const rem of remarks) {
@@ -3496,8 +3496,8 @@ function renderRegularTarget(target) {
       <div class="entry-field">
         <span class="field-label" contenteditable="false">Activity</span>
         <input type="text" id="new-activity-textarea" class="field-input"
-          placeholder="Type activity nameâ€¦ (Ctrl+Enter to save)" />
-        <button class="btn-icon btn-cancel-new-activity" contenteditable="false" title="Cancel">âœ•</button>
+          placeholder="Type activity name… (Ctrl+Enter to save)" />
+        <button class="btn-icon btn-cancel-new-activity" contenteditable="false" title="Cancel">✕</button>
       </div>
     </div>`;
   }
@@ -3530,7 +3530,7 @@ function remarkToHtml(text) {
 // contenteditable) so Grammarly, Enter, backspace and Ctrl+A all behave
 // natively per-field. Stored text can still contain legacy HTML markup
 // (literal "<br>" from the old contenteditable boxes, "<b>" from
-// remarkToHtml) â€” these two functions round-trip between that stored format
+// remarkToHtml) — these two functions round-trip between that stored format
 // and the plain text a textarea's .value can actually hold.
 function plainTextForEdit(html) {
   if (!html) return "";
@@ -3549,7 +3549,7 @@ function htmlForStorage(text) {
 }
 
 // Read-only display of activity name/note text that may contain
-// *bold*/_underline_ markers (typed via wrapTextareaSelection below) â€”
+// *bold*/_underline_ markers (typed via wrapTextareaSelection below) —
 // escapes the raw text first so it can't inject arbitrary HTML, then turns
 // the markers into real tags.
 function formatActivityMarkup(text) {
@@ -3558,7 +3558,7 @@ function formatActivityMarkup(text) {
     .replace(/_(.+?)_/g, "<u>$1</u>");
 }
 
-// A "word" for cursor-with-no-selection formatting â€” letters/digits/'/- so
+// A "word" for cursor-with-no-selection formatting — letters/digits/'/- so
 // "Self-Regulation" or "don't" count as one word, but stops at punctuation
 // like ":" or "(" so parenthesised text doesn't get swept in.
 function wordBoundsAt(value, pos) {
@@ -3570,7 +3570,7 @@ function wordBoundsAt(value, pos) {
 }
 
 // Finds a marker...marker pair anywhere in the text whose span (including
-// the markers themselves) overlaps [selStart, selEnd] â€” covers all 3 ways a
+// the markers themselves) overlaps [selStart, selEnd] — covers all 3 ways a
 // boss might re-select already-formatted text: just the inner words, the
 // whole "**text**" including the markers, or just a bare cursor resting
 // somewhere inside it.
@@ -3587,13 +3587,13 @@ function findMarkerSpan(value, selStart, selEnd, marker) {
 
 // Formats the current selection in a plain <textarea>/<input> with a marker
 // (* for bold, _ for underline) without going through the contenteditable
-// sketch popup â€” Activity Name/Notes are the only fields that use this; a
+// sketch popup — Activity Name/Notes are the only fields that use this; a
 // plain textarea can't render the result as real bold/underline inline, but
 // this avoids the popup entirely, which is what the boss asked for.
 //
 // Same toggle behaviour as a word processor's Ctrl+B: if the cursor/selection
 // overlaps an existing marker pair *in any way* (see findMarkerSpan above),
-// that pair is removed â€” it can never stack into "**text**" no matter
+// that pair is removed — it can never stack into "**text**" no matter
 // how it's re-selected. Otherwise, a bare cursor (no selection) expands to
 // the whole word under it before wrapping, instead of dropping markers with
 // nothing between them. Caller is responsible for keeping the field focused
@@ -3614,7 +3614,7 @@ function wrapTextareaSelection(el, marker) {
 
   if (start === end) {
     const word = wordBoundsAt(value, start);
-    if (word.end === word.start) return; // no word under the cursor â€” nothing to format
+    if (word.end === word.start) return; // no word under the cursor — nothing to format
     start = word.start; end = word.end;
   }
 
@@ -3626,13 +3626,13 @@ function wrapTextareaSelection(el, marker) {
   el.dispatchEvent(new Event("input", { bubbles: true }));
 }
 
-// Small "B"/"U"/"â€¢" buttons next to an Activity Name/Notes field â€” same wrap
+// Small "B"/"U"/"•" buttons next to an Activity Name/Notes field — same wrap
 // action as Ctrl+B/Ctrl+U/Ctrl+Shift+L, for anyone who doesn't know/use the shortcut.
 function formatButtonsHtml(inputId) {
   return `<span class="fmt-btn-group">
     <button class="btn-fmt btn-fmt-bold" type="button" data-input-id="${inputId}" title="Bold (Ctrl+B)">B</button>
     <button class="btn-fmt btn-fmt-underline" type="button" data-input-id="${inputId}" title="Underline (Ctrl+U)">U</button>
-    <button class="btn-fmt btn-fmt-bullet" type="button" data-input-id="${inputId}" title="Bullet point (Ctrl+Shift+L)">â€¢</button>
+    <button class="btn-fmt btn-fmt-bullet" type="button" data-input-id="${inputId}" title="Bullet point (Ctrl+Shift+L)">•</button>
   </span>`;
 }
 
@@ -3644,22 +3644,22 @@ function lineBoundsAt(value, pos) {
   return { start, end };
 }
 
-// A line "has a bullet" if it starts with the â€¢ marker (whatever indentation
-// precedes it) â€” checked with a plain regex, not a hidden flag, so a bullet
+// A line "has a bullet" if it starts with the • marker (whatever indentation
+// precedes it) — checked with a plain regex, not a hidden flag, so a bullet
 // typed by hand (bypassing the button entirely) is still recognized and can
 // still be toggled off, same as the bold/underline markers.
 function isBulletLine(line) {
-  return /^\s*â€¢\s?/.test(line);
+  return /^\s*•\s?/.test(line);
 }
 function addBulletMarker(line) {
-  return isBulletLine(line) ? line : "â€¢ " + line.replace(/^\s+/, "");
+  return isBulletLine(line) ? line : "• " + line.replace(/^\s+/, "");
 }
 function stripBulletMarker(line) {
-  return line.replace(/^(\s*)â€¢\s?/, "$1");
+  return line.replace(/^(\s*)•\s?/, "$1");
 }
 
 // Toggle bullet points on the line(s) touched by the current selection in a
-// plain <textarea> â€” same "format like Word" intent as wrapTextareaSelection,
+// plain <textarea> — same "format like Word" intent as wrapTextareaSelection,
 // but bullets are a per-line prefix rather than a paired inline marker, so
 // the logic works on whole lines instead of an arbitrary text span:
 // - A highlighted range only needs to touch part of a line to affect the
@@ -3671,7 +3671,7 @@ function stripBulletMarker(line) {
 // - A mixed selection (some lines already bulleted, some not) always adds
 //   bullets to every line, matching Word's behaviour for a mixed selection.
 // - Blank lines inside a multi-line selection are left alone (they're used
-//   as readability separators between rubric sections, not list items) â€”
+//   as readability separators between rubric sections, not list items) —
 //   but a bare cursor resting on a single blank line starts a fresh bullet
 //   right there, same as clicking the bullet button on an empty paragraph.
 function toggleBulletSelection(el) {
@@ -3681,7 +3681,7 @@ function toggleBulletSelection(el) {
   if (selStart === selEnd) {
     const { start, end } = lineBoundsAt(value, selStart);
     if (value.slice(start, end).trim() === "") {
-      el.value = value.slice(0, start) + "â€¢ " + value.slice(end);
+      el.value = value.slice(0, start) + "• " + value.slice(end);
       el.setSelectionRange(start + 2, start + 2);
       el.dispatchEvent(new Event("input", { bubbles: true }));
       return;
@@ -3706,14 +3706,14 @@ function toggleBulletSelection(el) {
   el.dispatchEvent(new Event("input", { bubbles: true }));
 }
 
-// â”€â”€â”€ REMARK FIELDS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── REMARK FIELDS ───────────────────────────────────────────
 
 function renderRemarkFields(rem, target, inlineOptions = null, sentenceStarter = null, multiSelect = false, mappedInfo = null, remarkHasNote = false, manualScore = false, optionScores = null) {
   const opts = parseOpts(inlineOptions);
 
   // Sync optionScore with current config whenever the target is re-rendered.
   // Covers the case where the user selects an option first (before points are
-  // configured), then goes to Edit Target, adds points, and returns â€” the stored
+  // configured), then goes to Edit Target, adds points, and returns — the stored
   // rem.optionScore would be stale or missing without this sync.
   if (!multiSelect && optionScores && rem.text && opts.includes(rem.text)) {
     const cfgScore = optionScores[rem.text];
@@ -3741,14 +3741,14 @@ function renderRemarkFields(rem, target, inlineOptions = null, sentenceStarter =
         placeholder="e.g. 5/20, 25% or 25"
         value="${escHtml(currentVal)}">${parsedHint}
       <button class="btn-icon btn-delete-remark" contenteditable="false"
-        data-rem-id="${rem.id}" title="Delete score">ðŸ—‘</button>
+        data-rem-id="${rem.id}" title="Delete score">🗑</button>
     </div>`;
   }
 
   const trials = rem.trials || [];
   const regularBadges = trials.map((score, idx) =>
-    `<span class="trial-badge">${score === -1 ? "â€”" : score}<button class="btn-trial-delete"
-      data-rem-id="${rem.id}" data-idx="${idx}">Ã—</button></span>`
+    `<span class="trial-badge">${score === -1 ? "—" : score}<button class="btn-trial-delete"
+      data-rem-id="${rem.id}" data-idx="${idx}">×</button></span>`
   ).join("");
   const optBadge = rem.optionScore !== undefined
     ? `<span class="trial-badge trial-badge--option">${rem.optionScore}</span>` : "";
@@ -3757,7 +3757,7 @@ function renderRemarkFields(rem, target, inlineOptions = null, sentenceStarter =
   const trailingField = mappedInfo
     ? `<div class="entry-field" contenteditable="false">
         <span class="field-label">${escHtml(mappedInfo.label)}</span>
-        <span class="field-value-fixed">${mappedInfo.pct !== null ? mappedInfo.pct + "%" : "â€”"}</span>
+        <span class="field-value-fixed">${mappedInfo.pct !== null ? mappedInfo.pct + "%" : "—"}</span>
       </div>`
     : `<div class="entry-field" contenteditable="false">
         <span class="field-label">Trials</span>
@@ -3791,7 +3791,7 @@ function renderRemarkFields(rem, target, inlineOptions = null, sentenceStarter =
 
   // Sketch board button only shown when there's a free-text input (no preset opt pills)
   const sketchBtn = opts.length === 0
-    ? `<button class="btn-sketch" contenteditable="false" data-rem-id="${rem.id}" aria-label="Open sketch board">âœ</button>`
+    ? `<button class="btn-sketch" contenteditable="false" data-rem-id="${rem.id}" aria-label="Open sketch board">✏</button>`
     : "";
 
   let remarkContent;
@@ -3808,16 +3808,16 @@ function renderRemarkFields(rem, target, inlineOptions = null, sentenceStarter =
     remarkContent = optBtns;
   }
 
-  // Generalized version of Mastery's separate Notes field â€” same idea, but
+  // Generalized version of Mastery's separate Notes field — same idea, but
   // the select-one options above are whatever the boss configured (not
   // hardcoded mastery values), so this reuses the same .mastery-note-input
   // class/rem.masteryNote field to pick up the existing save wiring for free.
   const noteField = remarkHasNote
     ? `<div class="entry-field">
         <span class="field-label" contenteditable="false">Notes</span>
-        <button class="btn-sketch" contenteditable="false" data-rem-id="${rem.id}" aria-label="Open sketch board">âœ</button>
+        <button class="btn-sketch" contenteditable="false" data-rem-id="${rem.id}" aria-label="Open sketch board">✏</button>
         <textarea class="field-input mastery-note-input" rows="1"
-          data-rem-id="${rem.id}" placeholder="Notesâ€¦"
+          data-rem-id="${rem.id}" placeholder="Notes…"
           data-saved-html="${escHtml(rem.masteryNote || "")}">${escHtml(plainTextForEdit(rem.masteryNote || ""))}</textarea>
       </div>`
     : "";
@@ -3829,7 +3829,7 @@ function renderRemarkFields(rem, target, inlineOptions = null, sentenceStarter =
       ${sketchBtn}
       ${remarkContent}
       <button class="btn-icon btn-delete-remark" contenteditable="false"
-        data-rem-id="${rem.id}" title="Delete remark">ðŸ—‘</button>
+        data-rem-id="${rem.id}" title="Delete remark">🗑</button>
     </div>
     ${noteField}
     ${trailingField}`;
@@ -3841,22 +3841,22 @@ function renderPendingRemarkFields(pendingKey, actId, paName, paOrder, target) {
     <div class="entry-divider" contenteditable="false"></div>
     <div class="entry-field">
       <span class="field-label" contenteditable="false">Remark</span>
-      <button class="btn-sketch btn-sketch-pending" contenteditable="false" aria-label="Open sketch board">âœ</button>
+      <button class="btn-sketch btn-sketch-pending" contenteditable="false" aria-label="Open sketch board">✏</button>
       <textarea id="new-remark-textarea" class="field-input" rows="1"
-        placeholder="Type remarkâ€¦"></textarea>
+        placeholder="Type remark…"></textarea>
     </div>
     <div class="pending-remark-actions" contenteditable="false">
-      <button class="btn-cancel-remark btn-remark-cancel">âœ• Cancel</button>
-      <button class="btn-save-remark btn-remark-save">âœ“ Save</button>
+      <button class="btn-cancel-remark btn-remark-cancel">✕ Cancel</button>
+      <button class="btn-save-remark btn-remark-save">✓ Save</button>
     </div>`;
 }
 
-// Predefined remark that exists in Firebase â€” label as field-label, editable text input
+// Predefined remark that exists in Firebase — label as field-label, editable text input
 function renderPredefinedRemarkFields(rem, predRemName, target) {
   const trials = rem.trials || [];
   const badgesHtml = trials.map((score, idx) =>
-    `<span class="trial-badge">${score === -1 ? "â€”" : score}<button class="btn-trial-delete"
-      data-rem-id="${rem.id}" data-idx="${idx}">Ã—</button></span>`
+    `<span class="trial-badge">${score === -1 ? "—" : score}<button class="btn-trial-delete"
+      data-rem-id="${rem.id}" data-idx="${idx}">×</button></span>`
   ).join("");
   return `
     <div class="entry-divider" contenteditable="false"></div>
@@ -3879,7 +3879,7 @@ function renderPredefinedRemarkFields(rem, predRemName, target) {
     </div>`;
 }
 
-// Predefined remark not yet in Firebase â€” label + empty text input
+// Predefined remark not yet in Firebase — label + empty text input
 function renderGhostRemarkFields(predRemName, actId, pa, paIdx, target) {
   return `
     <div class="entry-divider" contenteditable="false"></div>
@@ -3907,19 +3907,19 @@ function renderGhostRemarkFields(predRemName, actId, pa, paIdx, target) {
     </div>`;
 }
 
-// â”€â”€â”€ ATTACH LISTENERS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── ATTACH LISTENERS ────────────────────────────────────────
 
 function attachTargetListeners(target) {
   const c = $("target-content");
 
   // Free-text boxes here are real <textarea>/<input> elements now, so their
-  // own native Enter/backspace/Ctrl+A handling just works â€” only the app's
+  // own native Enter/backspace/Ctrl+A handling just works — only the app's
   // own Escape/Ctrl+Enter shortcuts are delegated from the host (set up ONCE
   // per session-open by setupEntryEnterKeyDelegation, see openSession).
   c.querySelectorAll("textarea.field-input").forEach(autoResizeTextarea);
 
   // Activity name (.activity-name-input) is saved by the shared merged-editing
-  // host â€” see setupEntryRemarkSaving. Just revert-if-emptied here (Ctrl+Enter
+  // host — see setupEntryRemarkSaving. Just revert-if-emptied here (Ctrl+Enter
   // is handled by the delegated keydown listener above).
   c.querySelectorAll(".activity-name-input").forEach(input => {
     input.addEventListener("blur", () => {
@@ -3927,7 +3927,7 @@ function attachTargetListeners(target) {
     });
   });
 
-  // â”€â”€ Inactive activities toggle (one per section) â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Inactive activities toggle (one per section) ────────
   c.querySelectorAll(".btn-inactive-toggle").forEach(btn => {
     btn.addEventListener("click", () => {
       const list = btn.nextElementSibling;
@@ -3935,7 +3935,7 @@ function attachTargetListeners(target) {
       if (!list) return;
       const open = list.style.display !== "none";
       list.style.display = open ? "none" : "flex";
-      if (chevron) chevron.textContent = open ? "â–¶" : "â–¼";
+      if (chevron) chevron.textContent = open ? "▶" : "▼";
     });
   });
 
@@ -3956,7 +3956,7 @@ function attachTargetListeners(target) {
 
   c.querySelector(".btn-cancel-new-activity")?.addEventListener("click", cancelPendingActivity);
 
-  // â”€â”€ Delete activity â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Delete activity ───────────────────────────────────────
   c.querySelectorAll(".btn-delete-activity").forEach(btn => {
     btn.addEventListener("click", async () => {
       if (!confirm("Delete this activity and all its remarks?")) return;
@@ -3968,16 +3968,16 @@ function attachTargetListeners(target) {
   // Saving for .remark-text-input / .mastery-note-input / .activity-name-input /
   // .predef-remark-input / .predef-remark-input-live is handled by the shared
   // host-level saver (state.entryRemarkSaver, set up in openSession) rather
-  // than per-element blur â€” these boxes get torn down and rebuilt on every
+  // than per-element blur — these boxes get torn down and rebuilt on every
   // render, so per-element listeners would need re-attaching constantly. See
   // setupEntryRemarkSaving.
 
-  // â”€â”€ Add remark (immediate creation) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Add remark (immediate creation) ──────────────────────
   c.querySelectorAll(".btn-add-remark").forEach(btn => {
     // Guards against a render (triggered by the blur this mousedown is
     // about to cause on whatever box the boss was just typing in, or by an
     // already-scheduled render from that typing's own autosave) replacing
-    // this button before "click" fires â€” Chrome silently drops "click" if
+    // this button before "click" fires — Chrome silently drops "click" if
     // its target is removed from the DOM between mousedown and mouseup.
     btn.addEventListener("mousedown", () => {
       state.entryActionsInFlight++;
@@ -3995,7 +3995,7 @@ function attachTargetListeners(target) {
         }
       };
       // Released the instant "click" actually fires, proving the button
-      // survived the gap â€” the main click handler renders synchronously
+      // survived the gap — the main click handler renders synchronously
       // once it's done (no further write to guard against). The timeout is
       // only a fallback for a press that never resolves into a click at all.
       btn.addEventListener("click", release, { once: true });
@@ -4015,13 +4015,13 @@ function attachTargetListeners(target) {
         // a duplicate. autoFillMappedRemarks's in-flight guard prevents that.
         if (btn.dataset.isMapped === "1") {
           await autoFillMappedRemarks(state.currentStudent, state.currentSessionId);
-          return; // Firestore write will trigger snapshot â†’ re-render
+          return; // Firestore write will trigger snapshot → re-render
         }
         if (paName) actId = await ensureFedcActivity(target.name, paName, paOrder, btn.dataset.paParent || null, btn.dataset.cfgId || null);
         if (!actId) { btn.disabled = false; return; }
         const initialText = "";
         // Write the remark into local state and render right away instead of
-        // waiting on the Firestore round trip â€” addRemark() is handed the
+        // waiting on the Firestore round trip — addRemark() is handed the
         // same ID so it just confirms this row server-side in the background.
         const remId = generateId("r");
         state.sessionData.remarks = state.sessionData.remarks || {};
@@ -4030,16 +4030,16 @@ function attachTargetListeners(target) {
         addRemark(state.currentSessionId, actId, initialText, null, remId).catch(err => {
           delete state.sessionData.remarks[remId];
           renderTargetContent();
-          alert("Couldn't add remark â€” check your connection and try again.\n\n" + err.message);
+          alert("Couldn't add remark — check your connection and try again.\n\n" + err.message);
         });
       } catch (err) {
         btn.disabled = false;
-        alert("Couldn't add remark â€” check your connection and try again.\n\n" + err.message);
+        alert("Couldn't add remark — check your connection and try again.\n\n" + err.message);
       }
     });
   });
 
-  // â”€â”€ Remark option buttons (single-select) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Remark option buttons (single-select) ─────────────────
   c.querySelectorAll(".remark-preset-opts:not(.remark-preset-opts-multi) .btn-remark-opt").forEach(btn => {
     btn.addEventListener("click", () => {
       const isActive = btn.classList.contains("active");
@@ -4052,7 +4052,7 @@ function attachTargetListeners(target) {
       if (rem) rem.text = newText;
       updateRemarkText(state.currentSessionId, remId, newText).catch(err => {
         if (rem) rem.text = prevText;
-        alert("Couldn't save â€” check your connection and try again.\n\n" + err.message);
+        alert("Couldn't save — check your connection and try again.\n\n" + err.message);
       });
       // Auto-score: set/clear optionScore (separate from manual trials)
       if (btn.dataset.score !== "") {
@@ -4065,7 +4065,7 @@ function attachTargetListeners(target) {
             setOptionScore(state.currentSessionId, remId, autoScore).catch(err => {
               if (rem) { if (prevOptScore !== undefined) rem.optionScore = prevOptScore; else delete rem.optionScore; }
               renderTargetContent();
-              alert("Couldn't save â€” check your connection and try again.\n\n" + err.message);
+              alert("Couldn't save — check your connection and try again.\n\n" + err.message);
             });
           } else {
             if (rem) delete rem.optionScore;
@@ -4073,12 +4073,12 @@ function attachTargetListeners(target) {
             clearOptionScore(state.currentSessionId, remId).catch(err => {
               if (rem) rem.optionScore = prevOptScore;
               renderTargetContent();
-              alert("Couldn't save â€” check your connection and try again.\n\n" + err.message);
+              alert("Couldn't save — check your connection and try again.\n\n" + err.message);
             });
           }
         }
       } else if (isActive && rem?.optionScore !== undefined) {
-        // Deselecting a scoreless option â€” clear any lingering optionScore
+        // Deselecting a scoreless option — clear any lingering optionScore
         delete rem.optionScore;
         renderTargetContent();
         clearOptionScore(state.currentSessionId, remId).catch(() => {});
@@ -4086,7 +4086,7 @@ function attachTargetListeners(target) {
     });
   });
 
-  // â”€â”€ Remark option buttons (multi-select) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Remark option buttons (multi-select) ──────────────────
   c.querySelectorAll(".remark-preset-opts-multi .btn-remark-opt").forEach(btn => {
     btn.addEventListener("click", () => {
       btn.classList.toggle("active");
@@ -4099,20 +4099,20 @@ function attachTargetListeners(target) {
       if (rem) rem.text = newText;
       updateRemarkText(state.currentSessionId, remId, newText).catch(err => {
         if (rem) rem.text = prevText;
-        alert("Couldn't save â€” check your connection and try again.\n\n" + err.message);
+        alert("Couldn't save — check your connection and try again.\n\n" + err.message);
       });
     });
   });
 
 
-  // â”€â”€ New remark: âœ“ Save button or Ctrl/Cmd+Enter saves â”€â”€â”€
+  // ── New remark: ✓ Save button or Ctrl/Cmd+Enter saves ───
   c.querySelectorAll(".btn-save-remark").forEach(btn => {
     btn.addEventListener("click", () => saveNewRemark(target));
   });
   // Enter/Ctrl+Enter inside #new-remark-textarea is handled by the delegated
   // keydown listener set up at the top of this function.
 
-  // â”€â”€ Cancel new remark â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Cancel new remark ─────────────────────────────────────
   c.querySelectorAll(".btn-cancel-remark").forEach(btn => {
     btn.addEventListener("click", () => {
       state.pendingNewRemark = null;
@@ -4120,7 +4120,7 @@ function attachTargetListeners(target) {
     });
   });
 
-  // â”€â”€ Sketch board buttons (session screen) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Sketch board buttons (session screen) ─────────────────
   c.querySelectorAll(".btn-sketch[data-rem-id]").forEach(btn => {
     btn.addEventListener("click", () => {
       const id = btn.dataset.remId;
@@ -4134,7 +4134,7 @@ function attachTargetListeners(target) {
     if (field) openTextEditorSheet(field);
   });
 
-  // â”€â”€ Delete remark â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Delete remark ─────────────────────────────────────────
   c.querySelectorAll(".btn-delete-remark").forEach(btn => {
     btn.addEventListener("click", () => {
       if (!confirm("Delete this remark and its trials?")) return;
@@ -4146,16 +4146,16 @@ function attachTargetListeners(target) {
       deleteRemark(state.currentSessionId, remId).catch(err => {
         state.sessionData.remarks[remId] = rem;
         renderTargetContent();
-        alert("Couldn't delete remark â€” check your connection and try again.\n\n" + err.message);
+        alert("Couldn't delete remark — check your connection and try again.\n\n" + err.message);
       });
     });
   });
 
   // Ghost (.predef-remark-input) and live (.predef-remark-input-live) predefined
-  // remark inputs are also saved by the shared merged-editing host â€” see above.
+  // remark inputs are also saved by the shared merged-editing host — see above.
   // Enter is handled by the delegated keydown listener at the top of this function.
 
-  // â”€â”€ Init predefined remark + open score picker â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Init predefined remark + open score picker ────────────
   c.querySelectorAll(".btn-init-predef-remark").forEach(btn => {
     btn.addEventListener("click", async () => {
       const tgt = state.currentStudent.targets.find(t => t.name === btn.dataset.target);
@@ -4170,13 +4170,13 @@ function attachTargetListeners(target) {
       const remId = await ensurePredefinedRemark(actId, btn.dataset.remName, initialText);
       openScorePicker(remId, tgt.maxPoints || 3);
       // ensurePredefinedRemark already wrote initialText when creating a brand-new
-      // remark â€” this only matters for the rare case where it already existed
+      // remark — this only matters for the rare case where it already existed
       // with stale text, so don't block opening the score picker on it.
       if (initialText) updateRemarkText(state.currentSessionId, remId, initialText).catch(() => {});
     });
   });
 
-  // â”€â”€ Add trial â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Add trial ─────────────────────────────────────────────
   c.querySelectorAll(".btn-add-trial").forEach(btn => {
     btn.addEventListener("click", () => {
       const tgt = state.currentStudent.targets.find(t => t.name === btn.dataset.target);
@@ -4184,7 +4184,7 @@ function attachTargetListeners(target) {
     });
   });
 
-  // â”€â”€ Delete trial â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Delete trial ──────────────────────────────────────────
   c.querySelectorAll(".btn-trial-delete").forEach(btn => {
     btn.addEventListener("click", e => {
       e.stopPropagation();
@@ -4197,14 +4197,14 @@ function attachTargetListeners(target) {
       deleteTrial(state.currentSessionId, btn.dataset.remId, idx, prevTrials).catch(err => {
         rem.trials = prevTrials;
         renderTargetContent();
-        alert("Couldn't delete trial â€” check your connection and try again.\n\n" + err.message);
+        alert("Couldn't delete trial — check your connection and try again.\n\n" + err.message);
       });
     });
   });
 
 }
 
-// â”€â”€â”€ ACTION HELPERS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── ACTION HELPERS ──────────────────────────────────────────
 
 async function confirmNewActivity(target) {
   const input = $("new-activity-textarea");
@@ -4213,7 +4213,7 @@ async function confirmNewActivity(target) {
   if (!name) { input.focus(); return; }
   state.pendingNewActivity = null;
   flashSaved(input);
-  input.value = "";  // blur handler sees empty â†’ calls renderTargetContent at +150ms
+  input.value = "";  // blur handler sees empty → calls renderTargetContent at +150ms
   input.blur();      // dismiss keyboard; flash shows for ~150ms then input removed
   await addActivity(state.currentSessionId, target.name, name, Date.now(), false);
 }
@@ -4244,7 +4244,7 @@ async function saveNewRemark(target) {
 
 // True for the remark types where there's a fixed set of things to pick from
 // (Select one / Tick boxes / Sentence Starter + either, or + Select One +
-// Free Text) â€” these warrant auto-opening a remark since there's no typing
+// Free Text) — these warrant auto-opening a remark since there's no typing
 // to do first. Free text and Sentence Starter + Free Text are excluded:
 // there's nothing to pre-select, so they stay collapsed behind "+ Add
 // Remark & Trials" until the boss actually has something to type.
@@ -4256,13 +4256,13 @@ function isAutoOpenRemarkType(pa) {
 }
 
 // Auto-create an empty remark for every "pick from options" activity on
-// session open, unconditionally â€” the point is just to skip the extra click,
+// session open, unconditionally — the point is just to skip the extra click,
 // there's no "previous value" to wait for first.
 // Same in-flight guard as autoFillMappedRemarks below (structuredRemarkAutoFillInFlight,
-// keyed the same way) â€” without it, a duplicate activity could be created
+// keyed the same way) — without it, a duplicate activity could be created
 // here too if firstLoad re-entered before a prior addActivity+addRemark
 // pair finished, the exact shape mergeDuplicateActivity (firebase-service.js)
-// exists to clean up. This only protects re-entrancy within one open tab â€”
+// exists to clean up. This only protects re-entrancy within one open tab —
 // it can't stop two devices/tabs racing each other, which is why the
 // Data Integrity Check's duplicate-activity section exists as a backstop.
 async function autoFillStructuredRemarks(student, sessionId) {
@@ -4318,14 +4318,14 @@ async function autoFillStructuredRemarks(student, sessionId) {
 }
 
 // Auto-create an empty remark for a mapped-score activity as soon as its
-// mapped target gains a computable average â€” otherwise the row stays
+// mapped target gains a computable average — otherwise the row stays
 // collapsed (no remark of its own) even after the target it pulls from has
 // real data. Unlike autoFillStructuredRemarks this runs on every snapshot,
 // not just first load: the trigger ("the other target now has data") can
 // become true at any point while this session stays open, not only when
 // it's opened.
 // Creating a mapped-score activity's first remark is two separate Firestore
-// writes (addActivity, then addRemark) â€” each one's own snapshot can re-enter
+// writes (addActivity, then addRemark) — each one's own snapshot can re-enter
 // these auto-fill functions before the second write lands, racing into a
 // duplicate remark for the same activity (or, for group sessions, the same
 // attendee). Shared by all four autoFill*MappedRemarks functions below so a
@@ -4378,26 +4378,26 @@ async function autoFillMappedRemarks(student, sessionId) {
 // Deletes remarks that have no text, no mastery note, and no valid trials for
 // the given target, then removes any activity that is left with no remarks.
 // A "-1" trial is the View/Edit screen's "+" placeholder for a slot that was
-// added but never given an actual score â€” it never counts as real data: a
+// added but never given an actual score — it never counts as real data: a
 // remark that's otherwise empty gets deleted outright (as if "+" was never
 // clicked), and one that has other real content just has that stray slot
 // quietly dropped from its trials array.
 async function cleanupEmptyEntries(sessionId, data, targetName, target = null) {
   if (!sessionId || !data) return;
   // Mapped-score activities are designed to have no remark of their own until
-  // their mapped target gains an average (see autoFillMappedRemarks) â€” an
+  // their mapped target gains an average (see autoFillMappedRemarks) — an
   // empty one isn't stale data, it's the activity waiting to auto-fill. Treat
   // them as exempt so this cleanup never races that auto-fill and deletes it.
   const mappedNames   = new Set((target?.predefinedActivities || []).filter(pa => pa.isMapped).map(pa => pa.name));
   // Auto-open activities (Select One / Tickbox / Sentence Starter + select) get
   // an empty placeholder remark on session open so the user can pick immediately.
-  // Don't delete it on target switch â€” it's not stale, it's waiting for input.
+  // Don't delete it on target switch — it's not stale, it's waiting for input.
   const autoOpenNames = new Set((target?.predefinedActivities || []).filter(pa => isAutoOpenRemarkType(pa)).map(pa => pa.name));
   const acts = Object.entries(data.activities || {})
     .filter(([, a]) => a.targetName === targetName && !mappedNames.has(a.activityName) && !autoOpenNames.has(a.activityName));
   for (const [actId] of acts) {
     const rems = Object.entries(data.remarks || {}).filter(([, r]) => r.activityId === actId);
-    const stripEmpty = s => (s || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").replace(/Â /g, " ").trim();
+    const stripEmpty = s => (s || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").replace(/ /g, " ").trim();
     const emptyIds = [];
     for (const [remId, r] of rems) {
       const trials     = r.trials || [];
@@ -4438,7 +4438,7 @@ function findRemarkByPredefinedKey(actId, key) {
   return found ? { id: found[0], ...found[1] } : null;
 }
 
-// â”€â”€â”€ SCORE PICKER MODAL â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── SCORE PICKER MODAL ──────────────────────────────────────
 
 function _activeSessionData() {
   return state.scorePicker?.isGroup ? state.groupSessionData : state.sessionData;
@@ -4458,7 +4458,7 @@ function renderScoreModalTrials(remId) {
     `<span class="score-modal-trials-label">Added:</span>` +
     visible.map(({ t, i }) =>
       `<span class="score-modal-trial-badge">
-        ${t}<button class="score-trial-del" data-idx="${i}" aria-label="Remove">Ã—</button>
+        ${t}<button class="score-trial-del" data-idx="${i}" aria-label="Remove">×</button>
       </span>`
     ).join("");
 
@@ -4532,7 +4532,7 @@ async function openSessionView(student, sessionId) {
   showScreen("screen-session-view");
   $("view-student-name").textContent = student.name;
   $("view-session-meta").textContent = "";
-  $("session-view-body").innerHTML = `<div class="loading">Loadingâ€¦</div>`;
+  $("session-view-body").innerHTML = `<div class="loading">Loading…</div>`;
 
   if (state.fbViewUnsubscribe) { state.fbViewUnsubscribe(); state.fbViewUnsubscribe = null; }
 
@@ -4578,7 +4578,7 @@ async function openSessionView(student, sessionId) {
       trackViewTrialWrite(setTrials(state.viewSessionId, addTrialBtn.dataset.remId, trials).catch(err => {
         rem.trials = prevTrials;
         refreshViewTrialRow(addTrialBtn.dataset.remId);
-        alert("Couldn't add trial â€” check your connection and try again.\n\n" + err.message);
+        alert("Couldn't add trial — check your connection and try again.\n\n" + err.message);
       }));
     }
   };
@@ -4606,7 +4606,7 @@ async function leaveSessionView() {
   $("btn-delete-session")?.classList.add("hidden");
   $("btn-goto-session")?.classList.add("hidden");
   // Flush (and await it) while the Firestore listener is still live, same as
-  // leaveSession() does for the live entry screen â€” flush() only writes to
+  // leaveSession() does for the live entry screen — flush() only writes to
   // Firestore, state.viewSessionData only updates once the listener echoes
   // it back, so unsubscribing first or not waiting for the flush both risk
   // the cleanup below seeing stale "empty" data for a remark just edited.
@@ -4634,7 +4634,7 @@ async function leaveSessionView() {
     const remarkHasData = Object.values(data.remarks || {}).some(r => {
       const act = (data.activities || {})[r.activityId];
       if (!act) return false;
-      // Count data under ANY targetName â€” if a target was renamed and the
+      // Count data under ANY targetName — if a target was renamed and the
       // propagation didn't finish, activities under the old name still contain
       // real data that must not make this session look "empty" and get deleted.
       return stripEmpty(r.text).length > 0
@@ -4680,7 +4680,7 @@ function renderSessionView() {
     gotoBtn.onclick = () => showGoToAnotherSession(state.viewStudent);
   }
 
-  // Wire delete button (static element in header â€” re-attach each time)
+  // Wire delete button (static element in header — re-attach each time)
   const _delBtn = $("btn-delete-session");
   if (_delBtn) {
     const newDelBtn = _delBtn.cloneNode(true); // remove old listeners
@@ -4699,7 +4699,7 @@ function renderSessionView() {
   const sorted  = sortTargetsByOrder(targets);
 
   const body = $("session-view-body");
-  // body itself scrolls (overflow-y:auto) â€” replacing its innerHTML resets
+  // body itself scrolls (overflow-y:auto) — replacing its innerHTML resets
   // scrollTop to 0 in every browser, so capture/restore around the swap.
   const scrollTop = body.scrollTop;
   const captured = captureActiveEditState(body);
@@ -4744,9 +4744,10 @@ function buildTargetViewTable(target, data) {
         displayNo = no;
       }
       if (pa.fixedRemark !== undefined || pa.isMaintain) {
-        const fixedEntry = Object.entries(data.activities || {})
-          .find(([, a]) => a.targetName === target.name && a.activityName === pa.name);
-        if (fixedEntry) matchedIds.add(fixedEntry[0]);
+        const fixedEntries = Object.entries(data.activities || {})
+          .filter(([, a]) => a.targetName === target.name && a.activityName === pa.name);
+        const fixedEntry = fixedEntries[0] || null;
+        fixedEntries.forEach(([id]) => matchedIds.add(id));
         const fixedText = pa.fixedRemark ?? pa.maintainRemark ?? "";
         const isGrayFixed = pa.activityColor === "gray" || !!pa.isMaintainLive;
         const isGreenFixed = pa.activityColor === "green" || pa.inactiveReason === 'mastered';
@@ -4754,20 +4755,21 @@ function buildTargetViewTable(target, data) {
           <td class="vcol-no" contenteditable="false">${displayNo}</td>
           <td class="vcol-act" contenteditable="false">${formatActivityMarkup(pa.name)}</td>
           <td class="vcol-rem" contenteditable="false" style="color:#374151;cursor:pointer;white-space:pre-wrap"
-            onclick="alert('This is a Fixed Remark â€” the text is set in Edit Target and cannot be changed here.')"
-            title="Fixed Remark â€” click for info">${formatActivityMarkup(fixedText) || "<span style='color:#9ca3af;font-style:italic'>No remark set</span>"}</td>
+            onclick="alert('This is a Fixed Remark — the text is set in Edit Target and cannot be changed here.')"
+            title="Fixed Remark — click for info">${formatActivityMarkup(fixedText) || "<span style='color:#9ca3af;font-style:italic'>No remark set</span>"}</td>
           <td class="vcol-trials" contenteditable="false"><span class="view-mapped-label" style="color:#9ca3af;font-style:italic">Fixed Remark</span></td>
           <td class="vcol-total" contenteditable="false">&nbsp;</td>
           <td class="vcol-score" contenteditable="false">&nbsp;</td>
         </tr>`;
         continue;
       }
-      const entry = Object.entries(data.activities || {})
-        .find(([, a]) => a.targetName === target.name && a.activityName === pa.name);
-      if (entry) matchedIds.add(entry[0]);
+      const allEntries = Object.entries(data.activities || {})
+        .filter(([, a]) => a.targetName === target.name && a.activityName === pa.name);
+      const entry = allEntries[0] || null;
+      allEntries.forEach(([id]) => matchedIds.add(id));
       rows += viewActivityRows(displayNo, pa.name, entry?.[0] || null, data, target, true);
     }
-    // All unmatched session activities â€” covers both manually-added activities
+    // All unmatched session activities — covers both manually-added activities
     // AND predefined activities recorded under old names before a rename.
     Object.entries(data.activities || {})
       .filter(([actId, a]) => a.targetName === target.name && !matchedIds.has(actId))
@@ -4841,7 +4843,7 @@ function viewActivityRows(no, actName, actId, data, target, isPredefined = true)
         <input class="view-act-edit" type="text" value="${escHtml(actName)}"
           data-act-id="${escHtml(actId || "")}" data-original="${escHtml(actName)}" />
         <button class="view-act-del" data-act-id="${escHtml(actId || "")}"
-          data-target-name="${escHtml(target.name)}" title="Delete activity">Ã—</button>
+          data-target-name="${escHtml(target.name)}" title="Delete activity">×</button>
        </div>`;
 
   const inlineOptions   = paEntry ? getActivityInlineOptions(paEntry) : null;
@@ -4876,7 +4878,7 @@ function viewActivityRows(no, actName, actId, data, target, isPredefined = true)
         <td class="vcol-score" contenteditable="false">&nbsp;</td>
       </tr>`;
     }
-    // opts.length > 0 â€” show actual select/multi UI directly (no button)
+    // opts.length > 0 — show actual select/multi UI directly (no button)
     let emptySelHtml;
     if (multiSelect) {
       emptySelHtml = `<div class="view-remark-multi-opts" contenteditable="false">${opts.map(opt =>
@@ -4907,7 +4909,7 @@ function viewActivityRows(no, actName, actId, data, target, isPredefined = true)
       <td class="vcol-rem">${emptyRemCell}</td>
       <td class="vcol-trials" contenteditable="false">${emptyTrialBtn}</td>
       <td class="vcol-total" contenteditable="false">&nbsp;</td>
-      <td class="vcol-score" contenteditable="false">${mappedInfo ? (mappedInfo.pct !== null ? mappedInfo.pct + "%" : "â€”") : "&nbsp;"}</td>
+      <td class="vcol-score" contenteditable="false">${mappedInfo ? (mappedInfo.pct !== null ? mappedInfo.pct + "%" : "—") : "&nbsp;"}</td>
     </tr>`;
   }
   return remarks.map((rem, ri) => viewRemarkRow(
@@ -4919,7 +4921,7 @@ function viewActivityRows(no, actName, actId, data, target, isPredefined = true)
 
 // Shared by viewRemarkRow/viewGroupRemarkRow (initial render) and
 // refreshViewTrialRow/refreshGroupViewTrialRow (surgical in-place update
-// after a trial add/delete/score change â€” see the comment on
+// after a trial add/delete/score change — see the comment on
 // bindViewTrialCellListeners for why those don't go through a full render).
 function calcViewTrialSummary(trials, maxPts, optionScore = undefined) {
   const validTrials = (trials || []).filter(t => t !== -1);
@@ -4935,11 +4937,11 @@ function buildTrialCellsHtml(rem, maxPts) {
   return allTrials.map((t, ti) => `
     <span class="trial-cell">
       <select class="view-trial-select" data-rem-id="${escHtml(rem.id)}" data-trial-idx="${ti}">
-        <option value="-1"${t === -1 ? " selected" : ""}>â€”</option>
+        <option value="-1"${t === -1 ? " selected" : ""}>—</option>
         ${Array.from({ length: maxPts + 1 }, (_, i) => maxPts - i)
           .map(v => `<option value="${v}"${v === t ? " selected" : ""}>${v}</option>`).join("")}
       </select>
-      <button class="view-trial-del" data-rem-id="${escHtml(rem.id)}" data-trial-idx="${ti}">Ã—</button>
+      <button class="view-trial-del" data-rem-id="${escHtml(rem.id)}" data-trial-idx="${ti}">×</button>
     </span>`).join("") +
     `<button class="view-add-trial" data-rem-id="${escHtml(rem.id)}">+</button>`;
 }
@@ -4952,7 +4954,7 @@ function viewRemarkRow(no, actName, rem, target, inlineOptions = null, sentenceS
     : `<div class="trial-cells">${buildTrialCellsHtml(rem, maxPts)}</div>`;
   const totalCell = mappedInfo ? "&nbsp;" : (validTrials.length > 0 ? total : "&nbsp;");
   const scoreDisplay = mappedInfo
-    ? (mappedInfo.pct !== null ? mappedInfo.pct + "%" : "â€”")
+    ? (mappedInfo.pct !== null ? mappedInfo.pct + "%" : "—")
     : scorePct;
 
   const opts = parseOpts(inlineOptions);
@@ -4979,7 +4981,7 @@ function viewRemarkRow(no, actName, rem, target, inlineOptions = null, sentenceS
   const noteField = remarkHasNote
     ? `<textarea class="view-mastery-note" rows="1" data-rem-id="${escHtml(rem.id)}"
         data-saved-html="${escHtml(rem.masteryNote || "")}"
-        placeholder="Notesâ€¦">${escHtml(plainTextForEdit(rem.masteryNote))}</textarea>`
+        placeholder="Notes…">${escHtml(plainTextForEdit(rem.masteryNote))}</textarea>`
     : "";
 
   let remarkCell;
@@ -5008,7 +5010,7 @@ function viewRemarkRow(no, actName, rem, target, inlineOptions = null, sentenceS
     <td class="vcol-score" contenteditable="false">
       <div style="display:flex;align-items:center;gap:.3rem;justify-content:flex-end">
         <span>${scoreDisplay}</span>
-        <button class="view-rem-del" data-rem-id="${escHtml(rem.id)}" title="Delete remark">Ã—</button>
+        <button class="view-rem-del" data-rem-id="${escHtml(rem.id)}" title="Delete remark">×</button>
       </div>
     </td>
   </tr>`;
@@ -5021,13 +5023,13 @@ function viewGetRemarks(data, actId) {
     .map(([id, r]) => ({ id, ...r }));
 }
 
-// visited guards against a circular mapping chain recursing forever â€” see
+// visited guards against a circular mapping chain recursing forever — see
 // calcDaysAverage's comment (this is the View-screen counterpart, working off
 // a passed-in `data` snapshot instead of the live session's global state, so
 // it doubles as both the individual and group View/Edit Past Sessions calc).
 // Group sessions fold in each attendee's own per-attendee mapped score
 // separately (one push per attendee with a remark on the activity) rather
-// than a single blended number, per the boss's "per-attendee" decision â€”
+// than a single blended number, per the boss's "per-attendee" decision —
 // detected via data.attendees, same signal already used elsewhere for group
 // session data.
 function calcViewDayAvg(data, target, visited = new Set()) {
@@ -5076,7 +5078,7 @@ function calcViewDayAvg(data, target, visited = new Set()) {
 }
 
 // Resolves a mapped-score activity's display on the individual View/Edit Past
-// Sessions screen â€” see resolveMappedScoreDisplay (live-entry counterpart).
+// Sessions screen — see resolveMappedScoreDisplay (live-entry counterpart).
 function resolveViewMappedScoreDisplay(pa, data, visited) {
   const mappedTarget = pa.mappedTargetId
     ? getViewEffectiveTargets().find(t => t.id === pa.mappedTargetId)
@@ -5089,7 +5091,7 @@ function resolveViewMappedScoreDisplay(pa, data, visited) {
 }
 
 // View/Edit Past Sessions counterpart of autoFillMappedRemarks (live-entry
-// session) â€” same trigger (mapped target gained a computable average), but
+// session) — same trigger (mapped target gained a computable average), but
 // runs on every snapshot here since this screen has no "first load" gate and
 // the mapped-to target's data could change at any time while it's open.
 async function autoFillViewMappedRemarks(student, sessionId, data) {
@@ -5126,7 +5128,7 @@ async function autoFillViewMappedRemarks(student, sessionId, data) {
 }
 
 // Resolves a mapped-score activity's display for one attendee on the group
-// View/Edit Past Sessions screen â€” see resolveGroupMappedScoreDisplay
+// View/Edit Past Sessions screen — see resolveGroupMappedScoreDisplay
 // (live-entry counterpart). Per-attendee throughout, per the boss's decision.
 function resolveViewGroupMappedScoreDisplay(pa, data, studentName, visited) {
   const mappedTarget = pa.mappedTargetId
@@ -5139,7 +5141,7 @@ function resolveViewGroupMappedScoreDisplay(pa, data, studentName, visited) {
   };
 }
 
-// Group View/Edit Past Sessions counterpart of autoFillMappedRemarks â€” unlike
+// Group View/Edit Past Sessions counterpart of autoFillMappedRemarks — unlike
 // the live group entry version, this screen renders every target at once (no
 // per-target lazy loading), so it checks all of them on every snapshot, same
 // as the individual View screen's autoFillViewMappedRemarks.
@@ -5176,10 +5178,10 @@ async function autoFillViewGroupMappedRemarks(group, sessionId, data) {
   return count;
 }
 
-// â”€â”€ View-screen remark editing â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── View-screen remark editing ───────────────────────────────
 // Replaces the old merged-contenteditable-host saver. The View screens'
 // remark/mastery-note boxes are real <textarea> elements now (same as the
-// already-proven Session Entry screens via setupEntryRemarkSaving) â€” native
+// already-proven Session Entry screens via setupEntryRemarkSaving) — native
 // Enter/backspace/Ctrl+A all just work per-field, with no nested-
 // contenteditable quirks to fight, and no buttons-need-2-clicks issue since
 // a normal table of buttons next to normal textareas never needs to
@@ -5190,8 +5192,8 @@ async function autoFillViewGroupMappedRemarks(group, sessionId, data) {
 // to keep the background snapshot listener from rendering mid-write. Ghost
 // boxes need it too: creating an activity/remark for a box that has none
 // yet is multi-step (addActivity, then addRemark), and a render landing
-// partway through would destroy this exact textarea â€” including the
-// dataset.creating/actId/remId tracking that lives only on it â€” leaving a
+// partway through would destroy this exact textarea — including the
+// dataset.creating/actId/remId tracking that lives only on it — leaving a
 // fresh-looking ghost box behind. If the user was still typing, that looked
 // like the typed text vanishing and then reappearing as a duplicate remark
 // a moment later, because the next flush had no way to know a remark was
@@ -5214,13 +5216,13 @@ function setupViewRemarkSaving(body, getSessionId, counterKey, onIdle, getData) 
         if (el.dataset.savedHtml === value) return;
         el.dataset.savedHtml = value;
         trackWrite(Promise.resolve(doSave(el, value)).catch(err => {
-          // savedHtml already says this is saved â€” if the write actually
+          // savedHtml already says this is saved — if the write actually
           // failed, leaving it pointing at the unsaved value means nothing
           // ever retries it, and the next render (from anything else on the
           // page) shows the server's older text instead, looking exactly
           // like what was just typed silently vanished.
           if (el.dataset.savedHtml === value) el.dataset.savedHtml = " ";
-          alert("Couldn't save remark â€” check your connection and try again.\n\n" + err.message);
+          alert("Couldn't save remark — check your connection and try again.\n\n" + err.message);
         }));
       });
     };
@@ -5240,7 +5242,7 @@ function setupViewRemarkSaving(body, getSessionId, counterKey, onIdle, getData) 
     body.querySelectorAll(".view-remark-empty").forEach(el => {
       const text = el.value.trim();
       // dataset.remId guards against flush() running a second time for this
-      // exact box before a re-render ever replaces its markup â€” e.g. the
+      // exact box before a re-render ever replaces its markup — e.g. the
       // 700ms debounce timer firing and THEN focusout firing (or vice versa)
       // both call flush(); without this check, the second call sees
       // dataset.creating already reset to "false" by the first call's
@@ -5267,11 +5269,11 @@ function setupViewRemarkSaving(body, getSessionId, counterKey, onIdle, getData) 
           el.dataset.remId     = remId;
           el.dataset.savedHtml = htmlForStorage(text);
           // addRemark resolving doesn't mean state.viewSessionData has the new
-          // remark yet â€” the snapshot listener delivers that a beat later.
+          // remark yet — the snapshot listener delivers that a beat later.
           // Without waiting here, a render could land in that gap, see "no
           // remark yet" (since this textarea's local dataset tracking lives
           // only on the DOM, not in state), and redraw this exact box back to
-          // its empty starting markup â€” which is what caused the typed text
+          // its empty starting markup — which is what caused the typed text
           // to "vanish" and then get saved a second time as a duplicate when
           // re-typed into the fresh-looking box.
           await waitForSessionData(() => {
@@ -5279,10 +5281,10 @@ function setupViewRemarkSaving(body, getSessionId, counterKey, onIdle, getData) 
             return !!d?.activities?.[actId] && !!d?.remarks?.[remId];
           });
         } catch (err) {
-          // Leaves remId/savedHtml unset â€” the next flush (next keystroke or
+          // Leaves remId/savedHtml unset — the next flush (next keystroke or
           // focusout) sees "no remark created yet" and retries from scratch,
           // instead of the typed text just sitting there unsaved forever.
-          alert("Couldn't add remark â€” check your connection and try again.\n\n" + err.message);
+          alert("Couldn't add remark — check your connection and try again.\n\n" + err.message);
         } finally {
           el.dataset.creating = "false";
           state[counterKey]--;
@@ -5316,7 +5318,7 @@ function setupViewRemarkSaving(body, getSessionId, counterKey, onIdle, getData) 
 
 // Same idea as setupViewRemarkSaving, but for the live Session Entry screens
 // (#target-content / #group-target-content). The free-text boxes there are
-// real <textarea>/<input> elements, not contenteditable â€” but they're still
+// real <textarea>/<input> elements, not contenteditable — but they're still
 // scattered across many activity/remark cards that get torn down and rebuilt
 // on every render, so saving is still centralized on the host via debounced
 // "input" + "focusout", same as the View screens. flush() returns a Promise
@@ -5373,7 +5375,7 @@ function setupEntryRemarkSaving(host, getSessionId, onIdle) {
       });
 
     // Ghost predefined-remark inputs don't have a remark (or sometimes even an
-    // activity) yet, so they need to be created first â€” guarded against
+    // activity) yet, so they need to be created first — guarded against
     // double-creation if flush() runs again before the first creation lands.
     host.querySelectorAll(".predef-remark-input[data-pa-name]").forEach(el => {
       const text = el.value.trim();
@@ -5393,7 +5395,7 @@ function setupEntryRemarkSaving(host, getSessionId, onIdle) {
     });
 
     // Free-text empty box for a pending group attendee (see
-    // renderGroupStudentEmptyRow) â€” same "don't write anything until there's
+    // renderGroupStudentEmptyRow) — same "don't write anything until there's
     // real text" guard as above, plus a remId/creating check so a debounce
     // timer firing right after focusout (or vice versa) can't create a
     // second, duplicate remark from the same typed text.
@@ -5448,14 +5450,14 @@ function setupEntryRemarkSaving(host, getSessionId, onIdle) {
 
 // Every previous fix for the caret-disappearing/text-flickering bug tried to
 // predict and defer renders that land mid-edit (focus grace windows, write
-// cooldowns, etc.) â€” all still left a timing race on a slow enough
+// cooldowns, etc.) — all still left a timing race on a slow enough
 // connection. This closes the gap a different way: instead of trying to
 // avoid re-rendering while the user is mid-keystroke, make the re-render
 // itself non-destructive. Before a render replaces #target-content's whole
 // innerHTML, capture whichever box currently has focus (its identity,
-// current â€” possibly unsaved â€” value, and caret/selection). After the
+// current — possibly unsaved — value, and caret/selection). After the
 // render, if a box with that same identity exists in the fresh markup,
-// restore the captured value and re-focus it at the same selection â€” so a
+// restore the captured value and re-focus it at the same selection — so a
 // render landing at the worst possible moment no longer matters. Real
 // <textarea>/<input> elements expose selectionStart/selectionEnd directly,
 // so this no longer needs any manual Range/offset math.
@@ -5494,9 +5496,9 @@ function restoreActiveEditState(host, captured) {
 // Delegated Escape/Ctrl+Enter handling for the individual session-entry
 // screen's free-text fields. These are real <textarea>/<input> elements now
 // (not contenteditable), so native Enter, backspace and Ctrl+A already work
-// correctly per-field without any help â€” this only needs to cover the app's
+// correctly per-field without any help — this only needs to cover the app's
 // own confirm/cancel shortcuts. MUST be set up once per session-open (not
-// per-render) â€” host is a persistent container whose children get replaced
+// per-render) — host is a persistent container whose children get replaced
 // on every render, but the host itself never does, so re-attaching this on
 // every render would stack up duplicate listeners.
 function setupEntryEnterKeyDelegation(host, getTarget) {
@@ -5542,7 +5544,7 @@ function getViewMaxPtsForRemark(remId) {
 }
 
 // Patches just one remark's trial cells/running total/score in place instead
-// of going through a full renderSessionView() â€” a render is safe to do at
+// of going through a full renderSessionView() — a render is safe to do at
 // any time now (see isViewBusy/captureActiveEditState), but updating just
 // this one row's own cells is still faster and avoids momentarily rebuilding
 // anything else on the page for what's normally a quick, repeated action.
@@ -5569,13 +5571,13 @@ function refreshViewTrialRow(remId) {
 }
 
 // Each trial click fires its own independent Firestore write rather than
-// awaiting the previous one (so clicking + repeatedly stays instant) â€” but
+// awaiting the previous one (so clicking + repeatedly stays instant) — but
 // openSessionView's snapshot listener overwrites state.viewSessionData and
 // can trigger a full renderSessionView() the moment it's not "busy",
 // regardless of whether every one of those writes has actually landed yet.
 // If a render lands using a snapshot that only reflects some of several
 // rapid-fire writes, it shows a stale (lower) trial count until the next
-// snapshot catches up â€” visible as cells appearing then disappearing.
+// snapshot catches up — visible as cells appearing then disappearing.
 // Tracking each write against the same viewActionsInFlight counter the
 // snapshot listener already checks defers that render until every write
 // here has actually settled, instead of mid-flight.
@@ -5603,7 +5605,7 @@ function bindViewTrialCellListeners(container) {
       trackViewTrialWrite(setTrials(state.viewSessionId, sel.dataset.remId, trials).catch(err => {
         rem.trials = prevTrials;
         refreshViewTrialRow(sel.dataset.remId);
-        alert("Couldn't update â€” check your connection and try again.\n\n" + err.message);
+        alert("Couldn't update — check your connection and try again.\n\n" + err.message);
       }));
     });
   });
@@ -5619,7 +5621,7 @@ function bindViewTrialCellListeners(container) {
       trackViewTrialWrite(setTrials(state.viewSessionId, btn.dataset.remId, trials).catch(err => {
         rem.trials = prevTrials;
         refreshViewTrialRow(btn.dataset.remId);
-        alert("Couldn't update â€” check your connection and try again.\n\n" + err.message);
+        alert("Couldn't update — check your connection and try again.\n\n" + err.message);
       }));
     });
   });
@@ -5666,7 +5668,7 @@ function showViewAddRemarkPicker(targetName) {
         <button class="choice-btn view-add-remark-choice" data-act-id="${escHtml(c.actId)}">
           <div class="choice-text"><div class="choice-label">${escHtml(c.no + ". " + c.name)}</div></div>
         </button>`).join("") + `</div>`
-    : `<p class="empty-hint">No activities with a remark yet â€” use the + under an activity's Trials column to start one.</p>`;
+    : `<p class="empty-hint">No activities with a remark yet — use the + under an activity's Trials column to start one.</p>`;
   $("session-picker-modal").classList.remove("hidden");
 
   $("session-picker-list").querySelectorAll(".view-add-remark-choice").forEach(btn => {
@@ -5680,7 +5682,7 @@ function showViewAddRemarkPicker(targetName) {
       addRemark(state.viewSessionId, actId, "", null, remId).catch(err => {
         delete state.viewSessionData.remarks[remId];
         renderViewOrDefer("viewRenderPending", isViewBusy, renderSessionView);
-        alert("Couldn't add remark â€” check your connection and try again.\n\n" + err.message);
+        alert("Couldn't add remark — check your connection and try again.\n\n" + err.message);
       });
     });
   });
@@ -5695,9 +5697,9 @@ function attachViewListeners() {
 
   // .view-add-remark-target, .view-add-trial-new, and .view-add-trial are
   // handled by the delegated click handler on session-view-body set up once
-  // in openSessionView â€” not here â€” so they survive renderSessionView() calls.
+  // in openSessionView — not here — so they survive renderSessionView() calls.
 
-  // â”€â”€ Sketch board buttons (view screen) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Sketch board buttons (view screen) ────────────────────
   body.querySelectorAll(".btn-sketch[data-rem-id]").forEach(btn => {
     btn.addEventListener("click", () => {
       const id = btn.dataset.remId;
@@ -5709,12 +5711,12 @@ function attachViewListeners() {
 
   // Saving for .view-remark-edit / .view-remark-empty / .view-mastery-note is
   // handled by the shared host saver (state.viewRemarkSaver) set up once in
-  // openSessionView, not here â€” this function runs on every render, and the
+  // openSessionView, not here — this function runs on every render, and the
   // body persists across renders, so attaching per-box listeners here would
   // stack up duplicates.
 
   // These three handlers update state.viewSessionData synchronously (not
-  // just the DOM/Firestore) before awaiting the write â€” leaveSessionView()
+  // just the DOM/Firestore) before awaiting the write — leaveSessionView()
   // reads state.viewSessionData straight off a captured snapshot on the way
   // out with no guard for an in-flight write, so without this, leaving the
   // screen right after a click could see the OLD value and let
@@ -5732,7 +5734,7 @@ function attachViewListeners() {
         await updateRemarkText(state.viewSessionId, btn.dataset.remId, newText);
       } catch (err) {
         if (rem) rem.text = prevText;
-        alert("Couldn't save â€” check your connection and try again.\n\n" + err.message);
+        alert("Couldn't save — check your connection and try again.\n\n" + err.message);
       }
     }));
   });
@@ -5750,7 +5752,7 @@ function attachViewListeners() {
         await updateRemarkText(state.viewSessionId, btn.dataset.remId, newText);
       } catch (err) {
         if (rem) rem.text = prevText;
-        alert("Couldn't save â€” check your connection and try again.\n\n" + err.message);
+        alert("Couldn't save — check your connection and try again.\n\n" + err.message);
       }
     }));
   });
@@ -5765,7 +5767,7 @@ function attachViewListeners() {
         await updateRemarkText(state.viewSessionId, input.dataset.remId, input.value);
       } catch (err) {
         rem.text = prevText;
-        alert("Couldn't save â€” check your connection and try again.\n\n" + err.message);
+        alert("Couldn't save — check your connection and try again.\n\n" + err.message);
       }
     });
   });
@@ -5781,11 +5783,11 @@ function attachViewListeners() {
   });
 
   // "+ Add Remark" for preset-option/sentence-starter activities with
-  // no remark yet â€” these don't get the typeable empty box (there's no free
+  // no remark yet — these don't get the typeable empty box (there's no free
   // text to click into), so without this the Remark cell is just blank with
   // no way to create the first remark at all.
   // Writes to local state and renders immediately (optimistic) instead of
-  // awaiting both Firestore round trips first â€” addActivity/addRemark are
+  // awaiting both Firestore round trips first — addActivity/addRemark are
   // handed the same ids used locally so the writes settle into the exact
   // same keys once the snapshot listener catches up, with no mismatch.
   body.querySelectorAll(".view-add-remark-row").forEach(btn => {
@@ -5815,7 +5817,7 @@ function attachViewListeners() {
           if (isNewAct) delete data.activities[actId];
           delete data.remarks[remId];
           renderSessionView();
-          alert("Couldn't add remark â€” check your connection and try again.\n\n" + err.message);
+          alert("Couldn't add remark — check your connection and try again.\n\n" + err.message);
         }
       })();
     });
@@ -5846,7 +5848,7 @@ function attachViewListeners() {
           if (isNewAct) delete data.activities[actId];
           delete data.remarks[remId];
           renderSessionView();
-          alert("Couldn't add remark â€” check your connection and try again.\n\n" + err.message);
+          alert("Couldn't add remark — check your connection and try again.\n\n" + err.message);
         }
       })();
     });
@@ -5876,7 +5878,7 @@ function attachViewListeners() {
           if (isNewAct) delete data.activities[actId];
           delete data.remarks[remId];
           renderSessionView();
-          alert("Couldn't add remark â€” check your connection and try again.\n\n" + err.message);
+          alert("Couldn't add remark — check your connection and try again.\n\n" + err.message);
         }
       })();
     });
@@ -5924,7 +5926,7 @@ function attachViewListeners() {
       deleteRemark(state.viewSessionId, remId).catch(err => {
         state.viewSessionData.remarks[remId] = rem;
         renderViewOrDefer("viewRenderPending", isViewBusy, renderSessionView);
-        alert("Couldn't delete remark â€” check your connection and try again.\n\n" + err.message);
+        alert("Couldn't delete remark — check your connection and try again.\n\n" + err.message);
       });
     });
   });
@@ -5963,7 +5965,7 @@ async function openGroupSessionView(group, sessionId) {
   showScreen("screen-group-session-view");
   $("group-view-group-name").textContent = group.name;
   $("group-view-session-meta").textContent = "";
-  $("group-session-view-body").innerHTML = `<div class="loading">Loadingâ€¦</div>`;
+  $("group-session-view-body").innerHTML = `<div class="loading">Loading…</div>`;
 
   if (state.fbViewGroupUnsubscribe) { state.fbViewGroupUnsubscribe(); state.fbViewGroupUnsubscribe = null; }
 
@@ -5995,7 +5997,7 @@ async function leaveGroupSessionView() {
   $("text-editor-sheet").classList.add("hidden");
   $("btn-group-delete-session")?.classList.add("hidden");
   $("btn-group-goto-session")?.classList.add("hidden");
-  // See the matching comment in leaveSessionView() â€” flush (and await it)
+  // See the matching comment in leaveSessionView() — flush (and await it)
   // before unsubscribing, not after, so the listener is still alive to
   // reflect the flushed write into state.viewGroupSessionData before the
   // cleanup below reads it.
@@ -6019,7 +6021,7 @@ async function leaveGroupSessionView() {
     const remarkHasData = Object.values(data.remarks || {}).some(r => {
       const act = (data.activities || {})[r.activityId];
       if (!act) return false;
-      // Count data under ANY targetName â€” renamed targets' old-name data is still real.
+      // Count data under ANY targetName — renamed targets' old-name data is still real.
       return stripEmpty(r.text).length > 0
         || (r.trials || []).some(t => t !== null && t !== -1)
         || stripEmpty(r.masteryNote).length > 0;
@@ -6062,7 +6064,7 @@ function renderGroupSessionView() {
     gotoBtn.onclick = () => showGoToAnotherGroupSession(state.viewGroup);
   }
 
-  // Wire delete button (static element in header â€” re-attach each time)
+  // Wire delete button (static element in header — re-attach each time)
   const _delBtn = $("btn-group-delete-session");
   if (_delBtn) {
     const newDelBtn = _delBtn.cloneNode(true); // remove old listeners
@@ -6119,7 +6121,7 @@ function groupAttendeeLabel(studentName) {
 }
 
 function buildGroupTargetViewTable(target, data, attendees) {
-  // Per-attendee, not one blended figure â€” a group's two students can be at
+  // Per-attendee, not one blended figure — a group's two students can be at
   // very different stages, so a single combined "Day's Average" would hide
   // that. See calcGroupStudentDaysAverage (shared with the live-entry screen).
   const studentAvgs = attendees
@@ -6143,9 +6145,9 @@ function buildGroupTargetViewTable(target, data, attendees) {
         continue;
       }
       if (pa.fixedRemark !== undefined || pa.isMaintain) {
-        const fixedEntry = Object.entries(data.activities || {})
-          .find(([, a]) => a.targetName === target.name && a.activityName === pa.name);
-        if (fixedEntry) matchedIds.add(fixedEntry[0]);
+        const fixedEntries2 = Object.entries(data.activities || {})
+          .filter(([, a]) => a.targetName === target.name && a.activityName === pa.name);
+        fixedEntries2.forEach(([id]) => matchedIds.add(id));
         const fixedText = pa.fixedRemark ?? pa.maintainRemark ?? "";
         const isGrayFixed = pa.activityColor === "gray" || !!pa.isMaintainLive;
         const isGreenFixed2 = pa.activityColor === "green" || pa.inactiveReason === 'mastered';
@@ -6153,21 +6155,22 @@ function buildGroupTargetViewTable(target, data, attendees) {
         rows += `<tr${isGrayFixed ? ' class="view-gray-row"' : isGreenFixed2 ? ' class="view-green-row"' : ' style="background:#f9fafb"'}>
           <td class="vcol-no" contenteditable="false">${no}</td>
           <td class="vcol-act" contenteditable="false">${formatActivityMarkup(pa.name)}</td>
-          <td class="vcol-student" contenteditable="false">â€”</td>
-          <td class="vcol-rem" contenteditable="false" style="color:#6b7280;white-space:pre-wrap">${formatActivityMarkup(fixedText) || "â€”"}</td>
-          <td class="vcol-trials" contenteditable="false">â€”</td>
-          <td class="vcol-total" contenteditable="false">â€”</td>
-          <td class="vcol-score" contenteditable="false">â€”</td>
+          <td class="vcol-student" contenteditable="false">—</td>
+          <td class="vcol-rem" contenteditable="false" style="color:#6b7280;white-space:pre-wrap">${formatActivityMarkup(fixedText) || "—"}</td>
+          <td class="vcol-trials" contenteditable="false">—</td>
+          <td class="vcol-total" contenteditable="false">—</td>
+          <td class="vcol-score" contenteditable="false">—</td>
         </tr>`;
         continue;
       }
       no++;
-      const entry = Object.entries(data.activities || {})
-        .find(([, a]) => a.targetName === target.name && a.activityName === pa.name);
-      if (entry) matchedIds.add(entry[0]);
-      rows += viewGroupActivityRows(no, pa.name, entry?.[0] || null, data, target, attendees, true);
+      const allEntries2 = Object.entries(data.activities || {})
+        .filter(([, a]) => a.targetName === target.name && a.activityName === pa.name);
+      const entry2 = allEntries2[0] || null;
+      allEntries2.forEach(([id]) => matchedIds.add(id));
+      rows += viewGroupActivityRows(no, pa.name, entry2?.[0] || null, data, target, attendees, true);
     }
-    // All unmatched session activities â€” covers both manually-added activities
+    // All unmatched session activities — covers both manually-added activities
     // AND predefined activities recorded under old names before a rename.
     Object.entries(data.activities || {})
       .filter(([actId, a]) => a.targetName === target.name && !matchedIds.has(actId))
@@ -6242,10 +6245,10 @@ function viewGroupActivityRows(no, actName, actId, data, target, attendees, isPr
         <input class="view-act-edit" type="text" value="${escHtml(actName)}"
           data-act-id="${escHtml(actId || "")}" data-original="${escHtml(actName)}" />
         <button class="view-act-del" data-act-id="${escHtml(actId || "")}"
-          data-target-name="${escHtml(target.name)}" title="Delete activity">Ã—</button>
+          data-target-name="${escHtml(target.name)}" title="Delete activity">×</button>
        </div>`;
 
-  // Mapped-score activities have no trials/combine-remarks concept â€” bypass
+  // Mapped-score activities have no trials/combine-remarks concept — bypass
   // the rounds/combine machinery entirely and list every attendee's own
   // remark + their own per-attendee mapped score (see renderGroupActivityCard's
   // live-entry counterpart for the same per-attendee bypass).
@@ -6328,7 +6331,7 @@ function viewGroupActivityRows(no, actName, actId, data, target, attendees, isPr
       </tr>`).join("");
     }
 
-    // opts.length > 0 â€” show per-attendee select/multi UI directly
+    // opts.length > 0 — show per-attendee select/multi UI directly
     return attendees.map((studentName, idx) => {
       let gSelHtml;
       if (multiSelect) {
@@ -6380,7 +6383,7 @@ function viewGroupActivityRows(no, actName, actId, data, target, attendees, isPr
 
       if (entry.pending) {
         // Free-text activities (no presets) get a ready-to-type empty box
-        // here too, same as the "nobody has a remark yet" case below â€” only
+        // here too, same as the "nobody has a remark yet" case below — only
         // preset-option/sentence-starter activities (which have no typeable
         // free text) still need an explicit button.
         if (opts.length === 0) {
@@ -6407,7 +6410,7 @@ function viewGroupActivityRows(no, actName, actId, data, target, attendees, isPr
           firstRowOverall = false;
           continue;
         }
-        // opts.length > 0 â€” show inline select/multi UI directly
+        // opts.length > 0 — show inline select/multi UI directly
         let pSelHtml;
         if (multiSelect) {
           pSelHtml = `<div class="view-remark-multi-opts" contenteditable="false">${opts.map(opt =>
@@ -6464,13 +6467,13 @@ function viewGroupRemarkRow(no, actName, studentName, rem, target, inlineOptions
     : `<div class="trial-cells">${buildTrialCellsHtml(rem, maxPts)}</div>`;
   const totalCell = mappedInfo ? "&nbsp;" : (validTrials.length > 0 ? total : "&nbsp;");
   const scoreDisplay = mappedInfo
-    ? (mappedInfo.pct !== null ? mappedInfo.pct + "%" : "â€”")
+    ? (mappedInfo.pct !== null ? mappedInfo.pct + "%" : "—")
     : scorePct;
 
   let remarkTd = "";
   if (!combineOpts?.skipRemarkCell) {
     if (combineOpts) {
-      // Combined round â€” one shared plain-text box across remIds (mirrors the live
+      // Combined round — one shared plain-text box across remIds (mirrors the live
       // group session editor's "Combined Remarks" mode, which is free-text only).
       const idList = combineOpts.combinedRemIds.join(",");
       remarkTd = `<td class="vcol-rem" rowspan="${combineOpts.rowspan}">
@@ -6503,7 +6506,7 @@ function viewGroupRemarkRow(no, actName, studentName, rem, target, inlineOptions
       const noteField = remarkHasNote
         ? `<textarea class="view-mastery-note" rows="1" data-rem-id="${escHtml(rem.id)}"
             data-saved-html="${escHtml(rem.masteryNote || "")}"
-            placeholder="Notesâ€¦">${escHtml(plainTextForEdit(rem.masteryNote))}</textarea>`
+            placeholder="Notes…">${escHtml(plainTextForEdit(rem.masteryNote))}</textarea>`
         : "";
 
       let remarkCell;
@@ -6536,7 +6539,7 @@ function viewGroupRemarkRow(no, actName, studentName, rem, target, inlineOptions
     <td class="vcol-score" contenteditable="false">
       <div style="display:flex;align-items:center;gap:.3rem;justify-content:flex-end">
         <span>${scoreDisplay}</span>
-        <button class="view-rem-del" data-rem-id="${escHtml(rem.id)}" title="Delete remark">Ã—</button>
+        <button class="view-rem-del" data-rem-id="${escHtml(rem.id)}" title="Delete remark">×</button>
       </div>
     </td>
   </tr>`;
@@ -6550,7 +6553,7 @@ function getGroupViewMaxPtsForRemark(remId) {
   return target?.maxPoints || 3;
 }
 
-// Group-view counterpart of refreshViewTrialRow â€” same reasoning applies
+// Group-view counterpart of refreshViewTrialRow — same reasoning applies
 // (see its comment): the Trials column's buttons can't blur the shared
 // contenteditable host, so a full renderGroupSessionView() after clicking
 // one gets deferred by isGroupViewBusy() until something unrelated finally
@@ -6574,7 +6577,7 @@ function refreshGroupViewTrialRow(remId) {
   if (scoreSpan) scoreSpan.textContent = scorePct;
 }
 
-// See trackViewTrialWrite's comment â€” same race, group-view counterpart.
+// See trackViewTrialWrite's comment — same race, group-view counterpart.
 function trackGroupViewTrialWrite(promise) {
   state.viewGroupActionsInFlight++;
   promise.finally(() => {
@@ -6599,7 +6602,7 @@ function bindGroupViewTrialCellListeners(container) {
       trackGroupViewTrialWrite(setTrials(state.viewGroupSessionId, sel.dataset.remId, trials).catch(err => {
         rem.trials = prevTrials;
         refreshGroupViewTrialRow(sel.dataset.remId);
-        alert("Couldn't update â€” check your connection and try again.\n\n" + err.message);
+        alert("Couldn't update — check your connection and try again.\n\n" + err.message);
       }));
     });
   });
@@ -6615,7 +6618,7 @@ function bindGroupViewTrialCellListeners(container) {
       trackGroupViewTrialWrite(setTrials(state.viewGroupSessionId, btn.dataset.remId, trials).catch(err => {
         rem.trials = prevTrials;
         refreshGroupViewTrialRow(btn.dataset.remId);
-        alert("Couldn't update â€” check your connection and try again.\n\n" + err.message);
+        alert("Couldn't update — check your connection and try again.\n\n" + err.message);
       }));
     });
   });
@@ -6631,7 +6634,7 @@ function bindGroupViewTrialCellListeners(container) {
       trackGroupViewTrialWrite(setTrials(state.viewGroupSessionId, btn.dataset.remId, trials).catch(err => {
         rem.trials = prevTrials;
         refreshGroupViewTrialRow(btn.dataset.remId);
-        alert("Couldn't add trial â€” check your connection and try again.\n\n" + err.message);
+        alert("Couldn't add trial — check your connection and try again.\n\n" + err.message);
       }));
     });
   });
@@ -6647,7 +6650,7 @@ function attachGroupViewListeners() {
 
   bindGroupViewTrialCellListeners(body);
 
-  // â”€â”€ Sketch board buttons (group view screen) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Sketch board buttons (group view screen) ────────────────
   body.querySelectorAll(".btn-sketch[data-rem-id]").forEach(btn => {
     btn.addEventListener("click", () => {
       const id = btn.dataset.remId;
@@ -6659,7 +6662,7 @@ function attachGroupViewListeners() {
 
   // Saving for .view-remark-edit / .group-remark-input-combined is handled by
   // the shared host saver (state.viewGroupRemarkSaver) set up once in
-  // openGroupSessionView, not here â€” this function runs on every render, and
+  // openGroupSessionView, not here — this function runs on every render, and
   // the body persists across renders, so attaching per-box listeners here
   // would stack up duplicates.
 
@@ -6720,7 +6723,7 @@ function attachGroupViewListeners() {
   // (state.viewGroupRemarkSaver) set up once in openGroupSessionView.
 
   // These three handlers update state.viewGroupSessionData synchronously
-  // (not just the DOM/Firestore) before awaiting the write â€” see the matching
+  // (not just the DOM/Firestore) before awaiting the write — see the matching
   // comment on the individual view screen's equivalent handlers for why:
   // leaveGroupSessionView()'s cleanup reads a captured snapshot with no guard
   // for an in-flight write, which could otherwise let it delete a remark the
@@ -6738,7 +6741,7 @@ function attachGroupViewListeners() {
         await updateRemarkText(sid(), btn.dataset.remId, newText);
       } catch (err) {
         if (rem) rem.text = prevText;
-        alert("Couldn't save â€” check your connection and try again.\n\n" + err.message);
+        alert("Couldn't save — check your connection and try again.\n\n" + err.message);
       }
     }));
   });
@@ -6756,7 +6759,7 @@ function attachGroupViewListeners() {
         await updateRemarkText(sid(), btn.dataset.remId, newText);
       } catch (err) {
         if (rem) rem.text = prevText;
-        alert("Couldn't save â€” check your connection and try again.\n\n" + err.message);
+        alert("Couldn't save — check your connection and try again.\n\n" + err.message);
       }
     }));
   });
@@ -6771,15 +6774,15 @@ function attachGroupViewListeners() {
         await updateRemarkText(sid(), input.dataset.remId, input.value);
       } catch (err) {
         rem.text = prevText;
-        alert("Couldn't save â€” check your connection and try again.\n\n" + err.message);
+        alert("Couldn't save — check your connection and try again.\n\n" + err.message);
       }
     });
   });
 
-  // "+ Add Remark & Trials" on a brand-new (round-less) activity â€” adds one
+  // "+ Add Remark & Trials" on a brand-new (round-less) activity — adds one
   // remark for every attendee. Writes to local state and renders immediately
   // (optimistic) instead of awaiting addActivity + addGroupRemarksBatch
-  // first â€” both are handed the same ids used locally, so the background
+  // first — both are handed the same ids used locally, so the background
   // writes settle into the exact same keys once the snapshot catches up.
   body.querySelectorAll(".btn-view-group-add-remark-all").forEach(btn => {
     btn.addEventListener("click", () => {
@@ -6816,14 +6819,14 @@ function attachGroupViewListeners() {
           if (isNewAct) delete data.activities[actId];
           remIds.forEach(id => delete data.remarks[id]);
           renderGroupSessionView();
-          alert("Couldn't add remark â€” check your connection and try again.\n\n" + err.message);
+          alert("Couldn't add remark — check your connection and try again.\n\n" + err.message);
         }
       })();
     });
   });
 
   // "+ Add Remark & Trials" on a pending (missing) student within an existing
-  // round â€” actId always already exists here (the round itself came from an
+  // round — actId always already exists here (the round itself came from an
   // existing remark), so this is a single optimistic write.
   body.querySelectorAll(".btn-view-group-add-remark-pending").forEach(btn => {
     btn.addEventListener("click", () => {
@@ -6839,16 +6842,16 @@ function attachGroupViewListeners() {
       addGroupRemark(sid(), actId, studentName, "", remId).catch(err => {
         delete data.remarks[remId];
         renderGroupSessionView();
-        alert("Couldn't add remark â€” check your connection and try again.\n\n" + err.message);
+        alert("Couldn't add remark — check your connection and try again.\n\n" + err.message);
       });
     });
   });
 
-  // "+ Add Remark" for a mapped-score activity, one attendee at a time â€” unlike
+  // "+ Add Remark" for a mapped-score activity, one attendee at a time — unlike
   // the plain pending button above, the activity may not exist yet at all
   // (mapped activities skip the bulk "add for everyone" button), so this
   // creates it on demand, same as ensureGroupActivityAndRemark's live-entry
-  // counterpart â€” also optimistic now, for the same reason as the buttons above.
+  // counterpart — also optimistic now, for the same reason as the buttons above.
   body.querySelectorAll(".btn-view-group-add-remark-mapped-pending").forEach(btn => {
     btn.addEventListener("click", () => {
       if (btn.disabled) return;
@@ -6878,7 +6881,7 @@ function attachGroupViewListeners() {
           if (isNewAct) delete data.activities[actId];
           delete data.remarks[remId];
           renderGroupSessionView();
-          alert("Couldn't add remark â€” check your connection and try again.\n\n" + err.message);
+          alert("Couldn't add remark — check your connection and try again.\n\n" + err.message);
         }
       })();
     });
@@ -6913,7 +6916,7 @@ function attachGroupViewListeners() {
           if (isNewAct) delete data.activities[actId];
           delete data.remarks[remId];
           renderGroupSessionView();
-          alert("Couldn't add remark â€” check your connection and try again.\n\n" + err.message);
+          alert("Couldn't add remark — check your connection and try again.\n\n" + err.message);
         }
       })();
     });
@@ -6947,7 +6950,7 @@ function attachGroupViewListeners() {
           if (isNewAct) delete data.activities[actId];
           delete data.remarks[remId];
           renderGroupSessionView();
-          alert("Couldn't add remark â€” check your connection and try again.\n\n" + err.message);
+          alert("Couldn't add remark — check your connection and try again.\n\n" + err.message);
         }
       })();
     });
@@ -6961,7 +6964,7 @@ function attachGroupViewListeners() {
     ta.addEventListener("input", expand);
   });
 
-  // "+" under Trials with no remark yet â€” creates the activity/remark for
+  // "+" under Trials with no remark yet — creates the activity/remark for
   // this student and a first trial in one go.
   body.querySelectorAll(".view-group-add-trial-new").forEach(btn => {
     btn.addEventListener("click", wrap(async () => {
@@ -7012,7 +7015,7 @@ function attachGroupViewListeners() {
       deleteRemark(sid(), remId).catch(err => {
         state.viewGroupSessionData.remarks[remId] = rem;
         renderViewOrDefer("viewGroupRenderPending", isGroupViewBusy, renderGroupSessionView);
-        alert("Couldn't delete remark â€” check your connection and try again.\n\n" + err.message);
+        alert("Couldn't delete remark — check your connection and try again.\n\n" + err.message);
       });
     });
   });
@@ -7029,10 +7032,10 @@ function attachGroupViewListeners() {
   });
 }
 
-// â”€â”€ Go To Another (group) Session â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Go To Another (group) Session ─────────────────────────────
 async function showGoToAnotherGroupSession(group) {
   $("session-picker-title").textContent = group.name;
-  $("session-picker-list").innerHTML = `<div class="session-picker-loading">Loading sessionsâ€¦</div>`;
+  $("session-picker-list").innerHTML = `<div class="session-picker-loading">Loading sessions…</div>`;
   $("session-picker-modal").classList.remove("hidden");
 
   let sessions = [];
@@ -7100,7 +7103,7 @@ function renderGoToGroupSessionsForMonth(group, month, monthSessions, byMonth, t
   $("session-picker-title").textContent = month;
   const sorted  = [...monthSessions].sort((a, b) => a.date.localeCompare(b.date));
   const display = [...sorted].reverse();
-  let html = `<button class="btn-picker-back">â† Back</button>`;
+  let html = `<button class="btn-picker-back">← Back</button>`;
   html += renderSessionListRows(sorted, display, today, { isCurrentId: state.viewGroupSessionId });
   const list = $("session-picker-list");
   list.innerHTML = html;
@@ -7116,7 +7119,7 @@ function renderGoToGroupSessionsForMonth(group, month, monthSessions, byMonth, t
   });
 }
 
-// Header "Go To Another Session" button on the group live entry screen â€”
+// Header "Go To Another Session" button on the group live entry screen —
 // same month-grid-then-list flow as the View screen's equivalent button,
 // but jumps into live entry instead of View/Edit (openGroupSession instead
 // of openGroupSessionView) when a session is picked. openGroupSession takes
@@ -7124,7 +7127,7 @@ function renderGoToGroupSessionsForMonth(group, month, monthSessions, byMonth, t
 // picked session's date from the month's session list.
 async function showGoToAnotherGroupSessionForEntry(group) {
   $("session-picker-title").textContent = group.name;
-  $("session-picker-list").innerHTML = `<div class="session-picker-loading">Loading sessionsâ€¦</div>`;
+  $("session-picker-list").innerHTML = `<div class="session-picker-loading">Loading sessions…</div>`;
   $("session-picker-modal").classList.remove("hidden");
 
   let sessions = [];
@@ -7192,7 +7195,7 @@ function renderGoToGroupSessionsForMonthEntry(group, month, monthSessions, byMon
   $("session-picker-title").textContent = month;
   const sorted  = [...monthSessions].sort((a, b) => a.date.localeCompare(b.date));
   const display = [...sorted].reverse();
-  let html = `<button class="btn-picker-back">â† Back</button>`;
+  let html = `<button class="btn-picker-back">← Back</button>`;
   html += renderSessionListRows(sorted, display, today, { isCurrentId: state.groupSessionId });
   const list = $("session-picker-list");
   list.innerHTML = html;
@@ -7210,13 +7213,13 @@ function renderGoToGroupSessionsForMonthEntry(group, month, monthSessions, byMon
   });
 }
 
-// â”€â”€ Edit Date (group view) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Edit Date (group view) ─────────────────────────────────────
 async function showEditGroupDatePicker() {
   const group       = state.viewGroup;
   const currentDate = state.viewGroupSessionData.date;
 
   $("session-picker-title").textContent = "Edit Date";
-  $("session-picker-list").innerHTML = `<div class="session-picker-loading">Loadingâ€¦</div>`;
+  $("session-picker-list").innerHTML = `<div class="session-picker-loading">Loading…</div>`;
   $("session-picker-modal").classList.remove("hidden");
 
   let sessions = [];
@@ -7243,12 +7246,12 @@ function renderGroupDatePickerCalendar(displayDate, takenDates, today, currentDa
 
   let html = `<div class="date-picker-wrap">
     <p class="date-picker-subtitle">Select a new date</p>
-    <p class="date-picker-legend"><span class="date-taken-dot">âœ“ï¸Ž</span> Session exists on this day</p>
+    <p class="date-picker-legend"><span class="date-taken-dot">✓︎</span> Session exists on this day</p>
     <div class="date-picker-cal">
       <div class="date-picker-nav">
-        <button class="btn-date-prev">â€¹</button>
+        <button class="btn-date-prev">‹</button>
         <span class="date-picker-month-label">${escHtml(monthLabel)}</span>
-        <button class="btn-date-next"${canNext ? "" : " disabled"}>â€º</button>
+        <button class="btn-date-next"${canNext ? "" : " disabled"}>›</button>
       </div>
       <div class="date-picker-day-headers">
         <span>Su</span><span>Mo</span><span>Tu</span><span>We</span>
@@ -7269,7 +7272,7 @@ function renderGroupDatePickerCalendar(displayDate, takenDates, today, currentDa
     if (isFut)   cls += " date-picker-day-future";
     if (isTaken) cls += " date-picker-day-taken";
     const dotCls = isTaken ? "date-taken-dot" : "day-dot-spacer";
-    html += `<button class="${cls}" data-date="${ds}"${dis ? " disabled" : ""}><span class="day-num">${d}</span><span class="${dotCls}">${isTaken ? "âœ“ï¸Ž" : ""}</span></button>`;
+    html += `<button class="${cls}" data-date="${ds}"${dis ? " disabled" : ""}><span class="day-num">${d}</span><span class="${dotCls}">${isTaken ? "✓︎" : ""}</span></button>`;
   }
   html += `</div></div></div>`;
 
@@ -7312,9 +7315,9 @@ function todayDateStr() {
 
 function inactiveReasonBadge(pa) {
   if (pa?.inactiveReason === 'mastered')
-    return '<span style="display:inline-flex;align-items:center;background:#d1fae5;border:1px solid #6ee7b7;border-radius:999px;padding:.05rem .45rem;font-size:.7rem;font-weight:700;color:#059669;white-space:nowrap;margin-right:.4rem;vertical-align:middle">â— Mastered</span>';
+    return '<span style="display:inline-flex;align-items:center;background:#d1fae5;border:1px solid #6ee7b7;border-radius:999px;padding:.05rem .45rem;font-size:.7rem;font-weight:700;color:#059669;white-space:nowrap;margin-right:.4rem;vertical-align:middle">● Mastered</span>';
   if (pa?.inactiveReason === 'discontinued')
-    return '<span style="display:inline-flex;align-items:center;background:#fee2e2;border:1px solid #fca5a5;border-radius:999px;padding:.05rem .45rem;font-size:.7rem;font-weight:700;color:#dc2626;white-space:nowrap;margin-right:.4rem;vertical-align:middle">â— Discontinued</span>';
+    return '<span style="display:inline-flex;align-items:center;background:#fee2e2;border:1px solid #fca5a5;border-radius:999px;padding:.05rem .45rem;font-size:.7rem;font-weight:700;color:#dc2626;white-space:nowrap;margin-right:.4rem;vertical-align:middle">● Discontinued</span>';
   return '';
 }
 
@@ -7332,8 +7335,8 @@ function fmtPeriodDate(d) {
 }
 
 function periodSectionHtml(activeFrom, activeTo, idx, withBorder, inactiveReason) {
-  const fromLabel = activeFrom ? fmtPeriodDate(activeFrom) : '-âˆž';
-  const toLabel   = activeTo   ? fmtPeriodDate(activeTo)   : '+âˆž';
+  const fromLabel = activeFrom ? fmtPeriodDate(activeFrom) : '-∞';
+  const toLabel   = activeTo   ? fmtPeriodDate(activeTo)   : '+∞';
   const fromBg    = activeFrom ? '#ffffff' : '#eff6ff';
   const toBg      = activeTo   ? '#ffffff' : '#eff6ff';
   const fromCol   = activeFrom ? '#111827' : '#6b7280';
@@ -7344,27 +7347,27 @@ function periodSectionHtml(activeFrom, activeTo, idx, withBorder, inactiveReason
     <div style="display:flex;align-items:center;gap:.5rem;margin-top:.35rem">
       <span style="font-size:.78rem;color:#6b7280;white-space:nowrap">End Reason:</span>
       <select class="mn-inactive-reason-select" data-idx="${idx}" style="flex:1;font-size:.8rem;padding:.2rem .4rem;border:1px solid #d1d5db;border-radius:.3rem;background:white;cursor:pointer">
-        <option value="">â€” Not specified â€”</option>
+        <option value="">— Not specified —</option>
         <option value="mastered"${inactiveReason === 'mastered' ? ' selected' : ''}>Mastered</option>
         <option value="discontinued"${inactiveReason === 'discontinued' ? ' selected' : ''}>Discontinued</option>
       </select>
     </div>` : '';
   return `<div style="padding:.45rem .6rem;${border}">
-    <div style="font-size:.84rem;color:inherit;margin-bottom:.35rem">ðŸ“… Active Period</div>
+    <div style="font-size:.84rem;color:inherit;margin-bottom:.35rem">📅 Active Period</div>
     <div style="display:flex;align-items:center;gap:.4rem">
       <div style="position:relative;flex:1;min-width:0">
         <button class="mn-period-from-btn" data-idx="${idx}" style="width:100%;padding:.28rem .4rem;border:1px solid #d1d5db;border-radius:.3rem;background:${fromBg};cursor:pointer;font-size:.8rem;color:${fromCol};white-space:nowrap;text-align:center">${fromLabel}</button>
         <div class="mn-period-from-panel" data-idx="${idx}" style="display:none;position:absolute;top:calc(100% + 3px);left:0;z-index:300;background:#fff;border:1px solid #e5e7eb;border-radius:.45rem;padding:.4rem;box-shadow:0 4px 14px rgba(0,0,0,.12);min-width:175px">
           <input type="date" class="mn-period-date" data-idx="${idx}" data-which="from" value="${activeFrom||''}" style="width:100%;font-size:.8rem;border:1px solid #d1d5db;border-radius:.3rem;padding:.2rem .3rem;margin-bottom:.3rem;box-sizing:border-box">
-          <button class="mn-period-inf" data-idx="${idx}" data-which="from" style="width:100%;padding:.25rem;font-size:.78rem;border:1px solid #bfdbfe;border-radius:.3rem;background:#eff6ff;cursor:pointer;color:#1d4ed8">Clear / Set as -âˆž</button>
+          <button class="mn-period-inf" data-idx="${idx}" data-which="from" style="width:100%;padding:.25rem;font-size:.78rem;border:1px solid #bfdbfe;border-radius:.3rem;background:#eff6ff;cursor:pointer;color:#1d4ed8">Clear / Set as -∞</button>
         </div>
       </div>
-      <span style="color:#9ca3af;flex-shrink:0">â†’</span>
+      <span style="color:#9ca3af;flex-shrink:0">→</span>
       <div style="position:relative;flex:1;min-width:0">
         <button class="mn-period-to-btn" data-idx="${idx}" style="width:100%;padding:.28rem .4rem;border:1px solid #d1d5db;border-radius:.3rem;background:${toBg};cursor:pointer;font-size:.8rem;color:${toCol};white-space:nowrap;text-align:center">${toLabel}</button>
         <div class="mn-period-to-panel" data-idx="${idx}" style="display:none;position:absolute;top:calc(100% + 3px);right:0;z-index:300;background:#fff;border:1px solid #e5e7eb;border-radius:.45rem;padding:.4rem;box-shadow:0 4px 14px rgba(0,0,0,.12);min-width:175px">
           <input type="date" class="mn-period-date" data-idx="${idx}" data-which="to" value="${activeTo||''}" style="width:100%;font-size:.8rem;border:1px solid #d1d5db;border-radius:.3rem;padding:.2rem .3rem;margin-bottom:.3rem;box-sizing:border-box">
-          <button class="mn-period-inf" data-idx="${idx}" data-which="to" style="width:100%;padding:.25rem;font-size:.78rem;border:1px solid #bfdbfe;border-radius:.3rem;background:#eff6ff;cursor:pointer;color:#1d4ed8">Clear / Set as +âˆž</button>
+          <button class="mn-period-inf" data-idx="${idx}" data-which="to" style="width:100%;padding:.25rem;font-size:.78rem;border:1px solid #bfdbfe;border-radius:.3rem;background:#eff6ff;cursor:pointer;color:#1d4ed8">Clear / Set as +∞</button>
         </div>
       </div>
     </div>
@@ -7372,7 +7375,7 @@ function periodSectionHtml(activeFrom, activeTo, idx, withBorder, inactiveReason
   </div>`;
 }
 
-// â”€â”€ Open / close â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Open / close ──────────────────────────────────────────────
 
 function openManageModal(student, targetOrNull, templateOrNull = null, remarkPresetOrNull = null) {
   $("manage-modal").classList.remove("hidden");
@@ -7387,9 +7390,9 @@ function openManageModal(student, targetOrNull, templateOrNull = null, remarkPre
   }
 }
 
-// â”€â”€ Group Add Target picker â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Group Add Target picker ───────────────────────────────────
 
-// â”€â”€ Reorder Targets (group) â€” same mechanism as the individual-student version â”€â”€
+// ── Reorder Targets (group) — same mechanism as the individual-student version ──
 function showGroupTargetReorderList(group) {
   _pendingActsCleanup = null;
   $("manage-modal-title").textContent = "Rearrange Targets";
@@ -7406,7 +7409,7 @@ function renderGroupTargetReorderList(group) {
     <div class="admin-list" id="mn-target-reorder-list">
       ${sorted.map((t, idx) => `
         <div class="admin-list-item" data-idx="${idx}">
-          <span class="drag-handle">â ¿</span>
+          <span class="drag-handle">⠿</span>
           <span style="flex:1">${escHtml(t.name)}</span>
         </div>`).join("")}
     </div>
@@ -7493,7 +7496,7 @@ function showGroupDupFromCurrent(group) {
         </label>`).join("")}
     </div>
     <button class="btn-primary-sm" id="btn-gdup-confirm" style="width:100%;margin-top:.75rem;padding:.75rem">Duplicate Selected</button>
-    <button class="btn-adm-secondary" id="btn-gdup-back" style="width:100%;margin-top:.5rem;padding:.65rem">â† Back</button>`;
+    <button class="btn-adm-secondary" id="btn-gdup-back" style="width:100%;margin-top:.5rem;padding:.65rem">← Back</button>`;
 
   $("btn-gdup-back").addEventListener("click", () => showGroupAddTargetPicker(group));
   $("btn-gdup-confirm").addEventListener("click", async () => {
@@ -7529,8 +7532,8 @@ function showGroupDupFromOther(group, otherGroups) {
           <span class="admin-item-name">${escHtml(g.name)}</span>
         </label>`).join("")}
     </div>
-    <button class="btn-primary-sm" id="btn-gother-next" style="width:100%;margin-top:.75rem;padding:.75rem">Next â†’</button>
-    <button class="btn-adm-secondary" id="btn-gdup-back" style="width:100%;margin-top:.5rem;padding:.65rem">â† Back</button>`;
+    <button class="btn-primary-sm" id="btn-gother-next" style="width:100%;margin-top:.75rem;padding:.75rem">Next →</button>
+    <button class="btn-adm-secondary" id="btn-gdup-back" style="width:100%;margin-top:.5rem;padding:.65rem">← Back</button>`;
 
   $("btn-gdup-back").addEventListener("click", () => showGroupAddTargetPicker(group));
   $("btn-gother-next").addEventListener("click", () => {
@@ -7556,7 +7559,7 @@ function showGroupDupFromOtherPickTarget(group, sourceGroup) {
         </label>`).join("")}
     </div>
     <button class="btn-primary-sm" id="btn-gother-dup" style="width:100%;margin-top:.75rem;padding:.75rem">Duplicate Selected</button>
-    <button class="btn-adm-secondary" id="btn-gdup-back" style="width:100%;margin-top:.5rem;padding:.65rem">â† Back</button>`;
+    <button class="btn-adm-secondary" id="btn-gdup-back" style="width:100%;margin-top:.5rem;padding:.65rem">← Back</button>`;
 
   $("btn-gdup-back").addEventListener("click", () => showGroupDupFromOther(group, state.groups.filter(g => g.id !== group.id && g.targets?.length > 0)));
   $("btn-gother-dup").addEventListener("click", async () => {
@@ -7594,7 +7597,7 @@ function showGroupDupFromTemplate(group) {
         </label>`).join("")}
     </div>
     <button class="btn-primary-sm" id="btn-gtmpl-dup" style="width:100%;margin-top:.75rem;padding:.75rem">Duplicate Selected</button>
-    <button class="btn-adm-secondary" id="btn-gdup-back" style="width:100%;margin-top:.5rem;padding:.65rem">â† Back</button>`;
+    <button class="btn-adm-secondary" id="btn-gdup-back" style="width:100%;margin-top:.5rem;padding:.65rem">← Back</button>`;
 
   $("btn-gdup-back").addEventListener("click", () => showGroupAddTargetPicker(group));
   $("btn-gtmpl-dup").addEventListener("click", async () => {
@@ -7632,7 +7635,7 @@ async function closeManageModal() {
   // reflect any target-config changes just made), bypassing the normal
   // busy-check entirely. Without flushing first, an edit that was typed but
   // hadn't hit its save debounce yet would get silently overwritten by that
-  // forced render reading the last (now-stale) Firestore snapshot â€” exactly
+  // forced render reading the last (now-stale) Firestore snapshot — exactly
   // the "my edit reverted to the original" bug.
   await state.entryRemarkSaver?.flush();
   await state.entryGroupRemarkSaver?.flush();
@@ -7652,13 +7655,13 @@ async function closeManageModal() {
       try {
         await save();
       } catch (err) {
-        alert("Couldn't save â€” check your connection and try again.\n\n" + err.message);
+        alert("Couldn't save — check your connection and try again.\n\n" + err.message);
       }
     }
   }
   // If a brand-new group was being created but has no students, remove it.
   // filter(Boolean) (not .length) because an untouched/cleared roster slot
-  // can leave an empty-string or sparse-array hole at some index â€” that's
+  // can leave an empty-string or sparse-array hole at some index — that's
   // still an empty group, just not one with .length === 0.
   if (_newGroupId) {
     const g = state.groups.find(x => x.id === _newGroupId);
@@ -7675,7 +7678,7 @@ async function closeManageModal() {
     populateTargetDropdown(state.currentStudent.targets);
     if (state.currentSessionId) {
       // Run both auto-fills so newly-added Select One / Tickbox / mapped-score
-      // activities get their remarks immediately â€” no Firestore snapshot will
+      // activities get their remarks immediately — no Firestore snapshot will
       // arrive on its own since saving the target config doesn't write to the
       // session doc.
       (async () => {
@@ -7718,7 +7721,7 @@ async function closeManageModal() {
   renderExportButtons();
   renderGroupButtons();
   // Manage Student can be opened from on top of the Student Database page
-  // (clicking a row there) â€” refresh its table too, otherwise a rename or
+  // (clicking a row there) — refresh its table too, otherwise a rename or
   // session-number change made in the modal doesn't show up underneath it.
   if ($("screen-student-registry")?.classList.contains("active")) {
     renderStudentRegistryBody();
@@ -7729,7 +7732,7 @@ $("manage-modal-close").addEventListener("click",    closeManageModal);
 $("manage-modal-backdrop").addEventListener("click", closeManageModal);
 
 
-// â”€â”€ Session-screen âš™ button â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Session-screen ⚙ button ───────────────────────────────────
 
 $("btn-manage-targets").addEventListener("click", () => {
   const student = state.currentStudent;
@@ -7738,11 +7741,11 @@ $("btn-manage-targets").addEventListener("click", () => {
   openManageModal(student, target);
 });
 
-// â”€â”€ Add Target picker (replaces confirm/prompt flow) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Add Target picker (replaces confirm/prompt flow) ──────────
 
-// â”€â”€ Reorder Targets (drag-to-reorder, same mechanism as activity reordering) â”€â”€
+// ── Reorder Targets (drag-to-reorder, same mechanism as activity reordering) ──
 // Persisted order drives the dropdown, the View/Edit Past Sessions table, and
-// the Word/Excel exports â€” see sortTargetsByOrder.
+// the Word/Excel exports — see sortTargetsByOrder.
 function showTargetReorderList(student) {
   _pendingActsCleanup = null;
   $("manage-modal-title").textContent = "Rearrange Targets";
@@ -7759,7 +7762,7 @@ function renderTargetReorderList(student) {
     <div class="admin-list" id="mn-target-reorder-list">
       ${sorted.map((t, idx) => `
         <div class="admin-list-item" data-idx="${idx}">
-          <span class="drag-handle">â ¿</span>
+          <span class="drag-handle">⠿</span>
           <span style="flex:1">${escHtml(t.name)}</span>
         </div>`).join("")}
     </div>
@@ -7828,7 +7831,7 @@ function showAddTargetPicker(student) {
     student.targets.push(t);
     const si = state.students.findIndex(s => s.id === student.id);
     if (si >= 0) state.students[si] = student;
-    // Flush before the forced renderTargetContent() below â€” otherwise a
+    // Flush before the forced renderTargetContent() below — otherwise a
     // not-yet-saved edit on whatever target was open gets silently
     // overwritten when this re-renders from the last Firestore snapshot.
     await state.entryRemarkSaver?.flush();
@@ -7867,7 +7870,7 @@ function showDupFromCurrentStudent(student) {
     <button class="btn-primary-sm" id="btn-confirm-duplicate"
       style="width:100%;margin-top:.75rem;padding:.75rem">Duplicate Selected</button>
     <button class="btn-adm-secondary" id="btn-dup-back"
-      style="width:100%;margin-top:.5rem;padding:.65rem">â† Back</button>`;
+      style="width:100%;margin-top:.5rem;padding:.65rem">← Back</button>`;
 
   $("btn-dup-back").addEventListener("click", () => showAddTargetPicker(student));
 
@@ -7924,13 +7927,13 @@ function showDupFromOtherStudent_pickStudent(student, otherStudents) {
   $("manage-modal-body").innerHTML = `
     <div class="admin-section-title" style="margin-bottom:.5rem">Search Student</div>
     <input type="search" id="dup-student-search" class="admin-input"
-      placeholder="Search studentsâ€¦" autocomplete="off"
+      placeholder="Search students…" autocomplete="off"
       style="width:100%;margin-bottom:.5rem" />
     <div id="dup-student-list"></div>
     <button class="btn-primary-sm" id="btn-pick-other-student"
-      style="width:100%;margin-top:.75rem;padding:.75rem">Next â†’</button>
+      style="width:100%;margin-top:.75rem;padding:.75rem">Next →</button>
     <button class="btn-adm-secondary" id="btn-dup-back"
-      style="width:100%;margin-top:.5rem;padding:.65rem">â† Back</button>`;
+      style="width:100%;margin-top:.5rem;padding:.65rem">← Back</button>`;
 
   render("");
   $("dup-student-search").addEventListener("input", e => render(e.target.value));
@@ -7965,7 +7968,7 @@ function showDupFromOtherStudent_pickTarget(student, sourceStudent) {
     <button class="btn-primary-sm" id="btn-confirm-other-dup"
       style="width:100%;margin-top:.75rem;padding:.75rem">Duplicate Selected</button>
     <button class="btn-adm-secondary" id="btn-dup-back"
-      style="width:100%;margin-top:.5rem;padding:.65rem">â† Back</button>`;
+      style="width:100%;margin-top:.5rem;padding:.65rem">← Back</button>`;
 
   $("btn-dup-back").addEventListener("click", () => {
     showDupFromOtherStudent_pickStudent(student, state.students.filter(s => s.id !== student.id));
@@ -8012,7 +8015,7 @@ function showDupFromTemplate(student) {
     <button class="btn-primary-sm" id="btn-confirm-tmpl-dup"
       style="width:100%;margin-top:.75rem;padding:.75rem">Duplicate Selected</button>
     <button class="btn-adm-secondary" id="btn-dup-back"
-      style="width:100%;margin-top:.5rem;padding:.65rem">â† Back</button>`;
+      style="width:100%;margin-top:.5rem;padding:.65rem">← Back</button>`;
 
   $("btn-dup-back").addEventListener("click", () => showAddTargetPicker(student));
 
@@ -8048,9 +8051,9 @@ function showDupFromTemplate(student) {
   });
 }
 
-// â”€â”€ Remark preset management content â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Remark preset management content ─────────────────────────
 
-// â”€â”€ Student management content â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Student management content ────────────────────────────────
 
 function renderStudentNameDisplay(student) {
   return `<div style="display:flex;gap:.6rem;align-items:center">
@@ -8060,7 +8063,7 @@ function renderStudentNameDisplay(student) {
 }
 
 // "Change Student's Name" swaps the read-only name display for the old
-// First Name/Last Name editor in place (same popup, no navigation) â€” with
+// First Name/Last Name editor in place (same popup, no navigation) — with
 // persistent labels instead of placeholder text (which disappears once you
 // type) and no Save button, since each field autosaves on blur instead.
 function wireStudentNameSection(student) {
@@ -8112,7 +8115,7 @@ function renderStudentManageContent(student) {
       <div id="mn-s-name-section">${renderStudentNameDisplay(student)}</div>
     </div>
     <div class="admin-section">
-      <div id="mn-s-session-number-area">Loadingâ€¦</div>
+      <div id="mn-s-session-number-area">Loading…</div>
     </div>
     ${isAssessment ? `
     <div class="admin-section">
@@ -8147,7 +8150,7 @@ function renderStudentManageContent(student) {
 }
 
 // Lets the boss correct a veteran student's lifetime session count (e.g. they
-// were tracked on paper for years before this app) â€” pick one of their
+// were tracked on paper for years before this app) — pick one of their
 // existing sessions and type its true number; every one of their sessions
 // of that SAME kind shifts by the same amount to keep order/spacing.
 // Individual and group session counts are separate lifetime sequences (a
@@ -8162,9 +8165,9 @@ async function renderSessionNumberSection(student) {
   ]);
   if (!area.isConnected) return; // modal closed while the fetch was in flight
 
-  // Silently fill any gaps in individual session numbers (e.g. 1,2,3,5,6 â†’
-  // 1,2,3,4,5). Only triggers on true gaps â€” consecutive sessions that differ
-  // by more than 1 â€” so a user-set offset like 8,9,10,11 is never touched.
+  // Silently fill any gaps in individual session numbers (e.g. 1,2,3,5,6 →
+  // 1,2,3,4,5). Only triggers on true gaps — consecutive sessions that differ
+  // by more than 1 — so a user-set offset like 8,9,10,11 is never touched.
   const indivSorted = indivSessions.slice().sort((a, b) => a.date.localeCompare(b.date));
   const hasGap = indivSorted.some((s, i) => i > 0 && s.number !== indivSorted[i - 1].number + 1);
   if (hasGap) {
@@ -8199,11 +8202,11 @@ function renderSessionNumberKindSubsection(student, kind, label, sessions, conta
     <p class="admin-label" style="margin-bottom:.4rem">${label}</p>
     <label style="font-size:.78rem;color:var(--text-muted);display:block;margin-bottom:.3rem">Select session to renumber</label>
     <select class="admin-input" id="${id("date")}" style="margin-bottom:.5rem">
-      ${dropdownOrder.map(s => `<option value="${s.id}">${formatDate(s.date)} â†’ Session ${s.number}</option>`).join("")}
+      ${dropdownOrder.map(s => `<option value="${s.id}">${formatDate(s.date)} → Session ${s.number}</option>`).join("")}
     </select>
     <div style="display:flex;align-items:center;gap:.4rem">
       <span style="font-size:.82rem;color:var(--text-muted);white-space:nowrap">Renumber to</span>
-      <button type="button" class="btn-adm-edit" id="${id("minus")}" style="padding:.4rem .7rem;line-height:1">âˆ’</button>
+      <button type="button" class="btn-adm-edit" id="${id("minus")}" style="padding:.4rem .7rem;line-height:1">−</button>
       <input class="admin-input" id="${id("value")}" type="number" min="1" style="width:4.5rem;text-align:center;flex:0 0 auto" />
       <button type="button" class="btn-adm-edit" id="${id("plus")}" style="padding:.4rem .7rem;line-height:1">+</button>
       <button class="btn-primary-sm" id="${id("save")}">Save</button>
@@ -8234,7 +8237,7 @@ function renderSessionNumberKindSubsection(student, kind, label, sessions, conta
     const anchor = sessions.find(s => s.id === sessionId);
     const delta = newNumber - anchor.number;
     if (delta === 0) return;
-    // sessions is sorted oldest-first, so sessions[0] is the earliest â€”
+    // sessions is sorted oldest-first, so sessions[0] is the earliest —
     // every session of this kind shifts by the same delta, so that's the
     // one that would go below Session 1 first if the typed number is too low.
     const earliest = sessions[0];
@@ -8250,7 +8253,7 @@ function renderSessionNumberKindSubsection(student, kind, label, sessions, conta
     try {
       await withSaveFeedback($(id("save")), changeSessionNumber(student.id, sessionId, newNumber, kind));
       // Mirror the same uniform shift locally instead of re-fetching from
-      // Firestore â€” a fresh fetch right after the write was leaving a
+      // Firestore — a fresh fetch right after the write was leaving a
       // confusing gap where the button said "Save" again but the dropdown
       // still showed the old number until the (slow) re-fetch finished.
       sessions.forEach(s => { s.number += delta; });
@@ -8261,7 +8264,7 @@ function renderSessionNumberKindSubsection(student, kind, label, sessions, conta
   });
 }
 
-// â”€â”€ Drag-to-reorder for the activity list â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Drag-to-reorder for the activity list ─────────────────────
 // Uses Pointer Events so it works on mouse, iPad, and iPhone.
 function initDragSort(listEl, onReorder) {
   let dragEl      = null;
@@ -8372,7 +8375,7 @@ function normalizeActivitiesFormat(acts) {
   return result;
 }
 
-// â”€â”€ Target management content â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Target management content ─────────────────────────────────
 
 function autoResizeTextarea(el) {
   el.style.height = "auto";
@@ -8392,8 +8395,8 @@ function noteToHtml(text) {
 }
 
 // Convert stored note text (possibly HTML) to marker syntax for textarea editing.
-// Plain text already uses *bold* / _underline_ markers â€” return as-is.
-// HTML (legacy storage) gets converted: <strong>â†’* <u>â†’_ so the round-trip is lossless.
+// Plain text already uses *bold* / _underline_ markers — return as-is.
+// HTML (legacy storage) gets converted: <strong>→* <u>→_ so the round-trip is lossless.
 function stripNoteHtml(text) {
   if (!text) return "";
   if (!/<[a-z]/i.test(text)) return text;
@@ -8409,8 +8412,8 @@ function stripNoteHtml(text) {
     .trim();
 }
 
-// Parses a manually-typed score value into a percentage (0â€“100).
-// Accepts: "5/20" â†’ 25, "25%" â†’ 25, "25" â†’ 25.  Returns null if unparseable.
+// Parses a manually-typed score value into a percentage (0–100).
+// Accepts: "5/20" → 25, "25%" → 25, "25" → 25.  Returns null if unparseable.
 function parseManualScore(val) {
   if (!val) return null;
   const s = String(val).trim();
@@ -8424,7 +8427,7 @@ function parseManualScore(val) {
 }
 
 // Shared by the normal-activity and mapped-score-activity rows in
-// renderTargetManageContent â€” both let the boss configure how the Remark
+// renderTargetManageContent — both let the boss configure how the Remark
 // field is captured (free text / preset options / sentence starter),
 // independently of where the Score comes from.
 function buildRemarkTypeControls(a, idx, maxPts = 3) {
@@ -8449,7 +8452,7 @@ function buildRemarkTypeControls(a, idx, maxPts = 3) {
     <div class="mn-act-starter-wrap" data-idx="${idx}" style="${showStarter ? "display:flex;align-items:center;gap:.5rem" : "display:none"}">
       <span style="font-size:.75rem;color:#6b7280;white-space:nowrap;font-weight:600;flex-shrink:0">Sentence Starter:</span>
       <input class="admin-input mn-act-starter-text" data-idx="${idx}"
-        placeholder="Phraseâ€¦"
+        placeholder="Phrase…"
         value="${escHtml(a.sentenceStarter || "")}">
     </div>
     <div class="mn-opts-container" data-idx="${idx}" style="${showStarter ? "" : "display:none"}">
@@ -8458,17 +8461,17 @@ function buildRemarkTypeControls(a, idx, maxPts = 3) {
         const displayOpts = parseOpts(optsStr).length > 0 ? parseOpts(optsStr) : [""];
         return displayOpts.map((opt, oi) =>
           `<div class="mn-opt-row admin-list-item" data-idx="${oi}" style="display:flex;align-items:center;gap:.3rem;margin-bottom:.25rem">` +
-          `<span class="drag-handle" style="cursor:grab;color:#c4c9d4;font-size:1rem;flex-shrink:0;padding:0 .1rem;user-select:none">â ¿</span>` +
+          `<span class="drag-handle" style="cursor:grab;color:#c4c9d4;font-size:1rem;flex-shrink:0;padding:0 .1rem;user-select:none">⠿</span>` +
           `<span class="mn-opt-num" style="font-size:.75rem;color:#6b7280;white-space:nowrap;flex-shrink:0;font-weight:600">Option ${oi + 1}:</span>` +
-          `<input class="admin-input mn-opt-item" data-idx="${idx}" data-oi="${oi}" value="${escHtml(opt)}" placeholder="Enter optionâ€¦" style="flex:1;padding:.3rem .45rem;font-size:.84rem;min-width:0">` +
+          `<input class="admin-input mn-opt-item" data-idx="${idx}" data-oi="${oi}" value="${escHtml(opt)}" placeholder="Enter option…" style="flex:1;padding:.3rem .45rem;font-size:.84rem;min-width:0">` +
           `<input class="admin-input mn-opt-score" type="number" min="0" max="${maxPts}" step="0.5" data-idx="${idx}" data-oi="${oi}" value="${escHtml(String(a.optionScores?.[opt] ?? ''))}" placeholder="Pts" title="Auto-score when selected (leave blank for none)" style="width:3.2rem;flex-shrink:0;padding:.3rem .2rem;font-size:.8rem;text-align:center">` +
-          `<button class="mn-opt-del" data-idx="${idx}" data-oi="${oi}" title="Remove option" style="flex-shrink:0;padding:.2rem .4rem;font-size:.8rem;color:#9ca3af;background:none;border:1px solid #e5e7eb;border-radius:.3rem;cursor:pointer;line-height:1">Ã—</button>` +
+          `<button class="mn-opt-del" data-idx="${idx}" data-oi="${oi}" title="Remove option" style="flex-shrink:0;padding:.2rem .4rem;font-size:.8rem;color:#9ca3af;background:none;border:1px solid #e5e7eb;border-radius:.3rem;cursor:pointer;line-height:1">×</button>` +
           `</div>`
         ).join("");
       })()}</div>
       <div style="display:flex;align-items:center;gap:.5rem;margin-top:.2rem">
         <button class="mn-opt-add" data-idx="${idx}" style="font-size:.78rem;padding:.25rem .6rem;background:none;border:1px solid #d1d5db;border-radius:.35rem;cursor:pointer;color:#6b7280">+ Add Option</button>
-        <span title="Renaming an option updates it across all past sessions too. If you rename &quot;A&quot; to &quot;B&quot;, every past session that chose &quot;A&quot; will now show &quot;B&quot;." style="cursor:default;color:#9ca3af;font-size:.8rem">â“˜</span>
+        <span title="Renaming an option updates it across all past sessions too. If you rename &quot;A&quot; to &quot;B&quot;, every past session that chose &quot;A&quot; will now show &quot;B&quot;." style="cursor:default;color:#9ca3af;font-size:.8rem">ⓘ</span>
       </div>
     </div>
   </div>`;
@@ -8489,7 +8492,7 @@ function renderTargetManageContent(student, target) {
   const acts = target.predefinedActivities;
   const masteredActs = acts.filter(a => !a.isHeading && !a.isNote && !a.isExportNote && !a.isMaintain && !a.isMaintainHeading && a.fixedRemark === undefined && a.isCompleted);
   const stoppedActs  = acts.filter(a => !a.isHeading && !a.isNote && !a.isExportNote && !a.isMaintain && !a.isMaintainHeading && a.fixedRemark === undefined && (a.isArchived || a.isStopped));
-  // Other targets this target's mapped-score activities can point at â€” never
+  // Other targets this target's mapped-score activities can point at — never
   // itself (self-mapping would make a target's average depend on itself).
   const siblingTargets = (_groupForTargetEdit ? _groupForTargetEdit.targets : student.targets)
     .filter(t => t.id !== target.id);
@@ -8510,14 +8513,14 @@ function renderTargetManageContent(student, target) {
     <div class="admin-section">
       <div class="admin-label-row">
         <label class="admin-label">Layout</label>
-        <span class="layout-info-icon" tabindex="0">â“˜ What is this?
+        <span class="layout-info-icon" tabindex="0">ⓘ What is this?
           <div class="layout-info-tooltip">
             <strong>Group students together</strong>
             <div class="layout-info-desc">Each activity becomes a heading. Every student's entry for that activity is listed underneath it.</div>
-            <div class="layout-info-example">Antecedent<br>&nbsp;&nbsp;â€¢ Peter<br>&nbsp;&nbsp;â€¢ Mary<br><br>Behaviours<br>&nbsp;&nbsp;â€¢ Peter<br>&nbsp;&nbsp;â€¢ Mary<br><br>Consequence<br>&nbsp;&nbsp;â€¢ Peter<br>&nbsp;&nbsp;â€¢ Mary</div>
+            <div class="layout-info-example">Antecedent<br>&nbsp;&nbsp;• Peter<br>&nbsp;&nbsp;• Mary<br><br>Behaviours<br>&nbsp;&nbsp;• Peter<br>&nbsp;&nbsp;• Mary<br><br>Consequence<br>&nbsp;&nbsp;• Peter<br>&nbsp;&nbsp;• Mary</div>
             <strong>Group activities together</strong>
             <div class="layout-info-desc">Each student becomes a heading. All of their activities are listed underneath, one after another.</div>
-            <div class="layout-info-example">Peter<br>&nbsp;&nbsp;â€¢ Antecedent<br>&nbsp;&nbsp;â€¢ Behaviours<br>&nbsp;&nbsp;â€¢ Consequence<br><br>Mary<br>&nbsp;&nbsp;â€¢ Antecedent<br>&nbsp;&nbsp;â€¢ Behaviours<br>&nbsp;&nbsp;â€¢ Consequence</div>
+            <div class="layout-info-example">Peter<br>&nbsp;&nbsp;• Antecedent<br>&nbsp;&nbsp;• Behaviours<br>&nbsp;&nbsp;• Consequence<br><br>Mary<br>&nbsp;&nbsp;• Antecedent<br>&nbsp;&nbsp;• Behaviours<br>&nbsp;&nbsp;• Consequence</div>
           </div>
         </span>
       </div>
@@ -8539,19 +8542,19 @@ function renderTargetManageContent(student, target) {
       const hdgBg = isGray ? "#9ca3af" : isGreen ? "#a9d18e" : null;
       const hdgTextColor = isGreen ? "#1a4731" : "#ffffff";
       html += `<div class="admin-list-item mn-heading-item" data-idx="${idx}"${hdgBg ? ` style="background:${hdgBg}"` : ''}>
-        <span class="drag-handle"${hdgBg ? ` style="color:${hdgTextColor}"` : ''}>â ¿</span>
+        <span class="drag-handle"${hdgBg ? ` style="color:${hdgTextColor}"` : ''}>⠿</span>
         <textarea class="admin-input mn-heading-input" id="mn-act-name-${idx}" data-idx="${idx}"
           rows="1" placeholder="Enter Section Heading" style="flex:1${hdgBg ? `;background:${hdgBg};color:${hdgTextColor}` : ""}">${escHtml(a.name || "")}</textarea>
         <div style="position:relative">
-          <button class="btn-adm-del mn-heading-color-btn" data-idx="${idx}" title="Heading options" style="font-size:1.15rem;font-weight:900;min-width:36px;min-height:36px">â‹®</button>
+          <button class="btn-adm-del mn-heading-color-btn" data-idx="${idx}" title="Heading options" style="font-size:1.15rem;font-weight:900;min-width:36px;min-height:36px">⋮</button>
           <div class="mn-heading-color-menu" id="mn-hkm-${idx}" style="display:none;position:absolute;right:0;top:100%;z-index:100;background:white;border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:190px;overflow:hidden">
-            <button class="mn-hkm-color-toggle" data-idx="${idx}" style="width:100%;padding:.55rem .9rem;text-align:left;background:none;border:none;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:.84rem">ðŸŽ¨ Change Colour</button>
+            <button class="mn-hkm-color-toggle" data-idx="${idx}" style="width:100%;padding:.55rem .9rem;text-align:left;background:none;border:none;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:.84rem">🎨 Change Colour</button>
             <div class="mn-hkm-color-panel" data-idx="${idx}" style="display:none;flex-direction:column;padding:.35rem .6rem;border-bottom:1px solid #f3f4f6;gap:.2rem">
-              <button class="mn-hkm-opt" data-idx="${idx}" data-action="blue" style="padding:.35rem .6rem;background:#dbeafe;border:2px solid ${!isGray ? '#2563eb' : '#93c5fd'};border-radius:.4rem;cursor:pointer;font-size:.75rem;text-align:left">ðŸ’™ Blue (Normal)</button>
-              <button class="mn-hkm-opt" data-idx="${idx}" data-action="gray" style="padding:.35rem .6rem;background:#d9d9d9;border:2px solid ${isGray ? '#6b7280' : '#bfbfbf'};border-radius:.4rem;cursor:pointer;font-size:.75rem;text-align:left">ðŸ©¶ Grey (Maintain)</button>
+              <button class="mn-hkm-opt" data-idx="${idx}" data-action="blue" style="padding:.35rem .6rem;background:#dbeafe;border:2px solid ${!isGray ? '#2563eb' : '#93c5fd'};border-radius:.4rem;cursor:pointer;font-size:.75rem;text-align:left">💙 Blue (Normal)</button>
+              <button class="mn-hkm-opt" data-idx="${idx}" data-action="gray" style="padding:.35rem .6rem;background:#d9d9d9;border:2px solid ${isGray ? '#6b7280' : '#bfbfbf'};border-radius:.4rem;cursor:pointer;font-size:.75rem;text-align:left">🩶 Grey (Maintain)</button>
             </div>
             ${periodSectionHtml(a.activeFrom, a.activeTo, idx, true)}
-            <button class="mn-hkm-opt" data-idx="${idx}" data-action="delete" style="width:100%;padding:.55rem .9rem;text-align:left;background:none;border:none;cursor:pointer;font-size:.84rem;color:#dc2626">ðŸ—‘ï¸ Delete</button>
+            <button class="mn-hkm-opt" data-idx="${idx}" data-action="delete" style="width:100%;padding:.55rem .9rem;text-align:left;background:none;border:none;cursor:pointer;font-size:.84rem;color:#dc2626">🗑️ Delete</button>
           </div>
         </div>
       </div>`;
@@ -8563,14 +8566,14 @@ function renderTargetManageContent(student, target) {
       const noteItemStyle = noteExpired
         ? ` style="position:relative;${noteBaseBg}"`
         : ` style="${noteBaseBg}${noteInactive ? ';opacity:0.3' : ''}"`;
-      const noteOverlay  = noteExpired ? `<div style="position:absolute;inset:0 2.5rem 0 0;background:rgba(255,255,255,.7);pointer-events:none;z-index:5;border-radius:inherit;display:flex;align-items:center;justify-content:center"><div style="pointer-events:none;background:rgba(255,255,255,.95);border:1px solid #e5e7eb;border-radius:.45rem;padding:.35rem .75rem;text-align:center;font-size:1.17rem;color:#374151;max-width:80%">â¸ This activity's period has ended â€” tap â‹® on the right side to adjust the dates and bring it back.</div></div>` : '';
+      const noteOverlay  = noteExpired ? `<div style="position:absolute;inset:0 2.5rem 0 0;background:rgba(255,255,255,.7);pointer-events:none;z-index:5;border-radius:inherit;display:flex;align-items:center;justify-content:center"><div style="pointer-events:none;background:rgba(255,255,255,.95);border:1px solid #e5e7eb;border-radius:.45rem;padding:.35rem .75rem;text-align:center;font-size:1.17rem;color:#374151;max-width:80%">⏸ This activity's period has ended — tap ⋮ on the right side to adjust the dates and bring it back.</div></div>` : '';
       html += `<div class="admin-list-item admin-note-item" data-idx="${idx}"${noteItemStyle}>
-        <span class="drag-handle">â ¿</span>
+        <span class="drag-handle">⠿</span>
         <div style="flex:1;display:flex;flex-direction:column;gap:.25rem">
           <div style="display:flex;align-items:center;gap:.4rem;margin-bottom:.1rem">
             <select class="mn-note-type-select" data-idx="${idx}" style="font-size:.9rem;padding:.2rem .4rem;border:1px solid #fcd34d;border-radius:.3rem;background:#fef3c7;color:#78350f;cursor:pointer">
-              <option value="internal"${a.isNote ? ' selected' : ''}>ðŸ”’ This note is for ZORA's use only. Excluded from Word report</option>
-              <option value="export"${a.isExportNote ? ' selected' : ''}>ðŸ“„ Include in Word export</option>
+              <option value="internal"${a.isNote ? ' selected' : ''}>🔒 This note is for ZORA's use only. Excluded from Word report</option>
+              <option value="export"${a.isExportNote ? ' selected' : ''}>📄 Include in Word export</option>
             </select>
           </div>
           <div style="display:flex;align-items:flex-start;gap:.3rem">
@@ -8581,11 +8584,11 @@ function renderTargetManageContent(student, target) {
           </div>
         </div>
         <div style="position:relative">
-          <button class="btn-adm-del mn-kebab-btn" data-idx="${idx}" title="Note options" style="font-size:1.35rem;font-weight:900;min-width:36px;min-height:36px">â‹®</button>
+          <button class="btn-adm-del mn-kebab-btn" data-idx="${idx}" title="Note options" style="font-size:1.35rem;font-weight:900;min-width:36px;min-height:36px">⋮</button>
           <div class="mn-kebab-menu" id="mn-km-${idx}" style="display:none;position:absolute;right:0;top:100%;z-index:100;background:white;border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:200px;overflow:hidden">
             ${periodSectionHtml(a.activeFrom, a.activeTo, idx, true)}
             <div style="display:flex;align-items:stretch">
-              <button class="mn-km-opt" data-idx="${idx}" data-action="delete" style="flex:1;padding:.55rem .9rem;text-align:left;background:none;border:none;cursor:pointer;font-size:.84rem;color:#dc2626">ðŸ—‘ï¸ Delete Note</button>
+              <button class="mn-km-opt" data-idx="${idx}" data-action="delete" style="flex:1;padding:.55rem .9rem;text-align:left;background:none;border:none;cursor:pointer;font-size:.84rem;color:#dc2626">🗑️ Delete Note</button>
             </div>
           </div>
         </div>
@@ -8593,7 +8596,7 @@ function renderTargetManageContent(student, target) {
       </div>`;
     } else if (a.isMaintain) {
       html += `<div class="admin-list-item" data-idx="${idx}" style="background:#f3f4f6;border:1px solid #d1d5db">
-        <span class="drag-handle">â ¿</span>
+        <span class="drag-handle">⠿</span>
         <div style="flex:1;display:flex;flex-direction:column;gap:.3rem">
           <div style="display:flex;align-items:flex-start;gap:.3rem">
             ${formatButtonsHtml(`mn-act-name-${idx}`)}
@@ -8607,7 +8610,7 @@ function renderTargetManageContent(student, target) {
               style="flex:1;overflow-y:hidden;resize:none">${escHtml(a.maintainRemark || "")}</textarea>
           </div>
         </div>
-        <button class="btn-adm-del mn-del-act" data-idx="${idx}">ðŸ—‘</button>
+        <button class="btn-adm-del mn-del-act" data-idx="${idx}">🗑</button>
       </div>`;
     } else if (a.isMapped) {
       const mappedOptions = siblingTargets.map(t =>
@@ -8619,11 +8622,11 @@ function renderTargetManageContent(student, target) {
       const actExpired  = actInactive && !!a.activeTo && a.activeTo < _editRef;
       const actOverlay  = actExpired ? `<div style="position:absolute;inset:0 2.5rem 0 0;background:rgba(255,255,255,.7);z-index:5;border-radius:inherit;display:flex;align-items:center;justify-content:center">
         <div style="background:rgba(255,255,255,.95);border:1px solid #e5e7eb;border-radius:.45rem;padding:.5rem .75rem;text-align:center;font-size:1rem;color:#374151;max-width:85%">
-          <div>â¸ This activity's period has ended â€” tap â‹® on the right side to adjust the dates and bring it back.</div>
+          <div>⏸ This activity's period has ended — tap ⋮ on the right side to adjust the dates and bring it back.</div>
           <div style="display:flex;align-items:center;gap:.5rem;justify-content:center;margin-top:.4rem">
             <span style="font-size:.84rem;color:#6b7280">Reason:</span>
             <select class="mn-inactive-reason-select" data-idx="${idx}" style="font-size:.84rem;padding:.2rem .4rem;border:1px solid #d1d5db;border-radius:.3rem;background:white;cursor:pointer">
-              <option value="">â€” Not specified â€”</option>
+              <option value="">— Not specified —</option>
               <option value="mastered"${a.inactiveReason === 'mastered' ? ' selected' : ''}>Mastered</option>
               <option value="discontinued"${a.inactiveReason === 'discontinued' ? ' selected' : ''}>Discontinued</option>
             </select>
@@ -8631,7 +8634,7 @@ function renderTargetManageContent(student, target) {
         </div>
       </div>` : '';
       html += `<div class="admin-list-item" data-idx="${idx}"${actExpired ? ' style="position:relative"' : actInactive ? ' style="opacity:0.3"' : ''}>
-        <span class="drag-handle">â ¿</span>
+        <span class="drag-handle">⠿</span>
         <div style="flex:1;display:flex;flex-direction:column;gap:.3rem">
           <div style="display:flex;align-items:flex-start;gap:.3rem">
             ${formatButtonsHtml(`mn-act-name-${idx}`)}
@@ -8645,25 +8648,25 @@ function renderTargetManageContent(student, target) {
           <div style="display:flex;align-items:center;gap:.5rem">
             <span style="font-size:.75rem;color:#6b7280;white-space:nowrap;font-weight:600">Mapped To Which Target's Average:</span>
             <select class="admin-input mn-mapped-target-select" data-idx="${idx}" style="flex:1">
-              <option value="">â€” select target â€”</option>
+              <option value="">— select target —</option>
               ${mappedOptions}
             </select>
           </div>
         </div>
         <div style="position:relative">
-          <button class="btn-adm-del mn-kebab-btn" data-idx="${idx}" title="Activity options" style="font-size:1.35rem;font-weight:900;min-width:36px;min-height:36px">â‹®</button>
+          <button class="btn-adm-del mn-kebab-btn" data-idx="${idx}" title="Activity options" style="font-size:1.35rem;font-weight:900;min-width:36px;min-height:36px">⋮</button>
           <div class="mn-kebab-menu" id="mn-km-${idx}" style="display:none;position:absolute;right:0;top:100%;z-index:100;background:white;border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:250px;overflow:hidden">
             ${periodSectionHtml(a.activeFrom, a.activeTo, idx, true, a.inactiveReason)}
             <div style="display:flex;align-items:stretch">
-              <button class="mn-km-opt" data-idx="${idx}" data-action="delete" style="flex:1;padding:.55rem .9rem;text-align:left;background:none;border:none;cursor:pointer;font-size:.84rem;color:#dc2626">ðŸ—‘ï¸ Delete Activity</button>
-              <span title="Permanently removes this activity and all of its session data. This cannot be undone." style="padding:.55rem .5rem;cursor:default;color:#9ca3af;font-size:.8rem;display:flex;align-items:center">â“˜</span>
+              <button class="mn-km-opt" data-idx="${idx}" data-action="delete" style="flex:1;padding:.55rem .9rem;text-align:left;background:none;border:none;cursor:pointer;font-size:.84rem;color:#dc2626">🗑️ Delete Activity</button>
+              <span title="Permanently removes this activity and all of its session data. This cannot be undone." style="padding:.55rem .5rem;cursor:default;color:#9ca3af;font-size:.8rem;display:flex;align-items:center">ⓘ</span>
             </div>
           </div>
         </div>
         ${actOverlay}
       </div>`;
     } else {
-      // Sub-activities are rendered inline within their parent's row â€” skip them here
+      // Sub-activities are rendered inline within their parent's row — skip them here
       if (a.parentActivity) return;
       manageActNo++;
 
@@ -8678,11 +8681,11 @@ function renderTargetManageContent(student, target) {
       const actItemStyle = actExpired ? (actBaseBg ? ` style="position:relative;${actBaseBg}"` : ' style="position:relative"') : (actBaseBg ? ` style="${actBaseBg}${actInactive ? ';opacity:0.3' : ''}"` : actInactive ? ' style="opacity:0.3"' : '');
       const actOverlay  = actExpired ? `<div style="position:absolute;inset:0 2.5rem 0 0;background:rgba(255,255,255,.7);z-index:5;border-radius:inherit;display:flex;align-items:center;justify-content:center">
         <div style="background:rgba(255,255,255,.95);border:1px solid #e5e7eb;border-radius:.45rem;padding:.5rem .75rem;text-align:center;font-size:1rem;color:#374151;max-width:85%">
-          <div>â¸ This activity's period has ended â€” tap â‹® on the right side to adjust the dates and bring it back.</div>
+          <div>⏸ This activity's period has ended — tap ⋮ on the right side to adjust the dates and bring it back.</div>
           <div style="display:flex;align-items:center;gap:.5rem;justify-content:center;margin-top:.4rem">
             <span style="font-size:.84rem;color:#6b7280">Reason:</span>
             <select class="mn-inactive-reason-select" data-idx="${idx}" style="font-size:.84rem;padding:.2rem .4rem;border:1px solid #d1d5db;border-radius:.3rem;background:white;cursor:pointer">
-              <option value="">â€” Not specified â€”</option>
+              <option value="">— Not specified —</option>
               <option value="mastered"${a.inactiveReason === 'mastered' ? ' selected' : ''}>Mastered</option>
               <option value="discontinued"${a.inactiveReason === 'discontinued' ? ' selected' : ''}>Discontinued</option>
             </select>
@@ -8709,7 +8712,7 @@ function renderTargetManageContent(student, target) {
               ${formatButtonsHtml(`mn-act-name-${subIdx}`)}
               <textarea class="admin-input mn-act-name-input" id="mn-act-name-${subIdx}" data-idx="${subIdx}"
                 rows="1" placeholder="Sub-activity name" style="flex:1">${escHtml(sub.name || '')}</textarea>
-              <button class="btn-adm-del mn-del-sub-act" data-idx="${subIdx}" title="Delete sub-activity" style="flex-shrink:0">ðŸ—‘</button>
+              <button class="btn-adm-del mn-del-sub-act" data-idx="${subIdx}" title="Delete sub-activity" style="flex-shrink:0">🗑</button>
             </div>
             <div style="display:flex;align-items:flex-start;gap:.5rem;padding-left:1.6rem">
               <span style="font-size:.75rem;color:#6b7280;white-space:nowrap;font-weight:600;padding-top:.3rem">Remark Type:</span>
@@ -8719,7 +8722,7 @@ function renderTargetManageContent(student, target) {
           </div>`;
         }).join('');
         html += `<div class="admin-list-item" data-idx="${idx}"${actItemStyle}>
-          <span class="drag-handle">â ¿</span>
+          <span class="drag-handle">⠿</span>
           <div style="flex:1;display:flex;flex-direction:column;gap:.3rem">
             <div style="display:flex;align-items:flex-start;gap:.3rem">
               <span style="font-size:.8rem;font-weight:700;color:#6b7280;flex-shrink:0;padding-top:.3rem;min-width:1.6rem">${manageActNo})</span>
@@ -8731,12 +8734,12 @@ function renderTargetManageContent(student, target) {
             <button class="mn-add-sub-act-btn" data-parent-idx="${idx}" style="font-size:.75rem;padding:.2rem .55rem;background:none;border:1px solid #d1d5db;border-radius:.35rem;color:#6b7280;cursor:pointer;margin-left:1.25rem;align-self:flex-start">+ Add Sub-activity</button>
           </div>
           <div style="position:relative">
-            <button class="btn-adm-del mn-kebab-btn" data-idx="${idx}" title="Activity options" style="font-size:1.35rem;font-weight:900;min-width:36px;min-height:36px">â‹®</button>
+            <button class="btn-adm-del mn-kebab-btn" data-idx="${idx}" title="Activity options" style="font-size:1.35rem;font-weight:900;min-width:36px;min-height:36px">⋮</button>
             <div class="mn-kebab-menu" id="mn-km-${idx}" style="display:none;position:absolute;right:0;top:100%;z-index:100;background:white;border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:250px;overflow:hidden">
               ${periodSectionHtml(a.activeFrom, a.activeTo, idx, true, a.inactiveReason)}
               <div style="display:flex;align-items:stretch">
-                <button class="mn-km-opt" data-idx="${idx}" data-action="delete" style="flex:1;padding:.55rem .9rem;text-align:left;background:none;border:none;cursor:pointer;font-size:.84rem;color:#dc2626">ðŸ—‘ï¸ Delete Activity</button>
-                <span title="Deletes this activity and all its sub-activities." style="padding:.55rem .5rem;cursor:default;color:#9ca3af;font-size:.8rem;display:flex;align-items:center">â“˜</span>
+                <button class="mn-km-opt" data-idx="${idx}" data-action="delete" style="flex:1;padding:.55rem .9rem;text-align:left;background:none;border:none;cursor:pointer;font-size:.84rem;color:#dc2626">🗑️ Delete Activity</button>
+                <span title="Deletes this activity and all its sub-activities." style="padding:.55rem .5rem;cursor:default;color:#9ca3af;font-size:.8rem;display:flex;align-items:center">ⓘ</span>
               </div>
             </div>
           </div>
@@ -8754,7 +8757,7 @@ function renderTargetManageContent(student, target) {
             </div>`
           : "";
         html += `<div class="admin-list-item" data-idx="${idx}"${actItemStyle}>
-          <span class="drag-handle">â ¿</span>
+          <span class="drag-handle">⠿</span>
           <div style="flex:1;display:flex;flex-direction:column;gap:.3rem">
             <div style="display:flex;align-items:flex-start;gap:.3rem">
               <span style="font-size:.8rem;font-weight:700;color:#6b7280;flex-shrink:0;padding-top:.3rem;min-width:1.6rem">${manageActNo})</span>
@@ -8767,22 +8770,22 @@ function renderTargetManageContent(student, target) {
               ${remarkTypeSelect}
             </div>
             ${fixedRemarkRow}
-            <button class="mn-add-sub-act-btn" data-parent-idx="${idx}" style="font-size:.75rem;padding:.2rem .55rem;background:none;border:1px solid #d1d5db;border-radius:.35rem;color:#6b7280;cursor:pointer;align-self:flex-start">â†³ Add Sub-activity</button>
+            <button class="mn-add-sub-act-btn" data-parent-idx="${idx}" style="font-size:.75rem;padding:.2rem .55rem;background:none;border:1px solid #d1d5db;border-radius:.35rem;color:#6b7280;cursor:pointer;align-self:flex-start">↳ Add Sub-activity</button>
           </div>
           <div style="position:relative">
-            <button class="btn-adm-del mn-kebab-btn" data-idx="${idx}" title="Activity options" style="font-size:1.35rem;font-weight:900;min-width:36px;min-height:36px">â‹®</button>
+            <button class="btn-adm-del mn-kebab-btn" data-idx="${idx}" title="Activity options" style="font-size:1.35rem;font-weight:900;min-width:36px;min-height:36px">⋮</button>
             <div class="mn-kebab-menu" id="mn-km-${idx}" style="display:none;position:absolute;right:0;top:100%;z-index:100;background:white;border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:250px;overflow:hidden">
               <div style="display:flex;align-items:stretch;border-bottom:1px solid #f3f4f6">
-                <button class="mn-km-color-toggle" data-idx="${idx}" style="flex:1;padding:.55rem .9rem;text-align:left;background:none;border:none;cursor:pointer;font-size:.84rem">ðŸŽ¨ Change Colour</button>
+                <button class="mn-km-color-toggle" data-idx="${idx}" style="flex:1;padding:.55rem .9rem;text-align:left;background:none;border:none;cursor:pointer;font-size:.84rem">🎨 Change Colour</button>
               </div>
               <div class="mn-km-color-panel" data-idx="${idx}" style="display:none;flex-direction:column;padding:.35rem .6rem;border-bottom:1px solid #f3f4f6;gap:.2rem">
-                <button class="mn-km-opt" data-idx="${idx}" data-action="color_white" style="padding:.35rem .6rem;background:#ffffff;border:2px solid ${!isGray ? '#6b7280' : '#e5e7eb'};border-radius:.4rem;cursor:pointer;font-size:.75rem;text-align:left">ðŸ¤ White (Normal)</button>
-                <button class="mn-km-opt" data-idx="${idx}" data-action="color_gray" style="padding:.35rem .6rem;background:#d9d9d9;border:2px solid ${isGray ? '#6b7280' : '#bfbfbf'};border-radius:.4rem;cursor:pointer;font-size:.75rem;text-align:left">ðŸ©¶ Grey (Maintain)</button>
+                <button class="mn-km-opt" data-idx="${idx}" data-action="color_white" style="padding:.35rem .6rem;background:#ffffff;border:2px solid ${!isGray ? '#6b7280' : '#e5e7eb'};border-radius:.4rem;cursor:pointer;font-size:.75rem;text-align:left">🤍 White (Normal)</button>
+                <button class="mn-km-opt" data-idx="${idx}" data-action="color_gray" style="padding:.35rem .6rem;background:#d9d9d9;border:2px solid ${isGray ? '#6b7280' : '#bfbfbf'};border-radius:.4rem;cursor:pointer;font-size:.75rem;text-align:left">🩶 Grey (Maintain)</button>
               </div>
               ${periodSectionHtml(a.activeFrom, a.activeTo, idx, true, a.inactiveReason)}
               <div style="display:flex;align-items:stretch">
-                <button class="mn-km-opt" data-idx="${idx}" data-action="delete" style="flex:1;padding:.55rem .9rem;text-align:left;background:none;border:none;cursor:pointer;font-size:.84rem;color:#dc2626">ðŸ—‘ï¸ Delete Activity</button>
-                <span title="Permanently removes this activity and all of its session data. This cannot be undone." style="padding:.55rem .5rem;cursor:default;color:#9ca3af;font-size:.8rem;display:flex;align-items:center">â“˜</span>
+                <button class="mn-km-opt" data-idx="${idx}" data-action="delete" style="flex:1;padding:.55rem .9rem;text-align:left;background:none;border:none;cursor:pointer;font-size:.84rem;color:#dc2626">🗑️ Delete Activity</button>
+                <span title="Permanently removes this activity and all of its session data. This cannot be undone." style="padding:.55rem .5rem;cursor:default;color:#9ca3af;font-size:.8rem;display:flex;align-items:center">ⓘ</span>
               </div>
             </div>
           </div>
@@ -8799,8 +8802,8 @@ function renderTargetManageContent(student, target) {
     masteredActs.forEach((a, ci) => {
       html += `<div style="display:flex;align-items:center;gap:.5rem;padding:.45rem .5rem;background:#d1fae5;border:1px solid #6ee7b7;border-radius:.4rem;margin-bottom:.35rem">
         <span style="flex:1;font-size:.875rem;color:#374151">${escHtml(a.name || "")}</span>
-        <button class="btn-mn-reactivate" data-completed-idx="${ci}" data-src="mastered" style="font-size:.75rem;padding:.25rem .55rem;background:#dbeafe;border:1px solid #bfdbfe;border-radius:.35rem;cursor:pointer;color:#1d4ed8;white-space:nowrap">â†© Reactivate</button>
-        <button class="btn-adm-del btn-mn-del-completed" data-completed-idx="${ci}" data-src="mastered" title="Delete permanently">ðŸ—‘</button>
+        <button class="btn-mn-reactivate" data-completed-idx="${ci}" data-src="mastered" style="font-size:.75rem;padding:.25rem .55rem;background:#dbeafe;border:1px solid #bfdbfe;border-radius:.35rem;cursor:pointer;color:#1d4ed8;white-space:nowrap">↩ Reactivate</button>
+        <button class="btn-adm-del btn-mn-del-completed" data-completed-idx="${ci}" data-src="mastered" title="Delete permanently">🗑</button>
       </div>`;
     });
     html += `</div>`;
@@ -8811,8 +8814,8 @@ function renderTargetManageContent(student, target) {
     stoppedActs.forEach((a, ci) => {
       html += `<div style="display:flex;align-items:center;gap:.5rem;padding:.45rem .5rem;background:#fafafa;border:1px solid #e5e7eb;border-radius:.4rem;margin-bottom:.35rem">
         <span style="flex:1;font-size:.875rem;color:#374151">${escHtml(a.name || "")}</span>
-        <button class="btn-mn-reactivate" data-completed-idx="${ci}" data-src="stopped" style="font-size:.75rem;padding:.25rem .55rem;background:#dbeafe;border:1px solid #bfdbfe;border-radius:.35rem;cursor:pointer;color:#1d4ed8;white-space:nowrap">â†© Reactivate</button>
-        <button class="btn-adm-del btn-mn-del-completed" data-completed-idx="${ci}" data-src="stopped" title="Delete permanently">ðŸ—‘</button>
+        <button class="btn-mn-reactivate" data-completed-idx="${ci}" data-src="stopped" style="font-size:.75rem;padding:.25rem .55rem;background:#dbeafe;border:1px solid #bfdbfe;border-radius:.35rem;cursor:pointer;color:#1d4ed8;white-space:nowrap">↩ Reactivate</button>
+        <button class="btn-adm-del btn-mn-del-completed" data-completed-idx="${ci}" data-src="stopped" title="Delete permanently">🗑</button>
       </div>`;
     });
     html += `</div>`;
@@ -8921,12 +8924,12 @@ function renderTargetManageContent(student, target) {
         if (v === (a.text || "")) return;
         a.text = v;
       } else if (a.isHeading) {
-        // A heading's text is pure display â€” it's never matched against any
+        // A heading's text is pure display — it's never matched against any
         // session data, unlike an activity's name. Without this branch, the
         // code below ran for headings too and called propagateActivityRename
         // with the heading's old/new text, which silently RENAMED any real
         // activity in this target that happened to share the heading's old
-        // text (e.g. a "Comment" heading grouping a "Comment" activity) â€”
+        // text (e.g. a "Comment" heading grouping a "Comment" activity) —
         // hijacking that activity's actual session data over to the new
         // heading text instead of leaving it alone.
         const v = input.value.trim();
@@ -8971,7 +8974,7 @@ function renderTargetManageContent(student, target) {
   });
 
   $("manage-modal-body").querySelectorAll(".btn-fmt").forEach(btn => {
-    // Prevent the textarea from losing focus/selection on click â€” by the
+    // Prevent the textarea from losing focus/selection on click — by the
     // time "click" fires the selection would otherwise already be gone.
     btn.addEventListener("mousedown", e => e.preventDefault());
     btn.addEventListener("click", () => {
@@ -9059,7 +9062,7 @@ function renderTargetManageContent(student, target) {
           renderTargetManageContent(student, target);
         } else {
           btn.disabled = true;
-          btn.textContent = "Checkingâ€¦";
+          btn.textContent = "Checking…";
           let affected = 0;
           try {
             const allSessions = _groupForTargetEdit
@@ -9077,7 +9080,7 @@ function renderTargetManageContent(student, target) {
             }).length;
           } catch { affected = -1; }
           btn.disabled = false;
-          btn.textContent = "ðŸ—‘ï¸ Delete Activity";
+          btn.textContent = "🗑️ Delete Activity";
           if (affected === 0) {
             if (!confirm(`Delete this activity?\nNo session data will be lost.`)) return;
             const actIdx = acts.indexOf(pa);
@@ -9092,7 +9095,7 @@ function renderTargetManageContent(student, target) {
             overlay.dataset.delOverlay = "1";
             overlay.style.cssText = "position:absolute;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:200;border-radius:.75rem";
             overlay.innerHTML = `<div style="background:#fff;padding:1.25rem 1.25rem 1rem;border-radius:.75rem;width:min(280px,90%);box-shadow:0 4px 24px rgba(0,0,0,.25)">
-              <p style="font-size:.85rem;margin:0 0 .5rem;color:#111;font-weight:600">âš ï¸ Permanently deletes data from <span style="color:#dc2626">${confirmWord} past session${affected !== 1 ? "s" : ""}</span>. This cannot be undone.</p>
+              <p style="font-size:.85rem;margin:0 0 .5rem;color:#111;font-weight:600">⚠️ Permanently deletes data from <span style="color:#dc2626">${confirmWord} past session${affected !== 1 ? "s" : ""}</span>. This cannot be undone.</p>
               <p style="font-size:.8rem;margin:0 0 .6rem;color:#6b7280">Type <strong>${confirmWord}</strong> to confirm:</p>
               <input id="del-type-input" type="text" autocomplete="off" inputmode="numeric"
                 style="width:100%;box-sizing:border-box;padding:.45rem .6rem;border:2px solid #d1d5db;border-radius:.4rem;font-size:1.1rem;text-align:center;outline:none;margin-bottom:.75rem" placeholder="${confirmWord}">
@@ -9157,7 +9160,7 @@ function renderTargetManageContent(student, target) {
       const pa = src === "stopped" ? stoppedActs[ci] : masteredActs[ci];
       if (!pa) return;
       btn.disabled = true;
-      btn.textContent = "Checkingâ€¦";
+      btn.textContent = "Checking…";
       let affected = 0;
       try {
         const allSessions = _groupForTargetEdit
@@ -9168,7 +9171,7 @@ function renderTargetManageContent(student, target) {
         ).length;
       } catch { affected = -1; }
       btn.disabled = false;
-      btn.textContent = "ðŸ—‘ï¸ Delete";
+      btn.textContent = "🗑️ Delete";
       if (affected === 0) {
         if (!confirm(`Delete this activity?\nNo session data will be lost.`)) return;
         const actIdx = acts.indexOf(pa);
@@ -9183,7 +9186,7 @@ function renderTargetManageContent(student, target) {
         overlay.dataset.delOverlay = "1";
         overlay.style.cssText = "position:absolute;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:200;border-radius:.75rem";
         overlay.innerHTML = `<div style="background:#fff;padding:1.25rem 1.25rem 1rem;border-radius:.75rem;width:min(280px,90%);box-shadow:0 4px 24px rgba(0,0,0,.25)">
-          <p style="font-size:.85rem;margin:0 0 .5rem;color:#111;font-weight:600">âš ï¸ Moves data from <span style="color:#dc2626">${confirmWord} past session${affected !== 1 ? "s" : ""}</span> to trash (recoverable for 30 days).</p>
+          <p style="font-size:.85rem;margin:0 0 .5rem;color:#111;font-weight:600">⚠️ Moves data from <span style="color:#dc2626">${confirmWord} past session${affected !== 1 ? "s" : ""}</span> to trash (recoverable for 30 days).</p>
           <p style="font-size:.8rem;margin:0 0 .6rem;color:#6b7280">Type <strong>${confirmWord}</strong> to confirm:</p>
           <input id="del-type-input" type="text" autocomplete="off" inputmode="numeric"
             style="width:100%;box-sizing:border-box;padding:.45rem .6rem;border:2px solid #d1d5db;border-radius:.4rem;font-size:1.1rem;text-align:center;outline:none;margin-bottom:.75rem" placeholder="${confirmWord}">
@@ -9293,7 +9296,7 @@ function renderTargetManageContent(student, target) {
       const parentAct = acts[parentIdx];
       if (!parentAct) return;
 
-      // Sync parent name from textarea â€” user may not have blurred it yet
+      // Sync parent name from textarea — user may not have blurred it yet
       const nameInput = $("manage-modal-body").querySelector(`.mn-act-name-input[data-idx="${parentIdx}"]`);
       if (nameInput) {
         const typedName = nameInput.value.trim();
@@ -9305,7 +9308,7 @@ function renderTargetManageContent(student, target) {
         return;
       }
 
-      // Check existing subs â€” all must be named before adding another
+      // Check existing subs — all must be named before adding another
       const existingSubs = acts.filter(a2 => a2.parentActivity === parentAct.name && !a2.isCompleted && !a2.isArchived && !a2.isStopped);
       const unnamedSub = existingSubs.find(s => !s.name?.trim());
       if (unnamedSub) {
@@ -9316,10 +9319,10 @@ function renderTargetManageContent(student, target) {
         return;
       }
 
-      // Warn if parent has a remark type configured â€” it won't apply once it has sub-activities
+      // Warn if parent has a remark type configured — it won't apply once it has sub-activities
       if (!existingSubs.length && (parentAct.inlineOptions || parentAct.sentenceStarter || parentAct.fixedRemark !== undefined || parentAct.manualScore)) {
         const typeLabel = parentAct.fixedRemark !== undefined ? "Fixed Remark" : parentAct.manualScore ? "Manual Score" : "remark options";
-        if (!confirm(`"${parentAct.name}" has a ${typeLabel} configured.\n\nAdding sub-activities removes the remark field from this activity â€” configure the remark type on each sub-activity instead. The current options will be cleared.\n\nContinue?`)) return;
+        if (!confirm(`"${parentAct.name}" has a ${typeLabel} configured.\n\nAdding sub-activities removes the remark field from this activity — configure the remark type on each sub-activity instead. The current options will be cleared.\n\nContinue?`)) return;
         parentAct.sentenceStarter = null;
         parentAct.remarkPresetId  = null;
         parentAct.inlineOptions   = null;
@@ -9383,7 +9386,7 @@ function renderTargetManageContent(student, target) {
         renderTargetManageContent(student, target);
         return;
       }
-      // Switching to Manual Score â€” set flag and re-render so type detection updates
+      // Switching to Manual Score — set flag and re-render so type detection updates
       if (type === "manual_score") {
         acts[idx].manualScore = true;
         delete acts[idx].fixedRemark; acts[idx].sentenceStarter = null; acts[idx].remarkPresetId = null;
@@ -9395,7 +9398,7 @@ function renderTargetManageContent(student, target) {
         $("manage-modal-body").scrollTop = sp;
         return;
       }
-      // Switching away from Fixed Remark â€” clear it and re-render to remove the textarea
+      // Switching away from Fixed Remark — clear it and re-render to remove the textarea
       if (acts[idx].fixedRemark !== undefined) {
         delete acts[idx].fixedRemark;
         acts[idx].sentenceStarter = null; acts[idx].remarkPresetId = null;
@@ -9612,9 +9615,9 @@ function renderTargetManageContent(student, target) {
       const currentValue  = input.value.trim();
       if (originalValue && currentValue && currentValue !== originalValue) {
         const proceed = confirm(
-          `âš ï¸ Rename "${originalValue}" to "${currentValue}"?\n\n` +
+          `⚠️ Rename "${originalValue}" to "${currentValue}"?\n\n` +
           `This will rewrite ALL past session records where this option was selected. The change cannot be undone.\n\n` +
-          `Tip: If you want to keep "${originalValue}" and add "${currentValue}" as a separate option, press Cancel â€” then use "+ Add Option" and drag it into position.\n\n` +
+          `Tip: If you want to keep "${originalValue}" and add "${currentValue}" as a separate option, press Cancel — then use "+ Add Option" and drag it into position.\n\n` +
           `Rename anyway?`
         );
         if (!proceed) { input.value = originalValue; return; }
@@ -9657,11 +9660,11 @@ function renderTargetManageContent(student, target) {
       row.dataset.idx = String(oi);
       row.style.cssText = "display:flex;align-items:center;gap:.3rem;margin-bottom:.25rem";
       row.innerHTML =
-        `<span class="drag-handle" style="cursor:grab;color:#c4c9d4;font-size:1rem;flex-shrink:0;padding:0 .1rem;user-select:none">â ¿</span>` +
+        `<span class="drag-handle" style="cursor:grab;color:#c4c9d4;font-size:1rem;flex-shrink:0;padding:0 .1rem;user-select:none">⠿</span>` +
         `<span class="mn-opt-num" style="font-size:.75rem;color:#6b7280;white-space:nowrap;flex-shrink:0;font-weight:600">Option ${oi + 1}:</span>` +
-        `<input class="admin-input mn-opt-item" data-idx="${idx}" data-oi="${oi}" placeholder="Enter optionâ€¦" style="flex:1;padding:.3rem .45rem;font-size:.84rem;min-width:0">` +
+        `<input class="admin-input mn-opt-item" data-idx="${idx}" data-oi="${oi}" placeholder="Enter option…" style="flex:1;padding:.3rem .45rem;font-size:.84rem;min-width:0">` +
         `<input class="admin-input mn-opt-score" type="number" min="0" step="0.5" data-idx="${idx}" data-oi="${oi}" placeholder="Pts" title="Auto-score when selected (leave blank for none)" style="width:3.2rem;flex-shrink:0;padding:.3rem .2rem;font-size:.8rem;text-align:center">` +
-        `<button class="mn-opt-del" data-idx="${idx}" data-oi="${oi}" title="Remove option" style="flex-shrink:0;padding:.2rem .4rem;font-size:.8rem;color:#9ca3af;background:none;border:1px solid #e5e7eb;border-radius:.3rem;cursor:pointer;line-height:1">Ã—</button>`;
+        `<button class="mn-opt-del" data-idx="${idx}" data-oi="${oi}" title="Remove option" style="flex-shrink:0;padding:.2rem .4rem;font-size:.8rem;color:#9ca3af;background:none;border:1px solid #e5e7eb;border-radius:.3rem;cursor:pointer;line-height:1">×</button>`;
       list.appendChild(row);
       wireOptBlur(row.querySelector(".mn-opt-item"), idx);
       wireOptScore(row.querySelector(".mn-opt-score"), idx);
@@ -9695,7 +9698,7 @@ function renderTargetManageContent(student, target) {
   });
 }
 
-// â”€â”€ Template management content â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Template management content ───────────────────────────────
 
 function renderTemplateManageContent(template) {
   $("manage-modal-title").textContent = template.name;
@@ -9734,19 +9737,19 @@ function renderTemplateManageContent(template) {
       const hdgBg = isGray ? "#9ca3af" : isGreen ? "#a9d18e" : null;
       const hdgTextColor = isGreen ? "#1a4731" : "#ffffff";
       html += `<div class="admin-list-item mn-heading-item" data-idx="${idx}"${hdgBg ? ` style="background:${hdgBg}"` : ''}>
-        <span class="drag-handle"${hdgBg ? ` style="color:${hdgTextColor}"` : ''}>â ¿</span>
+        <span class="drag-handle"${hdgBg ? ` style="color:${hdgTextColor}"` : ''}>⠿</span>
         <textarea class="admin-input mn-heading-input" id="mn-act-name-${idx}" data-idx="${idx}"
           rows="1" placeholder="Enter Section Heading" style="flex:1${hdgBg ? `;background:${hdgBg};color:${hdgTextColor}` : ""}">${escHtml(a.name || "")}</textarea>
         <div style="position:relative">
-          <button class="btn-adm-del mn-heading-color-btn" data-idx="${idx}" title="Heading options" style="font-size:1.15rem;font-weight:900;min-width:36px;min-height:36px">â‹®</button>
+          <button class="btn-adm-del mn-heading-color-btn" data-idx="${idx}" title="Heading options" style="font-size:1.15rem;font-weight:900;min-width:36px;min-height:36px">⋮</button>
           <div class="mn-heading-color-menu" id="mn-hkm-${idx}" style="display:none;position:absolute;right:0;top:100%;z-index:100;background:white;border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:190px;overflow:hidden">
-            <button class="mn-hkm-color-toggle" data-idx="${idx}" style="width:100%;padding:.55rem .9rem;text-align:left;background:none;border:none;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:.84rem">ðŸŽ¨ Change Colour</button>
+            <button class="mn-hkm-color-toggle" data-idx="${idx}" style="width:100%;padding:.55rem .9rem;text-align:left;background:none;border:none;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:.84rem">🎨 Change Colour</button>
             <div class="mn-hkm-color-panel" data-idx="${idx}" style="display:none;flex-direction:column;padding:.35rem .6rem;border-bottom:1px solid #f3f4f6;gap:.2rem">
-              <button class="mn-hkm-opt" data-idx="${idx}" data-action="blue" style="padding:.35rem .6rem;background:#dbeafe;border:2px solid ${!isGray ? '#2563eb' : '#93c5fd'};border-radius:.4rem;cursor:pointer;font-size:.75rem;text-align:left">ðŸ’™ Blue (Normal)</button>
-              <button class="mn-hkm-opt" data-idx="${idx}" data-action="gray" style="padding:.35rem .6rem;background:#d9d9d9;border:2px solid ${isGray ? '#6b7280' : '#bfbfbf'};border-radius:.4rem;cursor:pointer;font-size:.75rem;text-align:left">ðŸ©¶ Grey (Maintain)</button>
+              <button class="mn-hkm-opt" data-idx="${idx}" data-action="blue" style="padding:.35rem .6rem;background:#dbeafe;border:2px solid ${!isGray ? '#2563eb' : '#93c5fd'};border-radius:.4rem;cursor:pointer;font-size:.75rem;text-align:left">💙 Blue (Normal)</button>
+              <button class="mn-hkm-opt" data-idx="${idx}" data-action="gray" style="padding:.35rem .6rem;background:#d9d9d9;border:2px solid ${isGray ? '#6b7280' : '#bfbfbf'};border-radius:.4rem;cursor:pointer;font-size:.75rem;text-align:left">🩶 Grey (Maintain)</button>
             </div>
             ${periodSectionHtml(a.activeFrom, a.activeTo, idx, true)}
-            <button class="mn-hkm-opt" data-idx="${idx}" data-action="delete" style="width:100%;padding:.55rem .9rem;text-align:left;background:none;border:none;cursor:pointer;font-size:.84rem;color:#dc2626">ðŸ—‘ï¸ Delete</button>
+            <button class="mn-hkm-opt" data-idx="${idx}" data-action="delete" style="width:100%;padding:.55rem .9rem;text-align:left;background:none;border:none;cursor:pointer;font-size:.84rem;color:#dc2626">🗑️ Delete</button>
           </div>
         </div>
       </div>`;
@@ -9758,14 +9761,14 @@ function renderTemplateManageContent(template) {
       const noteItemStyle = noteExpired
         ? ` style="position:relative;${noteBaseBg}"`
         : ` style="${noteBaseBg}${noteInactive ? ';opacity:0.3' : ''}"`;
-      const noteOverlay  = noteExpired ? `<div style="position:absolute;inset:0 2.5rem 0 0;background:rgba(255,255,255,.7);pointer-events:none;z-index:5;border-radius:inherit;display:flex;align-items:center;justify-content:center"><div style="pointer-events:none;background:rgba(255,255,255,.95);border:1px solid #e5e7eb;border-radius:.45rem;padding:.35rem .75rem;text-align:center;font-size:1.17rem;color:#374151;max-width:80%">â¸ This activity's period has ended â€” tap â‹® on the right side to adjust the dates and bring it back.</div></div>` : '';
+      const noteOverlay  = noteExpired ? `<div style="position:absolute;inset:0 2.5rem 0 0;background:rgba(255,255,255,.7);pointer-events:none;z-index:5;border-radius:inherit;display:flex;align-items:center;justify-content:center"><div style="pointer-events:none;background:rgba(255,255,255,.95);border:1px solid #e5e7eb;border-radius:.45rem;padding:.35rem .75rem;text-align:center;font-size:1.17rem;color:#374151;max-width:80%">⏸ This activity's period has ended — tap ⋮ on the right side to adjust the dates and bring it back.</div></div>` : '';
       html += `<div class="admin-list-item admin-note-item" data-idx="${idx}"${noteItemStyle}>
-        <span class="drag-handle">â ¿</span>
+        <span class="drag-handle">⠿</span>
         <div style="flex:1;display:flex;flex-direction:column;gap:.25rem">
           <div style="display:flex;align-items:center;gap:.4rem;margin-bottom:.1rem">
             <select class="mn-note-type-select" data-idx="${idx}" style="font-size:.9rem;padding:.2rem .4rem;border:1px solid #fcd34d;border-radius:.3rem;background:#fef3c7;color:#78350f;cursor:pointer">
-              <option value="internal"${a.isNote ? ' selected' : ''}>ðŸ”’ This note is for ZORA's use only. Excluded from Word report</option>
-              <option value="export"${a.isExportNote ? ' selected' : ''}>ðŸ“„ Include in Word export</option>
+              <option value="internal"${a.isNote ? ' selected' : ''}>🔒 This note is for ZORA's use only. Excluded from Word report</option>
+              <option value="export"${a.isExportNote ? ' selected' : ''}>📄 Include in Word export</option>
             </select>
           </div>
           <div style="display:flex;align-items:flex-start;gap:.3rem">
@@ -9776,11 +9779,11 @@ function renderTemplateManageContent(template) {
           </div>
         </div>
         <div style="position:relative">
-          <button class="btn-adm-del mn-kebab-btn" data-idx="${idx}" title="Note options" style="font-size:1.35rem;font-weight:900;min-width:36px;min-height:36px">â‹®</button>
+          <button class="btn-adm-del mn-kebab-btn" data-idx="${idx}" title="Note options" style="font-size:1.35rem;font-weight:900;min-width:36px;min-height:36px">⋮</button>
           <div class="mn-kebab-menu" id="mn-km-${idx}" style="display:none;position:absolute;right:0;top:100%;z-index:100;background:white;border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:200px;overflow:hidden">
             ${periodSectionHtml(a.activeFrom, a.activeTo, idx, true)}
             <div style="display:flex;align-items:stretch">
-              <button class="mn-km-opt" data-idx="${idx}" data-action="delete" style="flex:1;padding:.55rem .9rem;text-align:left;background:none;border:none;cursor:pointer;font-size:.84rem;color:#dc2626">ðŸ—‘ï¸ Delete Note</button>
+              <button class="mn-km-opt" data-idx="${idx}" data-action="delete" style="flex:1;padding:.55rem .9rem;text-align:left;background:none;border:none;cursor:pointer;font-size:.84rem;color:#dc2626">🗑️ Delete Note</button>
             </div>
           </div>
         </div>
@@ -9788,7 +9791,7 @@ function renderTemplateManageContent(template) {
       </div>`;
     } else if (a.isMaintain) {
       html += `<div class="admin-list-item" data-idx="${idx}" style="background:#f3f4f6;border:1px solid #d1d5db">
-        <span class="drag-handle">â ¿</span>
+        <span class="drag-handle">⠿</span>
         <div style="flex:1;display:flex;flex-direction:column;gap:.3rem">
           <div style="display:flex;align-items:flex-start;gap:.3rem">
             ${formatButtonsHtml(`mn-act-name-${idx}`)}
@@ -9802,7 +9805,7 @@ function renderTemplateManageContent(template) {
               style="flex:1;overflow-y:hidden;resize:none">${escHtml(a.maintainRemark || "")}</textarea>
           </div>
         </div>
-        <button class="btn-adm-del mn-del-act" data-idx="${idx}">ðŸ—‘</button>
+        <button class="btn-adm-del mn-del-act" data-idx="${idx}">🗑</button>
       </div>`;
     } else {
       const remarkTypeSelect = buildRemarkTypeControls(a, idx);
@@ -9815,11 +9818,11 @@ function renderTemplateManageContent(template) {
       const actItemStyle = actExpired ? (actBaseBg ? ` style="position:relative;${actBaseBg}"` : ' style="position:relative"') : (actBaseBg ? ` style="${actBaseBg}${actInactive ? ';opacity:0.3' : ''}"` : actInactive ? ' style="opacity:0.3"' : '');
       const actOverlay  = actExpired ? `<div style="position:absolute;inset:0 2.5rem 0 0;background:rgba(255,255,255,.7);z-index:5;border-radius:inherit;display:flex;align-items:center;justify-content:center">
         <div style="background:rgba(255,255,255,.95);border:1px solid #e5e7eb;border-radius:.45rem;padding:.5rem .75rem;text-align:center;font-size:1rem;color:#374151;max-width:85%">
-          <div>â¸ This activity's period has ended â€” tap â‹® on the right side to adjust the dates and bring it back.</div>
+          <div>⏸ This activity's period has ended — tap ⋮ on the right side to adjust the dates and bring it back.</div>
           <div style="display:flex;align-items:center;gap:.5rem;justify-content:center;margin-top:.4rem">
             <span style="font-size:.84rem;color:#6b7280">Reason:</span>
             <select class="mn-inactive-reason-select" data-idx="${idx}" style="font-size:.84rem;padding:.2rem .4rem;border:1px solid #d1d5db;border-radius:.3rem;background:white;cursor:pointer">
-              <option value="">â€” Not specified â€”</option>
+              <option value="">— Not specified —</option>
               <option value="mastered"${a.inactiveReason === 'mastered' ? ' selected' : ''}>Mastered</option>
               <option value="discontinued"${a.inactiveReason === 'discontinued' ? ' selected' : ''}>Discontinued</option>
             </select>
@@ -9836,7 +9839,7 @@ function renderTemplateManageContent(template) {
           </div>`
         : "";
       html += `<div class="admin-list-item" data-idx="${idx}"${actItemStyle}>
-        <span class="drag-handle">â ¿</span>
+        <span class="drag-handle">⠿</span>
         <div style="flex:1;display:flex;flex-direction:column;gap:.3rem">
           <div style="display:flex;align-items:flex-start;gap:.3rem">
             ${formatButtonsHtml(`mn-act-name-${idx}`)}
@@ -9850,18 +9853,18 @@ function renderTemplateManageContent(template) {
           ${fixedRemarkRow}
         </div>
         <div style="position:relative">
-          <button class="btn-adm-del mn-kebab-btn" data-idx="${idx}" title="Activity options" style="font-size:1.35rem;font-weight:900;min-width:36px;min-height:36px">â‹®</button>
+          <button class="btn-adm-del mn-kebab-btn" data-idx="${idx}" title="Activity options" style="font-size:1.35rem;font-weight:900;min-width:36px;min-height:36px">⋮</button>
           <div class="mn-kebab-menu" id="mn-km-${idx}" style="display:none;position:absolute;right:0;top:100%;z-index:100;background:white;border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:250px;overflow:hidden">
             <div style="display:flex;align-items:stretch;border-bottom:1px solid #f3f4f6">
-              <button class="mn-km-color-toggle" data-idx="${idx}" style="flex:1;padding:.55rem .9rem;text-align:left;background:none;border:none;cursor:pointer;font-size:.84rem">ðŸŽ¨ Change Colour</button>
+              <button class="mn-km-color-toggle" data-idx="${idx}" style="flex:1;padding:.55rem .9rem;text-align:left;background:none;border:none;cursor:pointer;font-size:.84rem">🎨 Change Colour</button>
             </div>
             <div class="mn-km-color-panel" data-idx="${idx}" style="display:none;flex-direction:column;padding:.35rem .6rem;border-bottom:1px solid #f3f4f6;gap:.2rem">
-              <button class="mn-km-opt" data-idx="${idx}" data-action="color_white" style="padding:.35rem .6rem;background:#ffffff;border:2px solid ${!isGray ? '#6b7280' : '#e5e7eb'};border-radius:.4rem;cursor:pointer;font-size:.75rem;text-align:left">ðŸ¤ White (Normal)</button>
-              <button class="mn-km-opt" data-idx="${idx}" data-action="color_gray" style="padding:.35rem .6rem;background:#d9d9d9;border:2px solid ${isGray ? '#6b7280' : '#bfbfbf'};border-radius:.4rem;cursor:pointer;font-size:.75rem;text-align:left">ðŸ©¶ Grey (Maintain)</button>
+              <button class="mn-km-opt" data-idx="${idx}" data-action="color_white" style="padding:.35rem .6rem;background:#ffffff;border:2px solid ${!isGray ? '#6b7280' : '#e5e7eb'};border-radius:.4rem;cursor:pointer;font-size:.75rem;text-align:left">🤍 White (Normal)</button>
+              <button class="mn-km-opt" data-idx="${idx}" data-action="color_gray" style="padding:.35rem .6rem;background:#d9d9d9;border:2px solid ${isGray ? '#6b7280' : '#bfbfbf'};border-radius:.4rem;cursor:pointer;font-size:.75rem;text-align:left">🩶 Grey (Maintain)</button>
             </div>
             ${periodSectionHtml(a.activeFrom, a.activeTo, idx, true, a.inactiveReason)}
             <div style="display:flex;align-items:stretch">
-              <button class="mn-km-opt" data-idx="${idx}" data-action="delete" style="flex:1;padding:.55rem .9rem;text-align:left;background:none;border:none;cursor:pointer;font-size:.84rem;color:#dc2626">ðŸ—‘ï¸ Delete Activity</button>
+              <button class="mn-km-opt" data-idx="${idx}" data-action="delete" style="flex:1;padding:.55rem .9rem;text-align:left;background:none;border:none;cursor:pointer;font-size:.84rem;color:#dc2626">🗑️ Delete Activity</button>
             </div>
           </div>
         </div>
@@ -9985,7 +9988,7 @@ function renderTemplateManageContent(template) {
   });
 
   $("manage-modal-body").querySelectorAll(".btn-fmt").forEach(btn => {
-    // Prevent the textarea from losing focus/selection on click â€” by the
+    // Prevent the textarea from losing focus/selection on click — by the
     // time "click" fires the selection would otherwise already be gone.
     btn.addEventListener("mousedown", e => e.preventDefault());
     btn.addEventListener("click", () => {
@@ -10324,9 +10327,9 @@ function renderTemplateManageContent(template) {
       const currentValue  = input.value.trim();
       if (originalValue && currentValue && currentValue !== originalValue) {
         const proceed = confirm(
-          `âš ï¸ Rename "${originalValue}" to "${currentValue}"?\n\n` +
-          `Any students already using this option in past sessions will keep the old name in their records â€” only future sessions will use the new name.\n\n` +
-          `Tip: If you want to keep "${originalValue}" and add "${currentValue}" as a separate option, press Cancel â€” then use "+ Add Option" and drag it into position.\n\n` +
+          `⚠️ Rename "${originalValue}" to "${currentValue}"?\n\n` +
+          `Any students already using this option in past sessions will keep the old name in their records — only future sessions will use the new name.\n\n` +
+          `Tip: If you want to keep "${originalValue}" and add "${currentValue}" as a separate option, press Cancel — then use "+ Add Option" and drag it into position.\n\n` +
           `Rename anyway?`
         );
         if (!proceed) { input.value = originalValue; return; }
@@ -10365,10 +10368,10 @@ function renderTemplateManageContent(template) {
       row.dataset.idx = String(oi);
       row.style.cssText = "display:flex;align-items:center;gap:.3rem;margin-bottom:.25rem";
       row.innerHTML =
-        `<span class="drag-handle" style="cursor:grab;color:#c4c9d4;font-size:1rem;flex-shrink:0;padding:0 .1rem;user-select:none">â ¿</span>` +
+        `<span class="drag-handle" style="cursor:grab;color:#c4c9d4;font-size:1rem;flex-shrink:0;padding:0 .1rem;user-select:none">⠿</span>` +
         `<span class="mn-opt-num" style="font-size:.75rem;color:#6b7280;white-space:nowrap;flex-shrink:0;font-weight:600">Option ${oi + 1}:</span>` +
-        `<input class="admin-input mn-opt-item" data-idx="${idx}" data-oi="${oi}" placeholder="Enter optionâ€¦" style="flex:1;padding:.3rem .45rem;font-size:.84rem;min-width:0">` +
-        `<button class="mn-opt-del" data-idx="${idx}" data-oi="${oi}" title="Remove option" style="flex-shrink:0;padding:.2rem .4rem;font-size:.8rem;color:#9ca3af;background:none;border:1px solid #e5e7eb;border-radius:.3rem;cursor:pointer;line-height:1">Ã—</button>`;
+        `<input class="admin-input mn-opt-item" data-idx="${idx}" data-oi="${oi}" placeholder="Enter option…" style="flex:1;padding:.3rem .45rem;font-size:.84rem;min-width:0">` +
+        `<button class="mn-opt-del" data-idx="${idx}" data-oi="${oi}" title="Remove option" style="flex-shrink:0;padding:.2rem .4rem;font-size:.8rem;color:#9ca3af;background:none;border:1px solid #e5e7eb;border-radius:.3rem;cursor:pointer;line-height:1">×</button>`;
       list.appendChild(row);
       wireTmplOptBlur(row.querySelector(".mn-opt-item"), idx);
       wireTmplOptDel(row.querySelector(".mn-opt-del"), idx);
@@ -10386,7 +10389,7 @@ function renderTemplateManageContent(template) {
   });
 }
 
-// â”€â”€ Sync template changes to all students using it â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Sync template changes to all students using it ────────────
 
 async function syncTemplateToStudents(template) {
   const toSave = [];
@@ -10409,29 +10412,29 @@ async function syncTemplateToStudents(template) {
 // GROUP SESSIONS
 // ============================================================
 
-// â”€â”€ Choice modal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Choice modal ─────────────────────────────────────────────
 function showGroupChoice(group) {
   $("session-picker-title").textContent = group.name;
   $("session-picker-list").innerHTML = `
     <div class="choice-list">
       <button class="choice-btn choice-today">
-        <span class="choice-icon">â–¶ï¸</span>
+        <span class="choice-icon">▶️</span>
         <div class="choice-text"><div class="choice-label">Start Session</div></div>
       </button>
       <button class="choice-btn choice-other">
-        <span class="choice-icon">ðŸ—‚ï¸</span>
+        <span class="choice-icon">🗂️</span>
         <div class="choice-text"><div class="choice-label">View/Edit Past Sessions</div></div>
       </button>
       <button class="choice-btn choice-manage">
-        <span class="choice-icon">âœï¸</span>
+        <span class="choice-icon">✏️</span>
         <div class="choice-text"><div class="choice-label">Manage Group</div></div>
       </button>
       <button class="choice-btn choice-export-excel">
-        <span class="choice-icon">ðŸ“Š</span>
+        <span class="choice-icon">📊</span>
         <div class="choice-text"><div class="choice-label">Export to Excel (Yearly Summary)</div></div>
       </button>
       <button class="choice-btn choice-export-word">
-        <span class="choice-icon">ðŸ“</span>
+        <span class="choice-icon">📝</span>
         <div class="choice-text"><div class="choice-label">Export to Word (Daily Session Note)</div></div>
       </button>
     </div>`;
@@ -10495,10 +10498,10 @@ function showGroupChoice(group) {
   });
 }
 
-// â”€â”€ Open group session â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Open group session ───────────────────────────────────────
 async function openGroupSession(group, dateStr, attendees) {
   attendees = (attendees || []).filter(Boolean);
-  // Same reasoning as openSession's preservedTargetName above â€” jumping to
+  // Same reasoning as openSession's preservedTargetName above — jumping to
   // another date for the SAME group should keep the currently-viewed
   // target, not reset to the first one in sort order.
   const preservedGroupTargetName = state.currentGroup?.id === group.id ? state.selectedGroupTargetName : null;
@@ -10518,7 +10521,7 @@ async function openGroupSession(group, dateStr, attendees) {
 
   showScreen("screen-group-session");
   $("group-session-name").textContent = group.name;
-  $("group-target-content").innerHTML = `<div class="loading">Loadingâ€¦</div>`;
+  $("group-target-content").innerHTML = `<div class="loading">Loading…</div>`;
 
   const gotoEntryBtn = $("btn-group-entry-goto-session");
   if (gotoEntryBtn) {
@@ -10551,7 +10554,7 @@ async function openGroupSession(group, dateStr, attendees) {
       }
       if (state.scorePicker?.open && state.scorePicker?.isGroup) renderScoreModalTrials(state.scorePicker.remId);
       // Busy = dropdown open, or a button's own multi-step write still in
-      // flight â€” see the matching comment in openSession's listener for why
+      // flight — see the matching comment in openSession's listener for why
       // a focused box never needs to defer a render here.
       const isGroupEntryBusy = () => document.activeElement === $("group-target-select")
         || state.entryGroupActionsInFlight > 0;
@@ -10560,7 +10563,7 @@ async function openGroupSession(group, dateStr, attendees) {
         return;
       }
       state.groupRenderPending = false;
-      // Re-check at fire time â€” see the matching comment in openSession's listener.
+      // Re-check at fire time — see the matching comment in openSession's listener.
       setTimeout(() => {
         if (isGroupEntryBusy()) { state.groupRenderPending = true; }
         else { renderGroupTargetContent(); }
@@ -10575,7 +10578,7 @@ async function openGroupSession(group, dateStr, attendees) {
 function renderGroupSessionHeader(data) {
   if (!data) return;
   $("group-session-meta").textContent =
-    `Session ${data.sessionNumber} of ${(data.month || "").split(" ")[0]} Â· ${formatDate(data.date)}`;
+    `Session ${data.sessionNumber} of ${(data.month || "").split(" ")[0]} · ${formatDate(data.date)}`;
 }
 
 function populateGroupTargetDropdown(targets) {
@@ -10583,12 +10586,12 @@ function populateGroupTargetDropdown(targets) {
   if (!sel) return;
   const sorted = sortTargetsByOrder(targets);
   const placeholder = sorted.length === 0
-    ? `<option value="" disabled selected>â€” no targets yet â€”</option>` : "";
+    ? `<option value="" disabled selected>— no targets yet —</option>` : "";
   sel.innerHTML = placeholder +
     sorted.map(t =>
       `<option value="${escHtml(t.name)}"${t.name === state.selectedGroupTargetName ? " selected" : ""}>${escHtml(t.name)}</option>`
     ).join("") +
-    `<option value="__add_target__">+ Add Targetâ€¦</option>`;
+    `<option value="__add_target__">+ Add Target…</option>`;
 
   const manageBtn = $("btn-group-manage-targets");
   if (manageBtn) {
@@ -10605,7 +10608,7 @@ function populateGroupTargetDropdown(targets) {
     reorderBtn.onclick = () => showGroupTargetReorderList(state.currentGroup);
   }
 
-  // Wire change handler â€” same pattern as individual session's populateTargetDropdown
+  // Wire change handler — same pattern as individual session's populateTargetDropdown
   sel.onchange = async () => {
     if (sel.value === "__add_target__") {
       sel.value = state.selectedGroupTargetName || "";
@@ -10615,7 +10618,7 @@ function populateGroupTargetDropdown(targets) {
     }
     const prevTarget = state.selectedGroupTargetName;
     // Flush any not-yet-saved typing on the target we're leaving before the
-    // cleanup below decides what's "empty" â€” see openSession's target dropdown
+    // cleanup below decides what's "empty" — see openSession's target dropdown
     // for the same fix on the individual side.
     await state.entryGroupRemarkSaver?.flush();
     state.selectedGroupTargetName = sel.value || null;
@@ -10626,7 +10629,7 @@ function populateGroupTargetDropdown(targets) {
     // See individual session's populateTargetDropdown for why this matters:
     // a <select> keeps focus after its own change event, and nothing else
     // would naturally blur it now that button clicks inside the content
-    // host don't â€” so the busy-check would treat it as permanently "still
+    // host don't — so the busy-check would treat it as permanently "still
     // choosing" and block every future render.
     sel.blur();
     if (!state.selectedGroupTargetName) { renderGroupTargetContent(); return; }
@@ -10654,7 +10657,7 @@ function populateGroupTargetDropdown(targets) {
   };
 }
 
-// â”€â”€ Auto-fill activity + remark stubs for predefined activities â”€â”€
+// ── Auto-fill activity + remark stubs for predefined activities ──
 async function autoFillGroupSession(group, sessionId, data, targetName, attendees) {
   const target = group.targets.find(t => t.name === targetName);
   if (!target) return 0;
@@ -10671,11 +10674,11 @@ async function autoFillGroupSession(group, sessionId, data, targetName, attendee
   return created;
 }
 
-// Group-entry counterpart of autoFillMappedRemarks â€” only checks the
+// Group-entry counterpart of autoFillMappedRemarks — only checks the
 // currently selected target (group activity stubs are filled in lazily per
 // selected target too, via autoFillGroupSession above, not for every target
 // up front), per attendee. Call only after confirming autoFillGroupSession
-// didn't just create a brand-new stub for this target â€” that write triggers
+// didn't just create a brand-new stub for this target — that write triggers
 // its own snapshot, which gets a fresh look at this on the next pass.
 async function autoFillGroupMappedRemarks(group, sessionId, data, targetName, attendees) {
   const target = group.targets.find(t => t.name === targetName);
@@ -10708,10 +10711,10 @@ async function autoFillGroupMappedRemarks(group, sessionId, data, targetName, at
 
 const structuredRemarkAutoFillInFlight = new Set();
 
-// Group-entry counterpart of autoFillStructuredRemarks â€” creates one empty
+// Group-entry counterpart of autoFillStructuredRemarks — creates one empty
 // remark per attendee for every "pick from options" activity on the
 // selected target (group activity stubs are filled in lazily per selected
-// target, not for every target up front â€” see autoFillGroupSession). The
+// target, not for every target up front — see autoFillGroupSession). The
 // in-flight guard mirrors autoFillGroupMappedRemarks's: addGroupRemark is
 // awaited per attendee, so a second snapshot landing mid-loop could
 // otherwise re-enter and double-add before the first write commits.
@@ -10784,7 +10787,7 @@ async function leaveGroupSession() {
 
 $("btn-group-back").addEventListener("click", leaveGroupSession);
 
-// â”€â”€ Render group target content â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Render group target content ──────────────────────────────
 function renderGroupTargetContent() {
   const content = $("group-target-content");
   if (!content) return;
@@ -10838,8 +10841,8 @@ function buildGroupItemsByActivity(target, data, attendees) {
     if (pa.isNote || pa.isExportNote) {
       if (pa.text) {
         const noteTag = pa.isExportNote
-          ? `<div style="font-size:.82rem;color:#c2410c;margin-bottom:.25rem">ðŸ“„ Included in Word export</div>`
-          : `<div style="font-size:.82rem;color:#9a3412;margin-bottom:.25rem">ðŸ”’ This note is for ZORA's use only. Excluded from Word report</div>`;
+          ? `<div style="font-size:.82rem;color:#c2410c;margin-bottom:.25rem">📄 Included in Word export</div>`
+          : `<div style="font-size:.82rem;color:#9a3412;margin-bottom:.25rem">🔒 This note is for ZORA's use only. Excluded from Word report</div>`;
         items.push(`<div class="entry-block" contenteditable="false" style="background:#fffbeb;border-left:4px solid #f59e0b;">
           <div class="entry-field">
             <span class="field-label" style="color:#b45309">Note</span>
@@ -10855,7 +10858,7 @@ function buildGroupItemsByActivity(target, data, attendees) {
     }
     if (pa.isCompleted || pa.isArchived || pa.isStopped || pa.isMaintain || pa.isMaintainHeading) continue;
 
-    // Parent activity with sub-activities â€” render as connected group
+    // Parent activity with sub-activities — render as connected group
     const children = grpSubsByParent.get(pa.name) || [];
     if (children.length > 0) {
       let groupHtml = `<div style="display:flex;flex-direction:column;gap:0">`;
@@ -10918,8 +10921,8 @@ function buildGroupItemsByActivity(target, data, attendees) {
       if (pa.isNote || pa.isExportNote) {
         if (!pa.text) return '';
         const noteTag = pa.isExportNote
-          ? `<div style="font-size:.82rem;color:#c2410c;margin-bottom:.25rem">ðŸ“„ Included in Word export</div>`
-          : `<div style="font-size:.82rem;color:#9a3412;margin-bottom:.25rem">ðŸ”’ This note is for ZORA's use only. Excluded from Word report</div>`;
+          ? `<div style="font-size:.82rem;color:#c2410c;margin-bottom:.25rem">📄 Included in Word export</div>`
+          : `<div style="font-size:.82rem;color:#9a3412;margin-bottom:.25rem">🔒 This note is for ZORA's use only. Excluded from Word report</div>`;
         return `<div class="entry-block" contenteditable="false" style="border-left:4px solid #f59e0b;opacity:.3">
           <div class="entry-field">
             <span class="field-label" style="color:#b45309">Note</span>
@@ -10940,7 +10943,7 @@ function buildGroupItemsByActivity(target, data, attendees) {
       if (pas.length === 0) return '';
       return `<div style="margin-top:.5rem">
         <button class="btn-inactive-toggle" contenteditable="false" style="display:flex;align-items:center;gap:.4rem;width:100%;padding:.4rem .6rem;background:none;border:1px dashed #d1d5db;border-radius:.4rem;cursor:pointer;font-size:.8rem;color:${color};text-align:left">
-          <span class="inactive-chevron" style="font-size:.7rem">â–¶</span> ${label} (${pas.length})
+          <span class="inactive-chevron" style="font-size:.7rem">▶</span> ${label} (${pas.length})
         </button>
         <div class="inactive-list" style="display:none;flex-direction:column;gap:.25rem;margin-top:.35rem">${pas.map(renderGrpInactiveItem).filter(Boolean).join('')}</div>
       </div>`;
@@ -10964,7 +10967,7 @@ function buildGroupItemsByStudent(target, data, attendees) {
 }
 
 function renderGroupStudentBlock(studentName, target, data) {
-  // Section headings/notes aren't tied to a specific student, so they're skipped here â€”
+  // Section headings/notes aren't tied to a specific student, so they're skipped here —
   // only actual scoreable activities make sense nested under a student.
   const activityEntries = [];
   const grpStudentDate = todayDateStr();
@@ -11033,7 +11036,7 @@ function renderGroupStudentActivityCard(studentName, actName, actId, target, dat
 }
 
 // Live-entry-screen counterpart of groupAttendeeLabel (View/Edit Past
-// Sessions) â€” same idea, reads the live screen's globals instead.
+// Sessions) — same idea, reads the live screen's globals instead.
 function liveGroupAttendeeLabel(studentName) {
   return escHtml(studentName);
 }
@@ -11045,7 +11048,7 @@ function firstNameOf(name) {
 function renderGroupStudentRowCompact(remId, rem, target, mappedInfo = null) {
   const trials = rem.trials || [];
   const regularBadges = trials.map((t, i) =>
-    `<span class="trial-badge">${t === -1 ? "â€”" : t}<button class="btn-trial-delete btn-group-trial-del" data-rem-id="${remId}" data-idx="${i}">Ã—</button></span>`
+    `<span class="trial-badge">${t === -1 ? "—" : t}<button class="btn-trial-delete btn-group-trial-del" data-rem-id="${remId}" data-idx="${i}">×</button></span>`
   ).join("");
   const optBadge = rem.optionScore !== undefined
     ? `<span class="trial-badge trial-badge--option">${rem.optionScore}</span>` : "";
@@ -11053,7 +11056,7 @@ function renderGroupStudentRowCompact(remId, rem, target, mappedInfo = null) {
   const trailingField = mappedInfo
     ? `<div class="entry-field" contenteditable="false">
         <span class="field-label">${escHtml(mappedInfo.label)}</span>
-        <span class="field-value-fixed">${mappedInfo.pct !== null ? mappedInfo.pct + "%" : "â€”"}</span>
+        <span class="field-value-fixed">${mappedInfo.pct !== null ? mappedInfo.pct + "%" : "—"}</span>
       </div>`
     : `<div class="entry-field" contenteditable="false">
         <span class="field-label">Trials</span>
@@ -11067,11 +11070,11 @@ function renderGroupStudentRowCompact(remId, rem, target, mappedInfo = null) {
     <div class="entry-divider" contenteditable="false"></div>
     <div class="entry-field">
       <span class="field-label" contenteditable="false">Remark</span>
-      <button class="btn-sketch btn-group-sketch" contenteditable="false" data-rem-id="${remId}" aria-label="Open sketch board">âœ</button>
+      <button class="btn-sketch btn-group-sketch" contenteditable="false" data-rem-id="${remId}" aria-label="Open sketch board">✏</button>
       <textarea class="field-input group-remark-input" rows="1"
-        data-rem-id="${remId}" placeholder="Remarkâ€¦"
+        data-rem-id="${remId}" placeholder="Remark…"
         data-saved-html="${escHtml(rem.text || "")}">${escHtml(plainTextForEdit(rem.text))}</textarea>
-      <button class="btn-icon btn-group-del-student-remark" contenteditable="false" data-rem-id="${remId}" title="Delete remark">ðŸ—‘</button>
+      <button class="btn-icon btn-group-del-student-remark" contenteditable="false" data-rem-id="${remId}" title="Delete remark">🗑</button>
     </div>
     ${trailingField}`;
 }
@@ -11080,7 +11083,7 @@ function renderGroupActivityCard(actName, actId, target, data, attendees, actNot
   // Free-text activities (no preset options, no sentence starter) get a
   // ready-to-type empty box for a pending attendee instead of a "+ Add
   // Remark & Trials" button once the card is already expanded (see
-  // renderGroupStudentEmptyRow) â€” preset-option/sentence-starter activities
+  // renderGroupStudentEmptyRow) — preset-option/sentence-starter activities
   // have no typeable free text, so those still need the explicit button.
   const inlineOptions   = paEntry ? getActivityInlineOptions(paEntry) : null;
   const sentenceStarter = (paEntry?.inlineOptions || paEntry?.remarkPresetId || paEntry?.remarkHasNote) ? (paEntry?.sentenceStarter || null) : null;
@@ -11095,7 +11098,7 @@ function renderGroupActivityCard(actName, actId, target, data, attendees, actNot
       </div>`
     : "";
 
-  // Mapped-score activities have no trials/combine-remarks concept at all â€”
+  // Mapped-score activities have no trials/combine-remarks concept at all —
   // bypass the rounds/combine machinery below entirely and just list every
   // attendee's own remark + their own per-attendee mapped score.
   if (mappedPa) {
@@ -11134,7 +11137,7 @@ function renderGroupActivityCard(actName, actId, target, data, attendees, actNot
   const anyExpanded = actId && Object.values(data.remarks || {})
     .some(r => r.activityId === actId && attendees.includes(r.studentName));
 
-  // Collapsed: no data yet â†’ single "+ Add Remark & Trials" button (like individual session)
+  // Collapsed: no data yet → single "+ Add Remark & Trials" button (like individual session)
   if (!anyExpanded) {
     return `<div class="entry-block entry-block-predefined" data-act-name="${escHtml(actName)}" data-act-id="${escHtml(actId || "")}">
       <div class="entry-field" contenteditable="false">
@@ -11196,7 +11199,7 @@ function renderGroupActivityCard(actName, actId, target, data, attendees, actNot
       ${bodyHtml}
       <div class="group-round-footer" contenteditable="false">
         <button class="btn-icon btn-group-del-round"
-          data-rem-ids="${roundRemIds.join(",")}" title="Remove">ðŸ—‘</button>
+          data-rem-ids="${roundRemIds.join(",")}" title="Remove">🗑</button>
       </div>
     </div>`);
   }
@@ -11229,9 +11232,9 @@ function renderGroupCombinedRemarkRow(remIds, text) {
   const idList = remIds.join(",");
   return `<div class="entry-field">
     <span class="field-label" contenteditable="false">Remark</span>
-    <button class="btn-sketch btn-group-sketch-combined" contenteditable="false" data-rem-ids="${idList}" aria-label="Open sketch board">âœ</button>
+    <button class="btn-sketch btn-group-sketch-combined" contenteditable="false" data-rem-ids="${idList}" aria-label="Open sketch board">✏</button>
     <textarea class="field-input group-remark-input-combined" rows="1"
-      data-rem-ids="${idList}" placeholder="Remarkâ€¦"
+      data-rem-ids="${idList}" placeholder="Remark…"
       data-saved-html="${escHtml(text || "")}">${escHtml(plainTextForEdit(text))}</textarea>
   </div>`;
 }
@@ -11240,7 +11243,7 @@ function renderGroupCombinedRemarkRow(remIds, text) {
 function renderGroupStudentTrialsOnlyRow(studentName, remId, rem, target) {
   const trials = rem.trials || [];
   const badges = trials.map((t, i) =>
-    `<span class="trial-badge">${t === -1 ? "â€”" : t}<button class="btn-trial-delete btn-group-trial-del" data-rem-id="${remId}" data-idx="${i}">Ã—</button></span>`
+    `<span class="trial-badge">${t === -1 ? "—" : t}<button class="btn-trial-delete btn-group-trial-del" data-rem-id="${remId}" data-idx="${i}">×</button></span>`
   ).join("");
   return `<div class="group-student-section" data-rem-id="${remId}" data-student="${escHtml(studentName)}">
     <div class="group-student-name-row" contenteditable="false">
@@ -11257,7 +11260,7 @@ function renderGroupStudentTrialsOnlyRow(studentName, remId, rem, target) {
   </div>`;
 }
 
-// Group-entry counterpart of renderRemarkFields â€” same option-pill/sentence-
+// Group-entry counterpart of renderRemarkFields — same option-pill/sentence-
 // starter/notes markup (reusing the same generic CSS classes/save-wiring),
 // just with .group-remark-input instead of .remark-text-input for the
 // free-text fallback box, since this row is one attendee's slice of a
@@ -11265,7 +11268,7 @@ function renderGroupStudentTrialsOnlyRow(studentName, remId, rem, target) {
 function renderGroupStudentRow(studentName, remId, rem, target, mappedInfo = null, inlineOptions = null, sentenceStarter = null, multiSelect = false, remarkHasNote = false, optionScores = null) {
   const trials = rem.trials || [];
   const regularBadges = trials.map((t, i) =>
-    `<span class="trial-badge">${t === -1 ? "â€”" : t}<button class="btn-trial-delete btn-group-trial-del" data-rem-id="${remId}" data-idx="${i}">Ã—</button></span>`
+    `<span class="trial-badge">${t === -1 ? "—" : t}<button class="btn-trial-delete btn-group-trial-del" data-rem-id="${remId}" data-idx="${i}">×</button></span>`
   ).join("");
   const optBadge = rem.optionScore !== undefined
     ? `<span class="trial-badge trial-badge--option">${rem.optionScore}</span>` : "";
@@ -11273,7 +11276,7 @@ function renderGroupStudentRow(studentName, remId, rem, target, mappedInfo = nul
   const trailingField = mappedInfo
     ? `<div class="entry-field" contenteditable="false">
         <span class="field-label">${escHtml(mappedInfo.label)}</span>
-        <span class="field-value-fixed">${mappedInfo.pct !== null ? mappedInfo.pct + "%" : "â€”"}</span>
+        <span class="field-value-fixed">${mappedInfo.pct !== null ? mappedInfo.pct + "%" : "—"}</span>
       </div>`
     : `<div class="entry-field" contenteditable="false">
         <span class="field-label">Trials</span>
@@ -11302,11 +11305,11 @@ function renderGroupStudentRow(studentName, remId, rem, target, mappedInfo = nul
   }
 
   const freeTextBox = `<textarea class="field-input group-remark-input" rows="1"
-      data-rem-id="${remId}" placeholder="Remarkâ€¦"
+      data-rem-id="${remId}" placeholder="Remark…"
       data-saved-html="${escHtml(rem.text || "")}">${escHtml(plainTextForEdit(rem.text))}</textarea>`;
 
   const sketchBtn = opts.length === 0
-    ? `<button class="btn-sketch btn-group-sketch" contenteditable="false" data-rem-id="${remId}" aria-label="Sketch">âœ</button>`
+    ? `<button class="btn-sketch btn-group-sketch" contenteditable="false" data-rem-id="${remId}" aria-label="Sketch">✏</button>`
     : "";
 
   let remarkContent;
@@ -11323,9 +11326,9 @@ function renderGroupStudentRow(studentName, remId, rem, target, mappedInfo = nul
   const noteField = remarkHasNote
     ? `<div class="entry-field" contenteditable="false">
         <span class="field-label">Notes</span>
-        <button class="btn-sketch btn-group-sketch" data-rem-id="${remId}" aria-label="Open sketch board">âœ</button>
+        <button class="btn-sketch btn-group-sketch" data-rem-id="${remId}" aria-label="Open sketch board">✏</button>
         <textarea class="field-input mastery-note-input" rows="1"
-          data-rem-id="${remId}" placeholder="Notesâ€¦"
+          data-rem-id="${remId}" placeholder="Notes…"
           data-saved-html="${escHtml(rem.masteryNote || "")}">${escHtml(plainTextForEdit(rem.masteryNote || ""))}</textarea>
       </div>`
     : "";
@@ -11338,7 +11341,7 @@ function renderGroupStudentRow(studentName, remId, rem, target, mappedInfo = nul
       <span class="field-label" contenteditable="false">Remark</span>
       ${sketchBtn}
       ${remarkContent}
-      <button class="btn-icon btn-group-del-student-remark" contenteditable="false" data-rem-id="${remId}" title="Delete remark">ðŸ—‘</button>
+      <button class="btn-icon btn-group-del-student-remark" contenteditable="false" data-rem-id="${remId}" title="Delete remark">🗑</button>
     </div>
     ${noteField}
     ${trailingField}
@@ -11362,12 +11365,12 @@ function renderGroupStudentPendingRow(studentName, actId, actName, target, mappe
   </div>`;
 }
 
-// Free-text counterpart of renderGroupStudentPendingRow â€” once the card is
+// Free-text counterpart of renderGroupStudentPendingRow — once the card is
 // already expanded (some other attendee has a remark for this activity),
 // a ready-to-type empty box replaces the "+ Add Remark & Trials" button so
 // typing doesn't need that extra click first. Nothing is written to Firebase
 // until the box actually has text in it (see the ".group-remark-input-empty"
-// creation handler in setupEntryRemarkSaving) â€” unlike auto-creating an empty
+// creation handler in setupEntryRemarkSaving) — unlike auto-creating an empty
 // remark for every attendee up front, this can't leave a ghost remark behind
 // for an attendee who never actually got anything typed for them.
 function renderGroupStudentEmptyRow(studentName, actId, actName, target, isPredefined) {
@@ -11378,7 +11381,7 @@ function renderGroupStudentEmptyRow(studentName, actId, actName, target, isPrede
     <div class="entry-field">
       <span class="field-label" contenteditable="false">Remark</span>
       <textarea class="field-input group-remark-input group-remark-input-empty" rows="1"
-        placeholder="Remarkâ€¦"
+        placeholder="Remark…"
         data-act-id="${escHtml(actId || "")}"
         data-act-name="${escHtml(actName)}"
         data-target="${escHtml(target.name)}"
@@ -11388,11 +11391,11 @@ function renderGroupStudentEmptyRow(studentName, actId, actName, target, isPrede
   </div>`;
 }
 
-// One attendee's own day average for a group target â€” per-attendee throughout
+// One attendee's own day average for a group target — per-attendee throughout
 // (group sessions score each attendee separately even on a shared target).
 // visited (keyed "targetId::studentName") guards a circular mapping chain.
 // Same equal-per-remark averaging as calcDaysAverage's individual-session
-// counterpart â€” see the comment there.
+// counterpart — see the comment there.
 function calcGroupStudentDaysAverage(target, data, studentName, visited = new Set()) {
   const key = target.id + "::" + studentName;
   if (visited.has(key)) return null;
@@ -11423,7 +11426,7 @@ function calcGroupStudentDaysAverage(target, data, studentName, visited = new Se
   return avgs.length > 0 ? Math.round(avgs.reduce((a, b) => a + b, 0) / avgs.length) : null;
 }
 
-// Resolves a mapped-score activity's live display for one attendee â€” see
+// Resolves a mapped-score activity's live display for one attendee — see
 // calcDaysAverage's individual-session counterpart, resolveMappedScoreDisplay.
 function resolveGroupMappedScoreDisplay(pa, target, data, studentName, visited) {
   const mappedTarget = pa.mappedTargetId
@@ -11444,7 +11447,7 @@ function updateGroupAvgChips(target, data) {
     container.innerHTML = attendees.map(name =>
       `<div class="days-average-chip">
         <span class="days-average-label">${escHtml(firstNameOf(name))}'s Avg</span>
-        <span class="days-average-value">â€”</span>
+        <span class="days-average-value">—</span>
       </div>`
     ).join("");
     return;
@@ -11453,19 +11456,19 @@ function updateGroupAvgChips(target, data) {
     const avg = calcGroupStudentDaysAverage(target, data, name);
     return `<div class="days-average-chip">
       <span class="days-average-label">${escHtml(firstNameOf(name))}'s Avg</span>
-      <span class="days-average-value">${avg !== null ? avg + "%" : "â€”"}</span>
+      <span class="days-average-value">${avg !== null ? avg + "%" : "—"}</span>
     </div>`;
   }).join("");
 }
 
-// â”€â”€ Attach event listeners to the rendered group target content â”€â”€
+// ── Attach event listeners to the rendered group target content ──
 function attachGroupTargetListeners(target) {
   const c = $("group-target-content");
   if (!c) return;
 
   // Saving for .group-remark-input / .group-remark-input-combined is handled
   // by the shared merged-editing host (state.entryGroupRemarkSaver, set up in
-  // openGroupSession) â€” see setupEntryRemarkSaving. These are real
+  // openGroupSession) — see setupEntryRemarkSaving. These are real
   // <textarea> elements, so Enter/backspace/Ctrl+A all work natively.
   c.querySelectorAll("textarea.field-input").forEach(autoResizeTextarea);
 
@@ -11485,8 +11488,8 @@ function attachGroupTargetListeners(target) {
     });
   });
 
-  // â”€â”€ Remark option buttons (single-select) â€” group entry counterpart of
-  // the individual screen's equivalent handler â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Remark option buttons (single-select) — group entry counterpart of
+  // the individual screen's equivalent handler ──────────────
   c.querySelectorAll(".remark-preset-opts:not(.remark-preset-opts-multi) .btn-remark-opt").forEach(btn => {
     btn.addEventListener("click", () => {
       const isActive = btn.classList.contains("active");
@@ -11499,7 +11502,7 @@ function attachGroupTargetListeners(target) {
       if (rem) rem.text = newText;
       updateRemarkText(state.groupSessionId, remId, newText).catch(err => {
         if (rem) rem.text = prevText;
-        alert("Couldn't save â€” check your connection and try again.\n\n" + err.message);
+        alert("Couldn't save — check your connection and try again.\n\n" + err.message);
       });
       // Auto-score: set/clear optionScore (separate from manual trials)
       if (btn.dataset.score !== "") {
@@ -11510,13 +11513,13 @@ function attachGroupTargetListeners(target) {
             if (rem) rem.optionScore = autoScore;
             setOptionScore(state.groupSessionId, remId, autoScore).catch(err => {
               if (rem) { if (prevOptScore !== undefined) rem.optionScore = prevOptScore; else delete rem.optionScore; }
-              alert("Couldn't save â€” check your connection and try again.\n\n" + err.message);
+              alert("Couldn't save — check your connection and try again.\n\n" + err.message);
             });
           } else {
             if (rem) delete rem.optionScore;
             clearOptionScore(state.groupSessionId, remId).catch(err => {
               if (rem) rem.optionScore = prevOptScore;
-              alert("Couldn't save â€” check your connection and try again.\n\n" + err.message);
+              alert("Couldn't save — check your connection and try again.\n\n" + err.message);
             });
           }
         }
@@ -11527,7 +11530,7 @@ function attachGroupTargetListeners(target) {
     });
   });
 
-  // â”€â”€ Remark option buttons (multi-select) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Remark option buttons (multi-select) ──────────────────
   c.querySelectorAll(".remark-preset-opts-multi .btn-remark-opt").forEach(btn => {
     btn.addEventListener("click", () => {
       btn.classList.toggle("active");
@@ -11540,7 +11543,7 @@ function attachGroupTargetListeners(target) {
       if (rem) rem.text = newText;
       updateRemarkText(state.groupSessionId, remId, newText).catch(err => {
         if (rem) rem.text = prevText;
-        alert("Couldn't save â€” check your connection and try again.\n\n" + err.message);
+        alert("Couldn't save — check your connection and try again.\n\n" + err.message);
       });
     });
   });
@@ -11554,7 +11557,7 @@ function attachGroupTargetListeners(target) {
 
       if (!current) {
         // Turning ON: any round where 2+ students already have their OWN separate text
-        // will collapse to the first student's text â€” confirm before discarding the rest.
+        // will collapse to the first student's text — confirm before discarding the rest.
         const attendees = state.groupAttendees || [];
         const byStudent = {};
         for (const studentName of attendees) {
@@ -11600,7 +11603,7 @@ function attachGroupTargetListeners(target) {
 
   // Guards every "+ Add Remark & Trials" variant (all share the base
   // .btn-add-remark class) against a render replacing the button between
-  // mousedown and click â€” see the matching comment on the individual
+  // mousedown and click — see the matching comment on the individual
   // screen's .btn-add-remark handler.
   c.querySelectorAll(".btn-add-remark").forEach(btn => {
     btn.addEventListener("mousedown", () => {
@@ -11616,7 +11619,7 @@ function attachGroupTargetListeners(target) {
         }
       };
       // Released the instant "click" fires, proving the button survived the
-      // gap â€” the main click handler renders synchronously once it's done,
+      // gap — the main click handler renders synchronously once it's done,
       // no further write to guard against. The timeout is only a fallback
       // for a press that never becomes a click.
       btn.addEventListener("click", release, { once: true });
@@ -11624,7 +11627,7 @@ function attachGroupTargetListeners(target) {
     });
   });
 
-  // + Add Remark & Trials (collapsed card â€” creates remarks for ALL attendees at once)
+  // + Add Remark & Trials (collapsed card — creates remarks for ALL attendees at once)
   c.querySelectorAll(".btn-group-add-remark-all").forEach(btn => {
     btn.addEventListener("click", async () => {
       btn.disabled = true;
@@ -11652,12 +11655,12 @@ function attachGroupTargetListeners(target) {
         }
       } catch (err) {
         btn.disabled = false;
-        alert("Couldn't add remark â€” check your connection and try again.\n\n" + err.message);
+        alert("Couldn't add remark — check your connection and try again.\n\n" + err.message);
       }
     });
   });
 
-  // + Add Remark & Trials (individual pending row â€” one student in an already-expanded card)
+  // + Add Remark & Trials (individual pending row — one student in an already-expanded card)
   c.querySelectorAll(".btn-group-add-remark-pending").forEach(btn => {
     btn.addEventListener("click", async () => {
       btn.disabled = true;
@@ -11666,7 +11669,7 @@ function attachGroupTargetListeners(target) {
         renderGroupTargetContent();
       } catch (err) {
         btn.disabled = false;
-        alert("Couldn't add remark â€” check your connection and try again.\n\n" + err.message);
+        alert("Couldn't add remark — check your connection and try again.\n\n" + err.message);
       }
     });
   });
@@ -11680,7 +11683,7 @@ function attachGroupTargetListeners(target) {
     });
   });
 
-  // Delete round â€” remove all remarks in this set at once
+  // Delete round — remove all remarks in this set at once
   c.querySelectorAll(".btn-group-del-round").forEach(btn => {
     btn.addEventListener("click", () => {
       const remIds = btn.dataset.remIds.split(",").filter(Boolean);
@@ -11692,12 +11695,12 @@ function attachGroupTargetListeners(target) {
       deleteRemarksBatch(state.groupSessionId, remIds).catch(err => {
         Object.assign(data.remarks, prevRemarks);
         renderGroupTargetContent();
-        alert("Couldn't delete round â€” check your connection and try again.\n\n" + err.message);
+        alert("Couldn't delete round — check your connection and try again.\n\n" + err.message);
       });
     });
   });
 
-  // + Add Remark & Trials (bottom of expanded card â€” always adds new remarks for all students)
+  // + Add Remark & Trials (bottom of expanded card — always adds new remarks for all students)
   c.querySelectorAll(".btn-group-add-remark-more").forEach(btn => {
     btn.addEventListener("click", () => {
       btn.disabled = true;
@@ -11708,7 +11711,7 @@ function attachGroupTargetListeners(target) {
     });
   });
 
-  // + Add Remark & Trials (student-grouped layout â€” bottom of card, adds another round for just this student)
+  // + Add Remark & Trials (student-grouped layout — bottom of card, adds another round for just this student)
   c.querySelectorAll(".btn-group-add-remark-student-more").forEach(btn => {
     btn.addEventListener("click", () => {
       btn.disabled = true;
@@ -11728,7 +11731,7 @@ function attachGroupTargetListeners(target) {
       deleteRemark(state.groupSessionId, remId).catch(err => {
         state.groupSessionData.remarks[remId] = rem;
         renderGroupTargetContent();
-        alert("Couldn't delete remark â€” check your connection and try again.\n\n" + err.message);
+        alert("Couldn't delete remark — check your connection and try again.\n\n" + err.message);
       });
     });
   });
@@ -11747,7 +11750,7 @@ function attachGroupTargetListeners(target) {
       setTrials(state.groupSessionId, remId, updated).catch(err => {
         rem.trials = prevTrials;
         renderGroupTargetContent();
-        alert("Couldn't delete trial â€” check your connection and try again.\n\n" + err.message);
+        alert("Couldn't delete trial — check your connection and try again.\n\n" + err.message);
       });
     });
   });
@@ -11760,14 +11763,14 @@ function attachGroupTargetListeners(target) {
       if (!list) return;
       const open = list.style.display !== "none";
       list.style.display = open ? "none" : "flex";
-      if (chevron) chevron.textContent = open ? "â–¶" : "â–¼";
+      if (chevron) chevron.textContent = open ? "▶" : "▼";
     });
   });
 }
 
 // Writes one or more group remarks into local state immediately instead of
 // waiting on the Firestore round trip (callers render right after calling
-// this), then fires the real writes in the background â€” rolling back and
+// this), then fires the real writes in the background — rolling back and
 // alerting if any of them fail.
 function addGroupRemarksOptimistic(entries) {
   const data = state.groupSessionData;
@@ -11780,13 +11783,13 @@ function addGroupRemarksOptimistic(entries) {
   addGroupRemarksBatch(state.groupSessionId, entries, remIds).catch(err => {
     remIds.forEach(id => delete data.remarks[id]);
     renderGroupTargetContent();
-    alert("Couldn't add remark â€” check your connection and try again.\n\n" + err.message);
+    alert("Couldn't add remark — check your connection and try again.\n\n" + err.message);
   });
   return remIds;
 }
 
 // Helper: ensure activity + remark exist for a pending row element. The
-// remark write itself is optimistic (see addGroupRemarksOptimistic) â€” only
+// remark write itself is optimistic (see addGroupRemarksOptimistic) — only
 // activity creation (rare: first time this predefined activity is used in
 // the session) still waits on the network, since the remark needs a real
 // activity ID to point at.
@@ -11814,10 +11817,10 @@ async function ensureGroupActivityAndRemark(el) {
   return { actId, remId };
 }
 
-// â”€â”€ Group session history â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Group session history ────────────────────────────────────
 async function showGroupSessionPicker(group) {
   $("session-picker-title").textContent = group.name;
-  $("session-picker-list").innerHTML = `<div class="session-picker-loading">Loading sessionsâ€¦</div>`;
+  $("session-picker-list").innerHTML = `<div class="session-picker-loading">Loading sessions…</div>`;
   $("session-picker-modal").classList.remove("hidden");
 
   let sessions = [];
@@ -11862,7 +11865,7 @@ function renderGroupMonthGrid(group, byMonth, sessions) {
 }
 
 // "Pick a Date" calendar for the group session picker: jump straight to any
-// past/today date's View/Edit screen â€” if that date has no session yet, one
+// past/today date's View/Edit screen — if that date has no session yet, one
 // is created blank (and will be auto-deleted on the way out, same as any
 // other empty session, if nothing ends up typed into it).
 function renderGroupPickDateCalendar(group, sessions, byMonth, displayDate) {
@@ -11878,14 +11881,14 @@ function renderGroupPickDateCalendar(group, sessions, byMonth, displayDate) {
   const firstDow  = new Date(y, m - 1, 1).getDay();
   const daysInMon = new Date(y, m, 0).getDate();
 
-  let html = `<button class="btn-picker-back">â† Back</button>
+  let html = `<button class="btn-picker-back">← Back</button>
     <div class="date-picker-wrap">
-    <p class="date-picker-legend"><span class="date-taken-dot">âœ“ï¸Ž</span> Session recorded on this day</p>
+    <p class="date-picker-legend"><span class="date-taken-dot">✓︎</span> Session recorded on this day</p>
     <div class="date-picker-cal">
       <div class="date-picker-nav">
-        <button class="btn-date-prev">â€¹</button>
+        <button class="btn-date-prev">‹</button>
         <span class="date-picker-month-label">${escHtml(monthLabel)}</span>
-        <button class="btn-date-next"${canNext ? "" : " disabled"}>â€º</button>
+        <button class="btn-date-next"${canNext ? "" : " disabled"}>›</button>
       </div>
       <div class="date-picker-day-headers">
         <span>Su</span><span>Mo</span><span>Tu</span><span>We</span>
@@ -11903,7 +11906,7 @@ function renderGroupPickDateCalendar(group, sessions, byMonth, displayDate) {
     if (isFut)   cls += " date-picker-day-future";
     if (isTaken) cls += " date-picker-day-taken";
     const dotCls = isTaken ? "date-taken-dot" : "day-dot-spacer";
-    html += `<button class="${cls}" data-date="${ds}"${isFut ? " disabled" : ""}><span class="day-num">${d}</span><span class="${dotCls}">${isTaken ? "âœ“ï¸Ž" : ""}</span></button>`;
+    html += `<button class="${cls}" data-date="${ds}"${isFut ? " disabled" : ""}><span class="day-num">${d}</span><span class="${dotCls}">${isTaken ? "✓︎" : ""}</span></button>`;
   }
   html += `</div></div></div>`;
 
@@ -11937,17 +11940,17 @@ function renderGroupSessionsForMonth(group, month, monthSessions, byMonth, sessi
   const sorted  = [...monthSessions].sort((a, b) => a.date.localeCompare(b.date));
   const display = [...sorted].reverse();
   const today   = getTodayString();
-  let html = `<button class="btn-picker-back">â† Back</button>`;
+  let html = `<button class="btn-picker-back">← Back</button>`;
   html += renderSessionListRows(sorted, display, today, {
-    // Group sessions have no one shared session number â€” each attendee has
+    // Group sessions have no one shared session number — each attendee has
     // their own personal lifetime number (a newer/more experienced kid in
-    // the same group can be on a very different number) â€” so the headline
-    // is just the date, with one "Name â€” Session N" line per attendee below.
+    // the same group can be on a very different number) — so the headline
+    // is just the date, with one "Name — Session N" line per attendee below.
     renderLabel: (s, dateLabel) => {
       const attendeeLines = (s.attendees || []).map(name => {
         const studentId = group.studentLinks?.[name];
         const num = studentId ? s.attendeePersonalSessionNumbers?.[studentId] : null;
-        return `<div class="session-list-date">${escHtml(name)}${num != null ? ` â€” Session ${num}` : ""}</div>`;
+        return `<div class="session-list-date">${escHtml(name)}${num != null ? ` — Session ${num}` : ""}</div>`;
       }).join("");
       return `<strong>${escHtml(dateLabel)}</strong>${attendeeLines}`;
     }
@@ -11965,7 +11968,7 @@ function renderGroupSessionsForMonth(group, month, monthSessions, byMonth, sessi
   });
 }
 
-// â”€â”€ Group manage modal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Group manage modal ───────────────────────────────────────
 function openGroupManageModal(group, target = null) {
   $("manage-modal").classList.remove("hidden");
   if (target) {
@@ -11981,10 +11984,10 @@ function renderGroupManageContent(group) {
   _pendingActsCleanup = null;
   $("manage-modal-title").textContent = group.name || "New Group";
 
-  // 3 fixed student slots â€” always show exactly 3. Each is a single picker
+  // 3 fixed student slots — always show exactly 3. Each is a single picker
   // into the central student registry (not a free-text name field), so a
   // roster slot is always linked to a real student.id and naturally counts
-  // toward that person's lifetime group session number â€” see
+  // toward that person's lifetime group session number — see
   // getGroupSessionsForStudent / [[project_unified_session_numbering]].
   const registryOptions = [...state.students].sort((a, b) => a.name.localeCompare(b.name));
   const studentRowsHtml = [0, 1, 2].map(i => {
@@ -11994,8 +11997,8 @@ function renderGroupManageContent(group) {
     <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.45rem;flex-wrap:wrap">
       <span style="min-width:5.5rem;font-size:.85rem;font-weight:600;color:var(--text-muted)">Student ${i + 1}</span>
       <select class="admin-input mn-g-student-pick" data-idx="${i}" style="flex:1;min-width:9rem">
-        <option value="">â€” empty â€”</option>
-        <option value="__new__">+ Register a new studentâ€¦</option>
+        <option value="">— empty —</option>
+        <option value="__new__">+ Register a new student…</option>
         ${registryOptions.map(s => `<option value="${s.id}"${s.id === linkedId ? " selected" : ""}>${escHtml(s.name)}</option>`).join("")}
       </select>
     </div>`;
@@ -12031,7 +12034,7 @@ function renderGroupManageContent(group) {
 
       if (sel.value === "__new__") {
         sel.value = group.studentLinks?.[prevName] || "";
-        // Just hide the modal rather than closeManageModal()'s full cleanup â€”
+        // Just hide the modal rather than closeManageModal()'s full cleanup —
         // that cleanup deletes a brand-new, still-empty group (tracked via
         // _newGroupId), which would wipe out the group she's mid-creating.
         $("manage-modal").classList.add("hidden");
@@ -12041,7 +12044,7 @@ function renderGroupManageContent(group) {
       const pickedStudent = sel.value ? (state.students.find(s => s.id === sel.value) || null) : null;
 
       // Guard against picking the same registered student into two slots
-      // of the same group â€” a real mistake, not a valid roster shape.
+      // of the same group — a real mistake, not a valid roster shape.
       if (pickedStudent && group.students?.some((n, j) => j !== idx && group.studentLinks?.[n] === pickedStudent.id)) {
         alert(`"${pickedStudent.name}" is already in another slot in this group.`);
         sel.value = group.studentLinks?.[prevName] || "";
@@ -12049,7 +12052,7 @@ function renderGroupManageContent(group) {
       }
 
       // Pad to exactly 3 real entries (never sparse/holes) before assigning
-      // by index â€” a sparse array's .length looks "non-empty" even when
+      // by index — a sparse array's .length looks "non-empty" even when
       // every slot is blank (e.g. opening then clearing slot 2 without
       // touching slot 1 leaves a hole at index 0), which let a fully-empty
       // brand-new group survive closeManageModal()'s empty-group cleanup.
@@ -12076,7 +12079,7 @@ function renderGroupManageContent(group) {
 
       // A slot being RE-LINKED (not just filled or cleared) leaves every
       // already-recorded session for this group still pointing at the old
-      // student â€” without this, the registry keeps showing that history
+      // student — without this, the registry keeps showing that history
       // under the old (now-unlinked) student instead of the new one.
       if (pickedStudent && prevId && prevId !== pickedStudent.id) {
         try {
@@ -12105,7 +12108,7 @@ function renderGroupManageContent(group) {
   });
 }
 
-// â”€â”€â”€ AUTOSAVED INDICATOR (template modal header) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── AUTOSAVED INDICATOR (template modal header) ─────────────
 
 function showAutosaved() {
   const el = $("manage-autosave-indicator");
@@ -12116,13 +12119,13 @@ function showAutosaved() {
   el._hideTimer = setTimeout(() => el.classList.remove("visible"), 2000);
 }
 
-// â”€â”€â”€ SAVED FLASH â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── SAVED FLASH ─────────────────────────────────────────────
 
 function flashSaved() {}
 
-// Wraps a "Save" button's click handler so it only shows "Savingâ€¦" if the
+// Wraps a "Save" button's click handler so it only shows "Saving…" if the
 // save is actually slow enough to need it, and always confirms with a
-// brief "Saved!" afterwards â€” answers "did that actually save?" without
+// brief "Saved!" afterwards — answers "did that actually save?" without
 // making a fast save feel sluggish by flashing a loading state nobody
 // needed to see. Resolves once "Saved!" has actually been visible for a
 // moment, so callers that re-render/destroy the button right after saving
@@ -12130,7 +12133,7 @@ function flashSaved() {}
 function withSaveFeedback(btn, promise, { savingDelay = 250, savedHold = 700 } = {}) {
   const original = btn.textContent;
   btn.disabled = true;
-  const timer = setTimeout(() => { btn.textContent = "Savingâ€¦"; }, savingDelay);
+  const timer = setTimeout(() => { btn.textContent = "Saving…"; }, savingDelay);
   return promise.then(
     async result => {
       clearTimeout(timer);
@@ -12149,7 +12152,7 @@ function withSaveFeedback(btn, promise, { savingDelay = 250, savedHold = 700 } =
   );
 }
 
-// â”€â”€â”€ SCREEN MANAGEMENT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── SCREEN MANAGEMENT ───────────────────────────────────────
 
 function showScreen(id) {
   document.querySelectorAll(".screen").forEach(s => {
@@ -12158,7 +12161,7 @@ function showScreen(id) {
   });
 }
 
-// â”€â”€â”€ LOCAL DATA QUERIES â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── LOCAL DATA QUERIES ──────────────────────────────────────
 
 function getActivitiesForTarget(targetName) {
   return Object.entries(state.sessionData?.activities || {})
@@ -12183,7 +12186,7 @@ function findActivityByName(targetName, activityName, parentActivity = null, con
     if (exact) return { id: exact[0], ...exact[1] };
   }
   if (parentActivity) {
-    // Only match records that explicitly belong to this parent â€” no fallback to
+    // Only match records that explicitly belong to this parent — no fallback to
     // parentActivity-less records, which would grab same-named top-level activity data.
     const exact = entries.find(e => byName(e) && e[1].parentActivity === parentActivity);
     return exact ? { id: exact[0], ...exact[1] } : null;
@@ -12193,7 +12196,7 @@ function findActivityByName(targetName, activityName, parentActivity = null, con
   return top ? { id: top[0], ...top[1] } : null;
 }
 
-// â”€â”€â”€ UTILITIES â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── UTILITIES ───────────────────────────────────────────────
 
 function escHtml(str) {
   return String(str ?? "")
@@ -12252,10 +12255,10 @@ function sessionItemLabel(dateStr, todayStr) {
   return dateStr === todayStr ? `${base} (Today)` : base;
 }
 // Shared renderer for the "Session N: ..." rows used by every session picker
-// (individual/group, normal/export/go-to) â€” groups rows under week headers
+// (individual/group, normal/export/go-to) — groups rows under week headers
 // and lets callers add a per-row extra line (e.g. group attendees) or mark
 // one row as the currently-viewed session. renderLabel lets a caller replace
-// the default "Session N: {date}" headline entirely â€” group sessions have no
+// the default "Session N: {date}" headline entirely — group sessions have no
 // single shared session number (each attendee has their own personal one),
 // so the group picker swaps in a date headline + one line per attendee.
 function renderSessionListRows(sorted, display, today, { isCurrentId, extraLine, renderLabel } = {}) {
