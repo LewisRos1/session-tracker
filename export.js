@@ -869,15 +869,54 @@ function wordTargetRows(target, session, allTargets) {
     // like a plain "+ Add Activity" and drops the note, same reasoning as above.
     const activityLabel = act.activityName;
 
+    // noRemark parent: numbered title, empty remark and score
+    if (act.noRemark) {
+      rows.push({ cells: [activityLabel, "", ""], actLines: parseInlineMarkup(activityLabel), isGray: act.isGray, isGreen: act.isGreen });
+      continue;
+    }
+
+    // Sub-activity: indented lettered label, own remark
+    if (act.isSubActivity) {
+      const subDisplayName = `    ${act.subLabel}) ${act.activityName}`;
+      const _nameLines = parseInlineMarkup(act.activityName);
+      const _prefix = { text: `    ${act.subLabel}) ` };
+      const subActLines = _nameLines.length > 0 ? [[_prefix, ..._nameLines[0]], ..._nameLines.slice(1)] : [[_prefix]];
+      if (act.empty) {
+        rows.push({ cells: [subDisplayName, "", ""], actLines: subActLines, isGray: act.isGray, isGreen: act.isGreen });
+        continue;
+      }
+      const subRemarks = getRemarksForActivity(session, act.id).filter(hasRemarkContent);
+      if (subRemarks.length === 0) {
+        rows.push({ cells: [subDisplayName, "", ""], actLines: subActLines, isGray: act.isGray, isGreen: act.isGreen });
+        continue;
+      }
+      const subPa = (target.predefinedActivities || []).find(p => p.name === act.activityName);
+      const subStarter = (subPa?.inlineOptions || subPa?.remarkPresetId || subPa?.remarkHasNote) ? (subPa?.sentenceStarter || null) : null;
+      let subFirst = true;
+      for (const rem of subRemarks) {
+        const validTrials = allScores(rem);
+        const remarkAvg   = calcRemarkAvg(validTrials, target.maxPoints);
+        const text        = stripRemarkHtml(rem.text);
+        const subNote     = stripRemarkHtml(rem.masteryNote || "");
+        rows.push({
+          cells: [subFirst ? subDisplayName : "", "", remarkAvg !== null ? pct(remarkAvg) : ""],
+          actLines: subFirst ? subActLines : null,
+          remarkLines: buildRemarkLines(subStarter, text, subNote),
+          isGray: act.isGray, isGreen: act.isGreen
+        });
+        subFirst = false;
+      }
+      continue;
+    }
+
     if (act.empty) {
       rows.push({ cells: [activityLabel, "", ""], actLines: parseInlineMarkup(activityLabel), isGray: act.isGray, isGreen: act.isGreen });
       continue;
     }
 
     const remarks = getRemarksForActivity(session, act.id).filter(hasRemarkContent);
-    const starter = (target.predefinedActivities || []).find(
-      p => !p.isHeading && !p.isNote && p.name === act.activityName
-    )?.sentenceStarter || null;
+    const _starterPa = (target.predefinedActivities || []).find(p => !p.isHeading && !p.isNote && p.name === act.activityName);
+    const starter = (_starterPa?.inlineOptions || _starterPa?.remarkPresetId || _starterPa?.remarkHasNote) ? (_starterPa?.sentenceStarter || null) : null;
 
     if (remarks.length === 0) {
       rows.push({ cells: [activityLabel, "", ""], actLines: parseInlineMarkup(activityLabel), isGray: act.isGray, isGreen: act.isGreen });
@@ -888,7 +927,7 @@ function wordTargetRows(target, session, allTargets) {
 
     let first = true;
     for (const rem of remarks) {
-      const validTrials = (rem.trials || []).filter(t => t !== -1);
+      const validTrials = allScores(rem);
       const remarkAvg   = act.isMapped ? mappedScore : calcRemarkAvg(validTrials, target.maxPoints);
       const masteryNote = stripRemarkHtml(rem.masteryNote || "");
       const text        = stripRemarkHtml(rem.text);
@@ -1609,6 +1648,48 @@ function appendSessionRows(rows, sessionDateBlocks, activityHeadingRows, noteRow
         }
       }
 
+      // noRemark parent: numbered title, empty remark
+      if (act.noRemark) {
+        if (act.isGray) grayRows.add(rows.length);
+        if (act.isGreen) greenRows.add(rows.length);
+        const r = blankRow(); r[1] = buildExcelActivityCell(act.activityName); rows.push(r);
+        continue;
+      }
+
+      // Sub-activity: indented lettered label
+      if (act.isSubActivity) {
+        const subLabel = `    ${act.subLabel}) ${act.activityName}`;
+        const subCell  = buildExcelActivityCell(subLabel);
+        if (act.isGray) grayRows.add(rows.length);
+        if (act.isGreen) greenRows.add(rows.length);
+        if (act.empty) {
+          const r = blankRow(); r[1] = subCell; rows.push(r);
+          continue;
+        }
+        const subRemarks = getRemarksForActivity(session, act.id).filter(hasRemarkContent);
+        const subPa = (target.predefinedActivities || []).find(p => p.name === act.activityName);
+        const subStarter = (subPa?.inlineOptions || subPa?.remarkPresetId || subPa?.remarkHasNote) ? (subPa?.sentenceStarter || null) : null;
+        if (subRemarks.length === 0) {
+          const r = blankRow(); r[1] = subCell; rows.push(r);
+        } else {
+          let subFirst = true;
+          for (const rem of subRemarks) {
+            if (act.isGray) grayRows.add(rows.length);
+            if (act.isGreen) greenRows.add(rows.length);
+            const validTrials = allScores(rem);
+            const remarkAvg   = calcRemarkAvg(validTrials, target.maxPoints);
+            const r = blankRow();
+            r[1] = subFirst ? subCell : "";
+            r[2] = buildExcelRemarkCell(rem.text, subStarter, stripRemarkHtml(rem.masteryNote || ""));
+            if (includeTrials) { r[3] = trialsList(rem.optionScore !== undefined ? [...(rem.trials || []), rem.optionScore] : rem.trials); r[4] = remarkAvg !== null ? pct(remarkAvg) : ""; }
+            else { r[3] = remarkAvg !== null ? pct(remarkAvg) : ""; }
+            rows.push(r);
+            subFirst = false;
+          }
+        }
+        continue;
+      }
+
       const actNoteText = (target.predefinedActivities || []).find(
         p => !p.isHeading && !p.isNote && p.name === act.activityName
       )?.actNote;
@@ -1634,9 +1715,8 @@ function appendSessionRows(rows, sessionDateBlocks, activityHeadingRows, noteRow
       }
 
       const remarks = getRemarksForActivity(session, act.id).filter(hasRemarkContent);
-      const starter = (target.predefinedActivities || []).find(
-        p => !p.isHeading && !p.isNote && p.name === act.activityName
-      )?.sentenceStarter || null;
+      const _starterPaX = (target.predefinedActivities || []).find(p => !p.isHeading && !p.isNote && p.name === act.activityName);
+      const starter = (_starterPaX?.inlineOptions || _starterPaX?.remarkPresetId || _starterPaX?.remarkHasNote) ? (_starterPaX?.sentenceStarter || null) : null;
 
       if (remarks.length === 0) {
         if (act.isGray) grayRows.add(rows.length);
@@ -1651,14 +1731,14 @@ function appendSessionRows(rows, sessionDateBlocks, activityHeadingRows, noteRow
       for (const rem of remarks) {
         if (act.isGray) grayRows.add(rows.length);
         if (act.isGreen) greenRows.add(rows.length);
-        const validTrials = (rem.trials || []).filter(t => t !== -1);
+        const validTrials = allScores(rem);
         const remarkAvg   = act.isMapped ? mappedScore : calcRemarkAvg(validTrials, target.maxPoints);
         const masteryNote = stripRemarkHtml(rem.masteryNote || "");
         const r = blankRow();
         r[1] = firstRemark ? activityCell : "";
         r[2] = buildExcelRemarkCell(rem.text, starter, masteryNote);
         if (includeTrials) {
-          r[3] = trialsList(rem.trials);
+          r[3] = trialsList(rem.optionScore !== undefined ? [...(rem.trials || []), rem.optionScore] : rem.trials);
           r[4] = remarkAvg !== null ? pct(remarkAvg) : "";
         } else {
           r[3] = remarkAvg !== null ? pct(remarkAvg) : "";
@@ -1702,6 +1782,7 @@ function getAllActivitiesForTarget(session, target) {
   const masteredActivities = [];
   const stoppedActivities  = [];
   let exportActNum = 0;
+  const subLabelCounters = {};
 
   for (const pa of (target.predefinedActivities || [])) {
     if (!isActivityActive(pa, session.date)) continue;
@@ -1729,9 +1810,35 @@ function getAllActivitiesForTarget(session, target) {
       result.push({ isGreenHeading: true, activityName: pa.name });
       continue;
     }
+
+    // Sub-activity: lettered (a, b, c…), no exportActNum increment
+    if (pa.parentActivity) {
+      if (pa.isCompleted || pa.isArchived || pa.isStopped) continue;
+      const si = subLabelCounters[pa.parentActivity] || 0;
+      subLabelCounters[pa.parentActivity] = si + 1;
+      const subLabel = String.fromCharCode(97 + si);
+      const sessionAct = sessionActs.find(a => a.activityName === pa.name && a.isPredefined);
+      if (sessionAct) {
+        usedIds.add(sessionAct.id);
+        result.push({ ...sessionAct, activityName: pa.name, isSubActivity: true, subLabel });
+      } else {
+        result.push({ id: null, activityName: pa.name, isPredefined: true, empty: true, isSubActivity: true, subLabel });
+      }
+      continue;
+    }
+
     // All remaining paths are real activities — assign sequential number
     exportActNum++;
     const numberedName = `${exportActNum}) ${pa.name}`;
+
+    // Parent activity (noRemark) — numbered title, empty remark
+    if (pa.noRemark) {
+      const sActNr = sessionActs.find(a => a.activityName === pa.name && a.isPredefined);
+      if (sActNr) usedIds.add(sActNr.id);
+      result.push({ id: null, activityName: numberedName, isPredefined: true, noRemark: true, empty: true });
+      continue;
+    }
+
     // Fixed remark activities — inline in their natural position (NOT reordered to the bottom)
     if (pa.fixedRemark !== undefined) {
       const isGray = pa.activityColor === "gray" || !!pa.isMaintainLive;
@@ -1769,7 +1876,9 @@ function getAllActivitiesForTarget(session, target) {
     const manualScoreProp = pa.manualScore ? { manualScore: true } : {};
     if (sessionAct) {
       usedIds.add(sessionAct.id);
-      result.push(pa.isMapped ? { ...sessionAct, activityName: numberedName, isMapped: true, mappedTargetId: pa.mappedTargetId || null, ...colorProps } : { ...sessionAct, activityName: numberedName, ...colorProps, ...manualScoreProp });
+      result.push(pa.isMapped
+        ? { ...sessionAct, activityName: numberedName, isMapped: true, mappedTargetId: pa.mappedTargetId || null, ...colorProps }
+        : { ...sessionAct, activityName: numberedName, ...colorProps, ...manualScoreProp });
     } else {
       result.push({
         id: null, activityName: numberedName, isPredefined: true, empty: true,
@@ -1780,11 +1889,17 @@ function getAllActivitiesForTarget(session, target) {
 
   for (const act of sessionActs) {
     if (usedIds.has(act.id)) continue;
-    // Orphaned predefined activity (renamed/converted/deleted from the target's
-    // current setup since this session was recorded) with no actual remark data —
-    // a ghost left behind by editing the target, not real session content. Skip it.
-    // (Orphans that DO have remarks are kept — that's genuine historical data.)
-    if (act.isPredefined && getRemarksForActivity(session, act.id).length === 0) continue;
+    if (act.isPredefined) {
+      // No remark data — ghost entry, skip.
+      if (getRemarksForActivity(session, act.id).length === 0) continue;
+      // Activity is still in the predefined config — it was already rendered by the
+      // main loop above. Duplicate session-activity records (caused by the auto-fill
+      // race) would otherwise leak through here as unnumbered rows.
+      const stillInConfig = (target.predefinedActivities || []).some(
+        p => p.name === act.activityName && !p.isHeading && !p.isNote && !p.isExportNote
+      );
+      if (stillInConfig) continue;
+    }
     result.push(act);
   }
 
@@ -1813,7 +1928,7 @@ function getRemarksForActivity(session, actId) {
 // appear as rows in Word or Excel exports.
 function hasRemarkContent(rem) {
   const hasText   = stripRemarkHtml(rem.text || "").trim() !== "";
-  const hasTrials = (rem.trials || []).filter(t => t !== -1).length > 0;
+  const hasTrials = allScores(rem).length > 0;
   return hasText || hasTrials;
 }
 
@@ -1831,12 +1946,18 @@ function parseManualScore(val) {
   return null;
 }
 
+function allScores(rem) {
+  const valid = (rem.trials || []).filter(t => t !== -1);
+  if (rem.optionScore !== undefined) valid.push(rem.optionScore);
+  return valid;
+}
+
 function calcRemarkAvg(trials, maxPoints) {
   if (!trials || trials.length === 0) return null;
   const valid = trials.filter(t => t !== -1);
   if (valid.length === 0) return null;
-  if (!maxPoints) return null;
-  return valid.reduce((a, b) => a + b, 0) / (valid.length * maxPoints) * 100;
+  const mp = maxPoints || 3;
+  return valid.reduce((a, b) => a + b, 0) / (valid.length * mp) * 100;
 }
 
 // visited guards against a circular mapping chain recursing forever — direct
@@ -1864,7 +1985,7 @@ function calcDailyAverage(session, target, allTargets = [], visited = new Set())
         if (pct !== null) avgs.push(pct);
         continue;
       }
-      const validTrials = (rem.trials || []).filter(t => t !== -1);
+      const validTrials = allScores(rem);
       const a = calcRemarkAvg(validTrials, target.maxPoints);
       if (a !== null) avgs.push(a);
     }

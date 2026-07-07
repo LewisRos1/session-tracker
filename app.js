@@ -16,6 +16,8 @@ import {
   deleteRemark,
   addTrial,
   deleteTrial,
+  setOptionScore,
+  clearOptionScore,
   getRecentSessionsForStudent,
   loadStudentsConfig,
   saveStudent,
@@ -143,7 +145,7 @@ function versionLineText() {
   return `Made by Lewis · Version ${APP_VERSION}`;
 }
 
-const APP_VERSION = "738";
+const APP_VERSION = "759";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -3063,8 +3065,9 @@ function calcDaysAverage(target, visited = new Set()) {
         continue;
       }
       const trials = (rem.trials || []).filter(t => t !== -1);
-      if (trials.length === 0) continue;
-      avgs.push(trials.reduce((a, b) => a + b, 0) / (trials.length * maxPts) * 100);
+      const allScores = rem.optionScore !== undefined ? [...trials, rem.optionScore] : trials;
+      if (allScores.length === 0) continue;
+      avgs.push(allScores.reduce((a, b) => a + b, 0) / (allScores.length * maxPts) * 100);
     }
   }
   return avgs.length > 0 ? Math.round(avgs.reduce((a, b) => a + b, 0) / avgs.length) : null;
@@ -3128,8 +3131,20 @@ function renderFedcTarget(target) {
   const allPas = target.predefinedActivities || [];
   const sessionDateForFilter = state.sessionData?.date || todayDateStr();
   let actNum = 0;
+
+  // Pre-compute active sub-activities per parent for visual grouping
+  const subActsByParent = new Map();
+  for (const pa of allPas) {
+    if (pa.parentActivity && pa.name?.trim() && isActivityActive(pa, sessionDateForFilter) && !pa.isCompleted && !pa.isArchived && !pa.isStopped) {
+      if (!subActsByParent.has(pa.parentActivity)) subActsByParent.set(pa.parentActivity, []);
+      subActsByParent.get(pa.parentActivity).push(pa);
+    }
+  }
+
   allPas.forEach((pa, idx) => {
     if (!isActivityActive(pa, sessionDateForFilter)) return;
+    // Sub-activities are rendered within their parent's group block
+    if (pa.parentActivity) return;
     // Note item — render inline in order, styled like a section heading
     if (pa.isNote || pa.isExportNote) {
       if (pa.text) {
@@ -3193,6 +3208,53 @@ function renderFedcTarget(target) {
       lastGroup = null;
     }
 
+    // Parent activity with sub-activities — render as a connected visual group
+    const children = subActsByParent.get(pa.name) || [];
+    if (children.length > 0) {
+      const isGrayP  = pa.activityColor === "gray" || pa.isMaintainLive;
+      const isGreenP = pa.activityColor === "green" || pa.inactiveReason === 'mastered';
+      const pBorder  = isGreenP ? 'border:1px solid #a9d18e;border-left:4px solid #70ad47;background:#e2efda;'
+                     : isGrayP  ? 'border:1px solid #e5e7eb;border-left:4px solid #d1d5db;background:#f3f4f6;'
+                     : 'border:1px solid var(--border);border-left:5px solid var(--primary);background:var(--white);';
+      html += `<div style="display:flex;flex-direction:column;gap:0">`;
+      html += `<div class="entry-block" style="${pBorder}border-radius:var(--radius) var(--radius) 0 0;border-bottom:none;box-shadow:var(--shadow)">
+        <div class="entry-field" contenteditable="false">
+          <span class="field-label">Activity</span>
+          <span class="field-value-fixed">${inactiveReasonBadge(pa)}<span style="color:#6b7280;font-weight:600;margin-right:.2rem">${actNum})</span>${formatActivityMarkup(pa.name)}</span>
+        </div>
+      </div>`;
+      children.forEach((sub, si) => {
+        const subActData = findActivityByName(target.name, sub.name);
+        const subActId   = subActData ? subActData.id : null;
+        const subRemarks = subActId ? getRemarksForActivity(subActId) : [];
+        const subPending = state.pendingNewRemark?.pendingKey === sub.name;
+        const subLabel   = letters[si];
+        const isLast     = si === children.length - 1;
+        const subRadius  = isLast ? '0 0 var(--radius) var(--radius)' : '0';
+        html += `<div class="entry-block" style="border:1px solid var(--border);border-left:5px solid var(--primary);background:var(--white);border-top:1px solid var(--border);border-radius:${subRadius};box-shadow:var(--shadow)">
+          <div class="entry-field" contenteditable="false" style="background:#dbeafe">
+            <span class="field-label" style="color:#1d4ed8">Subactivity</span>
+            <span class="field-value-fixed"><span style="color:#1d4ed8;font-weight:700;margin-right:.25rem">${subLabel})</span>${formatActivityMarkup(sub.name)}</span>
+          </div>`;
+        for (const rem of subRemarks) {
+          html += renderRemarkFields(rem, target, getActivityInlineOptions(sub), (sub.inlineOptions || sub.remarkPresetId || sub.remarkHasNote) ? (sub.sentenceStarter || null) : null, sub.optionsMulti || false, null, sub.remarkHasNote || false, false, sub.optionScores || null);
+        }
+        if (subPending) {
+          html += renderPendingRemarkFields(sub.name, subActId, sub.name, idx, target);
+        } else {
+          html += `<button class="btn-add-remark" contenteditable="false"
+            data-pending-key="${escHtml(sub.name)}"
+            data-act-id="${subActId || ""}"
+            data-pa-name="${escHtml(sub.name)}"
+            data-pa-order="${idx}"
+            data-target="${escHtml(target.name)}">+ Add Remark &amp; Trials</button>`;
+        }
+        html += `</div>`;
+      });
+      html += `</div>`;
+      return;
+    }
+
     const pendingKey = pa.name;
     const actData    = findActivityByName(target.name, pa.name);
     const actId      = actData ? actData.id : null;
@@ -3237,7 +3299,7 @@ function renderFedcTarget(target) {
       }
     } else {
       for (const rem of remarks) {
-        html += renderRemarkFields(rem, target, getActivityInlineOptions(pa), pa.sentenceStarter || null, pa.optionsMulti || false, mappedInfo, pa.remarkHasNote || false, pa.manualScore || false);
+        html += renderRemarkFields(rem, target, getActivityInlineOptions(pa), (pa.inlineOptions || pa.remarkPresetId || pa.remarkHasNote) ? (pa.sentenceStarter || null) : null, pa.optionsMulti || false, mappedInfo, pa.remarkHasNote || false, pa.manualScore || false, pa.optionScores || null);
       }
       if (isPending) {
         html += renderPendingRemarkFields(pendingKey, actId, pa.name, idx, target);
@@ -3628,8 +3690,24 @@ function toggleBulletSelection(el) {
 
 // ─── REMARK FIELDS ───────────────────────────────────────────
 
-function renderRemarkFields(rem, target, inlineOptions = null, sentenceStarter = null, multiSelect = false, mappedInfo = null, remarkHasNote = false, manualScore = false) {
+function renderRemarkFields(rem, target, inlineOptions = null, sentenceStarter = null, multiSelect = false, mappedInfo = null, remarkHasNote = false, manualScore = false, optionScores = null) {
   const opts = parseOpts(inlineOptions);
+
+  // Sync optionScore with current config whenever the target is re-rendered.
+  // Covers the case where the user selects an option first (before points are
+  // configured), then goes to Edit Target, adds points, and returns — the stored
+  // rem.optionScore would be stale or missing without this sync.
+  if (!multiSelect && optionScores && rem.text && opts.includes(rem.text)) {
+    const cfgScore = optionScores[rem.text];
+    const sid = state.currentSessionId || state.groupSessionId;
+    if (cfgScore !== undefined && rem.optionScore !== cfgScore) {
+      rem.optionScore = cfgScore;
+      if (sid) setOptionScore(sid, rem.id, cfgScore).catch(() => {});
+    } else if (cfgScore === undefined && rem.optionScore !== undefined) {
+      delete rem.optionScore;
+      if (sid) clearOptionScore(sid, rem.id).catch(() => {});
+    }
+  }
 
   // Manual Score type: a single text input replaces the full Remark+Trials block
   if (manualScore) {
@@ -3650,10 +3728,13 @@ function renderRemarkFields(rem, target, inlineOptions = null, sentenceStarter =
   }
 
   const trials = rem.trials || [];
-  const badgesHtml = trials.map((score, idx) =>
+  const regularBadges = trials.map((score, idx) =>
     `<span class="trial-badge">${score === -1 ? "—" : score}<button class="btn-trial-delete"
       data-rem-id="${rem.id}" data-idx="${idx}">×</button></span>`
   ).join("");
+  const optBadge = rem.optionScore !== undefined
+    ? `<span class="trial-badge trial-badge--option">${rem.optionScore}</span>` : "";
+  const badgesHtml = regularBadges + optBadge;
 
   const trailingField = mappedInfo
     ? `<div class="entry-field" contenteditable="false">
@@ -3681,7 +3762,8 @@ function renderRemarkFields(rem, target, inlineOptions = null, sentenceStarter =
     }
     return `<div class="remark-preset-opts" contenteditable="false">${opts.map(opt =>
       `<button class="btn-remark-opt${remText === opt ? " active" : ""}"
-        data-rem-id="${remId}" data-opt="${escHtml(opt)}">${escHtml(opt)}</button>`
+        data-rem-id="${remId}" data-opt="${escHtml(opt)}"
+        data-score="${optionScores?.[opt] !== undefined ? optionScores[opt] : ''}">${escHtml(opt)}</button>`
     ).join("")}</div>`;
   }
 
@@ -3713,9 +3795,9 @@ function renderRemarkFields(rem, target, inlineOptions = null, sentenceStarter =
   // hardcoded mastery values), so this reuses the same .mastery-note-input
   // class/rem.masteryNote field to pick up the existing save wiring for free.
   const noteField = remarkHasNote
-    ? `<div class="entry-field" contenteditable="false">
-        <span class="field-label">Notes</span>
-        <button class="btn-sketch" data-rem-id="${rem.id}" aria-label="Open sketch board">✏</button>
+    ? `<div class="entry-field">
+        <span class="field-label" contenteditable="false">Notes</span>
+        <button class="btn-sketch" contenteditable="false" data-rem-id="${rem.id}" aria-label="Open sketch board">✏</button>
         <textarea class="field-input mastery-note-input" rows="1"
           data-rem-id="${rem.id}" placeholder="Notes…"
           data-saved-html="${escHtml(rem.masteryNote || "")}">${escHtml(plainTextForEdit(rem.masteryNote || ""))}</textarea>
@@ -3734,6 +3816,7 @@ function renderRemarkFields(rem, target, inlineOptions = null, sentenceStarter =
     ${noteField}
     ${trailingField}`;
 }
+
 
 function renderPendingRemarkFields(pendingKey, actId, paName, paOrder, target) {
   return `
@@ -3945,9 +4028,6 @@ function attachTargetListeners(target) {
       btn.closest(".remark-preset-opts")?.querySelectorAll(".btn-remark-opt").forEach(b => b.classList.remove("active"));
       const newText = isActive ? "" : btn.dataset.opt;
       if (!isActive) btn.classList.add("active");
-      // Update state.sessionData synchronously, not just the DOM — see
-      // leaveSession()'s cleanup-empty-remarks check, which reads it straight
-      // off a snapshot taken on the way out with no guard for an in-flight write.
       const remId = btn.dataset.remId;
       const rem = state.sessionData?.remarks?.[remId];
       const prevText = rem?.text;
@@ -3956,6 +4036,35 @@ function attachTargetListeners(target) {
         if (rem) rem.text = prevText;
         alert("Couldn't save — check your connection and try again.\n\n" + err.message);
       });
+      // Auto-score: set/clear optionScore (separate from manual trials)
+      if (btn.dataset.score !== "") {
+        const autoScore = Number(btn.dataset.score);
+        if (!isNaN(autoScore)) {
+          const prevOptScore = rem?.optionScore;
+          if (!isActive) {
+            if (rem) rem.optionScore = autoScore;
+            renderTargetContent();
+            setOptionScore(state.currentSessionId, remId, autoScore).catch(err => {
+              if (rem) { if (prevOptScore !== undefined) rem.optionScore = prevOptScore; else delete rem.optionScore; }
+              renderTargetContent();
+              alert("Couldn't save — check your connection and try again.\n\n" + err.message);
+            });
+          } else {
+            if (rem) delete rem.optionScore;
+            renderTargetContent();
+            clearOptionScore(state.currentSessionId, remId).catch(err => {
+              if (rem) rem.optionScore = prevOptScore;
+              renderTargetContent();
+              alert("Couldn't save — check your connection and try again.\n\n" + err.message);
+            });
+          }
+        }
+      } else if (isActive && rem?.optionScore !== undefined) {
+        // Deselecting a scoreless option — clear any lingering optionScore
+        delete rem.optionScore;
+        renderTargetContent();
+        clearOptionScore(state.currentSessionId, remId).catch(() => {});
+      }
     });
   });
 
@@ -4140,36 +4249,48 @@ function isAutoOpenRemarkType(pa) {
 // Data Integrity Check's duplicate-activity section exists as a backstop.
 async function autoFillStructuredRemarks(student, sessionId) {
   const data = state.sessionData;
-  let count = 0;
+
+  // Collect everything that needs filling first (no await yet)
+  const toFill = [];
   for (const target of (student.targets || [])) {
     for (const pa of (target.predefinedActivities || [])) {
       if (pa.isCompleted || pa.isArchived || pa.isStopped || pa.isMaintain || pa.isMaintainHeading || pa.fixedRemark !== undefined) continue;
       if (!isAutoOpenRemarkType(pa)) continue;
-
       const existingAct = Object.entries(data.activities || {})
         .find(([, a]) => a.targetName === target.name && a.activityName === pa.name);
       let actId = existingAct?.[0] || null;
-
-      if (actId) {
-        const hasRemark = Object.values(data.remarks || {}).some(r => r.activityId === actId);
-        if (hasRemark) continue;
-      }
-
+      if (actId && Object.values(data.remarks || {}).some(r => r.activityId === actId)) continue;
       const key = `${sessionId}:${target.name}:${pa.name}`;
       if (structuredRemarkAutoFillInFlight.has(key)) continue;
       structuredRemarkAutoFillInFlight.add(key);
-      try {
-        if (!actId) {
-          actId = await addActivity(sessionId, target.name, pa.name, pa.order ?? 0, true);
-        }
-        await addRemark(sessionId, actId, "");
-        count++;
-      } finally {
-        structuredRemarkAutoFillInFlight.delete(key);
-      }
+      toFill.push({ target, pa, actId, key });
     }
   }
-  return count;
+  if (toFill.length === 0) return 0;
+
+  // Wave 1: create missing activities in parallel
+  await Promise.all(toFill.map(async item => {
+    if (!item.actId) {
+      try {
+        item.actId = await addActivity(sessionId, item.target.name, item.pa.name, item.pa.order ?? 0, true);
+      } catch (err) {
+        structuredRemarkAutoFillInFlight.delete(item.key);
+        item.actId = null;
+      }
+    }
+  }));
+
+  // Wave 2: add remarks in parallel for all resolved activities
+  await Promise.all(toFill.map(async item => {
+    if (!item.actId) return;
+    try {
+      await addRemark(sessionId, item.actId, "");
+    } finally {
+      structuredRemarkAutoFillInFlight.delete(item.key);
+    }
+  }));
+
+  return toFill.length;
 }
 
 // Auto-create an empty remark for a mapped-score activity as soon as its
@@ -4189,36 +4310,45 @@ const mappedRemarkAutoFillInFlight = new Set();
 
 async function autoFillMappedRemarks(student, sessionId) {
   const data = state.sessionData;
-  let count = 0;
+
+  const toFill = [];
   for (const target of (student.targets || [])) {
     for (const pa of (target.predefinedActivities || [])) {
       if (pa.isCompleted || pa.isArchived || pa.isStopped || pa.isMaintain || pa.isMaintainHeading) continue;
       if (!pa.isMapped) continue;
-
       const existingAct = Object.entries(data.activities || {})
         .find(([, a]) => a.targetName === target.name && a.activityName === pa.name);
       let actId = existingAct?.[0] || null;
-
-      if (actId) {
-        const hasRemark = Object.values(data.remarks || {}).some(r => r.activityId === actId);
-        if (hasRemark) continue;
-      }
-
+      if (actId && Object.values(data.remarks || {}).some(r => r.activityId === actId)) continue;
       const key = `${sessionId}:${target.name}:${pa.name}`;
       if (mappedRemarkAutoFillInFlight.has(key)) continue;
       mappedRemarkAutoFillInFlight.add(key);
-      try {
-        if (!actId) {
-          actId = await addActivity(sessionId, target.name, pa.name, pa.order ?? 0, true);
-        }
-        await addRemark(sessionId, actId, "");
-        count++;
-      } finally {
-        mappedRemarkAutoFillInFlight.delete(key);
-      }
+      toFill.push({ target, pa, actId, key });
     }
   }
-  return count;
+  if (toFill.length === 0) return 0;
+
+  await Promise.all(toFill.map(async item => {
+    if (!item.actId) {
+      try {
+        item.actId = await addActivity(sessionId, item.target.name, item.pa.name, item.pa.order ?? 0, true);
+      } catch (err) {
+        mappedRemarkAutoFillInFlight.delete(item.key);
+        item.actId = null;
+      }
+    }
+  }));
+
+  await Promise.all(toFill.map(async item => {
+    if (!item.actId) return;
+    try {
+      await addRemark(sessionId, item.actId, "");
+    } finally {
+      mappedRemarkAutoFillInFlight.delete(item.key);
+    }
+  }));
+
+  return toFill.length;
 }
 
 // Deletes remarks that have no text, no mastery note, and no valid trials for
@@ -4250,7 +4380,7 @@ async function cleanupEmptyEntries(sessionId, data, targetName, target = null) {
       const realTrials = trials.filter(t => t !== -1);
       const hasText = stripEmpty(r.text).length > 0;
       const hasNote = stripEmpty(r.masteryNote).length > 0;
-      if (!hasText && !hasNote && realTrials.length === 0) {
+      if (!hasText && !hasNote && realTrials.length === 0 && r.optionScore === undefined) {
         emptyIds.push(remId);
       } else if (realTrials.length !== trials.length) {
         await setTrials(sessionId, remId, realTrials);
@@ -4757,8 +4887,9 @@ function viewActivityRows(no, actName, actId, data, target, isPredefined = true)
 // refreshViewTrialRow/refreshGroupViewTrialRow (surgical in-place update
 // after a trial add/delete/score change — see the comment on
 // bindViewTrialCellListeners for why those don't go through a full render).
-function calcViewTrialSummary(trials, maxPts) {
+function calcViewTrialSummary(trials, maxPts, optionScore = undefined) {
   const validTrials = (trials || []).filter(t => t !== -1);
+  if (optionScore !== undefined) validTrials.push(optionScore);
   const total       = validTrials.reduce((a, b) => a + b, 0);
   const scorePct    = validTrials.length > 0
     ? Math.round(total / (validTrials.length * maxPts) * 100) + "%" : "";
@@ -4781,7 +4912,7 @@ function buildTrialCellsHtml(rem, maxPts) {
 
 function viewRemarkRow(no, actName, rem, target, inlineOptions = null, sentenceStarter = null, multiSelect = false, mappedInfo = null, remarkHasNote = false, rowClass = "") {
   const maxPts = target.maxPoints || 3;
-  const { validTrials, total, scorePct } = calcViewTrialSummary(rem.trials, maxPts);
+  const { validTrials, total, scorePct } = calcViewTrialSummary(rem.trials, maxPts, rem.optionScore);
   const trialCells = mappedInfo
     ? `<span class="view-mapped-label">${escHtml(mappedInfo.label)}</span>`
     : `<div class="trial-cells">${buildTrialCellsHtml(rem, maxPts)}</div>`;
@@ -5391,7 +5522,7 @@ function refreshViewTrialRow(remId) {
   const tr   = body.querySelector(`.view-rem-del[data-rem-id="${remId}"]`)?.closest("tr");
   if (!tr) return;
   const maxPts = getViewMaxPtsForRemark(remId);
-  const { validTrials, total, scorePct } = calcViewTrialSummary(rem.trials, maxPts);
+  const { validTrials, total, scorePct } = calcViewTrialSummary(rem.trials, maxPts, rem.optionScore);
   const trialCellsDiv = tr.querySelector(".trial-cells");
   if (trialCellsDiv) {
     trialCellsDiv.innerHTML = buildTrialCellsHtml(rem, maxPts);
@@ -6293,7 +6424,7 @@ function viewGroupActivityRows(no, actName, actId, data, target, attendees, isPr
 
 function viewGroupRemarkRow(no, actName, studentName, rem, target, inlineOptions = null, sentenceStarter = null, multiSelect = false, combineOpts = null, mappedInfo = null, remarkHasNote = false, rowClass = "") {
   const maxPts = target.maxPoints || 3;
-  const { validTrials, total, scorePct } = calcViewTrialSummary(rem.trials, maxPts);
+  const { validTrials, total, scorePct } = calcViewTrialSummary(rem.trials, maxPts, rem.optionScore);
   const trialCells = mappedInfo
     ? `<span class="view-mapped-label">${escHtml(mappedInfo.label)}</span>`
     : `<div class="trial-cells">${buildTrialCellsHtml(rem, maxPts)}</div>`;
@@ -6397,7 +6528,7 @@ function refreshGroupViewTrialRow(remId) {
   const tr   = body.querySelector(`.view-rem-del[data-rem-id="${remId}"]`)?.closest("tr");
   if (!tr) return;
   const maxPts = getGroupViewMaxPtsForRemark(remId);
-  const { validTrials, total, scorePct } = calcViewTrialSummary(rem.trials, maxPts);
+  const { validTrials, total, scorePct } = calcViewTrialSummary(rem.trials, maxPts, rem.optionScore);
   const trialCellsDiv = tr.querySelector(".trial-cells");
   if (trialCellsDiv) {
     trialCellsDiv.innerHTML = buildTrialCellsHtml(rem, maxPts);
@@ -8262,22 +8393,19 @@ function parseManualScore(val) {
 // renderTargetManageContent — both let the boss configure how the Remark
 // field is captured (free text / preset options / sentence starter),
 // independently of where the Score comes from.
-function buildRemarkTypeControls(a, idx) {
+function buildRemarkTypeControls(a, idx, maxPts = 3) {
   const type = a.fixedRemark !== undefined ? "fixed_remark"
     : a.manualScore ? "manual_score"
     : a.remarkHasNote ? "starter_fixed_note"
     : (a.sentenceStarter && a.inlineOptions && a.optionsMulti) ? "starter_fixed_multi"
     : (a.sentenceStarter && a.inlineOptions) ? "starter_fixed"
-    : a.sentenceStarter ? "starter"
-    : (a.inlineOptions && a.optionsMulti) ? "fixed_multi"
-    : (a.inlineOptions || a.remarkPresetId) ? "fixed" : "";
+    : a.sentenceStarter ? ""
+    : (a.inlineOptions && a.optionsMulti) ? "starter_fixed_multi"
+    : (a.inlineOptions || a.remarkPresetId) ? "starter_fixed" : "";
   return `<select class="act-preset-select mn-act-preset" data-idx="${idx}">
       <option value="">Free text</option>
       <option value="fixed_remark"${type === "fixed_remark" ? " selected" : ""}>Fixed Remark</option>
       <option value="manual_score"${type === "manual_score" ? " selected" : ""}>Manual Score</option>
-      <option value="fixed"${type === "fixed" ? " selected" : ""}>Select one</option>
-      <option value="fixed_multi"${type === "fixed_multi" ? " selected" : ""}>Tick boxes</option>
-      <option value="starter"${type === "starter" ? " selected" : ""}>Sentence Starter + Free Text</option>
       <option value="starter_fixed"${type === "starter_fixed" ? " selected" : ""}>Sentence Starter + Select one</option>
       <option value="starter_fixed_multi"${type === "starter_fixed_multi" ? " selected" : ""}>Sentence Starter + Tick boxes</option>
       <option value="starter_fixed_note"${type === "starter_fixed_note" ? " selected" : ""}>Sentence Starter + Select One + Free Text</option>
@@ -8285,8 +8413,8 @@ function buildRemarkTypeControls(a, idx) {
     <input class="admin-input mn-act-starter-text" data-idx="${idx}"
       placeholder="Starter phrase…"
       value="${escHtml(a.sentenceStarter || "")}"
-      style="${type === "starter" || type === "starter_fixed" || type === "starter_fixed_multi" || type === "starter_fixed_note" ? "flex:1;min-width:0;width:auto" : "display:none"}">
-    <div class="mn-opts-container" data-idx="${idx}" style="${type === "fixed" || type === "fixed_multi" || type === "starter_fixed" || type === "starter_fixed_multi" || type === "starter_fixed_note" ? "flex:1;min-width:0" : "display:none"}">
+      style="${type === "starter_fixed" || type === "starter_fixed_multi" || type === "starter_fixed_note" ? "flex:1;min-width:0;width:auto" : "display:none"}">
+    <div class="mn-opts-container" data-idx="${idx}" style="${type === "starter_fixed" || type === "starter_fixed_multi" || type === "starter_fixed_note" ? "flex:1;min-width:0" : "display:none"}">
       <div class="mn-opts-list">${(() => {
         const optsStr = a.inlineOptions || (a.remarkPresetId ? (state.remarkPresets.find(p=>p.id===a.remarkPresetId)?.options||[]).join("/") : "");
         const displayOpts = parseOpts(optsStr).length > 0 ? parseOpts(optsStr) : [""];
@@ -8295,6 +8423,7 @@ function buildRemarkTypeControls(a, idx) {
           `<span class="drag-handle" style="cursor:grab;color:#c4c9d4;font-size:1rem;flex-shrink:0;padding:0 .1rem;user-select:none">⠿</span>` +
           `<span class="mn-opt-num" style="font-size:.74rem;color:#9ca3af;min-width:1.2rem;text-align:right;flex-shrink:0">${oi + 1}.</span>` +
           `<input class="admin-input mn-opt-item" data-idx="${idx}" data-oi="${oi}" value="${escHtml(opt)}" placeholder="Enter option…" style="flex:1;padding:.3rem .45rem;font-size:.84rem;min-width:0">` +
+          `<input class="admin-input mn-opt-score" type="number" min="0" max="${maxPts}" step="1" data-idx="${idx}" data-oi="${oi}" value="${escHtml(String(a.optionScores?.[opt] ?? ''))}" placeholder="Pts" title="Auto-score when selected (leave blank for none)" style="width:3.2rem;flex-shrink:0;padding:.3rem .2rem;font-size:.8rem;text-align:center">` +
           `<button class="mn-opt-del" data-idx="${idx}" data-oi="${oi}" title="Remove option" style="flex-shrink:0;padding:.2rem .4rem;font-size:.8rem;color:#9ca3af;background:none;border:1px solid #e5e7eb;border-radius:.3rem;cursor:pointer;line-height:1">×</button>` +
           `</div>`
         ).join("");
@@ -8471,7 +8600,7 @@ function renderTargetManageContent(student, target) {
           </div>
           <div style="display:flex;align-items:center;gap:.5rem">
             <span style="font-size:.75rem;color:#6b7280;white-space:nowrap;font-weight:600">Remark Type:</span>
-            ${buildRemarkTypeControls(a, idx)}
+            ${buildRemarkTypeControls(a, idx, target.maxPoints || 3)}
           </div>
           <div style="display:flex;align-items:center;gap:.5rem">
             <span style="font-size:.75rem;color:#6b7280;white-space:nowrap;font-weight:600">Mapped To Which Target's Average:</span>
@@ -8494,7 +8623,11 @@ function renderTargetManageContent(student, target) {
         ${actOverlay}
       </div>`;
     } else {
-      const remarkTypeSelect = buildRemarkTypeControls(a, idx);
+      // Sub-activities are rendered inline within their parent's row — skip them here
+      if (a.parentActivity) return;
+
+      const subActs = acts.filter(a2 => a2.parentActivity === a.name && !a2.isCompleted && !a2.isArchived && !a2.isStopped);
+      const hasSubActs = subActs.length > 0;
       const isGray = a.activityColor === "gray" || a.isMaintainLive;
       const isGreen = a.activityColor === "green" || a.inactiveReason === 'mastered';
       const _editRef2   = state.sessionData?.date || todayDateStr();
@@ -8515,48 +8648,104 @@ function renderTargetManageContent(student, target) {
           </div>
         </div>
       </div>` : '';
-      const fixedRemarkRow = a.fixedRemark !== undefined
-        ? `<div style="display:flex;align-items:flex-start;gap:.3rem">
-            <span style="font-size:.75rem;color:#6b7280;white-space:nowrap;font-weight:600;padding-top:.3rem">Fixed Remark:</span>
-            ${formatButtonsHtml(`mn-act-fixed-remark-${idx}`)}
-            <textarea class="admin-input mn-fixed-remark-input" id="mn-act-fixed-remark-${idx}" data-idx="${idx}"
-              rows="1" placeholder=""
-              style="flex:1;overflow-y:hidden;resize:none">${escHtml(a.fixedRemark || "")}</textarea>
-          </div>`
-        : "";
-      html += `<div class="admin-list-item" data-idx="${idx}"${actItemStyle}>
-        <span class="drag-handle">⠿</span>
-        <div style="flex:1;display:flex;flex-direction:column;gap:.3rem">
-          <div style="display:flex;align-items:flex-start;gap:.3rem">
-            ${formatButtonsHtml(`mn-act-name-${idx}`)}
-            <textarea class="admin-input mn-act-name-input" id="mn-act-name-${idx}" data-idx="${idx}"
-              rows="1" placeholder="Enter Activity" style="flex:1">${escHtml(a.name || "")}</textarea>
-          </div>
-          <div style="display:flex;align-items:center;gap:.5rem">
-            <span style="font-size:.75rem;color:#6b7280;white-space:nowrap;font-weight:600">Remark Type:</span>
-            ${remarkTypeSelect}
-          </div>
-          ${fixedRemarkRow}
-        </div>
-        <div style="position:relative">
-          <button class="btn-adm-del mn-kebab-btn" data-idx="${idx}" title="Activity options" style="font-size:1.35rem;font-weight:900;min-width:36px;min-height:36px">⋮</button>
-          <div class="mn-kebab-menu" id="mn-km-${idx}" style="display:none;position:absolute;right:0;top:100%;z-index:100;background:white;border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:250px;overflow:hidden">
-            <div style="display:flex;align-items:stretch;border-bottom:1px solid #f3f4f6">
-              <button class="mn-km-color-toggle" data-idx="${idx}" style="flex:1;padding:.55rem .9rem;text-align:left;background:none;border:none;cursor:pointer;font-size:.84rem">🎨 Change Colour</button>
+
+      if (hasSubActs) {
+        // Parent activity: show sub-activities inline, each with its own remark type
+        const subActsHtml = subActs.map((sub, si) => {
+          const subIdx = acts.indexOf(sub);
+          const subRemarkType = buildRemarkTypeControls(sub, subIdx, target.maxPoints || 3);
+          const subFixedRemarkRow = sub.fixedRemark !== undefined
+            ? `<div style="display:flex;align-items:flex-start;gap:.3rem;padding-left:1.6rem">
+                <span style="font-size:.75rem;color:#6b7280;white-space:nowrap;font-weight:600;padding-top:.3rem">Fixed Remark:</span>
+                ${formatButtonsHtml(`mn-act-fixed-remark-${subIdx}`)}
+                <textarea class="admin-input mn-fixed-remark-input" id="mn-act-fixed-remark-${subIdx}" data-idx="${subIdx}"
+                  rows="1" placeholder="" style="flex:1;overflow-y:hidden;resize:none">${escHtml(sub.fixedRemark || "")}</textarea>
+              </div>`
+            : "";
+          return `<div style="margin-left:1.25rem;display:flex;flex-direction:column;gap:.3rem;padding:.45rem .55rem;background:#f0f9ff;border:1px solid #bae6fd;border-left:3px solid #60a5fa;border-radius:.35rem">
+            <div style="display:flex;align-items:center;gap:.35rem">
+              <span style="font-size:.75rem;font-weight:700;color:#0369a1;min-width:1.4rem;flex-shrink:0">${String.fromCharCode(97 + si)})</span>
+              ${formatButtonsHtml(`mn-act-name-${subIdx}`)}
+              <textarea class="admin-input mn-act-name-input" id="mn-act-name-${subIdx}" data-idx="${subIdx}"
+                rows="1" placeholder="Sub-activity name" style="flex:1">${escHtml(sub.name || '')}</textarea>
+              <button class="btn-adm-del mn-del-sub-act" data-idx="${subIdx}" title="Delete sub-activity" style="flex-shrink:0">🗑</button>
             </div>
-            <div class="mn-km-color-panel" data-idx="${idx}" style="display:none;flex-direction:column;padding:.35rem .6rem;border-bottom:1px solid #f3f4f6;gap:.2rem">
-              <button class="mn-km-opt" data-idx="${idx}" data-action="color_white" style="padding:.35rem .6rem;background:#ffffff;border:2px solid ${!isGray ? '#6b7280' : '#e5e7eb'};border-radius:.4rem;cursor:pointer;font-size:.75rem;text-align:left">🤍 White (Normal)</button>
-              <button class="mn-km-opt" data-idx="${idx}" data-action="color_gray" style="padding:.35rem .6rem;background:#d9d9d9;border:2px solid ${isGray ? '#6b7280' : '#bfbfbf'};border-radius:.4rem;cursor:pointer;font-size:.75rem;text-align:left">🩶 Grey (Maintain)</button>
+            <div style="display:flex;align-items:center;gap:.5rem;padding-left:1.6rem">
+              <span style="font-size:.75rem;color:#6b7280;white-space:nowrap;font-weight:600">Remark Type:</span>
+              ${subRemarkType}
             </div>
-            ${periodSectionHtml(a.activeFrom, a.activeTo, idx, true, a.inactiveReason)}
-            <div style="display:flex;align-items:stretch">
-              <button class="mn-km-opt" data-idx="${idx}" data-action="delete" style="flex:1;padding:.55rem .9rem;text-align:left;background:none;border:none;cursor:pointer;font-size:.84rem;color:#dc2626">🗑️ Delete Activity</button>
-              <span title="Permanently removes this activity and all of its session data. This cannot be undone." style="padding:.55rem .5rem;cursor:default;color:#9ca3af;font-size:.8rem;display:flex;align-items:center">ⓘ</span>
+            ${subFixedRemarkRow}
+          </div>`;
+        }).join('');
+        html += `<div class="admin-list-item" data-idx="${idx}"${actItemStyle}>
+          <span class="drag-handle">⠿</span>
+          <div style="flex:1;display:flex;flex-direction:column;gap:.3rem">
+            <div style="display:flex;align-items:flex-start;gap:.3rem">
+              ${formatButtonsHtml(`mn-act-name-${idx}`)}
+              <textarea class="admin-input mn-act-name-input" id="mn-act-name-${idx}" data-idx="${idx}"
+                rows="1" placeholder="Enter Activity" style="flex:1">${escHtml(a.name || "")}</textarea>
+            </div>
+            ${subActsHtml}
+            <button class="mn-add-sub-act-btn btn-primary-sm" data-parent-idx="${idx}" style="font-size:.77rem;padding:.25rem .65rem;min-height:unset;margin-left:1.25rem;align-self:flex-start">+ Add Sub-activity</button>
+          </div>
+          <div style="position:relative">
+            <button class="btn-adm-del mn-kebab-btn" data-idx="${idx}" title="Activity options" style="font-size:1.35rem;font-weight:900;min-width:36px;min-height:36px">⋮</button>
+            <div class="mn-kebab-menu" id="mn-km-${idx}" style="display:none;position:absolute;right:0;top:100%;z-index:100;background:white;border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:250px;overflow:hidden">
+              ${periodSectionHtml(a.activeFrom, a.activeTo, idx, true, a.inactiveReason)}
+              <div style="display:flex;align-items:stretch">
+                <button class="mn-km-opt" data-idx="${idx}" data-action="delete" style="flex:1;padding:.55rem .9rem;text-align:left;background:none;border:none;cursor:pointer;font-size:.84rem;color:#dc2626">🗑️ Delete Activity</button>
+                <span title="Deletes this activity and all its sub-activities." style="padding:.55rem .5rem;cursor:default;color:#9ca3af;font-size:.8rem;display:flex;align-items:center">ⓘ</span>
+              </div>
             </div>
           </div>
-        </div>
-        ${actOverlay}
-      </div>`;
+          ${actOverlay}
+        </div>`;
+      } else {
+        const remarkTypeSelect = buildRemarkTypeControls(a, idx, target.maxPoints || 3);
+        const fixedRemarkRow = a.fixedRemark !== undefined
+          ? `<div style="display:flex;align-items:flex-start;gap:.3rem">
+              <span style="font-size:.75rem;color:#6b7280;white-space:nowrap;font-weight:600;padding-top:.3rem">Fixed Remark:</span>
+              ${formatButtonsHtml(`mn-act-fixed-remark-${idx}`)}
+              <textarea class="admin-input mn-fixed-remark-input" id="mn-act-fixed-remark-${idx}" data-idx="${idx}"
+                rows="1" placeholder=""
+                style="flex:1;overflow-y:hidden;resize:none">${escHtml(a.fixedRemark || "")}</textarea>
+            </div>`
+          : "";
+        html += `<div class="admin-list-item" data-idx="${idx}"${actItemStyle}>
+          <span class="drag-handle">⠿</span>
+          <div style="flex:1;display:flex;flex-direction:column;gap:.3rem">
+            <div style="display:flex;align-items:flex-start;gap:.3rem">
+              ${formatButtonsHtml(`mn-act-name-${idx}`)}
+              <textarea class="admin-input mn-act-name-input" id="mn-act-name-${idx}" data-idx="${idx}"
+                rows="1" placeholder="Enter Activity" style="flex:1">${escHtml(a.name || "")}</textarea>
+            </div>
+            <div style="display:flex;align-items:center;gap:.5rem">
+              <span style="font-size:.75rem;color:#6b7280;white-space:nowrap;font-weight:600">Remark Type:</span>
+              ${remarkTypeSelect}
+            </div>
+            ${fixedRemarkRow}
+            <button class="mn-add-sub-act-btn btn-primary-sm" data-parent-idx="${idx}" style="font-size:.77rem;padding:.25rem .65rem;min-height:unset;align-self:flex-start">↳ Add Sub-activity</button>
+          </div>
+          <div style="position:relative">
+            <button class="btn-adm-del mn-kebab-btn" data-idx="${idx}" title="Activity options" style="font-size:1.35rem;font-weight:900;min-width:36px;min-height:36px">⋮</button>
+            <div class="mn-kebab-menu" id="mn-km-${idx}" style="display:none;position:absolute;right:0;top:100%;z-index:100;background:white;border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:250px;overflow:hidden">
+              <div style="display:flex;align-items:stretch;border-bottom:1px solid #f3f4f6">
+                <button class="mn-km-color-toggle" data-idx="${idx}" style="flex:1;padding:.55rem .9rem;text-align:left;background:none;border:none;cursor:pointer;font-size:.84rem">🎨 Change Colour</button>
+              </div>
+              <div class="mn-km-color-panel" data-idx="${idx}" style="display:none;flex-direction:column;padding:.35rem .6rem;border-bottom:1px solid #f3f4f6;gap:.2rem">
+                <button class="mn-km-opt" data-idx="${idx}" data-action="color_white" style="padding:.35rem .6rem;background:#ffffff;border:2px solid ${!isGray ? '#6b7280' : '#e5e7eb'};border-radius:.4rem;cursor:pointer;font-size:.75rem;text-align:left">🤍 White (Normal)</button>
+                <button class="mn-km-opt" data-idx="${idx}" data-action="color_gray" style="padding:.35rem .6rem;background:#d9d9d9;border:2px solid ${isGray ? '#6b7280' : '#bfbfbf'};border-radius:.4rem;cursor:pointer;font-size:.75rem;text-align:left">🩶 Grey (Maintain)</button>
+              </div>
+              ${periodSectionHtml(a.activeFrom, a.activeTo, idx, true, a.inactiveReason)}
+              <div style="display:flex;align-items:stretch">
+                <button class="mn-km-opt" data-idx="${idx}" data-action="delete" style="flex:1;padding:.55rem .9rem;text-align:left;background:none;border:none;cursor:pointer;font-size:.84rem;color:#dc2626">🗑️ Delete Activity</button>
+                <span title="Permanently removes this activity and all of its session data. This cannot be undone." style="padding:.55rem .5rem;cursor:default;color:#9ca3af;font-size:.8rem;display:flex;align-items:center">ⓘ</span>
+              </div>
+            </div>
+          </div>
+          ${actOverlay}
+        </div>`;
+      }
     }
   });
 
@@ -9053,6 +9242,84 @@ function renderTargetManageContent(student, target) {
     });
   });
 
+  $("manage-modal-body").querySelectorAll(".mn-add-sub-act-btn").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const parentIdx = Number(btn.dataset.parentIdx);
+      const parentAct = acts[parentIdx];
+      if (!parentAct) return;
+
+      // Sync parent name from textarea — user may not have blurred it yet
+      const nameInput = $("manage-modal-body").querySelector(`.mn-act-name-input[data-idx="${parentIdx}"]`);
+      if (nameInput) {
+        const typedName = nameInput.value.trim();
+        if (typedName !== parentAct.name) parentAct.name = typedName;
+      }
+      if (!parentAct.name) {
+        alert("Please enter an activity name before adding sub-activities.");
+        nameInput?.focus();
+        return;
+      }
+
+      // Check existing subs — all must be named before adding another
+      const existingSubs = acts.filter(a2 => a2.parentActivity === parentAct.name && !a2.isCompleted && !a2.isArchived && !a2.isStopped);
+      const unnamedSub = existingSubs.find(s => !s.name?.trim());
+      if (unnamedSub) {
+        const unnamedIdx = acts.indexOf(unnamedSub);
+        const unnamedInput = $("manage-modal-body").querySelector(`.mn-act-name-input[data-idx="${unnamedIdx}"]`);
+        unnamedInput?.focus();
+        alert("Please name all existing sub-activities before adding another.");
+        return;
+      }
+
+      // Warn if parent has a remark type configured — it won't apply once it has sub-activities
+      if (!existingSubs.length && (parentAct.inlineOptions || parentAct.sentenceStarter || parentAct.fixedRemark !== undefined || parentAct.manualScore)) {
+        const typeLabel = parentAct.fixedRemark !== undefined ? "Fixed Remark" : parentAct.manualScore ? "Manual Score" : "remark options";
+        if (!confirm(`"${parentAct.name}" has a ${typeLabel} configured.\n\nAdding sub-activities removes the remark field from this activity — configure the remark type on each sub-activity instead. The current options will be cleared.\n\nContinue?`)) return;
+        parentAct.sentenceStarter = null;
+        parentAct.remarkPresetId  = null;
+        parentAct.inlineOptions   = null;
+        parentAct.optionsMulti    = false;
+        parentAct.remarkHasNote   = false;
+        delete parentAct.manualScore;
+        delete parentAct.fixedRemark;
+        delete parentAct.optionScores;
+      }
+
+      parentAct.noRemark = true;
+      const siblingIdxs = acts.map((a2, i) => a2.parentActivity === parentAct.name ? i : -1).filter(i => i >= 0);
+      const insertAfter = siblingIdxs.length > 0 ? Math.max(...siblingIdxs) : parentIdx;
+      acts.splice(insertAfter + 1, 0, { id: cfgId("a"), name: "", parentActivity: parentAct.name, order: 0, activeFrom: null });
+      acts.forEach((a2, i) => a2.order = i);
+      target.predefinedActivities = acts;
+      const sp = $("manage-modal-body").scrollTop;
+      renderTargetManageContent(student, target);
+      requestAnimationFrame(() => { const b = $("manage-modal-body"); if (b) b.scrollTop = sp; });
+      saveTarget();
+    });
+  });
+
+  $("manage-modal-body").querySelectorAll(".mn-del-sub-act").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const idx = Number(btn.dataset.idx);
+      const subAct = acts[idx];
+      if (!subAct) return;
+      if (!confirm(`Delete sub-activity "${subAct.name || '(unnamed)'}"?`)) return;
+      const parentName = subAct.parentActivity;
+      acts.splice(idx, 1);
+      acts.forEach((a2, i) => a2.order = i);
+      // If no sub-activities remain, clear parent's noRemark
+      if (!acts.some(a2 => a2.parentActivity === parentName)) {
+        const parent = acts.find(a2 => a2.name === parentName);
+        if (parent) delete parent.noRemark;
+      }
+      target.predefinedActivities = acts;
+      await saveTarget();
+      const sp = $("manage-modal-body").scrollTop;
+      renderTargetManageContent(student, target);
+      requestAnimationFrame(() => { const b = $("manage-modal-body"); if (b) b.scrollTop = sp; });
+    });
+  });
+
   $("manage-modal-body").querySelectorAll(".mn-act-preset").forEach(sel => {
     sel.addEventListener("change", async () => {
       const idx = Number(sel.dataset.idx);
@@ -9104,13 +9371,14 @@ function renderTargetManageContent(student, target) {
         $("manage-modal-body").scrollTop = sp;
         return;
       }
+      const usesOpts = (type === "starter_fixed" || type === "starter_fixed_multi" || type === "starter_fixed_note");
       acts[idx].sentenceStarter = null;
       acts[idx].remarkPresetId  = null;
-      acts[idx].inlineOptions   = null;
-      acts[idx].optionsMulti    = (type === "fixed_multi" || type === "starter_fixed_multi");
+      if (!usesOpts) { acts[idx].inlineOptions = null; delete acts[idx].optionScores; }
+      acts[idx].optionsMulti    = (type === "starter_fixed_multi");
       acts[idx].remarkHasNote   = (type === "starter_fixed_note");
-      const starterVis = (type === "starter" || type === "starter_fixed" || type === "starter_fixed_multi" || type === "starter_fixed_note");
-      const optsVis    = (type === "fixed" || type === "fixed_multi" || type === "starter_fixed" || type === "starter_fixed_multi" || type === "starter_fixed_note");
+      const starterVis = usesOpts;
+      const optsVis    = usesOpts;
       starterInput.style.display  = starterVis ? "" : "none";
       starterInput.style.flex     = starterVis ? "1" : "";
       starterInput.style.minWidth = starterVis ? "0" : "";
@@ -9118,8 +9386,9 @@ function renderTargetManageContent(student, target) {
       optsContainer.style.display  = optsVis ? "" : "none";
       optsContainer.style.flex     = optsVis ? "1" : "";
       optsContainer.style.minWidth = optsVis ? "0" : "";
-      if (type === "starter" || type === "starter_fixed" || type === "starter_fixed_multi" || type === "starter_fixed_note") { starterInput.focus(); }
-      else if (type === "fixed" || type === "fixed_multi") { optsContainer.querySelector(".mn-opt-item")?.focus(); }
+      if (usesOpts) { acts[idx].inlineOptions = getOptsFromDom(idx).join("/") || null; rebuildOptScores(idx); }
+      if (starterVis) { starterInput.focus(); }
+      else if (optsVis) { optsContainer.querySelector(".mn-opt-item")?.focus(); }
       else { target.predefinedActivities = acts; await saveTarget(); }
     });
   });
@@ -9251,11 +9520,25 @@ function renderTargetManageContent(student, target) {
 
   const renumberOpts = list => {
     list.querySelectorAll(".mn-opt-row").forEach((r, i) => {
-      r.dataset.idx = i; // keep row data-idx in sync for drag-sort
+      r.dataset.idx = i;
       const n = r.querySelector(".mn-opt-num"); if (n) n.textContent = `${i + 1}.`;
       const inp = r.querySelector(".mn-opt-item"); if (inp) inp.dataset.oi = i;
       const del = r.querySelector(".mn-opt-del");  if (del) del.dataset.oi = i;
+      const sc  = r.querySelector(".mn-opt-score"); if (sc) sc.dataset.oi = i;
     });
+  };
+
+  const rebuildOptScores = idx => {
+    const container = $("manage-modal-body").querySelector(`.mn-opts-container[data-idx="${idx}"]`);
+    if (!container) return;
+    const scores = {};
+    container.querySelectorAll(".mn-opt-row").forEach(row => {
+      const text = row.querySelector(".mn-opt-item")?.value?.trim();
+      const sv   = row.querySelector(".mn-opt-score")?.value?.trim();
+      if (text && sv !== "" && sv !== undefined && !isNaN(Number(sv))) scores[text] = Number(sv);
+    });
+    if (Object.keys(scores).length) acts[idx].optionScores = scores;
+    else delete acts[idx].optionScores;
   };
 
   const wireOptDel = (btn, idx) => {
@@ -9266,8 +9549,18 @@ function renderTargetManageContent(student, target) {
       const newOptsStr = getOptsFromDom(idx).join("/") || null;
       acts[idx].inlineOptions = newOptsStr;
       acts[idx].remarkPresetId = null;
+      rebuildOptScores(idx);
       target.predefinedActivities = acts;
       await saveTarget();
+    });
+  };
+
+  const wireOptScore = (input, idx) => {
+    input.addEventListener("blur", async () => {
+      rebuildOptScores(idx);
+      target.predefinedActivities = acts;
+      await saveTarget();
+      flashSaved(input);
     });
   };
 
@@ -9290,6 +9583,7 @@ function renderTargetManageContent(student, target) {
       if (newOptsStr === oldOptsStr) return;
       acts[idx].inlineOptions = newOptsStr;
       acts[idx].remarkPresetId = null;
+      rebuildOptScores(idx);
       target.predefinedActivities = acts;
       await saveTarget();
       propagateRemarkOptionRename(student, target, acts[idx], oldOptsStr, newOptsStr);
@@ -9297,6 +9591,7 @@ function renderTargetManageContent(student, target) {
   };
 
   $("manage-modal-body").querySelectorAll(".mn-opt-item").forEach(inp => wireOptBlur(inp, Number(inp.dataset.idx)));
+  $("manage-modal-body").querySelectorAll(".mn-opt-score").forEach(inp => wireOptScore(inp, Number(inp.dataset.idx)));
   $("manage-modal-body").querySelectorAll(".mn-opt-del").forEach(btn => wireOptDel(btn, Number(btn.dataset.idx)));
 
   $("manage-modal-body").querySelectorAll(".mn-opts-list").forEach(list => {
@@ -9324,9 +9619,11 @@ function renderTargetManageContent(student, target) {
         `<span class="drag-handle" style="cursor:grab;color:#c4c9d4;font-size:1rem;flex-shrink:0;padding:0 .1rem;user-select:none">⠿</span>` +
         `<span class="mn-opt-num" style="font-size:.74rem;color:#9ca3af;min-width:1.2rem;text-align:right;flex-shrink:0">${oi + 1}.</span>` +
         `<input class="admin-input mn-opt-item" data-idx="${idx}" data-oi="${oi}" placeholder="Enter option…" style="flex:1;padding:.3rem .45rem;font-size:.84rem;min-width:0">` +
+        `<input class="admin-input mn-opt-score" type="number" min="0" step="1" data-idx="${idx}" data-oi="${oi}" placeholder="Pts" title="Auto-score when selected (leave blank for none)" style="width:3.2rem;flex-shrink:0;padding:.3rem .2rem;font-size:.8rem;text-align:center">` +
         `<button class="mn-opt-del" data-idx="${idx}" data-oi="${oi}" title="Remove option" style="flex-shrink:0;padding:.2rem .4rem;font-size:.8rem;color:#9ca3af;background:none;border:1px solid #e5e7eb;border-radius:.3rem;cursor:pointer;line-height:1">×</button>`;
       list.appendChild(row);
       wireOptBlur(row.querySelector(".mn-opt-item"), idx);
+      wireOptScore(row.querySelector(".mn-opt-score"), idx);
       wireOptDel(row.querySelector(".mn-opt-del"), idx);
       row.querySelector(".mn-opt-item").focus();
     });
@@ -9764,13 +10061,14 @@ function renderTemplateManageContent(template) {
         $("manage-modal-body").scrollTop = sp;
         return;
       }
+      const usesOpts = (type === "starter_fixed" || type === "starter_fixed_multi" || type === "starter_fixed_note");
       acts[idx].sentenceStarter = null;
       acts[idx].remarkPresetId  = null;
-      acts[idx].inlineOptions   = null;
-      acts[idx].optionsMulti    = (type === "fixed_multi" || type === "starter_fixed_multi");
+      if (!usesOpts) { acts[idx].inlineOptions = null; delete acts[idx].optionScores; }
+      acts[idx].optionsMulti    = (type === "starter_fixed_multi");
       acts[idx].remarkHasNote   = (type === "starter_fixed_note");
-      const starterVis = (type === "starter" || type === "starter_fixed" || type === "starter_fixed_multi" || type === "starter_fixed_note");
-      const optsVis    = (type === "fixed" || type === "fixed_multi" || type === "starter_fixed" || type === "starter_fixed_multi" || type === "starter_fixed_note");
+      const starterVis = usesOpts;
+      const optsVis    = usesOpts;
       starterInput.style.display  = starterVis ? "" : "none";
       starterInput.style.flex     = starterVis ? "1" : "";
       starterInput.style.minWidth = starterVis ? "0" : "";
@@ -9778,8 +10076,11 @@ function renderTemplateManageContent(template) {
       optsContainer.style.display  = optsVis ? "" : "none";
       optsContainer.style.flex     = optsVis ? "1" : "";
       optsContainer.style.minWidth = optsVis ? "0" : "";
-      if (type === "starter" || type === "starter_fixed" || type === "starter_fixed_multi" || type === "starter_fixed_note") { starterInput.focus(); }
-      else if (type === "fixed" || type === "fixed_multi") { optsContainer.querySelector(".mn-opt-item")?.focus(); }
+      if (usesOpts) {
+        acts[idx].inlineOptions = [...body.querySelectorAll(`.mn-opt-item[data-idx="${idx}"]`)].map(i => i.value.trim()).filter(Boolean).join("/") || null;
+      }
+      if (starterVis) { starterInput.focus(); }
+      else if (optsVis) { optsContainer.querySelector(".mn-opt-item")?.focus(); }
       else { template.predefinedActivities = acts; await saveTemplateFn(); }
     });
   });
@@ -10478,8 +10779,22 @@ function buildGroupItemsByActivity(target, data, attendees) {
 
   // Predefined activities (with heading and note support)
   const grpSessionDate = state.sessionData?.date || todayDateStr();
-  for (const pa of (target.predefinedActivities || [])) {
+  const allPas = target.predefinedActivities || [];
+
+  // Pre-compute active sub-activities per parent
+  const grpSubsByParent = new Map();
+  for (const pa of allPas) {
+    if (pa.parentActivity && isActivityActive(pa, grpSessionDate) && !pa.isCompleted && !pa.isArchived && !pa.isStopped) {
+      if (!grpSubsByParent.has(pa.parentActivity)) grpSubsByParent.set(pa.parentActivity, []);
+      grpSubsByParent.get(pa.parentActivity).push(pa);
+    }
+  }
+  const letters = "abcdefghij";
+
+  for (const pa of allPas) {
     if (!isActivityActive(pa, grpSessionDate)) continue;
+    // Sub-activities rendered within their parent's group
+    if (pa.parentActivity) continue;
     if (pa.isNote || pa.isExportNote) {
       if (pa.text) {
         const noteTag = pa.isExportNote
@@ -10499,6 +10814,32 @@ function buildGroupItemsByActivity(target, data, attendees) {
       continue;
     }
     if (pa.isCompleted || pa.isArchived || pa.isStopped || pa.isMaintain || pa.isMaintainHeading) continue;
+
+    // Parent activity with sub-activities — render as connected group
+    const children = grpSubsByParent.get(pa.name) || [];
+    if (children.length > 0) {
+      let groupHtml = `<div style="display:flex;flex-direction:column;gap:0">`;
+      groupHtml += `<div class="entry-block" style="border:1px solid var(--border);border-left:5px solid var(--primary);background:var(--white);border-radius:var(--radius) var(--radius) 0 0;border-bottom:none;box-shadow:var(--shadow)">
+        <div class="entry-field" contenteditable="false">
+          <span class="field-label">Activity</span>
+          <span class="field-value-fixed">${inactiveReasonBadge(pa)}<span style="color:#6b7280;font-weight:600;margin-right:.2rem"></span>${formatActivityMarkup(pa.name)}</span>
+        </div>
+      </div>`;
+      children.forEach((sub, si) => {
+        const subActId = Object.entries(data.activities || {}).find(([, a]) => a.targetName === target.name && a.activityName === sub.name)?.[0] || null;
+        const isLast   = si === children.length - 1;
+        const subCard  = renderGroupActivityCard(sub.name, subActId, target, data, attendees, null, null, sub, true);
+        const subRadius = isLast ? '0 0 var(--radius) var(--radius)' : '0';
+        groupHtml += `<div style="border:1px solid var(--border);border-left:5px solid var(--primary);background:var(--white);border-top:1px solid var(--border);border-radius:${subRadius};overflow:hidden">
+          <div style="padding:.4rem .6rem;font-size:.8rem;font-weight:700;color:#1d4ed8;background:#dbeafe;border-bottom:1px solid #bae6fd">${letters[si]}) ${escHtml(sub.name)}</div>
+          ${subCard}
+        </div>`;
+      });
+      groupHtml += `</div>`;
+      items.push(groupHtml);
+      continue;
+    }
+
     const actId = Object.entries(data.activities || {})
       .find(([, a]) => a.targetName === target.name && a.activityName === pa.name)?.[0] || null;
     items.push(renderGroupActivityCard(pa.name, actId, target, data, attendees, pa.actNote, pa.isMapped ? pa : null, pa, true));
@@ -10650,9 +10991,12 @@ function firstNameOf(name) {
 
 function renderGroupStudentRowCompact(remId, rem, target, mappedInfo = null) {
   const trials = rem.trials || [];
-  const badges = trials.map((t, i) =>
+  const regularBadges = trials.map((t, i) =>
     `<span class="trial-badge">${t === -1 ? "—" : t}<button class="btn-trial-delete btn-group-trial-del" data-rem-id="${remId}" data-idx="${i}">×</button></span>`
   ).join("");
+  const optBadge = rem.optionScore !== undefined
+    ? `<span class="trial-badge trial-badge--option">${rem.optionScore}</span>` : "";
+  const badges = regularBadges + optBadge;
   const trailingField = mappedInfo
     ? `<div class="entry-field" contenteditable="false">
         <span class="field-label">${escHtml(mappedInfo.label)}</span>
@@ -10686,7 +11030,7 @@ function renderGroupActivityCard(actName, actId, target, data, attendees, actNot
   // renderGroupStudentEmptyRow) — preset-option/sentence-starter activities
   // have no typeable free text, so those still need the explicit button.
   const inlineOptions   = paEntry ? getActivityInlineOptions(paEntry) : null;
-  const sentenceStarter = paEntry?.sentenceStarter || null;
+  const sentenceStarter = (paEntry?.inlineOptions || paEntry?.remarkPresetId || paEntry?.remarkHasNote) ? (paEntry?.sentenceStarter || null) : null;
   const multiSelect     = paEntry?.optionsMulti || false;
   const remarkHasNote   = paEntry?.remarkHasNote || false;
   const isFreeText      = parseOpts(inlineOptions).length === 0 && !sentenceStarter;
@@ -10711,7 +11055,7 @@ function renderGroupActivityCard(actName, actId, target, data, attendees, actNot
       if (remarks.length === 0) return renderGroupStudentPendingRow(studentName, actId, actName, target, true);
       const mappedInfo = resolveGroupMappedScoreDisplay(mappedPa, target, data, studentName);
       return remarks.map(([remId, rem]) => renderGroupStudentRow(
-        studentName, remId, rem, target, mappedInfo, inlineOptions, sentenceStarter, multiSelect, remarkHasNote
+        studentName, remId, rem, target, mappedInfo, inlineOptions, sentenceStarter, multiSelect, remarkHasNote, paEntry?.optionScores || null
       )).join("");
     }).join("");
     return `<div class="entry-block entry-block-predefined" data-act-name="${escHtml(actName)}" data-act-id="${escHtml(actId || "")}">
@@ -10785,7 +11129,7 @@ function renderGroupActivityCard(actName, actId, target, data, attendees, actNot
       bodyHtml = attendees.map(studentName => {
         const entry = byStudent[studentName]?.[i] || null;
         if (entry) return renderGroupStudentRow(
-          studentName, entry[0], entry[1], target, null, inlineOptions, sentenceStarter, multiSelect, remarkHasNote
+          studentName, entry[0], entry[1], target, null, inlineOptions, sentenceStarter, multiSelect, remarkHasNote, paEntry?.optionScores || null
         );
         return isFreeText
           ? renderGroupStudentEmptyRow(studentName, actId, actName, target, isPredefined)
@@ -10861,11 +11205,14 @@ function renderGroupStudentTrialsOnlyRow(studentName, remId, rem, target) {
 // just with .group-remark-input instead of .remark-text-input for the
 // free-text fallback box, since this row is one attendee's slice of a
 // shared-activity card instead of a single student's own remark field.
-function renderGroupStudentRow(studentName, remId, rem, target, mappedInfo = null, inlineOptions = null, sentenceStarter = null, multiSelect = false, remarkHasNote = false) {
+function renderGroupStudentRow(studentName, remId, rem, target, mappedInfo = null, inlineOptions = null, sentenceStarter = null, multiSelect = false, remarkHasNote = false, optionScores = null) {
   const trials = rem.trials || [];
-  const badges = trials.map((t, i) =>
+  const regularBadges = trials.map((t, i) =>
     `<span class="trial-badge">${t === -1 ? "—" : t}<button class="btn-trial-delete btn-group-trial-del" data-rem-id="${remId}" data-idx="${i}">×</button></span>`
   ).join("");
+  const optBadge = rem.optionScore !== undefined
+    ? `<span class="trial-badge trial-badge--option">${rem.optionScore}</span>` : "";
+  const badges = regularBadges + optBadge;
   const trailingField = mappedInfo
     ? `<div class="entry-field" contenteditable="false">
         <span class="field-label">${escHtml(mappedInfo.label)}</span>
@@ -10892,7 +11239,8 @@ function renderGroupStudentRow(studentName, remId, rem, target, mappedInfo = nul
     }
     return `<div class="remark-preset-opts" contenteditable="false">${opts.map(opt =>
       `<button class="btn-remark-opt${remText === opt ? " active" : ""}"
-        data-rem-id="${remId}" data-opt="${escHtml(opt)}">${escHtml(opt)}</button>`
+        data-rem-id="${remId}" data-opt="${escHtml(opt)}"
+        data-score="${optionScores?.[opt] !== undefined ? optionScores[opt] : ''}">${escHtml(opt)}</button>`
     ).join("")}</div>`;
   }
 
@@ -11010,8 +11358,9 @@ function calcGroupStudentDaysAverage(target, data, studentName, visited = new Se
     }
     for (const r of remarksForStudent) {
       const trials = (r.trials || []).filter(t => t !== -1);
-      if (trials.length === 0) continue;
-      avgs.push(trials.reduce((a, b) => a + b, 0) / (trials.length * maxPts) * 100);
+      const allScores = r.optionScore !== undefined ? [...trials, r.optionScore] : trials;
+      if (allScores.length === 0) continue;
+      avgs.push(allScores.reduce((a, b) => a + b, 0) / (allScores.length * maxPts) * 100);
     }
   }
   return avgs.length > 0 ? Math.round(avgs.reduce((a, b) => a + b, 0) / avgs.length) : null;
@@ -11095,6 +11444,29 @@ function attachGroupTargetListeners(target) {
         if (rem) rem.text = prevText;
         alert("Couldn't save — check your connection and try again.\n\n" + err.message);
       });
+      // Auto-score: set/clear optionScore (separate from manual trials)
+      if (btn.dataset.score !== "") {
+        const autoScore = Number(btn.dataset.score);
+        if (!isNaN(autoScore)) {
+          const prevOptScore = rem?.optionScore;
+          if (!isActive) {
+            if (rem) rem.optionScore = autoScore;
+            setOptionScore(state.groupSessionId, remId, autoScore).catch(err => {
+              if (rem) { if (prevOptScore !== undefined) rem.optionScore = prevOptScore; else delete rem.optionScore; }
+              alert("Couldn't save — check your connection and try again.\n\n" + err.message);
+            });
+          } else {
+            if (rem) delete rem.optionScore;
+            clearOptionScore(state.groupSessionId, remId).catch(err => {
+              if (rem) rem.optionScore = prevOptScore;
+              alert("Couldn't save — check your connection and try again.\n\n" + err.message);
+            });
+          }
+        }
+      } else if (isActive && rem?.optionScore !== undefined) {
+        delete rem.optionScore;
+        clearOptionScore(state.groupSessionId, remId).catch(() => {});
+      }
     });
   });
 
