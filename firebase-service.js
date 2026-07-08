@@ -38,11 +38,11 @@ import {
 // Find these in: Firebase Console â†’ Project Settings â†’ Your apps â†’ SDK setup
 const FIREBASE_CONFIG = {
   apiKey:            "AIzaSyAPcXOMAN-alX8y_PgCX5m-09iJwRgzzE0",
-  authDomain:        "session-tracker-staging.firebaseapp.com",
-  projectId:         "session-tracker-staging",
-  storageBucket:     "session-tracker-staging.firebasestorage.app",
-  messagingSenderId: "43697728086",
-  appId:             "1:43697728086:web:505e802505e14b0346a9f7"
+  authDomain:        "session-tracker-b663a.firebaseapp.com",
+  projectId:         "session-tracker-b663a",
+  storageBucket:     "session-tracker-b663a.firebasestorage.app",
+  messagingSenderId: "1011584567383",
+  appId:             "1:1011584567383:web:3eff4340c16260de977b12"
 };
 // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
