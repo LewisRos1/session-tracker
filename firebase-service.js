@@ -1,4 +1,4 @@
-﻿// ============================================================
+// ============================================================
 // FIREBASE-SERVICE.JS
 // All Firestore read/write operations live here.
 // Fill in the FIREBASE_CONFIG placeholders below after
@@ -33,18 +33,18 @@ import {
   onAuthStateChanged
 } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
 
-// â”€â”€â”€ FIREBASE CONFIGURATION â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── FIREBASE CONFIGURATION ────────────────────────────────
 // Replace every "YOUR_..." placeholder with your project's values.
-// Find these in: Firebase Console â†’ Project Settings â†’ Your apps â†’ SDK setup
+// Find these in: Firebase Console → Project Settings → Your apps → SDK setup
 const FIREBASE_CONFIG = {
-  apiKey:            "AIzaSyAPcXOMAN-alX8y_PgCX5m-09iJwRgzzE0",
-  authDomain:        "session-tracker-b663a.firebaseapp.com",
-  projectId:         "session-tracker-b663a",
-  storageBucket:     "session-tracker-b663a.firebasestorage.app",
-  messagingSenderId: "1011584567383",
-  appId:             "1:1011584567383:web:3eff4340c16260de977b12"
+  apiKey:            "AIzaSyDzIdlSu_ipdbPtg9TEdWorGaznkslqsGI",
+  authDomain:        "session-tracker-staging.firebaseapp.com",
+  projectId:         "session-tracker-staging",
+  storageBucket:     "session-tracker-staging.firebasestorage.app",
+  messagingSenderId: "43697728086",
+  appId:             "1:43697728086:web:505e802505e14b0346a9f7"
 };
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ────────────────────────────────────────────────────────────
 
 const app = initializeApp(FIREBASE_CONFIG);
 
@@ -53,15 +53,15 @@ const db = initializeFirestore(app, {
   localCache: persistentLocalCache()
 });
 
-// â”€â”€â”€ AUTH â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-// There's one shared account for the whole team â€” the PIN screen is the
+// ─── AUTH ────────────────────────────────────────────────────
+// There's one shared account for the whole team — the PIN screen is the
 // real login UI, this just turns "the PIN" into an actual server-checked
 // password instead of a value compared inside the page's own JS (which
 // anyone could read). Firebase requires passwords to be 6+ characters, so
-// the PIN gets a fixed prefix glued on before being sent â€” staff never see
+// the PIN gets a fixed prefix glued on before being sent — staff never see
 // or type that prefix, they still just enter the PIN on the keypad.
 const auth = getAuth(app);
-// Sign-in persists across reloads (browserLocalPersistence) â€” staff only
+// Sign-in persists across reloads (browserLocalPersistence) — staff only
 // need the PIN once per calendar day, not on every single app open. app.js
 // tracks the last login date itself and forces a sign-out (signOutUser)
 // once that date is no longer today.
@@ -82,13 +82,13 @@ export function onAuthChange(callback) {
   return onAuthStateChanged(auth, callback);
 }
 
-// â”€â”€â”€ ID GENERATOR â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── ID GENERATOR ───────────────────────────────────────────
 // Produces short alphanumeric IDs safe for Firestore field paths.
 export function generateId(prefix = "id") {
   return prefix + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 }
 
-// â”€â”€â”€ DATE / MONTH HELPERS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── DATE / MONTH HELPERS ────────────────────────────────────
 export function getTodayString() {
   const d = new Date();
   const y = d.getFullYear();
@@ -109,7 +109,7 @@ export function sanitizeKey(name) {
   return name.replace(/[^a-zA-Z0-9]/g, "_").toLowerCase();
 }
 
-// â”€â”€â”€ SESSION MANAGEMENT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── SESSION MANAGEMENT ──────────────────────────────────────
 
 /**
  * Returns the session document ID for today for this student.
@@ -129,7 +129,7 @@ export async function getOrCreateTodaySession(studentId, targets = []) {
     return existingSnap.docs[0].id;
   }
 
-  // Count distinct days already recorded this month â†’ session number
+  // Count distinct days already recorded this month → session number
   const monthSnap = await getDocs(
     query(collection(db, "sessions"),
       where("studentId", "==", studentId),
@@ -164,10 +164,10 @@ export async function getOrCreateTodaySession(studentId, targets = []) {
   return ref.id;
 }
 
-// â”€â”€â”€ UNIFIED SESSION NUMBERING (individual + group, per student) â”€â”€â”€â”€â”€â”€
+// ─── UNIFIED SESSION NUMBERING (individual + group, per student) ──────
 // A student's session number counts every session they've ever been part
-// of â€” their own individual sessions AND any group session they're a
-// linked attendee of (see studentLinks on group docs) â€” as one lifetime
+// of — their own individual sessions AND any group session they're a
+// linked attendee of (see studentLinks on group docs) — as one lifetime
 // sequence, not reset per month. Stored on each session document (on
 // individual docs as sessionNumber; on group docs per-attendee inside
 // attendeePersonalSessionNumbers, since one group session has multiple
@@ -197,22 +197,22 @@ export async function getGroupSessionsForStudent(studentId) {
  * shifted as a result (e.g. inserting a back-dated session pushes every
  * later one up by one). excludeSessionId skips a session's own pre-edit
  * entry when recomputing for a date change on that same session. kind
- * ("individual" | "group") scopes this to just that track â€” a student's
+ * ("individual" | "group") scopes this to just that track — a student's
  * individual and group session counts are deliberately independent of each
  * other, each its own lifetime sequence.
  *
  * IMPORTANT: this shifts existing sessions RELATIVE to their own current
- * number (+1 each, for every session from the insertion point onward) â€”
+ * number (+1 each, for every session from the insertion point onward) —
  * it must never recompute a session's number from its absolute chronological
  * position. A boss-driven Change Session Number edit deliberately makes a
  * session's number NOT match its chronological position (e.g. continuing a
- * real-world paper-tracked count) â€” recomputing from scratch on every later
+ * real-world paper-tracked count) — recomputing from scratch on every later
  * "Start Session" call silently undid that edit the moment any new session
  * was created for that student afterward. (Real bug, found from boss
  * reports of an edited number "reverting" with no migration button involved.)
  */
 // prefetchedExisting: pass an already-fetched list (from getIndividualSessionsForStudent
-// /getGroupSessionsForStudent) to skip the redundant re-fetch â€” used by the
+// /getGroupSessionsForStudent) to skip the redundant re-fetch — used by the
 // "start a session" hot path, which already has to fetch this same list to
 // check whether today's session exists yet.
 async function assignLifetimeSessionNumber(studentId, dateStr, excludeSessionId, kind, prefetchedExisting = null) {
@@ -239,10 +239,10 @@ async function assignLifetimeSessionNumber(studentId, dateStr, excludeSessionId,
  * is off (e.g. they were tracked on paper for years before this app
  * existed, or a session got mis-numbered). Shifts EVERY one of the
  * student's sessions of that kind ("individual" | "group") by the same
- * delta so relative order/spacing is kept â€” can raise or lower, but rejects
+ * delta so relative order/spacing is kept — can raise or lower, but rejects
  * a change that would push their earliest recorded session of that kind
  * below Session 1 (the UI checks this too, with a friendlier message
- * naming the actual date â€” this is just the backstop).
+ * naming the actual date — this is just the backstop).
  */
 export async function changeSessionNumber(studentId, anchorSessionId, newNumber, kind) {
   const fetchExisting = kind === "individual" ? getIndividualSessionsForStudent : getGroupSessionsForStudent;
@@ -274,7 +274,7 @@ export async function getOrCreateSessionForDate(studentId, dateStr, targets = []
   const month = getMonthString(dateStr);
 
   // One fetch covers both "does today's session already exist" and the data
-  // assignLifetimeSessionNumber needs â€” used to be two sequential round
+  // assignLifetimeSessionNumber needs — used to be two sequential round
   // trips (an exists-check query, then a separate full-history fetch inside
   // assignLifetimeSessionNumber), which was real added latency on every
   // single "Start Session" click.
@@ -317,7 +317,7 @@ export async function finishSession(sessionId) {
 export async function updateSessionDate(sessionId, newDateStr, studentId) {
   const month = getMonthString(newDateStr);
 
-  // Conflict check â€” another session for same student on that date
+  // Conflict check — another session for same student on that date
   const conflictSnap = await getDocs(
     query(collection(db, "sessions"),
       where("studentId", "==", studentId),
@@ -335,7 +335,7 @@ export async function updateSessionDate(sessionId, newDateStr, studentId) {
 export async function updateGroupSessionDate(sessionId, newDateStr, groupId) {
   const month = getMonthString(newDateStr);
 
-  // Conflict check â€” another session for same group on that date
+  // Conflict check — another session for same group on that date
   const conflictSnap = await getDocs(
     query(collection(db, "sessions"),
       where("groupId", "==", groupId),
@@ -369,15 +369,22 @@ export async function updateGroupSessionDate(sessionId, newDateStr, groupId) {
   await updateDoc(doc(db, "sessions", sessionId), { date: newDateStr, month, sessionNumber, ...numbersPatch });
 }
 
-// â”€â”€â”€ ACTIVITY OPERATIONS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── ACTIVITY OPERATIONS ─────────────────────────────────────
 
 // actId can be supplied by the caller (e.g. to write the activity into local
-// state immediately, before this write reaches the server â€” see addRemark's
-// matching comment) â€” otherwise one is generated here.
+// state immediately, before this write reaches the server — see addRemark's
+// matching comment) — otherwise one is generated here.
 export async function adoptOrphanActivity(sessionId, actId, parentActivity, configId = null) {
   const updates = { [`activities.${actId}.parentActivity`]: parentActivity };
   if (configId) updates[`activities.${actId}.configId`] = configId;
   await updateDoc(doc(db, "sessions", sessionId), updates);
+}
+
+export async function revertOrphanActivity(sessionId, actId) {
+  await updateDoc(doc(db, "sessions", sessionId), {
+    [`activities.${actId}.parentActivity`]: deleteField(),
+    [`activities.${actId}.configId`]:       deleteField()
+  });
 }
 
 export async function addActivity(sessionId, targetName, activityName, order, isPredefined = false, actId = generateId("a"), parentActivity = null, configId = null) {
@@ -399,7 +406,7 @@ export async function deleteActivity(sessionId, actId, remarkIds) {
 }
 
 // An activity can occasionally get created TWICE within the same session
-// under the exact same (targetName, activityName) â€” not a rename/typo
+// under the exact same (targetName, activityName) — not a rename/typo
 // problem (the name matches the current config perfectly either way), but
 // a duplicate-creation race: the structured/mapped-score auto-fill
 // features check "does a matching activity already exist?" before
@@ -411,7 +418,7 @@ export async function deleteActivity(sessionId, actId, remarkIds) {
 // isn't picked becomes invisible everywhere except exports (which have a
 // separate orphan-recovery fallback that surfaces it again, looking like
 // a confusing ghost duplicate). Folds the duplicate's remarks onto the
-// primary activity and removes the now-empty shell â€” no data deleted,
+// primary activity and removes the now-empty shell — no data deleted,
 // just re-pointed to the activity that's actually displayed.
 export async function mergeDuplicateActivity(sessionId, primaryActId, duplicateActId) {
   const snap = await getDoc(doc(db, "sessions", sessionId));
@@ -469,7 +476,7 @@ export async function deleteGroupOrphanAcrossSessions(groupId, targetName, activ
   }
 }
 
-// â”€â”€â”€ TRASH (SOFT DELETE â€” 30-DAY RECYCLE BIN) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── TRASH (SOFT DELETE — 30-DAY RECYCLE BIN) ──────────────────────────────
 
 const TRASH_EXPIRY_DAYS = 30;
 
@@ -572,14 +579,14 @@ export async function cleanupExpiredTrash() {
     for (const d of snap.docs) {
       if ((d.data().expiresAt || "") <= now) await deleteDoc(d.ref);
     }
-  } catch { /* silent â€” trash access may fail before rules are updated */ }
+  } catch { /* silent — trash access may fail before rules are updated */ }
 }
 
-// â”€â”€â”€ REMARK OPERATIONS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── REMARK OPERATIONS ───────────────────────────────────────
 
 // remId can be supplied by the caller (e.g. to write a remark into local
 // state immediately, before this write reaches the server, so the UI
-// doesn't have to wait on the round trip) â€” otherwise one is generated here.
+// doesn't have to wait on the round trip) — otherwise one is generated here.
 export async function addRemark(sessionId, actId, text, predefinedKey = null, remId = generateId("r")) {
   const data = { activityId: actId, text, trials: [], order: Date.now() };
   if (predefinedKey !== null) data.predefinedKey = predefinedKey;
@@ -619,7 +626,7 @@ export async function deleteRemark(sessionId, remId) {
   });
 }
 
-// â”€â”€â”€ TRIAL OPERATIONS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── TRIAL OPERATIONS ────────────────────────────────────────
 
 export async function addTrial(sessionId, remId, score, currentTrials) {
   await updateDoc(doc(db, "sessions", sessionId), {
@@ -652,7 +659,7 @@ export async function setTrials(sessionId, remId, trials) {
   });
 }
 
-// â”€â”€â”€ FEDC COMMENT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── FEDC COMMENT ────────────────────────────────────────────
 
 export async function updateFedcComment(sessionId, targetName, text) {
   const key = sanitizeKey(targetName);
@@ -661,7 +668,7 @@ export async function updateFedcComment(sessionId, targetName, text) {
   });
 }
 
-// â”€â”€â”€ STUDENT CONFIG (admin-managed) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── STUDENT CONFIG (admin-managed) ──────────────────────────
 
 /** Load all students from Firestore config collection. */
 export async function loadStudentsConfig() {
@@ -726,7 +733,7 @@ export async function deleteTargetDataFromSessions(studentId, targetName) {
 
 // Activities are matched to a target's predefinedActivities config by exact
 // name text (see export.js's getAllActivitiesForTarget and app.js's
-// findActivityByName) â€” so editing an activity's name without also updating
+// findActivityByName) — so editing an activity's name without also updating
 // every session that already recorded a remark under the old name would
 // silently orphan that remark: invisible in the live UI, and surfaced as a
 // confusing duplicate row in exports. Called right after a rename is saved
@@ -753,7 +760,7 @@ export async function renameActivityAcrossSessions(studentId, targetName, oldNam
 // TARGET's own name rather than an activity within it: every session
 // activity stores its parent target's name as plain text (act.targetName),
 // so renaming a target without this would leave every historical session's
-// activities â€” and everything keyed off them (remarks, trials, exports) â€”
+// activities — and everything keyed off them (remarks, trials, exports) —
 // stuck under the old name and invisible under the renamed target.
 export async function renameTargetAcrossSessions(studentId, oldName, newName) {
   const snap = await getDocs(
@@ -774,8 +781,8 @@ export async function renameTargetAcrossSessions(studentId, oldName, newName) {
 }
 
 // A Select-one/Tick-boxes activity's recorded answer is the literal option
-// text (rem.text), not an index/ID into inlineOptions â€” so retyping an
-// option's wording (e.g. "Low" â†’ "Fair") leaves every already-recorded
+// text (rem.text), not an index/ID into inlineOptions — so retyping an
+// option's wording (e.g. "Low" → "Fair") leaves every already-recorded
 // answer of "Low" stuck under text that no longer matches any current pill,
 // same orphaning shape as the rename bugs above. Called once per renamed
 // option (isMulti activities store a comma-joined list of selections, so
@@ -828,7 +835,7 @@ export async function deleteEmptyIndividualSession(sessionId, studentId, dateStr
 
 /**
  * Fill any gaps in a student's individual session numbers while preserving the
- * user's custom starting offset (e.g. 8,9,10,12 â†’ 8,9,10,11 not 1,2,3,4).
+ * user's custom starting offset (e.g. 8,9,10,12 → 8,9,10,11 not 1,2,3,4).
  */
 export async function resequenceIndividualSessions(studentId) {
   const sessions = (await getIndividualSessionsForStudent(studentId))
@@ -843,7 +850,7 @@ export async function resequenceIndividualSessions(studentId) {
   }
 }
 
-// â”€â”€â”€ EXPORT DATA â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── EXPORT DATA ─────────────────────────────────────────────
 
 /** Fetch a single session document by ID. Used to get fresh data right before exporting. */
 export async function getSessionById(sessionId) {
@@ -853,7 +860,7 @@ export async function getSessionById(sessionId) {
 
 /** Fetch recent sessions for a student, newest-first (for session picker). */
 export async function getRecentSessionsForStudent(studentId, maxCount = 60) {
-  // No orderBy here on purpose â€” combining where("studentId") with an
+  // No orderBy here on purpose — combining where("studentId") with an
   // orderBy on a different field needs a Firestore composite index that
   // doesn't exist in this project (confirmed: the v516/v517 attempts to add
   // one both failed silently, since callers swallow the error). Sorting and
@@ -871,7 +878,7 @@ export async function getRecentSessionsForStudent(studentId, maxCount = 60) {
 
 /** Fetch all sessions for a student, sorted oldest-first. */
 export async function getAllSessionsForStudent(studentId) {
-  // No orderBy on purpose â€” see getRecentSessionsForStudent above. This is
+  // No orderBy on purpose — see getRecentSessionsForStudent above. This is
   // the exact query shape that produced the real "query requires an index"
   // error from Export All, confirming the studentId+date composite index
   // doesn't exist in this project. Sort client-side instead.
@@ -903,7 +910,7 @@ export async function getTodayUnfinishedStudentIds() {
   return new Set(snap.docs.map(d => d.data().studentId));
 }
 
-// â”€â”€â”€ TEMPLATE CONFIG â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── TEMPLATE CONFIG ─────────────────────────────────────────
 
 export async function loadTemplates() {
   const snap = await getDocs(collection(db, "templates"));
@@ -918,7 +925,7 @@ export async function deleteTemplate(templateId) {
   await deleteDoc(doc(db, "templates", templateId));
 }
 
-// â”€â”€â”€ REMARK PRESETS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── REMARK PRESETS ──────────────────────────────────────────
 
 export async function loadRemarkPresets() {
   const snap = await getDocs(collection(db, "remarkPresets"));
@@ -933,7 +940,7 @@ export async function deleteRemarkPreset(presetId) {
   await deleteDoc(doc(db, "remarkPresets", presetId));
 }
 
-// â”€â”€â”€ GROUP CONFIG â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── GROUP CONFIG ─────────────────────────────────────────────
 
 export async function loadGroups() {
   const snap = await getDocs(collection(db, "groups"));
@@ -948,19 +955,19 @@ export async function deleteGroup(groupId) {
   await deleteDoc(doc(db, "groups", groupId));
 }
 
-// â”€â”€â”€ GROUP SESSION â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── GROUP SESSION ────────────────────────────────────────────
 
 // studentLinks: this group's { rosterName: studentId } map (see Manage Group's
-// "Link to registered student" control) â€” only linked attendees get a
+// "Link to registered student" control) — only linked attendees get a
 // personal lifetime session number; an unlinked name just has none yet.
 export async function getOrCreateGroupSessionForDate(groupId, dateStr, targets = [], attendees = [], studentLinks = {}) {
   const month = getMonthString(dateStr);
   const linkedIds = [...new Set(attendees.map(name => studentLinks[name]).filter(Boolean))];
 
   // One fetch of this group's sessions covers both the exists-check and the
-  // month-count below â€” used to be two separate queries. And each
+  // month-count below — used to be two separate queries. And each
   // attendee's personal lifetime number is looked up in parallel
-  // (Promise.all) instead of one at a time â€” these used to run sequentially
+  // (Promise.all) instead of one at a time — these used to run sequentially
   // in a for-loop even though each attendee's lookup is fully independent of
   // the others, so a group of N students cost N sequential round trips on
   // every single "Start Session" click.
@@ -1013,19 +1020,19 @@ export async function getRecentGroupSessions(groupId, maxCount = 60) {
     .slice(0, maxCount);
 }
 
-// â”€â”€â”€ STUDENT REGISTRY MIGRATION (one-time) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── STUDENT REGISTRY MIGRATION (one-time) ─────────────────────
 // Before this feature, groups only stored attendee names as free-typed
 // strings with no link to the students collection, and individual session
 // numbers reset every month. This migration: (1) splits any student missing
 // firstName/lastName off their combined name, (2) links every group's
-// roster names to a registered student â€” auto-creating one for any name
+// roster names to a registered student — auto-creating one for any name
 // that doesn't already match an existing student, (3) backfills studentId
 // + attendeeIds onto every historical group session so they're covered by
 // getGroupSessionsForStudent, then (4) renumbers each affected student's
 // individual sessions and group sessions into two separate lifetime
-// sequences (each starting at 1) â€” individual and group counts are
+// sequences (each starting at 1) — individual and group counts are
 // deliberately independent of one another.
-// previewRegistryMigration() makes no writes â€” run it first and review the
+// previewRegistryMigration() makes no writes — run it first and review the
 // report before calling runRegistryMigration() for real.
 
 function splitName(name) {
@@ -1130,17 +1137,17 @@ export async function runRegistryMigration() {
   // Phase 4: give each affected student's individual sessions and group
   // sessions a lifetime number where they're still missing one (their
   // individual sessions previously used a per-month count, and their group
-  // sessions had no personal count at all until phase 3 linked them) â€” oldest
+  // sessions had no personal count at all until phase 3 linked them) — oldest
   // numbered session = 1, counting only up from there, independently for
   // each track.
   // Deliberately only fills in MISSING numbers (s.number == null) and never
-  // touches a session that already has one â€” this used to unconditionally
+  // touches a session that already has one — this used to unconditionally
   // reset every session to sequential-by-date order on every run, which
   // silently destroyed any manual "Change Session Number" edit the moment
   // this one-time setup was run a second time (e.g. because a new group was
   // added later and the preview reported other legitimate work to do). A
   // student's first migration run assigns every session a number, so on any
-  // run after that this loop is a no-op for them â€” safe to re-run indefinitely.
+  // run after that this loop is a no-op for them — safe to re-run indefinitely.
   const affectedIds = new Set();
   for (const g of groups) Object.values(g.studentLinks || {}).forEach(id => affectedIds.add(id));
   for (const s of students) {
@@ -1193,7 +1200,7 @@ export async function deleteGroupTargetDataFromSessions(groupId, targetName) {
 // attendeeIds/attendeePersonalSessionNumbers/remarks, so the student
 // registry keeps showing that history under the old (now-unlinked) student
 // instead of the new one. Reassigns all of it in one pass. oldId may be
-// null (the slot was previously unlinked/empty) â€” in that case there's
+// null (the slot was previously unlinked/empty) — in that case there's
 // nothing to migrate, callers should skip calling this entirely.
 export async function reassignGroupStudentAcrossSessions(groupId, oldName, oldId, newName, newId) {
   if (!oldId) return;
@@ -1220,7 +1227,7 @@ export async function reassignGroupStudentAcrossSessions(groupId, oldName, oldId
     // Guard oldId === newId (a pure name-change re-sync, not an actual
     // re-link to a different student): without it, these two lines write
     // the SAME Firestore field path twice in one updates object, and the
-    // deleteField() always wins â€” silently wiping the session number it
+    // deleteField() always wins — silently wiping the session number it
     // was just told to preserve.
     const numbers = data.attendeePersonalSessionNumbers || {};
     if (numbers[oldId] !== undefined && oldId !== newId) {
@@ -1236,7 +1243,7 @@ export async function reassignGroupStudentAcrossSessions(groupId, oldName, oldId
   }
 }
 
-// Group counterpart of renameActivityAcrossSessions above â€” see its comment.
+// Group counterpart of renameActivityAcrossSessions above — see its comment.
 export async function renameGroupActivityAcrossSessions(groupId, targetName, oldName, newName) {
   const snap = await getDocs(
     query(collection(db, "sessions"), where("groupId", "==", groupId))
@@ -1253,7 +1260,7 @@ export async function renameGroupActivityAcrossSessions(groupId, targetName, old
   }
 }
 
-// Group counterpart of renameTargetAcrossSessions above â€” see its comment.
+// Group counterpart of renameTargetAcrossSessions above — see its comment.
 export async function renameGroupTargetAcrossSessions(groupId, oldName, newName) {
   const snap = await getDocs(
     query(collection(db, "sessions"), where("groupId", "==", groupId))
@@ -1270,7 +1277,7 @@ export async function renameGroupTargetAcrossSessions(groupId, oldName, newName)
   }
 }
 
-// Group counterpart of renameRemarkOptionAcrossSessions above â€” see its
+// Group counterpart of renameRemarkOptionAcrossSessions above — see its
 // comment. Renames the option for every attendee's recorded answer under
 // this activity, regardless of which student said it.
 export async function renameGroupRemarkOptionAcrossSessions(groupId, targetName, activityName, oldOpt, newOpt, isMulti) {
@@ -1334,6 +1341,3 @@ export async function clearRemark(sessionId, remId) {
     [`remarks.${remId}.trials`]: []
   });
 }
-
-
-
