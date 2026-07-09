@@ -1107,6 +1107,10 @@ input.field-input::placeholder {
   min-height: 36px;
 }
 
+.btn-remark-opt--multi {
+  border-radius: .4rem;
+}
+
 .btn-remark-opt:hover { border-color: var(--primary); color: var(--primary); }
 
 .btn-remark-opt.active {
@@ -1149,6 +1153,9 @@ input.field-input::placeholder {
   color: var(--white);
   font-weight: 600;
 }
+
+.btn-remark-opt--multi,
+.view-remark-multi-btn--rect { border-radius: .4rem; }
 
 /* ─── GENERIC BUTTONS ────────────────────────────────────── */
 .btn-primary-sm {

@@ -147,7 +147,7 @@ function versionLineText() {
   return `Made by Lewis · Version ${APP_VERSION}`;
 }
 
-const APP_VERSION = "796";
+const APP_VERSION = "806";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -3820,18 +3820,27 @@ function renderRemarkFields(rem, target, inlineOptions = null, sentenceStarter =
 
   function makeOptPills(remId, remText) {
     if (opts.length === 0) return null;
+    const removedBadge = (() => {
+      if (!remText) return "";
+      if (multiSelect) {
+        const sel = remText.split(", ").map(s => s.trim()).filter(Boolean);
+        const gone = sel.filter(s => !opts.includes(s));
+        return gone.length ? `<div style="font-size:.78rem;color:#9ca3af;margin-top:.3rem;font-style:italic">Previously selected (removed): ${escHtml(gone.join(", "))}</div>` : "";
+      }
+      return !opts.includes(remText) ? `<div style="font-size:.78rem;color:#9ca3af;margin-top:.3rem;font-style:italic">Previously: ${escHtml(remText)} (removed)</div>` : "";
+    })();
     if (multiSelect) {
       const sel = (remText || "").split(", ").map(s => s.trim()).filter(Boolean);
       return `<div class="remark-preset-opts remark-preset-opts-multi" contenteditable="false">${opts.map(opt =>
-        `<button class="btn-remark-opt${sel.includes(opt) ? " active" : ""}"
+        `<button class="btn-remark-opt btn-remark-opt--multi${sel.includes(opt) ? " active" : ""}"
           data-rem-id="${remId}" data-opt="${escHtml(opt)}">${escHtml(opt)}</button>`
-      ).join("")}</div>`;
+      ).join("")}${removedBadge}</div>`;
     }
     return `<div class="remark-preset-opts" contenteditable="false">${opts.map(opt =>
       `<button class="btn-remark-opt${remText === opt ? " active" : ""}"
         data-rem-id="${remId}" data-opt="${escHtml(opt)}"
         data-score="${optionScores?.[opt] !== undefined ? optionScores[opt] : ''}">${escHtml(opt)}</button>`
-    ).join("")}</div>`;
+    ).join("")}${removedBadge}</div>`;
   }
 
   const optBtns = makeOptPills(rem.id, rem.text)
@@ -5100,17 +5109,26 @@ function viewRemarkRow(no, actName, rem, target, inlineOptions = null, sentenceS
 
   function makeViewOpts(remId, remText) {
     if (opts.length === 0) return null;
+    const removedBadge = (() => {
+      if (!remText) return "";
+      if (multiSelect) {
+        const sel = remText.split(", ").map(s => s.trim()).filter(Boolean);
+        const gone = sel.filter(s => !opts.includes(s));
+        return gone.length ? `<div style="font-size:.78rem;color:#9ca3af;margin-top:.25rem;font-style:italic">Previously selected (removed): ${escHtml(gone.join(", "))}</div>` : "";
+      }
+      return !opts.includes(remText) ? `<div style="font-size:.78rem;color:#9ca3af;margin-top:.25rem;font-style:italic">Previously: ${escHtml(remText)} (removed)</div>` : "";
+    })();
     if (multiSelect) {
       const sel = (remText || "").split(", ").map(s => s.trim()).filter(Boolean);
       return `<div class="view-remark-multi-opts" contenteditable="false">${opts.map(opt =>
-        `<button class="view-remark-multi-btn${sel.includes(opt) ? " active" : ""}"
+        `<button class="view-remark-multi-btn view-remark-multi-btn--rect${sel.includes(opt) ? " active" : ""}"
           data-rem-id="${escHtml(remId)}" data-opt="${escHtml(opt)}">${escHtml(opt)}</button>`
-      ).join("")}</div>`;
+      ).join("")}${removedBadge}</div>`;
     }
     return `<div class="view-remark-multi-opts" contenteditable="false">${opts.map(opt =>
       `<button class="view-remark-single-btn${remText === opt ? " active" : ""}"
         data-rem-id="${escHtml(remId)}" data-opt="${escHtml(opt)}">${escHtml(opt)}</button>`
-    ).join("")}</div>`;
+    ).join("")}${removedBadge}</div>`;
   }
 
   const optSelect = makeViewOpts(rem.id, rem.text)
@@ -8683,7 +8701,7 @@ function buildRemarkTypeControls(a, idx, maxPts = 3) {
       <option value="starter_fixed_note"${type === "starter_fixed_note" ? " selected" : ""}>Sentence Starter + Select One + Free Text</option>
     </select>
     <div class="mn-act-starter-wrap" data-idx="${idx}" style="${showStarter ? "display:flex;align-items:center;gap:.5rem" : "display:none"}">
-      <span style="font-size:.75rem;color:#6b7280;white-space:nowrap;font-weight:600;flex-shrink:0">Sentence Starter (Optional):</span>
+      <span style="font-size:.93rem;color:#374151;white-space:nowrap;font-weight:700;flex-shrink:0">Sentence Starter (Optional):</span>
       <input class="admin-input mn-act-starter-text" data-idx="${idx}"
         placeholder="Phrase…"
         value="${escHtml(a.sentenceStarter || "")}">
@@ -8693,19 +8711,32 @@ function buildRemarkTypeControls(a, idx, maxPts = 3) {
         const optsStr = a.inlineOptions || (a.remarkPresetId ? (state.remarkPresets.find(p=>p.id===a.remarkPresetId)?.options||[]).join("/") : "");
         const displayOpts = parseOpts(optsStr).length > 0 ? parseOpts(optsStr) : [""];
         return displayOpts.map((opt, oi) =>
-          `<div class="mn-opt-row admin-list-item" data-idx="${oi}" style="display:flex;align-items:center;gap:.3rem;margin-bottom:.25rem">` +
-          `<span class="drag-handle" style="cursor:grab;color:#c4c9d4;font-size:1rem;flex-shrink:0;padding:0 .1rem;user-select:none">⠿</span>` +
-          `<span class="mn-opt-num" style="font-size:.75rem;color:#6b7280;white-space:nowrap;flex-shrink:0;font-weight:600">Option ${oi + 1}:</span>` +
-          `<input class="admin-input mn-opt-item" data-idx="${idx}" data-oi="${oi}" value="${escHtml(opt)}" placeholder="Enter option…" style="flex:1;padding:.3rem .45rem;font-size:.84rem;min-width:0">` +
-          `<input class="admin-input mn-opt-score" type="number" min="0" max="${maxPts}" step="0.5" data-idx="${idx}" data-oi="${oi}" value="${escHtml(String(a.optionScores?.[opt] ?? ''))}" placeholder="Pts" title="Auto-score when selected (leave blank for none)" style="width:3.2rem;flex-shrink:0;padding:.3rem .2rem;font-size:.8rem;text-align:center">` +
-          `<button class="mn-opt-del" data-idx="${idx}" data-oi="${oi}" title="Remove option" style="flex-shrink:0;padding:.2rem .4rem;font-size:.8rem;color:#9ca3af;background:none;border:1px solid #e5e7eb;border-radius:.3rem;cursor:pointer;line-height:1">×</button>` +
+          `<div class="mn-opt-row admin-list-item" data-idx="${oi}" style="display:flex;align-items:center;gap:.4rem;margin-bottom:.4rem">` +
+          `<span class="drag-handle" style="cursor:grab;color:#c4c9d4;font-size:1.1rem;flex-shrink:0;padding:0 .15rem;user-select:none">⠿</span>` +
+          `<span class="mn-opt-num" style="font-size:.8rem;color:#6b7280;white-space:nowrap;flex-shrink:0;font-weight:600">Option ${oi + 1}:</span>` +
+          `<input class="admin-input mn-opt-item" data-idx="${idx}" data-oi="${oi}" value="${escHtml(opt)}" placeholder="Enter option…" readonly style="flex:1;padding:.45rem .6rem;font-size:.95rem;min-width:0;background:#f9fafb;color:#374151;cursor:default">` +
+          `<input class="admin-input mn-opt-score" type="number" min="0" max="${maxPts}" step="0.5" data-idx="${idx}" data-oi="${oi}" value="${escHtml(String(a.optionScores?.[opt] ?? ''))}" placeholder="Pts" style="width:3.8rem;flex-shrink:0;padding:.45rem .3rem;font-size:.9rem;text-align:center">` +
+          `<button class="mn-opt-remove" data-idx="${idx}" data-oi="${oi}" data-text="${escHtml(opt)}" style="flex-shrink:0;padding:.3rem .65rem;font-size:.82rem;color:#dc2626;background:none;border:1px solid #fca5a5;border-radius:.35rem;cursor:pointer">Remove</button>` +
           `</div>`
         ).join("");
       })()}</div>
-      <div style="display:flex;align-items:center;gap:.5rem;margin-top:.2rem">
-        <button class="mn-opt-add" data-idx="${idx}" style="font-size:.78rem;padding:.25rem .6rem;background:none;border:1px solid #d1d5db;border-radius:.35rem;cursor:pointer;color:#6b7280">+ Add Option</button>
-        <span title="Renaming an option updates it across all past sessions too. If you rename &quot;A&quot; to &quot;B&quot;, every past session that chose &quot;A&quot; will now show &quot;B&quot;." style="cursor:default;color:#9ca3af;font-size:.8rem">ⓘ</span>
-      </div>
+      <button class="mn-opt-add" data-idx="${idx}" style="font-size:.82rem;padding:.3rem .7rem;background:none;border:1px solid #d1d5db;border-radius:.35rem;cursor:pointer;color:#6b7280;margin-top:.25rem">+ Add Option</button>
+      ${(() => {
+        const archived = a.archivedOptions || [];
+        return `<div class="mn-removed-section" data-idx="${idx}" style="margin-top:.5rem${archived.length === 0 ? ";display:none" : ""}">
+          <button class="mn-removed-toggle" style="background:none;border:none;cursor:pointer;font-size:.78rem;color:#9ca3af;padding:.1rem 0;display:flex;align-items:center;gap:.25rem">
+            <span class="mn-toggle-arrow" style="font-size:.65rem">▶</span> Removed options (${archived.length})
+          </button>
+          <div class="mn-removed-list" style="display:none;margin-top:.3rem;padding:.3rem .5rem;background:#fafafa;border:1px solid #f3f4f6;border-radius:.4rem">
+            ${archived.map(ao =>
+              `<div class="mn-removed-row" style="display:flex;align-items:center;gap:.5rem;padding:.3rem 0;border-bottom:1px solid #f3f4f6">` +
+              `<span style="flex:1;font-size:.9rem;color:#6b7280">${escHtml(ao.text)}</span>` +
+              `<button class="mn-opt-unremove" data-idx="${idx}" data-text="${escHtml(ao.text)}" data-score="${ao.score ?? ""}" style="font-size:.78rem;padding:.25rem .55rem;color:#059669;background:none;border:1px solid #6ee7b7;border-radius:.35rem;cursor:pointer">Unremove</button>` +
+              `</div>`
+            ).join("")}
+          </div>
+        </div>`;
+      })()}
     </div>
   </div>`;
 }
@@ -8865,7 +8896,6 @@ function renderTargetManageContent(student, target) {
             <textarea class="admin-input mn-act-name-input" id="mn-act-name-${idx}" data-idx="${idx}"
               rows="1" placeholder="Enter Activity" style="flex:1">${escHtml(a.name || "")}</textarea>
           </div>
-          ${a.createdOn ? `<span style="font-size:.72rem;color:#9ca3af">Created on ${fmtPeriodDate(a.createdOn)}</span>` : ''}
           <div style="display:flex;align-items:flex-start;gap:.5rem">
             <span style="font-size:.75rem;color:#6b7280;white-space:nowrap;font-weight:600;padding-top:.3rem">Remark Type:</span>
             ${buildRemarkTypeControls(a, idx, target.maxPoints || 3)}
@@ -8881,8 +8911,8 @@ function renderTargetManageContent(student, target) {
         <div style="position:relative">
           <button class="btn-adm-del mn-kebab-btn" data-idx="${idx}" title="Activity options" style="font-size:1.35rem;font-weight:900;min-width:36px;min-height:36px">⋮</button>
           <div class="mn-kebab-menu" id="mn-km-${idx}" style="display:none;position:absolute;right:0;top:100%;z-index:100;background:white;border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:250px;overflow:hidden">
-            <button class="mn-km-mastered" data-idx="${idx}" style="width:100%;padding:.55rem .9rem;text-align:left;background:none;border:none;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:.84rem">⭐ Activity Mastered (from ${_refDateLabel} onwards)</button>
-            <button class="mn-km-discontinued" data-idx="${idx}" style="width:100%;padding:.55rem .9rem;text-align:left;background:none;border:none;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:.84rem;color:#dc2626">🚩 Discontinue Activity (from ${_refDateLabel} onwards)</button>
+            <button class="mn-km-mastered" data-idx="${idx}" style="width:100%;padding:.55rem .9rem;text-align:left;background:none;border:none;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:.84rem">⭐ Activity Mastered<br><span style="font-size:.78rem;color:#6b7280">(from ${_refDateLabel} onwards)</span></button>
+            <button class="mn-km-discontinued" data-idx="${idx}" style="width:100%;padding:.55rem .9rem;text-align:left;background:none;border:none;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:.84rem;color:#dc2626">🚩 Discontinue Activity<br><span style="font-size:.78rem">(from ${_refDateLabel} onwards)</span></button>
             <div style="display:flex;align-items:stretch">
               <button class="mn-km-opt" data-idx="${idx}" data-action="delete" style="flex:1;padding:.55rem .9rem;text-align:left;background:none;border:none;cursor:pointer;font-size:.84rem;color:#dc2626">🗑️ Delete Activity</button>
               <span title="Permanently removes this activity and all of its session data. This cannot be undone." style="padding:.55rem .5rem;cursor:default;color:#9ca3af;font-size:.8rem;display:flex;align-items:center">ⓘ</span>
@@ -8939,15 +8969,14 @@ function renderTargetManageContent(student, target) {
               <textarea class="admin-input mn-act-name-input" id="mn-act-name-${idx}" data-idx="${idx}"
                 rows="1" placeholder="Enter Activity" style="flex:1">${escHtml(a.name || "")}</textarea>
             </div>
-            ${a.createdOn ? `<span style="font-size:.72rem;color:#9ca3af">Created on ${fmtPeriodDate(a.createdOn)}</span>` : ''}
             ${subActsHtml}
             <button class="mn-add-sub-act-btn" data-parent-idx="${idx}" style="font-size:.75rem;padding:.2rem .55rem;background:none;border:1px solid #d1d5db;border-radius:.35rem;color:#6b7280;cursor:pointer;margin-left:1.25rem;align-self:flex-start">+ Add Sub-activity</button>
           </div>
           <div style="position:relative">
             <button class="btn-adm-del mn-kebab-btn" data-idx="${idx}" title="Activity options" style="font-size:1.35rem;font-weight:900;min-width:36px;min-height:36px">⋮</button>
             <div class="mn-kebab-menu" id="mn-km-${idx}" style="display:none;position:absolute;right:0;top:100%;z-index:100;background:white;border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:250px;overflow:hidden">
-              <button class="mn-km-mastered" data-idx="${idx}" style="width:100%;padding:.55rem .9rem;text-align:left;background:none;border:none;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:.84rem">⭐ Mark as Mastered</button>
-              <button class="mn-km-discontinued" data-idx="${idx}" style="width:100%;padding:.55rem .9rem;text-align:left;background:none;border:none;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:.84rem;color:#dc2626">🚩 Mark as Discontinued</button>
+              <button class="mn-km-mastered" data-idx="${idx}" style="width:100%;padding:.55rem .9rem;text-align:left;background:none;border:none;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:.84rem">⭐ Activity Mastered<br><span style="font-size:.78rem;color:#6b7280">(from ${_refDateLabel} onwards)</span></button>
+              <button class="mn-km-discontinued" data-idx="${idx}" style="width:100%;padding:.55rem .9rem;text-align:left;background:none;border:none;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:.84rem;color:#dc2626">🚩 Discontinue Activity<br><span style="font-size:.78rem">(from ${_refDateLabel} onwards)</span></button>
               <div style="display:flex;align-items:stretch">
                 <button class="mn-km-opt" data-idx="${idx}" data-action="delete" style="flex:1;padding:.55rem .9rem;text-align:left;background:none;border:none;cursor:pointer;font-size:.84rem;color:#dc2626">🗑️ Delete Activity</button>
                 <span title="Deletes this activity and all its sub-activities." style="padding:.55rem .5rem;cursor:default;color:#9ca3af;font-size:.8rem;display:flex;align-items:center">ⓘ</span>
@@ -8975,7 +9004,6 @@ function renderTargetManageContent(student, target) {
               <textarea class="admin-input mn-act-name-input" id="mn-act-name-${idx}" data-idx="${idx}"
                 rows="1" placeholder="Enter Activity" style="flex:1">${escHtml(a.name || "")}</textarea>
             </div>
-            ${a.createdOn ? `<span style="font-size:.72rem;color:#9ca3af">Created on ${fmtPeriodDate(a.createdOn)}</span>` : ''}
             <div style="display:flex;align-items:flex-start;gap:.5rem">
               <span style="font-size:.75rem;color:#6b7280;white-space:nowrap;font-weight:600;padding-top:.3rem">Remark Type:</span>
               ${remarkTypeSelect}
@@ -8993,8 +9021,8 @@ function renderTargetManageContent(student, target) {
                 <button class="mn-km-opt" data-idx="${idx}" data-action="color_white" style="padding:.35rem .6rem;background:#ffffff;border:2px solid ${!isGray ? '#6b7280' : '#e5e7eb'};border-radius:.4rem;cursor:pointer;font-size:.75rem;text-align:left">🤍 White (Normal)</button>
                 <button class="mn-km-opt" data-idx="${idx}" data-action="color_gray" style="padding:.35rem .6rem;background:#d9d9d9;border:2px solid ${isGray ? '#6b7280' : '#bfbfbf'};border-radius:.4rem;cursor:pointer;font-size:.75rem;text-align:left">🩶 Grey (Maintain)</button>
               </div>
-              <button class="mn-km-mastered" data-idx="${idx}" style="width:100%;padding:.55rem .9rem;text-align:left;background:none;border:none;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:.84rem">⭐ Mark as Mastered</button>
-              <button class="mn-km-discontinued" data-idx="${idx}" style="width:100%;padding:.55rem .9rem;text-align:left;background:none;border:none;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:.84rem;color:#dc2626">🚩 Mark as Discontinued</button>
+              <button class="mn-km-mastered" data-idx="${idx}" style="width:100%;padding:.55rem .9rem;text-align:left;background:none;border:none;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:.84rem">⭐ Activity Mastered<br><span style="font-size:.78rem;color:#6b7280">(from ${_refDateLabel} onwards)</span></button>
+              <button class="mn-km-discontinued" data-idx="${idx}" style="width:100%;padding:.55rem .9rem;text-align:left;background:none;border:none;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:.84rem;color:#dc2626">🚩 Discontinue Activity<br><span style="font-size:.78rem">(from ${_refDateLabel} onwards)</span></button>
               <div style="display:flex;align-items:stretch">
                 <button class="mn-km-opt" data-idx="${idx}" data-action="delete" style="flex:1;padding:.55rem .9rem;text-align:left;background:none;border:none;cursor:pointer;font-size:.84rem;color:#dc2626">🗑️ Delete Activity</button>
                 <span title="Permanently removes this activity and all of its session data. This cannot be undone." style="padding:.55rem .5rem;cursor:default;color:#9ca3af;font-size:.8rem;display:flex;align-items:center">ⓘ</span>
@@ -9926,7 +9954,7 @@ function renderTargetManageContent(student, target) {
       r.dataset.idx = i;
       const n = r.querySelector(".mn-opt-num"); if (n) n.textContent = `Option ${i + 1}:`;
       const inp = r.querySelector(".mn-opt-item"); if (inp) inp.dataset.oi = i;
-      const del = r.querySelector(".mn-opt-del");  if (del) del.dataset.oi = i;
+      const rem = r.querySelector(".mn-opt-remove"); if (rem) rem.dataset.oi = i;
       const sc  = r.querySelector(".mn-opt-score"); if (sc) sc.dataset.oi = i;
     });
   };
@@ -9935,7 +9963,11 @@ function renderTargetManageContent(student, target) {
     const container = $("manage-modal-body").querySelector(`.mn-opts-container[data-idx="${idx}"]`);
     if (!container) return;
     const scores = {};
-    container.querySelectorAll(".mn-opt-row").forEach(row => {
+    // Preserve scores for removed options so past session exports remain accurate
+    (acts[idx].archivedOptions || []).forEach(ao => {
+      if (ao.score !== undefined && ao.score !== null && !isNaN(Number(ao.score))) scores[ao.text] = Number(ao.score);
+    });
+    container.querySelector(".mn-opts-list")?.querySelectorAll(".mn-opt-row").forEach(row => {
       const text = row.querySelector(".mn-opt-item")?.value?.trim();
       const sv   = row.querySelector(".mn-opt-score")?.value?.trim();
       if (text && sv !== "" && sv !== undefined && !isNaN(Number(sv))) scores[text] = Number(sv);
@@ -9944,16 +9976,76 @@ function renderTargetManageContent(student, target) {
     else delete acts[idx].optionScores;
   };
 
-  const wireOptDel = (btn, idx) => {
+  const updateRemovedSection = idx => {
+    const section = $("manage-modal-body").querySelector(`.mn-removed-section[data-idx="${idx}"]`);
+    if (!section) return;
+    const archived = acts[idx].archivedOptions || [];
+    const toggle = section.querySelector(".mn-removed-toggle");
+    const list   = section.querySelector(".mn-removed-list");
+    if (toggle) {
+      const isOpen = list?.style.display !== "none";
+      toggle.innerHTML = `<span class="mn-toggle-arrow" style="font-size:.65rem">${isOpen ? "▼" : "▶"}</span> Removed options (${archived.length})`;
+    }
+    if (list) {
+      list.innerHTML = archived.map(ao =>
+        `<div class="mn-removed-row" style="display:flex;align-items:center;gap:.5rem;padding:.3rem 0;border-bottom:1px solid #f3f4f6">` +
+        `<span style="flex:1;font-size:.9rem;color:#6b7280">${escHtml(ao.text)}</span>` +
+        `<button class="mn-opt-unremove" data-idx="${idx}" data-text="${escHtml(ao.text)}" data-score="${ao.score ?? ""}" style="font-size:.78rem;padding:.25rem .55rem;color:#059669;background:none;border:1px solid #6ee7b7;border-radius:.35rem;cursor:pointer">Unremove</button>` +
+        `</div>`
+      ).join("");
+      list.querySelectorAll(".mn-opt-unremove").forEach(btn => wireOptUnremove(btn, idx));
+    }
+    section.style.display = archived.length === 0 ? "none" : "";
+  };
+
+  const wireOptRemove = (btn, idx) => {
     btn.addEventListener("click", async () => {
+      const optText = btn.dataset.text;
+      if (!optText) return; // newly added option with no name yet — ignore
+      const score = acts[idx].optionScores?.[optText];
+      acts[idx].archivedOptions = acts[idx].archivedOptions || [];
+      acts[idx].archivedOptions.push({ text: optText, ...(score !== undefined ? { score } : {}) });
       const list = btn.closest(".mn-opts-list");
       list.removeChild(btn.closest(".mn-opt-row"));
       renumberOpts(list);
-      const newOptsStr = getOptsFromDom(idx).join("/") || null;
-      acts[idx].inlineOptions = newOptsStr;
+      acts[idx].inlineOptions = getOptsFromDom(idx).join("/") || null;
       acts[idx].remarkPresetId = null;
       rebuildOptScores(idx);
       target.predefinedActivities = acts;
+      updateRemovedSection(idx);
+      await saveTarget();
+    });
+  };
+
+  const wireOptUnremove = (btn, idx) => {
+    btn.addEventListener("click", async () => {
+      const optText  = btn.dataset.text;
+      const rawScore = btn.dataset.score;
+      const score    = rawScore !== "" && !isNaN(Number(rawScore)) ? Number(rawScore) : undefined;
+      acts[idx].archivedOptions = (acts[idx].archivedOptions || []).filter(ao => ao.text !== optText);
+      const currentOpts = parseOpts(acts[idx].inlineOptions || "");
+      currentOpts.push(optText);
+      acts[idx].inlineOptions = currentOpts.join("/") || null;
+      if (score !== undefined) { acts[idx].optionScores = acts[idx].optionScores || {}; acts[idx].optionScores[optText] = score; }
+      target.predefinedActivities = acts;
+      // Add row back to active list as readonly
+      const container = $("manage-modal-body").querySelector(`.mn-opts-container[data-idx="${idx}"]`);
+      const list = container.querySelector(".mn-opts-list");
+      const oi = list.querySelectorAll(".mn-opt-row").length;
+      const row = document.createElement("div");
+      row.className = "mn-opt-row admin-list-item";
+      row.style.cssText = "display:flex;align-items:center;gap:.4rem;margin-bottom:.4rem";
+      row.innerHTML =
+        `<span class="drag-handle" style="cursor:grab;color:#c4c9d4;font-size:1.1rem;flex-shrink:0;padding:0 .15rem;user-select:none">⠿</span>` +
+        `<span class="mn-opt-num" style="font-size:.8rem;color:#6b7280;white-space:nowrap;flex-shrink:0;font-weight:600">Option ${oi + 1}:</span>` +
+        `<input class="admin-input mn-opt-item" data-idx="${idx}" data-oi="${oi}" value="${escHtml(optText)}" readonly style="flex:1;padding:.45rem .6rem;font-size:.95rem;min-width:0;background:#f9fafb;color:#374151;cursor:default">` +
+        `<input class="admin-input mn-opt-score" type="number" min="0" max="${maxPts}" step="0.5" data-idx="${idx}" data-oi="${oi}" value="${score !== undefined ? score : ""}" placeholder="Pts" style="width:3.8rem;flex-shrink:0;padding:.45rem .3rem;font-size:.9rem;text-align:center">` +
+        `<button class="mn-opt-remove" data-idx="${idx}" data-oi="${oi}" data-text="${escHtml(optText)}" style="flex-shrink:0;padding:.3rem .65rem;font-size:.82rem;color:#dc2626;background:none;border:1px solid #fca5a5;border-radius:.35rem;cursor:pointer">Remove</button>`;
+      list.appendChild(row);
+      wireOptScore(row.querySelector(".mn-opt-score"), idx);
+      wireOptRemove(row.querySelector(".mn-opt-remove"), idx);
+      row.querySelector(".mn-opt-item").addEventListener("click", () => showOptLockedMsg(row.querySelector(".mn-opt-item")));
+      updateRemovedSection(idx);
       await saveTarget();
     });
   };
@@ -9967,35 +10059,34 @@ function renderTargetManageContent(student, target) {
     });
   };
 
-  const wireOptBlur = (input, idx) => {
-    input.addEventListener("focus", () => { input.dataset.originalValue = input.value; });
-    input.addEventListener("blur", async () => {
-      const originalValue = input.dataset.originalValue ?? "";
-      const currentValue  = input.value.trim();
-      if (originalValue && currentValue && currentValue !== originalValue) {
-        const proceed = confirm(
-          `⚠️ Rename "${originalValue}" to "${currentValue}"?\n\n` +
-          `This will rewrite ALL past session records where this option was selected. The change cannot be undone.\n\n` +
-          `Tip: If you want to keep "${originalValue}" and add "${currentValue}" as a separate option, press Cancel — then use "+ Add Option" and drag it into position.\n\n` +
-          `Rename anyway?`
-        );
-        if (!proceed) { input.value = originalValue; return; }
-      }
-      const oldOptsStr = acts[idx].inlineOptions;
-      const newOptsStr = getOptsFromDom(idx).join("/") || null;
-      if (newOptsStr === oldOptsStr) return;
-      acts[idx].inlineOptions = newOptsStr;
-      acts[idx].remarkPresetId = null;
-      rebuildOptScores(idx);
-      target.predefinedActivities = acts;
-      await saveTarget();
-      propagateRemarkOptionRename(student, target, acts[idx], oldOptsStr, newOptsStr);
+  $("manage-modal-body").querySelectorAll(".mn-opt-score").forEach(inp => wireOptScore(inp, Number(inp.dataset.idx)));
+  $("manage-modal-body").querySelectorAll(".mn-opt-remove").forEach(btn => wireOptRemove(btn, Number(btn.dataset.idx)));
+  $("manage-modal-body").querySelectorAll(".mn-opt-unremove").forEach(btn => wireOptUnremove(btn, Number(btn.dataset.idx)));
+  $("manage-modal-body").querySelectorAll(".mn-removed-toggle").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const section = btn.closest(".mn-removed-section");
+      const list  = section.querySelector(".mn-removed-list");
+      const arrow = btn.querySelector(".mn-toggle-arrow");
+      if (list.style.display === "none") { list.style.display = ""; if (arrow) arrow.textContent = "▼"; }
+      else { list.style.display = "none"; if (arrow) arrow.textContent = "▶"; }
     });
+  });
+
+  const showOptLockedMsg = inp => {
+    if (inp.dataset.msgActive) return;
+    inp.dataset.msgActive = "1";
+    inp.style.borderColor = "#f59e0b";
+    const row = inp.closest(".mn-opt-row");
+    const msg = document.createElement("span");
+    msg.style.cssText = "font-size:.88rem;color:#f59e0b;white-space:nowrap;flex-shrink:0;font-weight:700";
+    msg.textContent = "Can't rename — use + Add Option or Remove";
+    row.insertBefore(msg, inp);
+    setTimeout(() => { inp.style.borderColor = ""; msg.remove(); delete inp.dataset.msgActive; }, 2500);
   };
 
-  $("manage-modal-body").querySelectorAll(".mn-opt-item").forEach(inp => wireOptBlur(inp, Number(inp.dataset.idx)));
-  $("manage-modal-body").querySelectorAll(".mn-opt-score").forEach(inp => wireOptScore(inp, Number(inp.dataset.idx)));
-  $("manage-modal-body").querySelectorAll(".mn-opt-del").forEach(btn => wireOptDel(btn, Number(btn.dataset.idx)));
+  $("manage-modal-body").querySelectorAll(".mn-opt-item[readonly]").forEach(inp => {
+    inp.addEventListener("click", () => showOptLockedMsg(inp));
+  });
 
   $("manage-modal-body").querySelectorAll(".mn-opts-list").forEach(list => {
     initDragSort(list, async () => {
@@ -10017,18 +10108,75 @@ function renderTargetManageContent(student, target) {
       const row = document.createElement("div");
       row.className = "mn-opt-row admin-list-item";
       row.dataset.idx = String(oi);
-      row.style.cssText = "display:flex;align-items:center;gap:.3rem;margin-bottom:.25rem";
+      row.style.cssText = "display:flex;align-items:center;gap:.4rem;margin-bottom:.4rem";
       row.innerHTML =
-        `<span class="drag-handle" style="cursor:grab;color:#c4c9d4;font-size:1rem;flex-shrink:0;padding:0 .1rem;user-select:none">⠿</span>` +
-        `<span class="mn-opt-num" style="font-size:.75rem;color:#6b7280;white-space:nowrap;flex-shrink:0;font-weight:600">Option ${oi + 1}:</span>` +
-        `<input class="admin-input mn-opt-item" data-idx="${idx}" data-oi="${oi}" placeholder="Enter option…" style="flex:1;padding:.3rem .45rem;font-size:.84rem;min-width:0">` +
-        `<input class="admin-input mn-opt-score" type="number" min="0" step="0.5" data-idx="${idx}" data-oi="${oi}" placeholder="Pts" title="Auto-score when selected (leave blank for none)" style="width:3.2rem;flex-shrink:0;padding:.3rem .2rem;font-size:.8rem;text-align:center">` +
-        `<button class="mn-opt-del" data-idx="${idx}" data-oi="${oi}" title="Remove option" style="flex-shrink:0;padding:.2rem .4rem;font-size:.8rem;color:#9ca3af;background:none;border:1px solid #e5e7eb;border-radius:.3rem;cursor:pointer;line-height:1">×</button>`;
+        `<span class="drag-handle" style="cursor:grab;color:#c4c9d4;font-size:1.1rem;flex-shrink:0;padding:0 .15rem;user-select:none">⠿</span>` +
+        `<span class="mn-opt-num" style="font-size:.8rem;color:#6b7280;white-space:nowrap;flex-shrink:0;font-weight:600">Option ${oi + 1}:</span>` +
+        `<span class="mn-opt-countdown" style="font-size:.88rem;color:#f59e0b;white-space:nowrap;flex-shrink:0;font-weight:700">Name locks in 20s</span>` +
+        `<input class="admin-input mn-opt-item" data-idx="${idx}" data-oi="${oi}" placeholder="Enter option name…" style="flex:1;padding:.45rem .6rem;font-size:.95rem;min-width:0;border-color:#f59e0b;background:#fffbeb">` +
+        `<input class="admin-input mn-opt-score" type="number" min="0" step="0.5" data-idx="${idx}" data-oi="${oi}" placeholder="Pts" style="width:3.8rem;flex-shrink:0;padding:.45rem .3rem;font-size:.9rem;text-align:center">` +
+        `<button class="mn-opt-remove" data-idx="${idx}" data-oi="${oi}" data-text="" style="flex-shrink:0;padding:.3rem .65rem;font-size:.82rem;color:#dc2626;background:none;border:1px solid #fca5a5;border-radius:.35rem;cursor:pointer">Remove</button>`;
       list.appendChild(row);
-      wireOptBlur(row.querySelector(".mn-opt-item"), idx);
-      wireOptScore(row.querySelector(".mn-opt-score"), idx);
-      wireOptDel(row.querySelector(".mn-opt-del"), idx);
-      row.querySelector(".mn-opt-item").focus();
+
+      const nameInput  = row.querySelector(".mn-opt-item");
+      const scoreInput = row.querySelector(".mn-opt-score");
+      const removeBtn  = row.querySelector(".mn-opt-remove");
+      const countdown  = row.querySelector(".mn-opt-countdown");
+      wireOptScore(scoreInput, idx);
+      wireOptRemove(removeBtn, idx);
+      nameInput.focus();
+
+      let locked = false;
+      const doLock = () => {
+        if (locked) return;
+        locked = true;
+        clearInterval(countdownInterval);
+        if (!nameInput.value.trim()) { list.removeChild(row); renumberOpts(list); return; }
+        const newName = nameInput.value.trim();
+        const existingActive   = parseOpts(acts[idx].inlineOptions || "");
+        const existingArchived = (acts[idx].archivedOptions || []).map(ao => ao.text);
+        if (existingActive.includes(newName) || existingArchived.includes(newName)) {
+          nameInput.style.borderColor = "#dc2626";
+          nameInput.style.background = "#fff5f5";
+          if (countdown) countdown.remove();
+          const errMsg = document.createElement("span");
+          errMsg.style.cssText = "font-size:.88rem;color:#dc2626;white-space:nowrap;flex-shrink:0;font-weight:700";
+          errMsg.textContent = existingArchived.includes(newName)
+            ? `"${newName}" was removed — use Unremove`
+            : `"${newName}" already exists`;
+          row.insertBefore(errMsg, nameInput);
+          setTimeout(() => { list.removeChild(row); renumberOpts(list); }, 10000);
+          return;
+        }
+        nameInput.readOnly = true;
+        nameInput.style.background = "#f9fafb";
+        nameInput.style.borderColor = "";
+        nameInput.style.cursor = "default";
+        if (countdown) countdown.remove();
+        removeBtn.dataset.text = newName;
+        const newOptsStr = getOptsFromDom(idx).join("/") || null;
+        if (newOptsStr !== acts[idx].inlineOptions) {
+          acts[idx].inlineOptions = newOptsStr;
+          acts[idx].remarkPresetId = null;
+          rebuildOptScores(idx);
+          target.predefinedActivities = acts;
+          saveTarget().catch(() => {});
+        }
+      };
+
+      let secondsLeft = 20;
+      const countdownInterval = setInterval(() => {
+        secondsLeft--;
+        if (countdown) countdown.textContent = `Name locks in ${secondsLeft}s`;
+        if (secondsLeft <= 0) doLock();
+      }, 1000);
+
+      nameInput.addEventListener("input", () => {
+        secondsLeft = 20;
+        if (countdown) countdown.textContent = `Name locks in ${secondsLeft}s`;
+      });
+      nameInput.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); doLock(); } });
+      nameInput.addEventListener("blur", doLock, { once: true });
     });
   });
 
@@ -10192,7 +10340,6 @@ function renderTemplateManageContent(template) {
             <textarea class="admin-input mn-act-name-input" id="mn-act-name-${idx}" data-idx="${idx}"
               rows="1" placeholder="Enter Activity" style="flex:1">${escHtml(a.name || "")}</textarea>
           </div>
-          ${a.createdOn ? `<span style="font-size:.72rem;color:#9ca3af">Created on ${fmtPeriodDate(a.createdOn)}</span>` : ''}
           <div style="display:flex;align-items:flex-start;gap:.5rem">
             <span style="font-size:.75rem;color:#6b7280;white-space:nowrap;font-weight:600;padding-top:.3rem">Remark Type:</span>
             ${remarkTypeSelect}
@@ -10209,8 +10356,8 @@ function renderTemplateManageContent(template) {
               <button class="mn-km-opt" data-idx="${idx}" data-action="color_white" style="padding:.35rem .6rem;background:#ffffff;border:2px solid ${!isGray ? '#6b7280' : '#e5e7eb'};border-radius:.4rem;cursor:pointer;font-size:.75rem;text-align:left">🤍 White (Normal)</button>
               <button class="mn-km-opt" data-idx="${idx}" data-action="color_gray" style="padding:.35rem .6rem;background:#d9d9d9;border:2px solid ${isGray ? '#6b7280' : '#bfbfbf'};border-radius:.4rem;cursor:pointer;font-size:.75rem;text-align:left">🩶 Grey (Maintain)</button>
             </div>
-            <button class="mn-km-mastered" data-idx="${idx}" style="width:100%;padding:.55rem .9rem;text-align:left;background:none;border:none;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:.84rem">⭐ Activity Mastered (from ${_refDateLabel} onwards)</button>
-            <button class="mn-km-discontinued" data-idx="${idx}" style="width:100%;padding:.55rem .9rem;text-align:left;background:none;border:none;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:.84rem;color:#dc2626">🚩 Discontinue Activity (from ${_refDateLabel} onwards)</button>
+            <button class="mn-km-mastered" data-idx="${idx}" style="width:100%;padding:.55rem .9rem;text-align:left;background:none;border:none;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:.84rem">⭐ Activity Mastered<br><span style="font-size:.78rem;color:#6b7280">(from ${_refDateLabel} onwards)</span></button>
+            <button class="mn-km-discontinued" data-idx="${idx}" style="width:100%;padding:.55rem .9rem;text-align:left;background:none;border:none;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:.84rem;color:#dc2626">🚩 Discontinue Activity<br><span style="font-size:.78rem">(from ${_refDateLabel} onwards)</span></button>
             <div style="display:flex;align-items:stretch">
               <button class="mn-km-opt" data-idx="${idx}" data-action="delete" style="flex:1;padding:.55rem .9rem;text-align:left;background:none;border:none;cursor:pointer;font-size:.84rem;color:#dc2626">🗑️ Delete Activity</button>
             </div>
@@ -10283,7 +10430,6 @@ function renderTemplateManageContent(template) {
     const idx = state.templates.findIndex(t => t.id === template.id);
     if (idx >= 0) state.templates[idx] = template;
     await saveTemplate(template);
-    await syncTemplateToStudents(template);
     showAutosaved();
   };
 
@@ -10767,14 +10913,14 @@ function renderTemplateManageContent(template) {
 
   const renumberTmplOpts = list => {
     list.querySelectorAll(".mn-opt-row").forEach((r, i) => {
-      r.dataset.idx = i; // keep row data-idx in sync for drag-sort
-      const n = r.querySelector(".mn-opt-num"); if (n) n.textContent = `Option ${i + 1}:`;
-      const inp = r.querySelector(".mn-opt-item"); if (inp) inp.dataset.oi = i;
-      const del = r.querySelector(".mn-opt-del");  if (del) del.dataset.oi = i;
+      r.dataset.idx = i;
+      const n   = r.querySelector(".mn-opt-num");    if (n)   n.textContent = `Option ${i + 1}:`;
+      const inp = r.querySelector(".mn-opt-item");   if (inp) inp.dataset.oi = i;
+      const rem = r.querySelector(".mn-opt-remove"); if (rem) rem.dataset.oi = i;
     });
   };
 
-  const wireTmplOptDel = (btn, idx) => {
+  const wireTmplOptRemove = (btn, idx) => {
     btn.addEventListener("click", async () => {
       const list = btn.closest(".mn-opts-list");
       list.removeChild(btn.closest(".mn-opt-row"));
@@ -10786,31 +10932,7 @@ function renderTemplateManageContent(template) {
     });
   };
 
-  const wireTmplOptBlur = (input, idx) => {
-    input.addEventListener("focus", () => { input.dataset.originalValue = input.value; });
-    input.addEventListener("blur", async () => {
-      const originalValue = input.dataset.originalValue ?? "";
-      const currentValue  = input.value.trim();
-      if (originalValue && currentValue && currentValue !== originalValue) {
-        const proceed = confirm(
-          `⚠️ Rename "${originalValue}" to "${currentValue}"?\n\n` +
-          `Any students already using this option in past sessions will keep the old name in their records — only future sessions will use the new name.\n\n` +
-          `Tip: If you want to keep "${originalValue}" and add "${currentValue}" as a separate option, press Cancel — then use "+ Add Option" and drag it into position.\n\n` +
-          `Rename anyway?`
-        );
-        if (!proceed) { input.value = originalValue; return; }
-      }
-      const newOptsStr = getTmplOptsFromDom(idx).join("/") || null;
-      if (newOptsStr === acts[idx].inlineOptions) return;
-      acts[idx].inlineOptions = newOptsStr;
-      acts[idx].remarkPresetId = null;
-      template.predefinedActivities = acts;
-      await saveTemplateFn();
-    });
-  };
-
-  $("manage-modal-body").querySelectorAll(".mn-opt-item").forEach(inp => wireTmplOptBlur(inp, Number(inp.dataset.idx)));
-  $("manage-modal-body").querySelectorAll(".mn-opt-del").forEach(btn => wireTmplOptDel(btn, Number(btn.dataset.idx)));
+  $("manage-modal-body").querySelectorAll(".mn-opt-remove").forEach(btn => wireTmplOptRemove(btn, Number(btn.dataset.idx)));
 
   $("manage-modal-body").querySelectorAll(".mn-opts-list").forEach(list => {
     initDragSort(list, async () => {
@@ -10832,16 +10954,67 @@ function renderTemplateManageContent(template) {
       const row = document.createElement("div");
       row.className = "mn-opt-row admin-list-item";
       row.dataset.idx = String(oi);
-      row.style.cssText = "display:flex;align-items:center;gap:.3rem;margin-bottom:.25rem";
+      row.style.cssText = "display:flex;align-items:center;gap:.4rem;margin-bottom:.4rem";
       row.innerHTML =
-        `<span class="drag-handle" style="cursor:grab;color:#c4c9d4;font-size:1rem;flex-shrink:0;padding:0 .1rem;user-select:none">⠿</span>` +
-        `<span class="mn-opt-num" style="font-size:.75rem;color:#6b7280;white-space:nowrap;flex-shrink:0;font-weight:600">Option ${oi + 1}:</span>` +
-        `<input class="admin-input mn-opt-item" data-idx="${idx}" data-oi="${oi}" placeholder="Enter option…" style="flex:1;padding:.3rem .45rem;font-size:.84rem;min-width:0">` +
-        `<button class="mn-opt-del" data-idx="${idx}" data-oi="${oi}" title="Remove option" style="flex-shrink:0;padding:.2rem .4rem;font-size:.8rem;color:#9ca3af;background:none;border:1px solid #e5e7eb;border-radius:.3rem;cursor:pointer;line-height:1">×</button>`;
+        `<span class="drag-handle" style="cursor:grab;color:#c4c9d4;font-size:1.1rem;flex-shrink:0;padding:0 .15rem;user-select:none">⠿</span>` +
+        `<span class="mn-opt-num" style="font-size:.8rem;color:#6b7280;white-space:nowrap;flex-shrink:0;font-weight:600">Option ${oi + 1}:</span>` +
+        `<span class="mn-opt-countdown" style="font-size:.88rem;color:#f59e0b;white-space:nowrap;flex-shrink:0;font-weight:700">Name locks in 20s</span>` +
+        `<input class="admin-input mn-opt-item" data-idx="${idx}" data-oi="${oi}" placeholder="Enter option name…" style="flex:1;padding:.45rem .6rem;font-size:.95rem;min-width:0;border-color:#f59e0b;background:#fffbeb">` +
+        `<button class="mn-opt-remove" data-idx="${idx}" data-oi="${oi}" style="flex-shrink:0;padding:.3rem .65rem;font-size:.82rem;color:#dc2626;background:none;border:1px solid #fca5a5;border-radius:.35rem;cursor:pointer">Remove</button>`;
       list.appendChild(row);
-      wireTmplOptBlur(row.querySelector(".mn-opt-item"), idx);
-      wireTmplOptDel(row.querySelector(".mn-opt-del"), idx);
-      row.querySelector(".mn-opt-item").focus();
+
+      const nameInput = row.querySelector(".mn-opt-item");
+      const removeBtn = row.querySelector(".mn-opt-remove");
+      const countdown = row.querySelector(".mn-opt-countdown");
+      wireTmplOptRemove(removeBtn, idx);
+      nameInput.focus();
+
+      let locked = false;
+      const doLock = () => {
+        if (locked) return;
+        locked = true;
+        clearInterval(countdownInterval);
+        if (!nameInput.value.trim()) { list.removeChild(row); renumberTmplOpts(list); return; }
+        const newName = nameInput.value.trim();
+        const existingActive = parseOpts(acts[idx].inlineOptions || "");
+        if (existingActive.includes(newName)) {
+          nameInput.style.borderColor = "#dc2626";
+          nameInput.style.background = "#fff5f5";
+          if (countdown) countdown.remove();
+          const errMsg = document.createElement("span");
+          errMsg.style.cssText = "font-size:.88rem;color:#dc2626;white-space:nowrap;flex-shrink:0;font-weight:700";
+          errMsg.textContent = `"${newName}" already exists`;
+          row.insertBefore(errMsg, nameInput);
+          setTimeout(() => { list.removeChild(row); renumberTmplOpts(list); }, 10000);
+          return;
+        }
+        nameInput.readOnly = true;
+        nameInput.style.background = "#f9fafb";
+        nameInput.style.borderColor = "";
+        nameInput.style.cursor = "default";
+        if (countdown) countdown.remove();
+        const newOptsStr = getTmplOptsFromDom(idx).join("/") || null;
+        if (newOptsStr !== acts[idx].inlineOptions) {
+          acts[idx].inlineOptions = newOptsStr;
+          acts[idx].remarkPresetId = null;
+          template.predefinedActivities = acts;
+          saveTemplateFn().catch(() => {});
+        }
+      };
+
+      let secondsLeft = 20;
+      const countdownInterval = setInterval(() => {
+        secondsLeft--;
+        if (countdown) countdown.textContent = `Name locks in ${secondsLeft}s`;
+        if (secondsLeft <= 0) doLock();
+      }, 1000);
+
+      nameInput.addEventListener("input", () => {
+        secondsLeft = 20;
+        if (countdown) countdown.textContent = `Name locks in ${secondsLeft}s`;
+      });
+      nameInput.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); doLock(); } });
+      nameInput.addEventListener("blur", doLock, { once: true });
     });
   });
 
@@ -11766,18 +11939,27 @@ function renderGroupStudentRow(studentName, remId, rem, target, mappedInfo = nul
   const opts = parseOpts(inlineOptions);
   function makeOptPills(remText) {
     if (opts.length === 0) return null;
+    const removedBadge = (() => {
+      if (!remText) return "";
+      if (multiSelect) {
+        const sel = remText.split(", ").map(s => s.trim()).filter(Boolean);
+        const gone = sel.filter(s => !opts.includes(s));
+        return gone.length ? `<div style="font-size:.78rem;color:#9ca3af;margin-top:.3rem;font-style:italic">Previously selected (removed): ${escHtml(gone.join(", "))}</div>` : "";
+      }
+      return !opts.includes(remText) ? `<div style="font-size:.78rem;color:#9ca3af;margin-top:.3rem;font-style:italic">Previously: ${escHtml(remText)} (removed)</div>` : "";
+    })();
     if (multiSelect) {
       const sel = (remText || "").split(", ").map(s => s.trim()).filter(Boolean);
       return `<div class="remark-preset-opts remark-preset-opts-multi" contenteditable="false">${opts.map(opt =>
-        `<button class="btn-remark-opt${sel.includes(opt) ? " active" : ""}"
+        `<button class="btn-remark-opt btn-remark-opt--multi${sel.includes(opt) ? " active" : ""}"
           data-rem-id="${remId}" data-opt="${escHtml(opt)}">${escHtml(opt)}</button>`
-      ).join("")}</div>`;
+      ).join("")}${removedBadge}</div>`;
     }
     return `<div class="remark-preset-opts" contenteditable="false">${opts.map(opt =>
       `<button class="btn-remark-opt${remText === opt ? " active" : ""}"
         data-rem-id="${remId}" data-opt="${escHtml(opt)}"
         data-score="${optionScores?.[opt] !== undefined ? optionScores[opt] : ''}">${escHtml(opt)}</button>`
-    ).join("")}</div>`;
+    ).join("")}${removedBadge}</div>`;
   }
 
   const freeTextBox = `<textarea class="field-input group-remark-input" rows="1"
