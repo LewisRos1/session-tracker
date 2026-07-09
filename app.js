@@ -147,7 +147,7 @@ function versionLineText() {
   return `Made by Lewis · Version ${APP_VERSION}`;
 }
 
-const APP_VERSION = "818";
+const APP_VERSION = "824";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -8758,6 +8758,7 @@ function buildRemarkTypeControls(a, idx, maxPts = 3) {
       <span style="font-size:.93rem;color:#374151;white-space:nowrap;font-weight:700;flex-shrink:0">Sentence Starter (Optional):</span>
       <input class="admin-input mn-act-starter-text" data-idx="${idx}"
         placeholder="Phrase…"
+        style="flex:1;min-width:0"
         value="${escHtml(a.sentenceStarter || "")}">
     </div>
     <div class="mn-opts-container" data-idx="${idx}" style="${showStarter ? "" : "display:none"}">
@@ -8768,13 +8769,13 @@ function buildRemarkTypeControls(a, idx, maxPts = 3) {
           `<div class="mn-opt-row admin-list-item" data-idx="${oi}" style="display:flex;align-items:center;gap:.4rem;margin-bottom:.4rem">` +
           `<span class="drag-handle" style="cursor:grab;color:#c4c9d4;font-size:1.1rem;flex-shrink:0;padding:0 .15rem;user-select:none">⠿</span>` +
           `<span class="mn-opt-num" style="font-size:.8rem;color:#6b7280;white-space:nowrap;flex-shrink:0;font-weight:600">Option ${oi + 1}:</span>` +
-          `<input class="admin-input mn-opt-item" data-idx="${idx}" data-oi="${oi}" value="${escHtml(opt)}" placeholder="Enter option…" readonly style="flex:1;padding:.45rem .6rem;font-size:.95rem;min-width:0;background:#f9fafb;color:#374151;cursor:default">` +
+          `<input class="admin-input mn-opt-item" data-idx="${idx}" data-oi="${oi}" value="${escHtml(opt)}" placeholder="Enter option…" ${opt ? `readonly style="flex:1;padding:.45rem .6rem;font-size:.95rem;min-width:0;background:#f9fafb;color:#374151;cursor:default"` : `data-empty-opt="1" style="flex:1;padding:.45rem .6rem;font-size:.95rem;min-width:0"`}>` +
           `<input class="admin-input mn-opt-score" type="number" min="0" max="${maxPts}" step="0.5" data-idx="${idx}" data-oi="${oi}" value="${escHtml(String(a.optionScores?.[opt] ?? ''))}" placeholder="Pts" style="width:3.8rem;flex-shrink:0;padding:.45rem .3rem;font-size:.9rem;text-align:center">` +
           `<button class="mn-opt-remove" data-idx="${idx}" data-oi="${oi}" data-text="${escHtml(opt)}" style="flex-shrink:0;padding:.3rem .65rem;font-size:.82rem;color:#dc2626;background:none;border:1px solid #fca5a5;border-radius:.35rem;cursor:pointer">Remove</button>` +
           `</div>`
         ).join("");
       })()}</div>
-      <button class="mn-opt-add" data-idx="${idx}" style="font-size:.82rem;padding:.3rem .7rem;background:none;border:1px solid #d1d5db;border-radius:.35rem;cursor:pointer;color:#6b7280;margin-top:.25rem">+ Add Option</button>
+      <button class="mn-opt-add" data-idx="${idx}" style="font-size:.82rem;padding:.3rem .7rem;background:var(--primary);border:1px solid var(--primary);border-radius:.35rem;cursor:pointer;color:#fff;margin-top:.25rem">+ Add Option</button>
       ${(() => {
         const archived = a.archivedOptions || [];
         return `<div class="mn-removed-section" data-idx="${idx}" style="margin-top:.5rem${archived.length === 0 ? ";display:none" : ""}">
@@ -8951,7 +8952,7 @@ function renderTargetManageContent(student, target) {
               rows="1" placeholder="Enter Activity" style="flex:1">${escHtml(a.name || "")}</textarea>
           </div>
           <div style="display:flex;align-items:flex-start;gap:.5rem">
-            <span style="font-size:.75rem;color:#6b7280;white-space:nowrap;font-weight:600;padding-top:.3rem">Remark Type:</span>
+            <span style="font-size:.88rem;color:#6b7280;white-space:nowrap;font-weight:600;padding-top:.3rem">Remark Type:</span>
             ${buildRemarkTypeControls(a, idx, target.maxPoints || 3)}
           </div>
           <div style="display:flex;align-items:center;gap:.5rem">
@@ -9008,7 +9009,7 @@ function renderTargetManageContent(student, target) {
               <button class="btn-adm-del mn-del-sub-act" data-idx="${subIdx}" title="Delete sub-activity" style="flex-shrink:0">🗑</button>
             </div>
             <div style="display:flex;align-items:flex-start;gap:.5rem;padding-left:1.6rem">
-              <span style="font-size:.75rem;color:#6b7280;white-space:nowrap;font-weight:600;padding-top:.3rem">Remark Type:</span>
+              <span style="font-size:.88rem;color:#6b7280;white-space:nowrap;font-weight:600;padding-top:.3rem">Remark Type:</span>
               ${subRemarkType}
             </div>
             ${subFixedRemarkRow}
@@ -9024,7 +9025,7 @@ function renderTargetManageContent(student, target) {
                 rows="1" placeholder="Enter Activity" style="flex:1">${escHtml(a.name || "")}</textarea>
             </div>
             ${subActsHtml}
-            <button class="mn-add-sub-act-btn" data-parent-idx="${idx}" style="font-size:.75rem;padding:.2rem .55rem;background:none;border:1px solid #d1d5db;border-radius:.35rem;color:#6b7280;cursor:pointer;margin-left:1.25rem;align-self:flex-start">+ Add Sub-activity</button>
+            <button class="mn-add-sub-act-btn" data-parent-idx="${idx}" style="font-size:.75rem;padding:.2rem .55rem;background:var(--primary);border:1px solid var(--primary);border-radius:.35rem;color:#fff;cursor:pointer;margin-left:1.25rem;align-self:flex-start">+ Add Sub-activity</button>
           </div>
           <div style="position:relative">
             <button class="btn-adm-del mn-kebab-btn" data-idx="${idx}" title="Activity options" style="font-size:1.35rem;font-weight:900;min-width:36px;min-height:36px">⋮</button>
@@ -9059,11 +9060,11 @@ function renderTargetManageContent(student, target) {
                 rows="1" placeholder="Enter Activity" style="flex:1">${escHtml(a.name || "")}</textarea>
             </div>
             <div style="display:flex;align-items:flex-start;gap:.5rem">
-              <span style="font-size:.75rem;color:#6b7280;white-space:nowrap;font-weight:600;padding-top:.3rem">Remark Type:</span>
+              <span style="font-size:.88rem;color:#6b7280;white-space:nowrap;font-weight:600;padding-top:.3rem">Remark Type:</span>
               ${remarkTypeSelect}
             </div>
             ${fixedRemarkRow}
-            <button class="mn-add-sub-act-btn" data-parent-idx="${idx}" style="font-size:.75rem;padding:.2rem .55rem;background:none;border:1px solid #d1d5db;border-radius:.35rem;color:#6b7280;cursor:pointer;align-self:flex-start">↳ Add Sub-activity</button>
+            <button class="mn-add-sub-act-btn" data-parent-idx="${idx}" style="font-size:.75rem;padding:.2rem .55rem;background:var(--primary);border:1px solid var(--primary);border-radius:.35rem;color:#fff;cursor:pointer;align-self:flex-start">↳ Add Sub-activity</button>
           </div>
           <div style="position:relative">
             <button class="btn-adm-del mn-kebab-btn" data-idx="${idx}" title="Activity options" style="font-size:1.35rem;font-weight:900;min-width:36px;min-height:36px">⋮</button>
@@ -10158,6 +10159,38 @@ function renderTargetManageContent(student, target) {
     inp.addEventListener("click", () => showOptLockedMsg(inp));
   });
 
+  $("manage-modal-body").querySelectorAll(".mn-opt-item[data-empty-opt]").forEach(inp => {
+    const saveEmpty = () => {
+      const newName = inp.value.trim();
+      if (!newName) return;
+      const idx = Number(inp.dataset.idx);
+      const existingActive   = parseOpts(acts[idx].inlineOptions || "");
+      const existingArchived = (acts[idx].archivedOptions || []).map(ao => ao.text);
+      if (existingActive.includes(newName) || existingArchived.includes(newName)) {
+        inp.style.borderColor = "#dc2626";
+        setTimeout(() => { inp.style.borderColor = ""; }, 2000);
+        return;
+      }
+      inp.readOnly = true;
+      inp.removeAttribute("data-empty-opt");
+      inp.style.background = "#f9fafb";
+      inp.style.cursor = "default";
+      const remBtn = inp.closest(".mn-opt-row")?.querySelector(".mn-opt-remove");
+      if (remBtn) remBtn.dataset.text = newName;
+      const newOptsStr = getOptsFromDom(idx).join("/") || null;
+      if (newOptsStr !== acts[idx].inlineOptions) {
+        acts[idx].inlineOptions = newOptsStr;
+        acts[idx].remarkPresetId = null;
+        rebuildOptScores(idx);
+        target.predefinedActivities = acts;
+        saveTarget().catch(() => {});
+      }
+      inp.addEventListener("click", () => showOptLockedMsg(inp));
+    };
+    inp.addEventListener("blur", saveEmpty, { once: true });
+    inp.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); inp.blur(); } });
+  });
+
   $("manage-modal-body").querySelectorAll(".mn-opts-list").forEach(list => {
     initDragSort(list, async () => {
       const idx = Number(list.closest(".mn-opts-container").dataset.idx);
@@ -10411,7 +10444,7 @@ function renderTemplateManageContent(template) {
               rows="1" placeholder="Enter Activity" style="flex:1">${escHtml(a.name || "")}</textarea>
           </div>
           <div style="display:flex;align-items:flex-start;gap:.5rem">
-            <span style="font-size:.75rem;color:#6b7280;white-space:nowrap;font-weight:600;padding-top:.3rem">Remark Type:</span>
+            <span style="font-size:.88rem;color:#6b7280;white-space:nowrap;font-weight:600;padding-top:.3rem">Remark Type:</span>
             ${remarkTypeSelect}
           </div>
           ${fixedRemarkRow}
@@ -11019,6 +11052,29 @@ function renderTemplateManageContent(template) {
   };
 
   $("manage-modal-body").querySelectorAll(".mn-opt-remove").forEach(btn => wireTmplOptRemove(btn, Number(btn.dataset.idx)));
+
+  $("manage-modal-body").querySelectorAll(".mn-opt-item[data-empty-opt]").forEach(inp => {
+    const saveTmplEmpty = () => {
+      const newName = inp.value.trim();
+      if (!newName) return;
+      const idx = Number(inp.dataset.idx);
+      inp.readOnly = true;
+      inp.removeAttribute("data-empty-opt");
+      inp.style.background = "#f9fafb";
+      inp.style.cursor = "default";
+      const remBtn = inp.closest(".mn-opt-row")?.querySelector(".mn-opt-remove");
+      if (remBtn) remBtn.dataset.text = newName;
+      const newOptsStr = getTmplOptsFromDom(idx).join("/") || null;
+      if (newOptsStr !== acts[idx].inlineOptions) {
+        acts[idx].inlineOptions = newOptsStr;
+        acts[idx].remarkPresetId = null;
+        template.predefinedActivities = acts;
+        saveTemplateFn().catch(() => {});
+      }
+    };
+    inp.addEventListener("blur", saveTmplEmpty, { once: true });
+    inp.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); inp.blur(); } });
+  });
 
   $("manage-modal-body").querySelectorAll(".mn-opts-list").forEach(list => {
     initDragSort(list, async () => {
