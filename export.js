@@ -151,6 +151,8 @@ const STYLE_ACT_HEADING = {
 };
 function isActivityActive(pa, dateStr) {
   if (!dateStr) return true;
+  if (pa.masteredOn     && dateStr >= pa.masteredOn)     return false;
+  if (pa.discontinuedOn && dateStr >= pa.discontinuedOn) return false;
   if (pa.activeFrom && dateStr < pa.activeFrom) return false;
   if (pa.activeTo   && dateStr > pa.activeTo)   return false;
   return true;
@@ -1786,6 +1788,15 @@ function getAllActivitiesForTarget(session, target) {
 
   for (const pa of (target.predefinedActivities || [])) {
     if (!isActivityActive(pa, session.date)) continue;
+    if (pa.isCompleted || pa.isArchived || pa.isStopped) continue;
+    if (pa.parentActivity) {
+      const parentExists = (target.predefinedActivities || []).some(
+        p => !p.parentActivity && p.name === pa.parentActivity
+          && isActivityActive(p, session.date)
+          && !p.isCompleted && !p.isArchived && !p.isStopped
+      );
+      if (!parentExists) continue;
+    }
     if (!pa.name && !pa.isNote && !pa.isExportNote && !pa.isHeading && !pa.isMaintainHeading) continue;
     if (pa.isNote) {
       result.push({ isNote: true, activityName: pa.text || "" });
@@ -1817,19 +1828,29 @@ function getAllActivitiesForTarget(session, target) {
       const si = subLabelCounters[pa.parentActivity] || 0;
       subLabelCounters[pa.parentActivity] = si + 1;
       const subLabel = String.fromCharCode(97 + si);
+      const parentPa = (target.predefinedActivities || []).find(p => !p.parentActivity && p.name === pa.parentActivity);
+      const subStatusPrefix = pa.discontinuedOn ? '(Discontinued) '
+        : pa.masteredOn ? '(Mastered) '
+        : parentPa?.discontinuedOn ? '(Discontinued) '
+        : parentPa?.masteredOn ? '(Mastered) '
+        : '';
+      const subActName = subStatusPrefix + pa.name;
       const sessionAct = sessionActs.find(a => a.activityName === pa.name && a.isPredefined);
       if (sessionAct) {
         usedIds.add(sessionAct.id);
-        result.push({ ...sessionAct, activityName: pa.name, isSubActivity: true, subLabel });
+        result.push({ ...sessionAct, activityName: subActName, isSubActivity: true, subLabel });
       } else {
-        result.push({ id: null, activityName: pa.name, isPredefined: true, empty: true, isSubActivity: true, subLabel });
+        result.push({ id: null, activityName: subActName, isPredefined: true, empty: true, isSubActivity: true, subLabel });
       }
       continue;
     }
 
     // All remaining paths are real activities — assign sequential number
     exportActNum++;
-    const numberedName = `${exportActNum}) ${pa.name}`;
+    const _exportStatusPrefix = pa.discontinuedOn ? '(Discontinued) '
+      : pa.masteredOn ? '(Mastered) '
+      : '';
+    const numberedName = `${_exportStatusPrefix}${exportActNum}) ${pa.name}`;
 
     // Parent activity (noRemark) — numbered title, empty remark
     if (pa.noRemark) {
@@ -1889,17 +1910,10 @@ function getAllActivitiesForTarget(session, target) {
 
   for (const act of sessionActs) {
     if (usedIds.has(act.id)) continue;
-    if (act.isPredefined) {
-      // No remark data — ghost entry, skip.
-      if (getRemarksForActivity(session, act.id).length === 0) continue;
-      // Activity is still in the predefined config — it was already rendered by the
-      // main loop above. Duplicate session-activity records (caused by the auto-fill
-      // race) would otherwise leak through here as unnumbered rows.
-      const stillInConfig = (target.predefinedActivities || []).some(
-        p => p.name === act.activityName && !p.isHeading && !p.isNote && !p.isExportNote
-      );
-      if (stillInConfig) continue;
-    }
+    // Skip isPredefined records and sub-activities (parentActivity set) — either already
+    // rendered above, or orphaned from a config activity that has since been removed.
+    // Sub-activities are never manually entered so they're always orphaned if not matched above.
+    if (act.isPredefined || act.parentActivity) continue;
     result.push(act);
   }
 

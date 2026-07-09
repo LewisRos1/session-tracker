@@ -147,7 +147,7 @@ function versionLineText() {
   return `Made by Lewis · Version ${APP_VERSION}`;
 }
 
-const APP_VERSION = "806";
+const APP_VERSION = "818";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -3457,6 +3457,10 @@ function renderFedcTarget(target) {
       const actLabelStyle = (pa.masteredOn || pa.inactiveReason === 'mastered') ? ' style="color:#059669"' : (pa.discontinuedOn || pa.inactiveReason === 'discontinued') ? ' style="color:#dc2626"' : '';
       const actDateLabel = pa.masteredOn ? `<span style="font-size:.75rem;color:#059669;margin-left:auto;font-weight:400;white-space:nowrap">Mastered on ${fmtPeriodDate(pa.masteredOn)}</span>`
         : pa.discontinuedOn ? `<span style="font-size:.75rem;color:#dc2626;margin-left:auto;font-weight:400;white-space:nowrap">Discontinued on ${fmtPeriodDate(pa.discontinuedOn)}</span>` : '';
+      const subActs = allPas.filter(p => p.parentActivity === pa.name && !p.isCompleted && !p.isArchived && !p.isStopped && !p.masteredOn && !p.discontinuedOn);
+      const subHtml = subActs.length ? `<div style="display:flex;flex-direction:column;gap:.1rem;padding:.2rem 0 .1rem 1.25rem">
+        ${subActs.map((sub, si) => `<div style="display:flex;align-items:center;gap:.4rem;font-size:.82rem;color:#9ca3af"><span style="flex-shrink:0">${String.fromCharCode(97 + si)})</span><span>${escHtml(sub.name || '')}</span></div>`).join('')}
+      </div>` : '';
       return `<div class="entry-block entry-block-predefined" style="opacity:.6;pointer-events:none">
         <div class="entry-field" contenteditable="false">
           <span class="field-label"${actLabelStyle}>${actLabel}</span>
@@ -3467,6 +3471,7 @@ function renderFedcTarget(target) {
           <span class="field-label">Remark</span>
           <span class="field-value-fixed" style="white-space:pre-wrap">${formatActivityMarkup(fixedText)}</span>
         </div>` : ''}
+        ${subHtml}
       </div>`;
     };
     const realInactive = inactivePas.filter(pa => !pa.isNote && !pa.isExportNote && !pa.isHeading && !pa.isMaintainHeading);
@@ -4802,7 +4807,8 @@ function buildTargetViewTable(target, data) {
       (target.predefinedActivities || []).filter(p => p.parentActivity).map(p => p.parentActivity)
     );
     for (const pa of target.predefinedActivities) {
-      if (!isActivityActiveForView(pa, data.date)) continue;
+      if (!isActivityActive(pa, data.date)) continue;
+      if (pa.isCompleted || pa.isArchived || pa.isStopped) continue;
       if (pa.isHeading || pa.isMaintainHeading) {
         const isGray = pa.headingColor === "gray" || pa.isMaintainHeading;
         const isGreen = pa.headingColor === "green";
@@ -4814,6 +4820,17 @@ function buildTargetViewTable(target, data) {
         continue;
       }
       const isSub = !!pa.parentActivity;
+      // Skip orphaned sub-activities whose parent was deleted from the predefined config.
+      // Edit Target hides them (line: if (a.parentActivity) return) but they still exist in
+      // predefinedActivities with no flags — check parent presence to exclude them here too.
+      if (isSub) {
+        const parentExists = (target.predefinedActivities || []).some(
+          p => !p.parentActivity && p.name === pa.parentActivity
+            && isActivityActive(p, data.date)
+            && !p.isCompleted && !p.isArchived && !p.isStopped
+        );
+        if (!parentExists) continue;
+      }
       let displayNo;
       if (isSub) {
         const parentKey = pa.parentActivity;
@@ -4828,9 +4845,14 @@ function buildTargetViewTable(target, data) {
         Object.entries(data.activities || {})
           .filter(([, a]) => a.targetName === target.name && a.activityName === pa.name)
           .forEach(([id]) => matchedIds.add(id));
+        const paBadge = pa.discontinuedOn
+          ? `<span style="font-size:.72rem;color:#dc2626;font-weight:600;white-space:nowrap">(🚩 ${fmtPeriodDate(pa.discontinuedOn)})</span> `
+          : pa.masteredOn
+          ? `<span style="font-size:.72rem;color:#059669;font-weight:600;white-space:nowrap">(⭐ ${fmtPeriodDate(pa.masteredOn)})</span> `
+          : '';
         rows += `<tr style="background:#f3f4f6">
           <td class="vcol-no" contenteditable="false" style="color:#6b7280">${displayNo}</td>
-          <td class="vcol-act" colspan="5" contenteditable="false" style="font-weight:600">${formatActivityMarkup(pa.name)}</td>
+          <td class="vcol-act" colspan="5" contenteditable="false" style="font-weight:600">${paBadge}${formatActivityMarkup(pa.name)}</td>
         </tr>`;
         continue;
       }
@@ -4885,9 +4907,6 @@ function buildTargetViewTable(target, data) {
         ).catch(() => {});
       }
       if (entry) matchedIds.add(entry[0]);
-      if (pa.discontinuedOn) {
-        rows += `<tr><td colspan="6" contenteditable="false" style="font-size:.75rem;color:#dc2626;padding:.15rem .75rem .05rem;font-weight:500;background:#fff">🚩 Discontinued on ${fmtPeriodDate(pa.discontinuedOn)}</td></tr>`;
-      }
       rows += viewActivityRows(displayNo, pa.name, entry?.[0] || null, data, target, true, pa);
     }
     // Silently delete unmatched records that have no meaningful data — these
@@ -4911,10 +4930,11 @@ function buildTargetViewTable(target, data) {
         deleteActivity(state.viewSessionId, actId, remIds).catch(() => {});
       }
     }
-    // All unmatched session activities — covers both manually-added activities
-    // AND predefined activities recorded under old names before a rename.
+    // Manually-added (non-predefined) activities not matched above.
+    // Skip isPredefined records and sub-activities (parentActivity set) — those belonged to a
+    // config activity that has since been removed. Sub-activities are never manually entered.
     Object.entries(data.activities || {})
-      .filter(([actId, a]) => a.targetName === target.name && !matchedIds.has(actId))
+      .filter(([actId, a]) => a.targetName === target.name && !matchedIds.has(actId) && !a.isPredefined && !a.parentActivity)
       .sort(([, a], [, b]) => (a.order || 0) - (b.order || 0))
       .forEach(([actId, act]) => {
         no++;
@@ -4979,8 +4999,19 @@ function viewActivityRows(no, actName, actId, data, target, isPredefined = true,
     ? target.predefinedActivities?.find(pa => pa.name === actName)
     : null);
 
+  const parentEntry = paEntry?.parentActivity
+    ? (target.predefinedActivities || []).find(p => !p.parentActivity && p.name === paEntry.parentActivity)
+    : null;
+  const _discontinuedOn = paEntry?.discontinuedOn || parentEntry?.discontinuedOn || null;
+  const _masteredOn     = paEntry?.masteredOn     || parentEntry?.masteredOn     || null;
+  const statusBadge = _discontinuedOn
+    ? `<span style="font-size:.72rem;color:#dc2626;font-weight:600;white-space:nowrap">(🚩 ${fmtPeriodDate(_discontinuedOn)})</span> `
+    : _masteredOn
+    ? `<span style="font-size:.72rem;color:#059669;font-weight:600;white-space:nowrap">(⭐ ${fmtPeriodDate(_masteredOn)})</span> `
+    : '';
+
   const actCell = isPredefined
-    ? formatActivityMarkup(actName) + (paEntry?.actNote?.trim() ? `<div class="view-act-note">${formatActivityMarkup(paEntry.actNote)}</div>` : "")
+    ? statusBadge + formatActivityMarkup(actName) + (paEntry?.actNote?.trim() ? `<div class="view-act-note">${formatActivityMarkup(paEntry.actNote)}</div>` : "")
     : `<div style="display:flex;align-items:center;gap:.3rem">
         <input class="view-act-edit" type="text" value="${escHtml(actName)}"
           data-act-id="${escHtml(actId || "")}" data-original="${escHtml(actName)}" />
@@ -6302,7 +6333,8 @@ function buildGroupTargetViewTable(target, data, attendees) {
       (target.predefinedActivities || []).filter(p => p.parentActivity).map(p => p.parentActivity)
     );
     for (const pa of target.predefinedActivities) {
-      if (!isActivityActiveForView(pa, data.date)) continue;
+      if (!isActivityActive(pa, data.date)) continue;
+      if (pa.isCompleted || pa.isArchived || pa.isStopped) continue;
       if (pa.isHeading || pa.isMaintainHeading) {
         const isGray = pa.headingColor === "gray" || pa.isMaintainHeading;
         const isGreenHdg = pa.headingColor === "green";
@@ -6318,9 +6350,14 @@ function buildGroupTargetViewTable(target, data, attendees) {
         Object.entries(data.activities || {})
           .filter(([, a]) => a.targetName === target.name && a.activityName === pa.name)
           .forEach(([id]) => matchedIds.add(id));
+        const paBadgeGrp = pa.discontinuedOn
+          ? `<span style="font-size:.72rem;color:#dc2626;font-weight:600;white-space:nowrap">(🚩 ${fmtPeriodDate(pa.discontinuedOn)})</span> `
+          : pa.masteredOn
+          ? `<span style="font-size:.72rem;color:#059669;font-weight:600;white-space:nowrap">(⭐ ${fmtPeriodDate(pa.masteredOn)})</span> `
+          : '';
         rows += `<tr style="background:#f3f4f6">
           <td class="vcol-no" contenteditable="false" style="color:#6b7280">${no}</td>
-          <td class="vcol-act" colspan="6" contenteditable="false" style="font-weight:600">${formatActivityMarkup(pa.name)}</td>
+          <td class="vcol-act" colspan="6" contenteditable="false" style="font-weight:600">${paBadgeGrp}${formatActivityMarkup(pa.name)}</td>
         </tr>`;
         continue;
       }
@@ -6343,8 +6380,16 @@ function buildGroupTargetViewTable(target, data, attendees) {
         </tr>`;
         continue;
       }
-      no++;
       const isSub2 = !!pa.parentActivity;
+      if (isSub2) {
+        const parentExists2 = (target.predefinedActivities || []).some(
+          p => !p.parentActivity && p.name === pa.parentActivity
+            && isActivityActive(p, data.date)
+            && !p.isCompleted && !p.isArchived && !p.isStopped
+        );
+        if (!parentExists2) continue;
+      }
+      no++;
       const candidateEntries2 = Object.entries(data.activities || {})
         .filter(([id, a]) => a.targetName === target.name && a.activityName === pa.name && !matchedIds.has(id));
       let entry2 = pa.id ? (candidateEntries2.find(([, a]) => a.configId === pa.id) || null) : null;
@@ -6376,9 +6421,6 @@ function buildGroupTargetViewTable(target, data, attendees) {
         ).catch(() => {});
       }
       if (entry2) matchedIds.add(entry2[0]);
-      if (pa.discontinuedOn) {
-        rows += `<tr><td colspan="7" contenteditable="false" style="font-size:.75rem;color:#dc2626;padding:.15rem .75rem .05rem;font-weight:500;background:#fff">🚩 Discontinued on ${fmtPeriodDate(pa.discontinuedOn)}</td></tr>`;
-      }
       rows += viewGroupActivityRows(no, pa.name, entry2?.[0] || null, data, target, attendees, true, pa);
     }
     // Silently delete unmatched records with no meaningful data (empty ghosts).
@@ -6400,10 +6442,11 @@ function buildGroupTargetViewTable(target, data, attendees) {
         deleteActivity(state.viewGroupSessionId, actId, remIds).catch(() => {});
       }
     }
-    // All unmatched session activities — covers both manually-added activities
-    // AND predefined activities recorded under old names before a rename.
+    // Manually-added (non-predefined) activities not matched above.
+    // Skip isPredefined records and sub-activities (parentActivity set) — those belonged to a
+    // config activity that has since been removed. Sub-activities are never manually entered.
     Object.entries(data.activities || {})
-      .filter(([actId, a]) => a.targetName === target.name && !matchedIds.has(actId))
+      .filter(([actId, a]) => a.targetName === target.name && !matchedIds.has(actId) && !a.isPredefined && !a.parentActivity)
       .sort(([, a], [, b]) => (a.order || 0) - (b.order || 0))
       .forEach(([actId, act]) => {
         no++;
@@ -6469,8 +6512,19 @@ function viewGroupActivityRows(no, actName, actId, data, target, attendees, isPr
     ? target.predefinedActivities?.find(pa => pa.name === actName)
     : null);
 
+  const parentEntry = paEntry?.parentActivity
+    ? (target.predefinedActivities || []).find(p => !p.parentActivity && p.name === paEntry.parentActivity)
+    : null;
+  const _discontinuedOn = paEntry?.discontinuedOn || parentEntry?.discontinuedOn || null;
+  const _masteredOn     = paEntry?.masteredOn     || parentEntry?.masteredOn     || null;
+  const statusBadge = _discontinuedOn
+    ? `<span style="font-size:.72rem;color:#dc2626;font-weight:600;white-space:nowrap">(🚩 ${fmtPeriodDate(_discontinuedOn)})</span> `
+    : _masteredOn
+    ? `<span style="font-size:.72rem;color:#059669;font-weight:600;white-space:nowrap">(⭐ ${fmtPeriodDate(_masteredOn)})</span> `
+    : '';
+
   const actCell = isPredefined
-    ? formatActivityMarkup(actName) + (paEntry?.actNote?.trim() ? `<div class="view-act-note">${formatActivityMarkup(paEntry.actNote)}</div>` : "")
+    ? statusBadge + formatActivityMarkup(actName) + (paEntry?.actNote?.trim() ? `<div class="view-act-note">${formatActivityMarkup(paEntry.actNote)}</div>` : "")
     : `<div style="display:flex;align-items:center;gap:.3rem">
         <input class="view-act-edit" type="text" value="${escHtml(actName)}"
           data-act-id="${escHtml(actId || "")}" data-original="${escHtml(actName)}" />
@@ -9045,12 +9099,20 @@ function renderTargetManageContent(student, target) {
       <div id="mn-mastered-section" style="display:none">`;
     masteredActs.forEach((a, ci) => {
       const dateLabel = a.masteredOn ? `Mastered on ${fmtPeriodDate(a.masteredOn)}` : 'Mastered';
-      html += `<div style="display:flex;align-items:center;gap:.5rem;padding:.45rem .5rem;background:#d1fae5;border:1px solid #6ee7b7;border-radius:.4rem;margin-bottom:.35rem">
+      const subActs = acts.filter(a2 => a2.parentActivity === a.name && !a2.masteredOn && !a2.discontinuedOn && !a2.isCompleted && !a2.isArchived && !a2.isStopped);
+      html += `<div style="display:flex;align-items:center;gap:.5rem;padding:.45rem .5rem;background:#d1fae5;border:1px solid #6ee7b7;border-radius:.4rem;margin-bottom:${subActs.length ? '.1rem' : '.35rem'}">
         <span style="flex:1;font-size:.875rem;color:#374151">${escHtml(a.name || "")}</span>
         <span style="font-size:.72rem;color:#059669;white-space:nowrap">${dateLabel}</span>
         <button class="btn-mn-undo-mastered" data-completed-idx="${ci}" style="font-size:.75rem;padding:.25rem .55rem;background:#dbeafe;border:1px solid #bfdbfe;border-radius:.35rem;cursor:pointer;color:#1d4ed8;white-space:nowrap">↩ Undo</button>
         <button class="btn-adm-del btn-mn-del-mastered" data-completed-idx="${ci}" title="Delete permanently">🗑</button>
       </div>`;
+      subActs.forEach((sub, si) => {
+        html += `<div style="display:flex;align-items:center;gap:.4rem;padding:.25rem .5rem .25rem 1.25rem;background:#ecfdf5;border:1px solid #a7f3d0;border-radius:.35rem;margin-bottom:.1rem;margin-left:.75rem">
+          <span style="font-size:.75rem;color:#059669;flex-shrink:0">${String.fromCharCode(97 + si)})</span>
+          <span style="flex:1;font-size:.8rem;color:#374151">${escHtml(sub.name || "")}</span>
+        </div>`;
+      });
+      if (subActs.length) html += `<div style="margin-bottom:.35rem"></div>`;
     });
     html += `</div></div>`;
   }
@@ -9064,12 +9126,20 @@ function renderTargetManageContent(student, target) {
       <div id="mn-discontinued-section" style="display:none">`;
     discontinuedActs.forEach((a, ci) => {
       const dateLabel = a.discontinuedOn ? `Discontinued on ${fmtPeriodDate(a.discontinuedOn)}` : 'Discontinued';
-      html += `<div style="display:flex;align-items:center;gap:.5rem;padding:.45rem .5rem;background:#fafafa;border:1px solid #e5e7eb;border-radius:.4rem;margin-bottom:.35rem">
+      const subActs = acts.filter(a2 => a2.parentActivity === a.name && !a2.masteredOn && !a2.discontinuedOn && !a2.isCompleted && !a2.isArchived && !a2.isStopped);
+      html += `<div style="display:flex;align-items:center;gap:.5rem;padding:.45rem .5rem;background:#fafafa;border:1px solid #e5e7eb;border-radius:.4rem;margin-bottom:${subActs.length ? '.1rem' : '.35rem'}">
         <span style="flex:1;font-size:.875rem;color:#374151">${escHtml(a.name || "")}</span>
         <span style="font-size:.72rem;color:#6b7280;white-space:nowrap">${dateLabel}</span>
         <button class="btn-mn-undo-discontinued" data-completed-idx="${ci}" style="font-size:.75rem;padding:.25rem .55rem;background:#dbeafe;border:1px solid #bfdbfe;border-radius:.35rem;cursor:pointer;color:#1d4ed8;white-space:nowrap">↩ Undo</button>
         <button class="btn-adm-del btn-mn-del-discontinued" data-completed-idx="${ci}" title="Delete permanently">🗑</button>
       </div>`;
+      subActs.forEach((sub, si) => {
+        html += `<div style="display:flex;align-items:center;gap:.4rem;padding:.25rem .5rem .25rem 1.25rem;background:#f9fafb;border:1px solid #f3f4f6;border-radius:.35rem;margin-bottom:.1rem;margin-left:.75rem">
+          <span style="font-size:.75rem;color:#9ca3af;flex-shrink:0">${String.fromCharCode(97 + si)})</span>
+          <span style="flex:1;font-size:.8rem;color:#6b7280">${escHtml(sub.name || "")}</span>
+        </div>`;
+      });
+      if (subActs.length) html += `<div style="margin-bottom:.35rem"></div>`;
     });
     html += `</div></div>`;
   }
@@ -10378,12 +10448,20 @@ function renderTemplateManageContent(template) {
       <div id="mn-mastered-section" style="display:none">`;
     masteredActs.forEach((a, ci) => {
       const dateLabel = a.masteredOn ? `Mastered on ${fmtPeriodDate(a.masteredOn)}` : 'Mastered';
-      html += `<div style="display:flex;align-items:center;gap:.5rem;padding:.45rem .5rem;background:#d1fae5;border:1px solid #6ee7b7;border-radius:.4rem;margin-bottom:.35rem">
+      const subActs = acts.filter(a2 => a2.parentActivity === a.name && !a2.masteredOn && !a2.discontinuedOn && !a2.isCompleted && !a2.isArchived && !a2.isStopped);
+      html += `<div style="display:flex;align-items:center;gap:.5rem;padding:.45rem .5rem;background:#d1fae5;border:1px solid #6ee7b7;border-radius:.4rem;margin-bottom:${subActs.length ? '.1rem' : '.35rem'}">
         <span style="flex:1;font-size:.875rem;color:#374151">${escHtml(a.name || "")}</span>
         <span style="font-size:.72rem;color:#059669;white-space:nowrap">${dateLabel}</span>
         <button class="btn-mn-undo-mastered" data-completed-idx="${ci}" style="font-size:.75rem;padding:.25rem .55rem;background:#dbeafe;border:1px solid #bfdbfe;border-radius:.35rem;cursor:pointer;color:#1d4ed8;white-space:nowrap">↩ Undo</button>
         <button class="btn-adm-del btn-mn-del-mastered" data-completed-idx="${ci}" title="Delete permanently">🗑</button>
       </div>`;
+      subActs.forEach((sub, si) => {
+        html += `<div style="display:flex;align-items:center;gap:.4rem;padding:.25rem .5rem .25rem 1.25rem;background:#ecfdf5;border:1px solid #a7f3d0;border-radius:.35rem;margin-bottom:.1rem;margin-left:.75rem">
+          <span style="font-size:.75rem;color:#059669;flex-shrink:0">${String.fromCharCode(97 + si)})</span>
+          <span style="flex:1;font-size:.8rem;color:#374151">${escHtml(sub.name || "")}</span>
+        </div>`;
+      });
+      if (subActs.length) html += `<div style="margin-bottom:.35rem"></div>`;
     });
     html += `</div></div>`;
   }
@@ -10397,12 +10475,20 @@ function renderTemplateManageContent(template) {
       <div id="mn-discontinued-section" style="display:none">`;
     discontinuedActs.forEach((a, ci) => {
       const dateLabel = a.discontinuedOn ? `Discontinued on ${fmtPeriodDate(a.discontinuedOn)}` : 'Discontinued';
-      html += `<div style="display:flex;align-items:center;gap:.5rem;padding:.45rem .5rem;background:#fafafa;border:1px solid #e5e7eb;border-radius:.4rem;margin-bottom:.35rem">
+      const subActs = acts.filter(a2 => a2.parentActivity === a.name && !a2.masteredOn && !a2.discontinuedOn && !a2.isCompleted && !a2.isArchived && !a2.isStopped);
+      html += `<div style="display:flex;align-items:center;gap:.5rem;padding:.45rem .5rem;background:#fafafa;border:1px solid #e5e7eb;border-radius:.4rem;margin-bottom:${subActs.length ? '.1rem' : '.35rem'}">
         <span style="flex:1;font-size:.875rem;color:#374151">${escHtml(a.name || "")}</span>
         <span style="font-size:.72rem;color:#6b7280;white-space:nowrap">${dateLabel}</span>
         <button class="btn-mn-undo-discontinued" data-completed-idx="${ci}" style="font-size:.75rem;padding:.25rem .55rem;background:#dbeafe;border:1px solid #bfdbfe;border-radius:.35rem;cursor:pointer;color:#1d4ed8;white-space:nowrap">↩ Undo</button>
         <button class="btn-adm-del btn-mn-del-discontinued" data-completed-idx="${ci}" title="Delete permanently">🗑</button>
       </div>`;
+      subActs.forEach((sub, si) => {
+        html += `<div style="display:flex;align-items:center;gap:.4rem;padding:.25rem .5rem .25rem 1.25rem;background:#f9fafb;border:1px solid #f3f4f6;border-radius:.35rem;margin-bottom:.1rem;margin-left:.75rem">
+          <span style="font-size:.75rem;color:#9ca3af;flex-shrink:0">${String.fromCharCode(97 + si)})</span>
+          <span style="flex:1;font-size:.8rem;color:#6b7280">${escHtml(sub.name || "")}</span>
+        </div>`;
+      });
+      if (subActs.length) html += `<div style="margin-bottom:.35rem"></div>`;
     });
     html += `</div></div>`;
   }
@@ -11582,7 +11668,11 @@ function buildGroupItemsByActivity(target, data, attendees) {
       const grpActLabelStyle = (pa.masteredOn || pa.inactiveReason === 'mastered') ? ' style="color:#059669"' : (pa.discontinuedOn || pa.inactiveReason === 'discontinued') ? ' style="color:#dc2626"' : '';
       const grpActDateLabel = pa.masteredOn ? `<span style="font-size:.75rem;color:#059669;margin-left:auto;font-weight:400;white-space:nowrap">Mastered on ${fmtPeriodDate(pa.masteredOn)}</span>`
         : pa.discontinuedOn ? `<span style="font-size:.75rem;color:#dc2626;margin-left:auto;font-weight:400;white-space:nowrap">Discontinued on ${fmtPeriodDate(pa.discontinuedOn)}</span>` : '';
-      return `<div class="entry-block entry-block-predefined" style="opacity:.6;pointer-events:none"><div class="entry-field" contenteditable="false"><span class="field-label"${grpActLabelStyle}>${grpActLabel}</span><span class="field-value-fixed">${formatActivityMarkup(pa.name)}</span>${grpActDateLabel}</div></div>`;
+      const grpSubActs = (target.predefinedActivities || []).filter(p => p.parentActivity === pa.name && !p.isCompleted && !p.isArchived && !p.isStopped && !p.masteredOn && !p.discontinuedOn);
+      const grpSubHtml = grpSubActs.length ? `<div style="display:flex;flex-direction:column;gap:.1rem;padding:.2rem 0 .1rem 1.25rem">
+        ${grpSubActs.map((sub, si) => `<div style="display:flex;align-items:center;gap:.4rem;font-size:.82rem;color:#9ca3af"><span style="flex-shrink:0">${String.fromCharCode(97 + si)})</span><span>${escHtml(sub.name || '')}</span></div>`).join('')}
+      </div>` : '';
+      return `<div class="entry-block entry-block-predefined" style="opacity:.6;pointer-events:none"><div class="entry-field" contenteditable="false"><span class="field-label"${grpActLabelStyle}>${grpActLabel}</span><span class="field-value-fixed">${formatActivityMarkup(pa.name)}</span>${grpActDateLabel}</div>${grpSubHtml}</div>`;
     };
     const grpReal = grpInactivePas.filter(pa => !pa.isNote && !pa.isExportNote && !pa.isHeading && !pa.isMaintainHeading);
     const grpMastered     = grpReal.filter(pa => pa.masteredOn || pa.inactiveReason === 'mastered');
