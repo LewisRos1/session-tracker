@@ -36,14 +36,7 @@ import {
 // â”€â”€â”€ FIREBASE CONFIGURATION â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Replace every "YOUR_..." placeholder with your project's values.
 // Find these in: Firebase Console â†’ Project Settings â†’ Your apps â†’ SDK setup
-const FIREBASE_CONFIG = {
-  apiKey: "AIzaSyAPcXOMAN-alX8y_PgCX5m-09iJwRgzzE0",
-  authDomain: "session-tracker-b663a.firebaseapp.com",
-  projectId: "session-tracker-b663a",
-  storageBucket: "session-tracker-b663a.firebasestorage.app",
-  messagingSenderId: "1011584567383",
-  appId: "1:1011584567383:web:3eff4340c16260de977b12"
-};
+const FIREBASE_CONFIG = {"apiKey":"AIzaSyAPcXOMAN-alX8y_PgCX5m-09iJwRgzzE0","authDomain":"session-tracker-b663a.firebaseapp.com","projectId":"session-tracker-b663a","storageBucket":"session-tracker-b663a.firebasestorage.app","messagingSenderId":"1011584567383","appId":"1:1011584567383:web:3eff4340c16260de977b12"};
 // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const app = initializeApp(FIREBASE_CONFIG);
@@ -1358,6 +1351,7 @@ export async function clearRemark(sessionId, remId) {
     [`remarks.${remId}.trials`]: []
   });
 }
+
 
 
 
