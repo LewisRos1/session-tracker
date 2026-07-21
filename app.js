@@ -155,7 +155,7 @@ function versionLineText() {
   return `Made by Lewis · Version ${APP_VERSION}`;
 }
 
-const APP_VERSION = "1000";
+const APP_VERSION = "1005";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -1877,7 +1877,7 @@ function renderExportButtons() {
       <button class="export-btn export-btn-all" id="btn-export-all-trials">Backup All Excel (ZIP)</button>
       <button class="export-btn" id="btn-data-integrity-check">🔍 Run Data Integrity Check</button>
       <button class="export-btn" id="btn-recently-deleted">🗑️ Recently Deleted (30 days)</button>
-      <button class="export-btn" id="btn-hyr-settings">⚙️ Settings (for AI Report)</button>
+      <button class="export-btn" id="btn-hyr-settings">✏️ Prompt for AI Report</button>
     </div>`;
 
   const wire = (btnId, defaultLabel, includeTrials) => {
@@ -1976,21 +1976,21 @@ function renderHalfYearReportsSection() {
     .sort((a, b) => a.name.localeCompare(b.name));
 
   container.innerHTML = `
-    <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">
-      <select id="hyr-student-select" class="admin-input" style="flex:1;min-width:180px;background:#fff;font-family:inherit;font-size:1rem">
+    <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:nowrap">
+      <select id="hyr-student-select" class="admin-input" style="flex:1;min-width:0;background:#fff;font-family:inherit;font-size:1rem">
         <option value="">— Select Student —</option>
         ${students.map(s => `<option value="${escHtml(s.id)}">${escHtml(s.name)}</option>`).join("")}
       </select>
-      <span id="hyr-period-loading" style="font-size:.85rem;color:var(--text-muted);display:none">Checking sessions…</span>
-      <select id="hyr-period-select" class="admin-input" style="width:170px;flex-shrink:0;background:#fff;font-family:inherit;font-size:1rem;display:none"></select>
+      <span id="hyr-period-loading" style="font-size:.85rem;color:var(--text-muted);white-space:nowrap;display:none">Checking…</span>
+      <select id="hyr-period-select" class="admin-input" style="width:175px;flex-shrink:0;background:#fff;font-family:inherit;font-size:1rem;display:none"></select>
       <button id="hyr-btn-generate" class="btn-add-section"
-        style="font-size:.9rem;padding:.45rem 1.1rem;min-height:38px;display:none">
+        style="font-size:.9rem;padding:.45rem 1.1rem;min-height:38px;white-space:nowrap;flex-shrink:0;display:none">
         Generate Report
       </button>
     </div>
-    <div id="hyr-breakdown-section" style="display:none;margin-top:.75rem;padding:.6rem .75rem;background:#f9fafb;border-radius:8px;border:1px solid #e5e7eb">
-      <div style="font-size:.83rem;font-weight:600;color:var(--text-muted);margin-bottom:.4rem">Include activity breakdown chart for:</div>
-      <div id="hyr-breakdown-targets" style="display:flex;flex-wrap:wrap;gap:.3rem .75rem"></div>
+    <div id="hyr-breakdown-section" style="display:none;margin-top:.75rem;padding:.75rem 1rem;background:#f9fafb;border-radius:8px;border:1px solid #e5e7eb">
+      <div style="font-size:1rem;font-weight:600;color:var(--text-muted);margin-bottom:.55rem">Include activity breakdown chart for:</div>
+      <div id="hyr-breakdown-targets" style="display:flex;flex-wrap:wrap;gap:.45rem 1rem"></div>
     </div>
     <div id="hyr-progress" style="display:none;margin-top:.85rem">
       <div style="background:#e5e7eb;border-radius:99px;height:6px;overflow:hidden">
@@ -2019,12 +2019,15 @@ function renderHalfYearReportsSection() {
     if (student) {
       const activeTargets = (student.targets || []).filter(t => !t.isArchived && !t.isStopped);
       if (activeTargets.length > 0) {
-        bdTargets.innerHTML = activeTargets.map(t =>
-          `<label style="display:flex;align-items:center;gap:.3rem;font-size:.83rem;cursor:pointer;white-space:nowrap">
-            <input type="checkbox" class="hyr-breakdown-check" value="${escHtml(t.name)}" style="cursor:pointer">
+        const savedBdPreset = student.hyrBreakdownTargets;
+        bdTargets.innerHTML = activeTargets.map(t => {
+          const isChecked = savedBdPreset && savedBdPreset.includes(t.name);
+          return `<label style="display:flex;align-items:center;gap:.4rem;font-size:1rem;cursor:pointer;white-space:nowrap">
+            <input type="checkbox" class="hyr-breakdown-check" value="${escHtml(t.name)}" ${isChecked ? "checked" : ""} style="cursor:pointer;width:1.05rem;height:1.05rem">
             ${escHtml(t.name)}
-          </label>`
-        ).join("");
+          </label>`;
+        }).join("") +
+        `<div style="width:100%;margin-top:.4rem;font-size:.83rem;color:var(--text-muted);font-style:italic">Selection saved as a preset.</div>`;
         bdSection.style.display = "";
       }
     }
@@ -2096,6 +2099,10 @@ async function hyrGenerate() {
     const selectedBreakdownTargets = new Set(
       Array.from(document.querySelectorAll(".hyr-breakdown-check:checked")).map(el => el.value)
     );
+
+    // Save exactly which targets were checked as the preset
+    student.hyrBreakdownTargets = Array.from(selectedBreakdownTargets);
+    saveStudent(student).catch(() => {});
 
     setProgress(35, "Sending to AI…");
 
@@ -2813,43 +2820,73 @@ function hyrDownloadWord(reportText, studentName, period, year, chartData = {}, 
 }
 
 async function hyrOpenSettings() {
-  const config = await getHyrConfig();
-
-  $("manage-modal-title").textContent = "Report Generator Settings";
+  $("manage-modal-title").textContent = "Prompt for AI Report";
   $("manage-modal-body").innerHTML = `
-    <div style="padding:.75rem 1rem;display:flex;flex-direction:column;gap:1rem">
-
-      <div style="border:1.5px solid var(--border);border-radius:.6rem;padding:.85rem 1rem">
-        <div style="font-weight:600;font-size:.9rem;margin-bottom:.3rem">✏ Report Prompt</div>
-        <div style="font-size:.8rem;color:var(--text-muted);margin-bottom:.65rem">
-          This is what Claude is instructed to do when generating a report. Refine it to improve the writing style.
-        </div>
-        <textarea id="hyr-prompt-textarea" class="admin-input" rows="14"
-          style="font-family:monospace;font-size:.78rem;resize:vertical"
-        >${escHtml(config.prompt || HYR_DEFAULT_PROMPT)}</textarea>
-        <div style="display:flex;gap:.5rem;margin-top:.6rem">
-          <button id="hyr-btn-save-prompt" class="btn-add-section" style="flex:1;text-align:center">Save Prompt</button>
-          <button id="hyr-btn-reset-prompt" class="export-btn" style="flex:1;text-align:center;font-size:.85rem">Reset to Default</button>
-        </div>
-      </div>
-
+    <div style="padding:2rem 1rem;display:flex;flex-direction:column;align-items:center;gap:.75rem">
+      <div style="font-size:.9rem;color:var(--text-muted)">Enter password to continue</div>
+      <input id="hyr-settings-pw" type="password" class="admin-input"
+        style="width:200px;text-align:center;font-size:1rem"
+        placeholder="Enter password" autocomplete="new-password">
+      <div id="hyr-settings-pw-err" style="font-size:.8rem;color:#dc2626;display:none">Incorrect password</div>
     </div>`;
   $("manage-modal").classList.remove("hidden");
 
-  $("hyr-btn-save-prompt").addEventListener("click", async () => {
-    const btn = $("hyr-btn-save-prompt");
-    const newPrompt = $("hyr-prompt-textarea").value.trim();
-    if (!newPrompt) return;
-    btn.disabled = true; btn.textContent = "Saving…";
-    _hyrConfig = null;
-    await saveHalfYearReportConfig({ ...config, prompt: newPrompt });
-    _hyrConfig = await loadHalfYearReportConfig();
-    btn.disabled = false; btn.textContent = "Save Prompt";
-    flashSaved(btn);
+  const pwInput = $("hyr-settings-pw");
+  pwInput.value = "";
+  setTimeout(() => { pwInput.value = ""; pwInput.focus(); }, 50);
+  pwInput.addEventListener("keydown", async e => {
+    if (e.key !== "Enter") return;
+    if (pwInput.value !== "0823") {
+      $("hyr-settings-pw-err").style.display = "";
+      pwInput.value = "";
+      return;
+    }
+    await hyrShowPromptEditor();
   });
+}
 
-  $("hyr-btn-reset-prompt").addEventListener("click", () => {
-    $("hyr-prompt-textarea").value = HYR_DEFAULT_PROMPT;
+async function hyrShowPromptEditor() {
+  const config = await getHyrConfig();
+
+  $("manage-modal-title").textContent = "Prompt for AI Report";
+  $("manage-modal-body").innerHTML = `
+    <div style="padding:.75rem 1rem;display:flex;flex-direction:column;gap:1rem">
+      <div style="border:1.5px solid var(--border);border-radius:.6rem;padding:.85rem 1rem">
+        <div style="font-size:.8rem;color:var(--text-muted);margin-bottom:.65rem">
+          This is what Claude is instructed to do when generating a report. Edits are saved automatically.
+        </div>
+        <textarea id="hyr-prompt-textarea" class="admin-input" rows="18"
+          style="font-family:monospace;font-size:.78rem;resize:vertical"
+        >${escHtml(config.prompt || HYR_DEFAULT_PROMPT)}</textarea>
+        <div id="hyr-autosave-status" style="font-size:.75rem;color:var(--text-muted);margin-top:.4rem;text-align:right;min-height:1em"></div>
+      </div>
+    </div>`;
+
+  let saveTimer = null;
+  $("hyr-prompt-textarea").addEventListener("input", () => {
+    const status = $("hyr-autosave-status");
+    status.textContent = "Unsaved changes…";
+    status.style.color = "var(--text-muted)";
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(async () => {
+      const newPrompt = $("hyr-prompt-textarea")?.value.trim();
+      if (!newPrompt) return;
+      status.textContent = "Saving…";
+      try {
+        _hyrConfig = null;
+        await saveHalfYearReportConfig({ ...config, prompt: newPrompt });
+        _hyrConfig = await loadHalfYearReportConfig();
+        if ($("hyr-autosave-status")) {
+          $("hyr-autosave-status").textContent = "Saved ✓";
+          $("hyr-autosave-status").style.color = "#16a34a";
+        }
+      } catch {
+        if ($("hyr-autosave-status")) {
+          $("hyr-autosave-status").textContent = "Save failed";
+          $("hyr-autosave-status").style.color = "#dc2626";
+        }
+      }
+    }, 900);
   });
 }
 
