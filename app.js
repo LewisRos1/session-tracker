@@ -155,7 +155,7 @@ function versionLineText() {
   return `Made by Lewis · Version ${APP_VERSION}`;
 }
 
-const APP_VERSION = "1009";
+const APP_VERSION = "1019";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -10451,35 +10451,40 @@ function buildRemarkTypeControls(a, idx, maxPts = 3) {
     : (a.inlineOptions || a.remarkPresetId) ? "starter_fixed" : "";
   const showStarter = type === "starter_fixed" || type === "starter_fixed_multi" || type === "starter_fixed_note";
   return `<div style="flex:1;display:flex;flex-direction:column;gap:.4rem;min-width:0">
-    <select class="act-preset-select mn-act-preset" data-idx="${idx}">
+    <select class="act-preset-select mn-act-preset" data-idx="${idx}" style="border-color:#b8bcc4">
       <option value="">Free text</option>
       <option value="manual_score"${type === "manual_score" ? " selected" : ""}>Manual Score</option>
-      <option value="starter_fixed"${type === "starter_fixed" ? " selected" : ""}>Sentence Starter + Select one</option>
-      <option value="starter_fixed_multi"${type === "starter_fixed_multi" ? " selected" : ""}>Sentence Starter + Tick boxes</option>
-      <option value="starter_fixed_note"${type === "starter_fixed_note" ? " selected" : ""}>Sentence Starter + Select One + Free Text</option>
+      <option value="starter_fixed"${type === "starter_fixed" ? " selected" : ""}>Sentence Starter + Multiple Options</option>
+      <option value="starter_fixed_multi"${type === "starter_fixed_multi" ? " selected" : ""}>Sentence Starter + Checkboxes</option>
+      <option value="starter_fixed_note"${type === "starter_fixed_note" ? " selected" : ""}>Sentence Starter + Multiple Options + Free Text</option>
     </select>
-    <div class="mn-act-starter-wrap" data-idx="${idx}" style="${showStarter ? "display:flex;align-items:center;gap:.5rem" : "display:none"}">
-      <span style="font-size:.93rem;color:#374151;white-space:nowrap;font-weight:700;flex-shrink:0">Sentence Starter (Optional):</span>
+    <div class="mn-act-starter-wrap" data-idx="${idx}" style="${showStarter ? "display:flex;flex-direction:column;gap:.3rem" : "display:none"}">
+      <span style="font-size:.95rem;color:#374151;font-weight:700">Sentence Starter</span>
       <input class="admin-input mn-act-starter-text" data-idx="${idx}"
-        placeholder="Phrase…"
-        style="flex:1;min-width:0"
+        placeholder="Enter Sentence Starter Here (Optional)"
+        style="width:100%;min-width:0;box-sizing:border-box;border-color:#b8bcc4"
         value="${escHtml(a.sentenceStarter || "")}">
     </div>
     <div class="mn-opts-container" data-idx="${idx}" style="${showStarter ? "" : "display:none"}">
-      <div class="mn-opts-list">${(() => {
-        const optsStr = a.inlineOptions || (a.remarkPresetId ? (state.remarkPresets.find(p=>p.id===a.remarkPresetId)?.options||[]).join("/") : "");
-        const displayOpts = parseOpts(optsStr).length > 0 ? parseOpts(optsStr) : [""];
-        return displayOpts.map((opt, oi) =>
-          `<div class="mn-opt-row admin-list-item" data-idx="${oi}" style="display:flex;align-items:center;gap:.4rem;margin-bottom:.4rem">` +
-          `<span class="drag-handle" style="cursor:grab;color:#c4c9d4;font-size:1.1rem;flex-shrink:0;padding:0 .15rem;user-select:none">⠿</span>` +
-          `<span class="mn-opt-num" style="font-size:.8rem;color:#6b7280;white-space:nowrap;flex-shrink:0;font-weight:600">Option ${oi + 1}:</span>` +
-          `<input class="admin-input mn-opt-item" data-idx="${idx}" data-oi="${oi}" value="${escHtml(opt)}" placeholder="Enter option…" ${opt ? `readonly style="flex:1;padding:.45rem .6rem;font-size:.95rem;min-width:0;background:#f9fafb;color:#374151;cursor:default"` : `data-empty-opt="1" style="flex:1;padding:.45rem .6rem;font-size:.95rem;min-width:0"`}>` +
-          `<input class="admin-input mn-opt-score" type="number" min="0" max="${maxPts}" step="0.5" data-idx="${idx}" data-oi="${oi}" value="${escHtml(String(a.optionScores?.[opt] ?? ''))}" placeholder="Pts" style="width:3.8rem;flex-shrink:0;padding:.45rem .3rem;font-size:.9rem;text-align:center">` +
-          `<button class="mn-opt-remove" data-idx="${idx}" data-oi="${oi}" data-text="${escHtml(opt)}" style="flex-shrink:0;padding:.3rem .65rem;font-size:.82rem;color:#dc2626;background:none;border:1px solid #fca5a5;border-radius:.35rem;cursor:pointer">Remove</button>` +
-          `</div>`
-        ).join("");
-      })()}</div>
-      <button class="mn-opt-add" data-idx="${idx}" style="font-size:.82rem;padding:.3rem .7rem;background:var(--primary);border:1px solid var(--primary);border-radius:.35rem;cursor:pointer;color:#fff;margin-top:.25rem">+ Add Option</button>
+      <div class="mn-opts-type-label" data-idx="${idx}" style="font-size:.95rem;font-weight:700;color:#374151;margin-bottom:.28rem">${type === "starter_fixed_multi" ? "Checkboxes" : "Multiple Options"}</div>
+      <div style="border:1px solid #b8bcc4;border-radius:.45rem;overflow:hidden;margin-bottom:.4rem">
+        <div class="mn-opts-list" style="padding:.3rem .4rem .1rem">${(() => {
+          const optsStr = a.inlineOptions || (a.remarkPresetId ? (state.remarkPresets.find(p=>p.id===a.remarkPresetId)?.options||[]).join("/") : "");
+          const displayOpts = parseOpts(optsStr).length > 0 ? parseOpts(optsStr) : [""];
+          return displayOpts.map((opt, oi) =>
+            `<div class="mn-opt-row" data-idx="${oi}" style="display:flex;align-items:center;gap:.4rem;margin-bottom:.35rem">` +
+            `<span class="drag-handle" style="cursor:grab;color:#c4c9d4;font-size:1.1rem;flex-shrink:0;padding:0 .15rem;user-select:none">⠿</span>` +
+            `<span class="mn-opt-num" style="display:none"></span>` +
+            `<input class="admin-input mn-opt-item" data-idx="${idx}" data-oi="${oi}" value="${escHtml(opt)}" placeholder="Enter option…" ${opt ? `readonly style="flex:1;padding:.45rem .6rem;font-size:.95rem;min-width:0;background:#f9fafb;color:#374151;cursor:default"` : `data-empty-opt="1" style="flex:1;padding:.45rem .6rem;font-size:.95rem;min-width:0"`}>` +
+            `<input class="admin-input mn-opt-score" type="number" min="0" max="${maxPts}" step="0.5" data-idx="${idx}" data-oi="${oi}" value="${escHtml(String(a.optionScores?.[opt] ?? ''))}" placeholder="Pts" style="width:3.8rem;flex-shrink:0;padding:.45rem .3rem;font-size:.9rem;text-align:center">` +
+            `<button class="mn-opt-remove" data-idx="${idx}" data-oi="${oi}" data-text="${escHtml(opt)}" title="Remove option">🗑</button>` +
+            `</div>`
+          ).join("");
+        })()}</div>
+        <div style="padding:.25rem .4rem .4rem;border-top:1px solid #b8bcc4">
+          <button class="mn-opt-add" data-idx="${idx}" style="font-size:.82rem;padding:.3rem .7rem;background:#f9fafb;border:1px solid #d1d5db;border-radius:.35rem;cursor:pointer;color:#374151">+ Add Option</button>
+        </div>
+      </div>
       ${(() => {
         const archived = a.archivedOptions || [];
         return `<div class="mn-removed-section" data-idx="${idx}" style="margin-top:.5rem${archived.length === 0 ? ";display:none" : ""}">
@@ -10661,23 +10666,41 @@ function renderTargetManageContent(student, target) {
 
       html += `<div class="admin-list-item" data-idx="${idx}">
         <span class="drag-handle">⠿</span>
-        <div style="flex:1;display:flex;flex-direction:column;gap:.3rem">
-          <div style="display:flex;align-items:flex-start;gap:.3rem">
-            ${formatButtonsHtml(`mn-act-name-${idx}`)}
-            <textarea class="admin-input mn-act-name-input" id="mn-act-name-${idx}" data-idx="${idx}"
-              rows="1" placeholder="Enter Activity" style="flex:1">${escHtml(a.name || "")}</textarea>
-          </div>
-          <div style="display:flex;align-items:flex-start;gap:.5rem">
-            <span style="font-size:.93rem;color:#374151;white-space:nowrap;font-weight:700;padding-top:.3rem">Remark Type:</span>
-            ${buildRemarkTypeControls(a, idx, target.maxPoints || 3)}
-          </div>
-          <div style="display:flex;align-items:center;gap:.5rem">
-            <span style="font-size:.75rem;color:#6b7280;white-space:nowrap;font-weight:600">Mapped To Which Target's Average:</span>
-            <select class="admin-input mn-mapped-target-select" data-idx="${idx}" style="flex:1">
-              <option value="">— select target —</option>
-              ${mappedOptions}
-            </select>
-          </div>
+        <div style="flex:1;display:flex;flex-direction:column;gap:.55rem">
+            <div>
+              <div style="font-size:.95rem;font-weight:700;color:#374151;margin-bottom:.28rem">Activity Title</div>
+              <div style="border:1px solid #b8bcc4;border-radius:.45rem;overflow:hidden">
+                <div style="display:flex;gap:.2rem;padding:.28rem .45rem;background:#f9fafb;border-bottom:1px solid #b8bcc4">
+                  <button class="btn-fmt btn-fmt-bold" type="button" data-input-id="mn-act-title-${idx}" title="Bold (Ctrl+B)">B</button>
+                  <button class="btn-fmt btn-fmt-underline" type="button" data-input-id="mn-act-title-${idx}" title="Underline (Ctrl+U)">U</button>
+                </div>
+                <input type="text" class="admin-input mn-act-title-input" id="mn-act-title-${idx}" data-idx="${idx}"
+                  placeholder="Enter Activity Title Here" value="${escHtml(a.title || '')}" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block" />
+              </div>
+            </div>
+            <div>
+              <div style="font-size:.95rem;font-weight:700;color:#374151;margin-bottom:.28rem">Activity Details</div>
+              <div style="border:1px solid #b8bcc4;border-radius:.45rem;overflow:hidden">
+                <div style="display:flex;gap:.2rem;padding:.28rem .45rem;background:#f9fafb;border-bottom:1px solid #b8bcc4">
+                  <button class="btn-fmt btn-fmt-bold" type="button" data-input-id="mn-act-details-${idx}" title="Bold (Ctrl+B)">B</button>
+                  <button class="btn-fmt btn-fmt-underline" type="button" data-input-id="mn-act-details-${idx}" title="Underline (Ctrl+U)">U</button>
+                  <button class="btn-fmt btn-fmt-bullet" type="button" data-input-id="mn-act-details-${idx}" title="Bullet (Ctrl+Shift+L)">•</button>
+                </div>
+                <textarea class="admin-input mn-act-details-input" id="mn-act-details-${idx}" data-idx="${idx}"
+                  rows="2" placeholder="Enter Activity Detail Here" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block;resize:none">${escHtml(a.name || '')}</textarea>
+              </div>
+            </div>
+            <div>
+              <div style="font-size:.95rem;font-weight:700;color:#374151;margin-bottom:.28rem">Remark Type</div>
+              ${buildRemarkTypeControls(a, idx, target.maxPoints || 3)}
+            </div>
+            <div style="display:flex;align-items:center;gap:.5rem">
+              <span style="font-size:.85rem;color:#6b7280;white-space:nowrap;font-weight:600">Mapped To Which Target's Average:</span>
+              <select class="admin-input mn-mapped-target-select" data-idx="${idx}" style="flex:1;border-color:#b8bcc4">
+                <option value="">— select target —</option>
+                ${mappedOptions}
+              </select>
+            </div>
         </div>
         <div style="position:relative">
           <button class="btn-adm-del mn-kebab-btn" data-idx="${idx}" title="Activity options" style="font-size:1.35rem;font-weight:900;min-width:36px;min-height:36px">⋮</button>
@@ -10717,66 +10740,76 @@ function renderTargetManageContent(student, target) {
                 <button class="mn-undo-maintain" data-idx="${subIdx}" style="font-size:.72rem;padding:.15rem .45rem;background:#dbeafe;border:1px solid #93c5fd;border-radius:.3rem;cursor:pointer;color:#1d4ed8">↩ Undo</button>
               </div>`
             : "";
-          return `<div style="margin-left:1.25rem;display:flex;flex-direction:column;gap:.3rem;padding:.45rem .55rem;background:#f0f9ff;border:1px solid #bae6fd;border-left:3px solid #60a5fa;border-radius:.35rem">
-            <div style="display:flex;align-items:center;gap:.35rem">
-              <span style="font-size:.75rem;font-weight:700;color:#0369a1;flex-shrink:0;min-width:1.4rem">${String.fromCharCode(97 + si)})</span>
-              <span style="font-size:.93rem;color:#374151;white-space:nowrap;font-weight:700;flex-shrink:0">Activity Title:</span>
-              <label style="display:flex;align-items:center;gap:.15rem;font-size:.78rem;cursor:pointer;flex-shrink:0;user-select:none" title="Bold">
-                <input type="checkbox" class="mn-act-bold-cb" data-idx="${subIdx}"${sub.isBold ? ' checked' : ''}><b>B</b>
-              </label>
-              <label style="display:flex;align-items:center;gap:.15rem;font-size:.78rem;cursor:pointer;flex-shrink:0;user-select:none" title="Underline">
-                <input type="checkbox" class="mn-act-underline-cb" data-idx="${subIdx}"${sub.isUnderline ? ' checked' : ''}><u>U</u>
-              </label>
-              <input type="text" class="admin-input mn-act-title-input" id="mn-act-title-${subIdx}" data-idx="${subIdx}"
-                placeholder=""
-                value="${escHtml(sub.title || '')}"
-                style="flex:1${sub.isBold ? ';font-weight:700' : ''}${sub.isUnderline ? ';text-decoration:underline' : ''}" />
-              <button class="btn-adm-del mn-del-sub-act" data-idx="${subIdx}" title="Delete sub-activity" style="flex-shrink:0">🗑</button>
+          return `<div style="margin-left:1.25rem;display:flex;gap:.4rem;align-items:flex-start;padding:.5rem .6rem;background:#f0f9ff;border:1px solid #bae6fd;border-left:3px solid #60a5fa;border-radius:.35rem">
+            <span style="font-size:.75rem;font-weight:700;color:#0369a1;flex-shrink:0;min-width:1.4rem;padding-top:.2rem">${String.fromCharCode(97 + si)})</span>
+            <div style="flex:1;display:flex;flex-direction:column;gap:.55rem">
+              <div>
+                <div style="font-size:.95rem;font-weight:700;color:#374151;margin-bottom:.28rem">Activity Title</div>
+                <div style="display:flex;gap:.4rem;align-items:flex-start">
+                  <div style="border:1px solid #b8bcc4;border-radius:.45rem;overflow:hidden;flex:1">
+                    <div style="display:flex;gap:.2rem;padding:.28rem .45rem;background:#f9fafb;border-bottom:1px solid #b8bcc4">
+                      <button class="btn-fmt btn-fmt-bold" type="button" data-input-id="mn-act-title-${subIdx}" title="Bold (Ctrl+B)">B</button>
+                      <button class="btn-fmt btn-fmt-underline" type="button" data-input-id="mn-act-title-${subIdx}" title="Underline (Ctrl+U)">U</button>
+                    </div>
+                    <input type="text" class="admin-input mn-act-title-input" id="mn-act-title-${subIdx}" data-idx="${subIdx}"
+                      placeholder="Enter Activity Title Here" value="${escHtml(sub.title || '')}" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block" />
+                  </div>
+                  <button class="btn-adm-del mn-del-sub-act" data-idx="${subIdx}" title="Delete sub-activity" style="flex-shrink:0;margin-top:.35rem">🗑</button>
+                </div>
+              </div>
+              <div>
+                <div style="font-size:.95rem;font-weight:700;color:#374151;margin-bottom:.28rem">Activity Details</div>
+                <div style="border:1px solid #b8bcc4;border-radius:.45rem;overflow:hidden">
+                  <div style="display:flex;gap:.2rem;padding:.28rem .45rem;background:#f9fafb;border-bottom:1px solid #b8bcc4">
+                    <button class="btn-fmt btn-fmt-bold" type="button" data-input-id="mn-act-details-${subIdx}" title="Bold (Ctrl+B)">B</button>
+                    <button class="btn-fmt btn-fmt-underline" type="button" data-input-id="mn-act-details-${subIdx}" title="Underline (Ctrl+U)">U</button>
+                    <button class="btn-fmt btn-fmt-bullet" type="button" data-input-id="mn-act-details-${subIdx}" title="Bullet (Ctrl+Shift+L)">•</button>
+                  </div>
+                  <textarea class="admin-input mn-act-details-input" id="mn-act-details-${subIdx}" data-idx="${subIdx}"
+                    rows="2" placeholder="Enter Activity Detail Here" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block;resize:none">${escHtml(sub.name || '')}</textarea>
+                </div>
+              </div>
+              <div>
+                <div style="font-size:.95rem;font-weight:700;color:#374151;margin-bottom:.28rem">Remark Type</div>
+                ${subRemarkType}
+              </div>
+              ${subFixedRemarkRow}
             </div>
-            <div style="padding-left:1.6rem;font-size:.76rem;color:#9ca3af;margin-top:-.05rem">Shown in the Activity Breakdown chart</div>
-            <div style="display:flex;align-items:center;gap:.35rem;padding-left:1.6rem;margin-top:.2rem">
-              <span style="font-size:.93rem;color:#374151;white-space:nowrap;font-weight:700;flex-shrink:0">Activity Details:</span>
-              ${formatButtonsHtml(`mn-act-details-${subIdx}`)}
-              <textarea class="admin-input mn-act-details-input" id="mn-act-details-${subIdx}" data-idx="${subIdx}"
-                rows="1" placeholder="" style="flex:1">${escHtml(sub.name || '')}</textarea>
-            </div>
-            <div style="padding-left:1.6rem;font-size:.76rem;color:#9ca3af;margin-top:-.05rem">Shown in session screen only, not in the chart</div>
-            <div style="display:flex;align-items:flex-start;gap:.5rem;padding-left:1.6rem">
-              <span style="font-size:.93rem;color:#374151;white-space:nowrap;font-weight:700;padding-top:.3rem">Remark Type:</span>
-              ${subRemarkType}
-            </div>
-            ${subFixedRemarkRow}
           </div>`;
         }).join('');
         const maintainedRowSub = "";
         html += `<div class="admin-list-item" data-idx="${idx}"${actItemStyle}>
           <span class="drag-handle">⠿</span>
-          <div style="flex:1;display:flex;flex-direction:column;gap:.3rem">
-            <div style="display:flex;align-items:center;gap:.35rem">
-              <span style="font-size:.8rem;font-weight:700;color:#6b7280;flex-shrink:0;min-width:1.6rem">${manageActNo})</span>
-              <span style="font-size:.93rem;color:#374151;white-space:nowrap;font-weight:700;flex-shrink:0">Activity Title:</span>
-              <label style="display:flex;align-items:center;gap:.15rem;font-size:.78rem;cursor:pointer;flex-shrink:0;user-select:none" title="Bold">
-                <input type="checkbox" class="mn-act-bold-cb" data-idx="${idx}"${a.isBold ? ' checked' : ''}><b>B</b>
-              </label>
-              <label style="display:flex;align-items:center;gap:.15rem;font-size:.78rem;cursor:pointer;flex-shrink:0;user-select:none" title="Underline">
-                <input type="checkbox" class="mn-act-underline-cb" data-idx="${idx}"${a.isUnderline ? ' checked' : ''}><u>U</u>
-              </label>
-              <input type="text" class="admin-input mn-act-title-input" id="mn-act-title-${idx}" data-idx="${idx}"
-                placeholder=""
-                value="${escHtml(a.title || '')}"
-                style="flex:1${a.isBold ? ';font-weight:700' : ''}${a.isUnderline ? ';text-decoration:underline' : ''}" />
+          <div style="flex:1;display:flex;gap:.5rem;align-items:flex-start">
+            <span style="font-size:.8rem;font-weight:700;color:#6b7280;flex-shrink:0;min-width:1.6rem;padding-top:.2rem">${manageActNo})</span>
+            <div style="flex:1;display:flex;flex-direction:column;gap:.55rem">
+              <div>
+                <div style="font-size:.95rem;font-weight:700;color:#374151;margin-bottom:.28rem">Activity Title</div>
+                <div style="border:1px solid #b8bcc4;border-radius:.45rem;overflow:hidden">
+                  <div style="display:flex;gap:.2rem;padding:.28rem .45rem;background:#f9fafb;border-bottom:1px solid #b8bcc4">
+                    <button class="btn-fmt btn-fmt-bold" type="button" data-input-id="mn-act-title-${idx}" title="Bold (Ctrl+B)">B</button>
+                    <button class="btn-fmt btn-fmt-underline" type="button" data-input-id="mn-act-title-${idx}" title="Underline (Ctrl+U)">U</button>
+                  </div>
+                  <input type="text" class="admin-input mn-act-title-input" id="mn-act-title-${idx}" data-idx="${idx}"
+                    placeholder="Enter Activity Title Here" value="${escHtml(a.title || '')}" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block" />
+                </div>
+              </div>
+              <div>
+                <div style="font-size:.95rem;font-weight:700;color:#374151;margin-bottom:.28rem">Activity Details</div>
+                <div style="border:1px solid #b8bcc4;border-radius:.45rem;overflow:hidden">
+                  <div style="display:flex;gap:.2rem;padding:.28rem .45rem;background:#f9fafb;border-bottom:1px solid #b8bcc4">
+                    <button class="btn-fmt btn-fmt-bold" type="button" data-input-id="mn-act-details-${idx}" title="Bold (Ctrl+B)">B</button>
+                    <button class="btn-fmt btn-fmt-underline" type="button" data-input-id="mn-act-details-${idx}" title="Underline (Ctrl+U)">U</button>
+                    <button class="btn-fmt btn-fmt-bullet" type="button" data-input-id="mn-act-details-${idx}" title="Bullet (Ctrl+Shift+L)">•</button>
+                  </div>
+                  <textarea class="admin-input mn-act-details-input" id="mn-act-details-${idx}" data-idx="${idx}"
+                    rows="2" placeholder="Enter Activity Detail Here" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block;resize:none">${escHtml(a.name || '')}</textarea>
+                </div>
+              </div>
+              ${subActsHtml}
+              ${maintainedRowSub}
+              <button class="mn-add-sub-act-btn" data-parent-idx="${idx}" style="font-size:.82rem;padding:.3rem .7rem;background:#f9fafb;border:1px solid #d1d5db;border-radius:.35rem;color:#374151;cursor:pointer;align-self:flex-start">+ Add Sub-activity</button>
             </div>
-            <div style="padding-left:1.6rem;font-size:.76rem;color:#9ca3af;margin-top:-.05rem">Shown in the Activity Breakdown chart</div>
-            <div style="display:flex;align-items:center;gap:.35rem;padding-left:1.6rem;margin-top:.2rem">
-              <span style="font-size:.93rem;color:#374151;white-space:nowrap;font-weight:700;flex-shrink:0">Activity Details:</span>
-              ${formatButtonsHtml(`mn-act-details-${idx}`)}
-              <textarea class="admin-input mn-act-details-input" id="mn-act-details-${idx}" data-idx="${idx}"
-                rows="1" placeholder="" style="flex:1">${escHtml(a.name || '')}</textarea>
-            </div>
-            <div style="padding-left:1.6rem;font-size:.76rem;color:#9ca3af;margin-top:-.05rem">Shown in session screen only, not in the chart</div>
-            ${subActsHtml}
-            ${maintainedRowSub}
-            <button class="mn-add-sub-act-btn" data-parent-idx="${idx}" style="font-size:.82rem;padding:.3rem .7rem;background:var(--primary);border:1px solid var(--primary);border-radius:.35rem;color:#fff;cursor:pointer;margin-left:1.25rem;margin-top:.6rem;align-self:flex-start">+ Add Sub-activity</button>
           </div>
           <div style="position:relative">
             <button class="btn-adm-del mn-kebab-btn" data-idx="${idx}" title="Activity options" style="font-size:1.35rem;font-weight:900;min-width:36px;min-height:36px">⋮</button>
@@ -10798,35 +10831,39 @@ function renderTargetManageContent(student, target) {
         const maintainedRow = "";
         html += `<div class="admin-list-item" data-idx="${idx}"${actItemStyle}>
           <span class="drag-handle">⠿</span>
-          <div style="flex:1;display:flex;flex-direction:column;gap:.3rem">
-            <div style="display:flex;align-items:center;gap:.35rem">
-              <span style="font-size:.8rem;font-weight:700;color:#6b7280;flex-shrink:0;min-width:1.6rem">${manageActNo})</span>
-              <span style="font-size:.93rem;color:#374151;white-space:nowrap;font-weight:700;flex-shrink:0">Activity Title:</span>
-              <label style="display:flex;align-items:center;gap:.15rem;font-size:.78rem;cursor:pointer;flex-shrink:0;user-select:none" title="Bold">
-                <input type="checkbox" class="mn-act-bold-cb" data-idx="${idx}"${a.isBold ? ' checked' : ''}><b>B</b>
-              </label>
-              <label style="display:flex;align-items:center;gap:.15rem;font-size:.78rem;cursor:pointer;flex-shrink:0;user-select:none" title="Underline">
-                <input type="checkbox" class="mn-act-underline-cb" data-idx="${idx}"${a.isUnderline ? ' checked' : ''}><u>U</u>
-              </label>
-              <input type="text" class="admin-input mn-act-title-input" id="mn-act-title-${idx}" data-idx="${idx}"
-                placeholder=""
-                value="${escHtml(a.title || '')}"
-                style="flex:1${a.isBold ? ';font-weight:700' : ''}${a.isUnderline ? ';text-decoration:underline' : ''}" />
+          <div style="flex:1;display:flex;gap:.5rem;align-items:flex-start">
+            <span style="font-size:.8rem;font-weight:700;color:#6b7280;flex-shrink:0;min-width:1.6rem;padding-top:.2rem">${manageActNo})</span>
+            <div style="flex:1;display:flex;flex-direction:column;gap:.55rem">
+              <div>
+                <div style="font-size:.95rem;font-weight:700;color:#374151;margin-bottom:.28rem">Activity Title</div>
+                <div style="border:1px solid #b8bcc4;border-radius:.45rem;overflow:hidden">
+                  <div style="display:flex;gap:.2rem;padding:.28rem .45rem;background:#f9fafb;border-bottom:1px solid #b8bcc4">
+                    <button class="btn-fmt btn-fmt-bold" type="button" data-input-id="mn-act-title-${idx}" title="Bold (Ctrl+B)">B</button>
+                    <button class="btn-fmt btn-fmt-underline" type="button" data-input-id="mn-act-title-${idx}" title="Underline (Ctrl+U)">U</button>
+                  </div>
+                  <input type="text" class="admin-input mn-act-title-input" id="mn-act-title-${idx}" data-idx="${idx}"
+                    placeholder="Enter Activity Title Here" value="${escHtml(a.title || '')}" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block" />
+                </div>
+              </div>
+              <div>
+                <div style="font-size:.95rem;font-weight:700;color:#374151;margin-bottom:.28rem">Activity Details</div>
+                <div style="border:1px solid #b8bcc4;border-radius:.45rem;overflow:hidden">
+                  <div style="display:flex;gap:.2rem;padding:.28rem .45rem;background:#f9fafb;border-bottom:1px solid #b8bcc4">
+                    <button class="btn-fmt btn-fmt-bold" type="button" data-input-id="mn-act-details-${idx}" title="Bold (Ctrl+B)">B</button>
+                    <button class="btn-fmt btn-fmt-underline" type="button" data-input-id="mn-act-details-${idx}" title="Underline (Ctrl+U)">U</button>
+                    <button class="btn-fmt btn-fmt-bullet" type="button" data-input-id="mn-act-details-${idx}" title="Bullet (Ctrl+Shift+L)">•</button>
+                  </div>
+                  <textarea class="admin-input mn-act-details-input" id="mn-act-details-${idx}" data-idx="${idx}"
+                    rows="2" placeholder="Enter Activity Detail Here" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block;resize:none">${escHtml(a.name || '')}</textarea>
+                </div>
+              </div>
+              <div>
+                <div style="font-size:.95rem;font-weight:700;color:#374151;margin-bottom:.28rem">Remark Type</div>
+                ${remarkTypeSelect}
+              </div>
+              ${maintainedRow}
+              <button class="mn-add-sub-act-btn" data-parent-idx="${idx}" style="font-size:.82rem;padding:.3rem .7rem;background:#f9fafb;border:1px solid #d1d5db;border-radius:.35rem;color:#374151;cursor:pointer;align-self:flex-start">↳ Add Sub-activity</button>
             </div>
-            <div style="padding-left:1.6rem;font-size:.76rem;color:#9ca3af;margin-top:-.05rem">Shown in the Activity Breakdown chart</div>
-            <div style="display:flex;align-items:center;gap:.35rem;padding-left:1.6rem;margin-top:.2rem">
-              <span style="font-size:.93rem;color:#374151;white-space:nowrap;font-weight:700;flex-shrink:0">Activity Details:</span>
-              ${formatButtonsHtml(`mn-act-details-${idx}`)}
-              <textarea class="admin-input mn-act-details-input" id="mn-act-details-${idx}" data-idx="${idx}"
-                rows="1" placeholder="" style="flex:1">${escHtml(a.name || '')}</textarea>
-            </div>
-            <div style="padding-left:1.6rem;font-size:.76rem;color:#9ca3af;margin-top:-.05rem">Shown in session screen only, not in the chart</div>
-            <div style="display:flex;align-items:flex-start;gap:.5rem;margin-top:.2rem">
-              <span style="font-size:.93rem;color:#374151;white-space:nowrap;font-weight:700;padding-top:.3rem">Remark Type:</span>
-              ${remarkTypeSelect}
-            </div>
-            ${maintainedRow}
-            <button class="mn-add-sub-act-btn" data-parent-idx="${idx}" style="font-size:.82rem;padding:.3rem .7rem;background:var(--primary);border:1px solid var(--primary);border-radius:.35rem;color:#fff;cursor:pointer;margin-top:.6rem;align-self:flex-start">↳ Add Sub-activity</button>
           </div>
           <div style="position:relative">
             <button class="btn-adm-del mn-kebab-btn" data-idx="${idx}" title="Activity options" style="font-size:1.35rem;font-weight:900;min-width:36px;min-height:36px">⋮</button>
@@ -11767,8 +11804,10 @@ function renderTargetManageContent(student, target) {
       acts[idx].remarkHasNote   = (type === "starter_fixed_note");
       const starterVis = usesOpts;
       const optsVis    = usesOpts;
-      starterWrap.style.display    = starterVis ? "flex" : "none";
+      starterWrap.style.cssText    = starterVis ? "display:flex;flex-direction:column;gap:.3rem" : "display:none";
       optsContainer.style.display  = optsVis ? "" : "none";
+      const typeLabel = optsContainer.querySelector(".mn-opts-type-label");
+      if (typeLabel) typeLabel.textContent = type === "starter_fixed_multi" ? "Checkboxes" : "Multiple Options";
       if (usesOpts) { acts[idx].inlineOptions = getOptsFromDom(idx).join("\x1F") || null; rebuildOptScores(idx); }
       if (starterVis) { starterInput.focus(); }
       else if (optsVis) { optsContainer.querySelector(".mn-opt-item")?.focus(); }
@@ -12095,16 +12134,16 @@ function renderTargetManageContent(student, target) {
       const list = btn.closest(".mn-opts-container").querySelector(".mn-opts-list");
       const oi = list.querySelectorAll(".mn-opt-row").length;
       const row = document.createElement("div");
-      row.className = "mn-opt-row admin-list-item";
+      row.className = "mn-opt-row";
       row.dataset.idx = String(oi);
-      row.style.cssText = "display:flex;align-items:center;gap:.4rem;margin-bottom:.4rem";
+      row.style.cssText = "display:flex;align-items:center;gap:.4rem;margin-bottom:.35rem";
       row.innerHTML =
         `<span class="drag-handle" style="cursor:grab;color:#c4c9d4;font-size:1.1rem;flex-shrink:0;padding:0 .15rem;user-select:none">⠿</span>` +
-        `<span class="mn-opt-num" style="font-size:.8rem;color:#6b7280;white-space:nowrap;flex-shrink:0;font-weight:600">Option ${oi + 1}:</span>` +
-        `<span class="mn-opt-countdown" style="font-size:.88rem;color:#f59e0b;white-space:nowrap;flex-shrink:0;font-weight:700">Option name locks in 30s</span>` +
+        `<span class="mn-opt-num" style="display:none"></span>` +
+        `<span class="mn-opt-countdown" style="font-size:.88rem;color:#f59e0b;white-space:nowrap;flex-shrink:0;font-weight:700">Locks in 30s</span>` +
         `<input class="admin-input mn-opt-item" data-idx="${idx}" data-oi="${oi}" placeholder="Enter option name…" style="flex:1;padding:.45rem .6rem;font-size:.95rem;min-width:0;border-color:#f59e0b;background:#fffbeb">` +
         `<input class="admin-input mn-opt-score" type="number" min="0" max="${target.maxPoints || 3}" step="0.5" data-idx="${idx}" data-oi="${oi}" placeholder="Pts" style="width:3.8rem;flex-shrink:0;padding:.45rem .3rem;font-size:.9rem;text-align:center">` +
-        `<button class="mn-opt-remove" data-idx="${idx}" data-oi="${oi}" data-text="" style="flex-shrink:0;padding:.3rem .65rem;font-size:.82rem;color:#dc2626;background:none;border:1px solid #fca5a5;border-radius:.35rem;cursor:pointer">Remove</button>`;
+        `<button class="mn-opt-remove" data-idx="${idx}" data-oi="${oi}" data-text="" title="Remove option">🗑</button>`;
       list.appendChild(row);
 
       const nameInput  = row.querySelector(".mn-opt-item");
@@ -12725,8 +12764,10 @@ function renderTemplateManageContent(template) {
       acts[idx].remarkHasNote   = (type === "starter_fixed_note");
       const starterVis = usesOpts;
       const optsVis    = usesOpts;
-      starterWrap.style.display    = starterVis ? "flex" : "none";
+      starterWrap.style.cssText    = starterVis ? "display:flex;flex-direction:column;gap:.3rem" : "display:none";
       optsContainer.style.display  = optsVis ? "" : "none";
+      const tmplTypeLabel = optsContainer.querySelector(".mn-opts-type-label");
+      if (tmplTypeLabel) tmplTypeLabel.textContent = type === "starter_fixed_multi" ? "Checkboxes" : "Multiple Options";
       if (usesOpts) {
         acts[idx].inlineOptions = [...body.querySelectorAll(`.mn-opt-item[data-idx="${idx}"]`)].map(i => i.value.trim()).filter(Boolean).join("\x1F") || null;
       }
@@ -13121,15 +13162,15 @@ function renderTemplateManageContent(template) {
       const list = btn.closest(".mn-opts-container").querySelector(".mn-opts-list");
       const oi = list.querySelectorAll(".mn-opt-row").length;
       const row = document.createElement("div");
-      row.className = "mn-opt-row admin-list-item";
+      row.className = "mn-opt-row";
       row.dataset.idx = String(oi);
-      row.style.cssText = "display:flex;align-items:center;gap:.4rem;margin-bottom:.4rem";
+      row.style.cssText = "display:flex;align-items:center;gap:.4rem;margin-bottom:.35rem";
       row.innerHTML =
         `<span class="drag-handle" style="cursor:grab;color:#c4c9d4;font-size:1.1rem;flex-shrink:0;padding:0 .15rem;user-select:none">⠿</span>` +
-        `<span class="mn-opt-num" style="font-size:.8rem;color:#6b7280;white-space:nowrap;flex-shrink:0;font-weight:600">Option ${oi + 1}:</span>` +
-        `<span class="mn-opt-countdown" style="font-size:.88rem;color:#f59e0b;white-space:nowrap;flex-shrink:0;font-weight:700">Option name locks in 30s</span>` +
+        `<span class="mn-opt-num" style="display:none"></span>` +
+        `<span class="mn-opt-countdown" style="font-size:.88rem;color:#f59e0b;white-space:nowrap;flex-shrink:0;font-weight:700">Locks in 30s</span>` +
         `<input class="admin-input mn-opt-item" data-idx="${idx}" data-oi="${oi}" placeholder="Enter option name…" style="flex:1;padding:.45rem .6rem;font-size:.95rem;min-width:0;border-color:#f59e0b;background:#fffbeb">` +
-        `<button class="mn-opt-remove" data-idx="${idx}" data-oi="${oi}" style="flex-shrink:0;padding:.3rem .65rem;font-size:.82rem;color:#dc2626;background:none;border:1px solid #fca5a5;border-radius:.35rem;cursor:pointer">Remove</button>`;
+        `<button class="mn-opt-remove" data-idx="${idx}" data-oi="${oi}" title="Remove option">🗑</button>`;
       list.appendChild(row);
 
       const nameInput = row.querySelector(".mn-opt-item");
