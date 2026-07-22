@@ -155,7 +155,7 @@ function versionLineText() {
   return `Made by Lewis · Version ${APP_VERSION}`;
 }
 
-const APP_VERSION = "1031";
+const APP_VERSION = "1032";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -15325,4 +15325,3 @@ window._runDiscontinuedMigration = async function() {
   }
   console.log(`\nMigration done. ${updatedCount} student(s) updated.`);
 };
-
