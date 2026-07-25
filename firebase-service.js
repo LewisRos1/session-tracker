@@ -37,12 +37,12 @@ import {
 // Replace every "YOUR_..." placeholder with your project's values.
 // Find these in: Firebase Console → Project Settings → Your apps → SDK setup
 const FIREBASE_CONFIG = {
-  apiKey:            "AIzaSyAPcXOMAN-alX8y_PgCX5m-09iJwRgzzE0",
-  authDomain:        "session-tracker-b663a.firebaseapp.com",
-  projectId:            "session-tracker-b663a",
-  storageBucket:     "session-tracker-b663a.firebasestorage.app",
-  messagingSenderId: "1011584567383",
-  appId:             "1:1011584567383:web:505e802505e14b0346a9f7"
+  apiKey:            "AIzaSyDzIdlSu_ipdbPtg9TEdWorGaznkslqsGI",
+  authDomain:        "session-tracker-staging.firebaseapp.com",
+  projectId:         "session-tracker-staging",
+  storageBucket:     "session-tracker-staging.firebasestorage.app",
+  messagingSenderId: "43697728086",
+  appId:             "1:43697728086:web:505e802505e14b0346a9f7"
 };
 // ────────────────────────────────────────────────────────────
 
@@ -748,6 +748,12 @@ export async function setStudentWordExportReady(studentId, ready) {
 /** Toggle a "Ready for Excel Export" flag (type = 'indiv' | 'group') on a student document. */
 export async function setStudentExcelExportReady(studentId, type, ready) {
   const field = type === "indiv" ? "readyForExcelExportIndiv" : "readyForExcelExportGroup";
+  await updateDoc(doc(db, "students", studentId), { [field]: ready });
+}
+
+/** Toggle a "Ready for AI H1 Report" flag (type = 'indiv' | 'group') on a student document. */
+export async function setStudentAiH1ReportReady(studentId, type, ready) {
+  const field = type === "indiv" ? "readyForAiH1Indiv" : "readyForAiH1Group";
   await updateDoc(doc(db, "students", studentId), { [field]: ready });
 }
 
