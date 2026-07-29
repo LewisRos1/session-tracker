@@ -157,7 +157,7 @@ function versionLineText() {
   return `Made by Lewis · Version ${APP_VERSION}`;
 }
 
-const APP_VERSION = "1254";
+const APP_VERSION = "1239";
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -4331,19 +4331,14 @@ function renderManageActivityScreen(student) {
       return '';
     };
 
-    const card = (pa, indent = false, orphanParent = '', num = null, subIdx = null, forceMaint = false) => {
+    const card = (pa, indent = false, orphanParent = '', num = null, subIdx = null) => {
       const nameHtml = paDisplayHtml(pa) || `<em style="color:#9ca3af;font-size:.85rem">Untitled</em>`;
       const badge = statusBadge(pa);
       const parentTag = orphanParent ? `<span style="font-size:.71rem;color:#9ca3af;display:block;margin-top:.1rem">from Parent Activity: ${escHtml(orphanParent)}</span>` : '';
       const numTag = num !== null ? `<span style="color:#6b7280;font-weight:600;margin-right:.25rem">${num})</span>` :
                      subIdx !== null ? `<span style="color:#0369a1;font-weight:600;margin-right:.25rem">${String.fromCharCode(97 + subIdx)})</span>` : '';
-      const isMaint = forceMaint || maIsMaintained(pa);
-      const borderLeft = indent
-        ? (isMaint ? 'border-left:3px solid #9ca3af' : 'border-left:3px solid #60a5fa')
-        : (isMaint ? 'border-left:3px solid #9ca3af' : 'border-left:3px solid var(--primary)');
-      const bg = indent
-        ? (isMaint ? 'background:#f3f4f6' : 'background:#f0f9ff')
-        : (isMaint ? 'background:#f9fafb' : 'background:#fff');
+      const borderLeft = indent ? 'border-left:3px solid #60a5fa' : 'border-left:3px solid var(--primary)';
+      const bg = indent ? 'background:#f0f9ff' : 'background:#fff';
       const ml = indent ? 'margin-left:1.4rem;' : '';
       return `<div data-pa-id="${escHtml(pa.id||'')}" style="${ml}${bg};border:1px solid #e5e7eb;${borderLeft};border-radius:.5rem;padding:.6rem .75rem .6rem .9rem;display:flex;align-items:flex-start;gap:.5rem;box-shadow:0 1px 3px rgba(0,0,0,.06)">
         <div style="flex:1;min-width:0;line-height:1.5;white-space:pre-wrap">${numTag}${nameHtml}${parentTag}${badge}</div>
@@ -4367,18 +4362,15 @@ function renderManageActivityScreen(student) {
         continue;
       }
 
-      if (!maIsActive(pa) && !maIsMaintained(pa)) continue;
+      if (!maIsActive(pa)) continue;
 
       actNum++;
       activeHtml += card(pa, false, '', actNum);
-      const paKey = pa.title || pa.name;
-      const activeChildren = activeSubs.filter(s => s.parentActivity === paKey);
-      const maintChildren  = maintPas.filter(s => !!s.parentActivity && s.parentActivity === paKey);
-      [...activeChildren, ...maintChildren].forEach((child, ci) => { activeHtml += card(child, true, '', null, ci); });
+      const children = activeSubs.filter(s => s.parentActivity === (pa.title || pa.name));
+      children.forEach((child, ci) => { activeHtml += card(child, true, '', null, ci); });
     }
-    // Orphaned subs whose parent isn't active or maintained in the main list
-    const shownTopLevelKeys = new Set([...activeTopLevel, ...maintPas.filter(p => !p.parentActivity)].map(p => p.title || p.name));
-    const orphaned = activeSubs.filter(s => !shownTopLevelKeys.has(s.parentActivity));
+    // Orphaned subs whose parent isn't active
+    const orphaned = activeSubs.filter(s => !activeTopLevel.some(p => (p.title || p.name) === s.parentActivity));
     for (const sub of orphaned) activeHtml += card(sub, false, sub.parentActivity || '');
 
     const collapseSection = (label, emoji, color, bgCard, borderCard, pas) => {
@@ -4438,6 +4430,7 @@ function renderManageActivityScreen(student) {
       </div>
       ${collapseSection('mastered','⭐','#059669','#f0fdf4','#bbf7d0',masteredPas)}
       ${collapseSection('discontinued','🚩','#dc2626','#fff5f5','#fecaca',discontPas)}
+      ${collapseSection('maintained','🆗','#6b7280','#f9fafb','#e5e7eb',maintPas)}
     </div>`;
 
   const dropHtml = `<div class="target-selector" style="position:static;margin-bottom:.8rem">
@@ -4496,8 +4489,7 @@ function renderManageActivityScreen(student) {
       if (!pa) return;
       btn.closest(".ma-kebab-menu").style.display = "none";
       const actWord = pa.parentActivity ? "sub-activity" : "activity";
-      const _stripMk = s => (s || "").replace(/\*_([\s\S]+?)_\*/g, "$1").replace(/_\*([\s\S]+?)\*_/g, "$1").replace(/\*([\s\S]+?)\*/g, "$1").replace(/_([\s\S]+?)_/g, "$1");
-      const paDisplayName = escHtml(_stripMk(pa.title || pa.name || ''));
+      const paDisplayName = escHtml(pa.title || pa.name || '');
 
       const _maLoadLatest = async () => {
         const origText = btn.textContent;
@@ -4510,7 +4502,7 @@ function renderManageActivityScreen(student) {
       const _buildInfoHtml = (latestDate, minDate, latestSubName, restrictionText) => {
         if (!latestDate) return `No previous session data was found for <strong>"${paDisplayName}"</strong>.`;
         const sourcePart = latestSubName
-          ? `The last recorded session for the sub-activity <strong>"${escHtml(_stripMk(latestSubName))}"</strong> was on <strong>${fmtPeriodDate(latestDate)}</strong>.`
+          ? `The last recorded session for the sub-activity <strong>"${escHtml(latestSubName)}"</strong> was on <strong>${fmtPeriodDate(latestDate)}</strong>.`
           : `The last recorded session for <strong>"${paDisplayName}"</strong> was on <strong>${fmtPeriodDate(latestDate)}</strong>.`;
         return `${sourcePart} So, ${restrictionText.charAt(0).toLowerCase() + restrictionText.slice(1)} <strong>${fmtPeriodDate(minDate)}</strong> onwards.`;
       };
@@ -6247,23 +6239,16 @@ function renderFedcTarget(target) {
       if (isPending) {
         html += renderPendingRemarkFields(pendingKey, actId, pa.name, idx, target);
       } else if (pa.maintained && remarks.length === 0) {
-        const _hasMaintainData = Object.values(state.sessionData?.remarks || {}).some(r =>
-          (r.text && r.text.trim()) || (r.trials || []).some(t => t >= 0) || r.optionScore !== undefined
-        );
+        // Pre-render "Maintain" as a read-only placeholder. autoFillMaintainedRemarks
+        // will write it to Firestore once the session has real data. Showing it here
+        // immediately means: (1) the boss knows the auto-fill is coming (no empty-box
+        // confusion), and (2) when the Firestore write triggers a re-render, the label
+        // was already visible so there is no layout jerk.
         html += `<div class="entry-divider" contenteditable="false"></div>
         <div class="entry-field" contenteditable="false">
-          <span class="field-label">Remark</span>`;
-        if (_hasMaintainData) {
-          html += `<textarea class="field-input maintained-remark-pending" rows="1"
-            data-act-id="${actId || ""}"
-            data-pa-name="${escHtml(pa.name || pa.title)}"
-            data-pa-order="${idx}"
-            data-cfg-id="${escHtml(pa.id || "")}"
-            data-target="${escHtml(target.name)}">Maintain</textarea>`;
-        } else {
-          html += `<span class="field-value-fixed" style="color:#6b7280">Maintain</span>`;
-        }
-        html += `</div>`;
+          <span class="field-label">Remark</span>
+          <span class="field-value-fixed" style="color:#9ca3af;font-style:italic">Maintain</span>
+        </div>`;
       } else {
         const addLabel = pa.isMapped ? "Score" : pa.manualScore ? "Remark &amp; Score" : "Remark &amp; Trials";
         html += `<button class="btn-add-remark" contenteditable="false"
@@ -6904,14 +6889,14 @@ function renderRemarkFields(rem, target, inlineOptions = null, sentenceStarter =
 }
 
 
-function renderPendingRemarkFields(pendingKey, actId, paName, paOrder, target, initialValue = "") {
+function renderPendingRemarkFields(pendingKey, actId, paName, paOrder, target) {
   return `
     <div class="entry-divider" contenteditable="false"></div>
     <div class="entry-field">
       <span class="field-label" contenteditable="false">Remark</span>
       <button class="btn-sketch btn-sketch-pending" contenteditable="false" aria-label="Open sketch board">✏</button>
       <textarea id="new-remark-textarea" class="field-input" rows="1"
-        placeholder="Type remark…">${escHtml(initialValue)}</textarea>
+        placeholder="Type remark…"></textarea>
     </div>
     <div class="pending-remark-actions" contenteditable="false">
       <button class="btn-cancel-remark btn-remark-cancel">✕ Cancel</button>
@@ -7351,7 +7336,23 @@ function attachTargetListeners(target) {
       const student = state.currentStudent;
       const tgt = student?.targets?.find(t => t.name === state.selectedTargetName);
       if (!student || !tgt) return;
-      openManageModal(student, tgt, null, null, paId || null);
+      openManageModal(student, tgt);
+      // Modal renders synchronously; rAF lets the browser paint first so
+      // scrollIntoView has real layout dimensions to work with.
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        if (!paId) return;
+        const acts = tgt.predefinedActivities || [];
+        const idx = acts.findIndex(a => a.id === paId);
+        if (idx < 0) return;
+        const modalBody = $("manage-modal-body");
+        const el = modalBody?.querySelector(`.admin-list-item[data-idx="${idx}"]`);
+        if (!el || !modalBody) return;
+        // Scroll the modal body so the element lands ~120px from the top
+        const elOffsetTop = el.offsetTop;
+        modalBody.scrollTop = elOffsetTop - 120;
+        el.classList.add("activity-cfg-blink");
+        el.addEventListener("animationend", () => el.classList.remove("activity-cfg-blink"), { once: true });
+      }));
     });
   });
 
@@ -8329,6 +8330,19 @@ function viewActivityRows(no, actName, actId, data, target, isPredefined = true,
   if (remarks.length === 0) {
     const opts = parseOpts(inlineOptions);
     const showEmpty = opts.length === 0;
+    if (showEmpty && _maintained) {
+      // Static placeholder — mirrors the live-entry behaviour. The auto-fill will
+      // write the real remark when the session has data; until then this signals
+      // the boss that "Maintain" is expected here, not that the cell is blank.
+      return `<tr${rowClass ? ` class="${rowClass}"` : ""}>
+        <td class="vcol-no" contenteditable="false">${no}</td>
+        <td class="vcol-act" contenteditable="false">${actCell}</td>
+        <td class="vcol-rem" contenteditable="false"><span style="color:#9ca3af;font-style:italic">Maintain</span></td>
+        <td class="vcol-trials" contenteditable="false">&nbsp;</td>
+        <td class="vcol-total" contenteditable="false">&nbsp;</td>
+        <td class="vcol-score" contenteditable="false">&nbsp;</td>
+      </tr>`;
+    }
     if (showEmpty) {
       const emptyCell = `<textarea class="view-remark-edit view-remark-empty" rows="1"
            data-act-id="${escHtml(actId || "")}"
@@ -8336,7 +8350,7 @@ function viewActivityRows(no, actName, actId, data, target, isPredefined = true,
            data-target="${escHtml(target.name)}"
            data-is-predefined="${isPredefined}"
            data-parent-activity="${escHtml(paConfig?.parentActivity || "")}"
-           data-config-id="${escHtml(paConfig?.id || "")}">${_maintained ? "Maintain" : ""}</textarea>`;
+           data-config-id="${escHtml(paConfig?.id || "")}"></textarea>`;
       const addTrialBtn = mappedInfo
         ? ""
         : `<button class="view-add-trial-new" data-act-id="${escHtml(actId || "")}"
@@ -11330,7 +11344,7 @@ function periodSectionHtml(activeFrom, activeTo, idx, withBorder, inactiveReason
 
 // ── Open / close ──────────────────────────────────────────────
 
-function openManageModal(student, targetOrNull, templateOrNull = null, remarkPresetOrNull = null, scrollToPaId = null) {
+function openManageModal(student, targetOrNull, templateOrNull = null, remarkPresetOrNull = null) {
   $("manage-modal").classList.remove("hidden");
   if (remarkPresetOrNull) {
     renderRemarkPresetManageContent(remarkPresetOrNull);
@@ -11357,19 +11371,6 @@ function openManageModal(student, targetOrNull, templateOrNull = null, remarkPre
         return;
       }
       renderTargetManageContent(student, targetOrNull);
-      if (scrollToPaId) {
-        requestAnimationFrame(() => requestAnimationFrame(() => {
-          const acts = targetOrNull.predefinedActivities || [];
-          const idx = acts.findIndex(a => a.id === scrollToPaId);
-          if (idx < 0) return;
-          const modalBody = $("manage-modal-body");
-          const el = modalBody?.querySelector(`.admin-list-item[data-idx="${idx}"]`);
-          if (!el || !modalBody) return;
-          modalBody.scrollTop = el.offsetTop - 120;
-          el.classList.add("activity-cfg-blink");
-          el.addEventListener("animationend", () => el.classList.remove("activity-cfg-blink"), { once: true });
-        }));
-      }
     };
     pwInput.addEventListener("keydown", e => { if (e.key === "Enter") checkPw(); });
   } else {
@@ -13410,31 +13411,32 @@ function renderTargetManageContent(student, target) {
             const allSessions = _groupForTargetEdit
               ? await getAllSessionsForGroup(_groupForTargetEdit.id)
               : await getAllSessionsForStudent(student.id);
-            // Include sub-activities when checking a parent activity
-            const paKey = pa._linkKey || pa.title || pa.name;
-            const toCheck = [{ name: pa.name, title: pa.title, paPA: pa.parentActivity || null }];
-            (acts || []).filter(a => a.parentActivity === paKey && !a.isHeading && !a.isNote && !a.isExportNote)
-              .forEach(sub => toCheck.push({ name: sub.name, title: sub.title, paPA: paKey }));
+            const paPA = pa.parentActivity || null;
             affectedSessions = allSessions.filter(s => {
               const sActs = s.activities || {}; const sRems = s.remarks || {};
-              return toCheck.some(({ name, title, paPA }) => {
-                const matchIds = Object.entries(sActs).filter(([, a]) =>
-                  a.targetName === target.name && (a.activityName === name || (title && a.activityName === title)) &&
-                  (paPA === null ? !a.parentActivity : a.parentActivity === paPA)
-                ).map(([id]) => id);
-                return matchIds.some(actId => Object.values(sRems).some(r =>
-                  r.activityId === actId && (
-                    (r.text || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim().length > 0 ||
-                    (r.trials || []).some(t => t !== null && t !== -1)
-                  )
-                ));
-              });
+              const matchIds = Object.entries(sActs).filter(([, a]) =>
+                a.targetName === target.name && (a.activityName === pa.name || (pa.title && a.activityName === pa.title)) &&
+                (paPA === null ? !a.parentActivity : a.parentActivity === paPA)
+              ).map(([id]) => id);
+              return matchIds.some(actId => Object.values(sRems).some(r =>
+                r.activityId === actId && (
+                  (r.text || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim().length > 0 ||
+                  (r.trials || []).some(t => t !== null && t !== -1)
+                )
+              ));
             });
             affected = affectedSessions.length;
           } catch { affected = -1; }
           btn.disabled = false;
           btn.textContent = "🗑️ Delete Activity";
-          {
+          if (affected === 0) {
+            if (!confirm(`No past data found for this activity — safe to delete.`)) return;
+            const actIdx = acts.indexOf(pa);
+            if (actIdx >= 0) { acts.splice(actIdx, 1); acts.forEach((a, i) => a.order = i); }
+            target.predefinedActivities = acts;
+            await saveTarget();
+            renderTargetManageContent(student, target);
+          } else {
             const confirmWord = affected > 0 ? String(affected) : "DELETE";
             $("manage-modal").querySelectorAll("[data-del-overlay]").forEach(el => el.remove());
             const overlay = document.createElement("div");
@@ -13442,25 +13444,26 @@ function renderTargetManageContent(student, target) {
             overlay.style.cssText = "position:absolute;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:flex-start;justify-content:center;padding-top:1.25rem;z-index:200;border-radius:.75rem;overflow-y:auto";
             const _delLatest3 = [...affectedSessions].sort((a, b) => (b.date || "").localeCompare(a.date || "")).slice(0, 3);
             const sessionDateList = affectedSessions.length > 0
-              ? `<p style="font-size:.82rem;margin:.4rem 0 .35rem;color:#374151;font-weight:600">Latest ${Math.min(affectedSessions.length, 3)} Session${Math.min(affectedSessions.length, 3) !== 1 ? "s" : ""} with Data:</p>
-                 <ul style="font-size:.82rem;color:#374151;margin:0 0 .7rem;padding-left:0;list-style:none;line-height:1.9">${
-                   _delLatest3.map(s => `<li>• Session ${escHtml(String(s.sessionNumber || s.number || "?"))} — ${escHtml(formatDateWithDay(s.date))}</li>`).join("")
-                 }${affectedSessions.length > 3 ? `<li style="color:#9ca3af">  …and ${affectedSessions.length - 3} more</li>` : ''}</ul>` : "";
-            const hasData = affected > 0;
+              ? `<p style="font-size:.82rem;margin:.4rem 0 .6rem;color:#374151;font-weight:600">Sessions with data (${affectedSessions.length} total — showing 3 latest):</p>
+                 <ul style="font-size:.82rem;color:#374151;margin:0 0 .7rem;padding-left:1.2rem;line-height:1.8">${
+                   _delLatest3.map(s => `<li>Session ${escHtml(String(s.sessionNumber || s.number || "?"))}: ${escHtml(formatDateWithDay(s.date))}</li>`).join("")
+                 }${affectedSessions.length > 3 ? `<li style="color:#9ca3af">…and ${affectedSessions.length - 3} more</li>` : ''}</ul>` : "";
             overlay.innerHTML = `<div style="background:#fff;padding:1.25rem;border-radius:.75rem;width:min(320px,92%);box-shadow:0 4px 24px rgba(0,0,0,.25);margin-bottom:1rem">
-              <p style="font-size:.88rem;margin:0 0 .5rem;color:#111;font-weight:700">⚠️ Delete "${escHtml(pa.title || pa.name || 'this activity')}"?</p>
-              ${hasData
-                ? `<p style="font-size:.84rem;margin:0 0 .4rem;color:#374151">This activity contains data from ${affected} session${affected !== 1 ? "s" : ""}. Deleting it will permanently remove all associated data.</p>
-                   ${sessionDateList}
-                   <p style="font-size:.84rem;margin:0 0 .6rem;color:#374151">We recommend selecting <strong>"Mark as Discontinued"</strong> instead. This will remove the activity from future sessions while keeping your past data intact.</p>
-                   <p style="font-size:.84rem;margin:0 0 .35rem;color:#374151">To confirm deletion, type: <strong>${confirmWord}</strong></p>
-                   <input id="del-type-input" type="text" autocomplete="off" inputmode="numeric"
-                     style="width:100%;box-sizing:border-box;padding:.45rem .6rem;border:2px solid #d1d5db;border-radius:.4rem;font-size:1.1rem;text-align:center;outline:none;margin-bottom:.6rem" placeholder="${confirmWord}">`
-                : `<p style="font-size:.84rem;margin:0 0 .75rem;color:#374151">This activity has no session data recorded. It is safe to delete. Would you like to proceed?</p>`
-              }
+              <p style="font-size:.88rem;margin:0 0 .6rem;color:#111;font-weight:700">⚠️ If you delete this activity, all data from the past <strong>${confirmWord} session${affected !== 1 ? "s" : ""}</strong> will be permanently lost.</p>
+              ${sessionDateList}
+              <p style="font-size:.84rem;margin:0 0 .5rem;color:#374151">We recommend selecting <strong>"Mark as Mastered"</strong> or <strong>"Mark as Discontinued"</strong> instead. Once marked, the activity will no longer appear in new sessions, but it will remain in your previous sessions and your existing data will be preserved.</p>
+              <p style="font-size:.84rem;margin:.5rem 0 .3rem;color:#374151;font-weight:600">To proceed without deleting, follow these steps:</p>
+              <ol style="font-size:.84rem;color:#374151;margin:.2rem 0 .8rem;padding-left:1.3rem;line-height:1.8">
+                <li>Tap the <strong>Cancel</strong> button below</li>
+                <li>Find the activity you wanted to delete and tap the <strong>⋮</strong> button on the right</li>
+                <li>Select <strong>"Mark as Mastered"</strong> or <strong>"Mark as Discontinued"</strong></li>
+              </ol>
+              <p style="font-size:.84rem;margin:0 0 .5rem;color:#374151">Still want to delete? Type <strong>${confirmWord}</strong> to confirm.</p>
+              <input id="del-type-input" type="text" autocomplete="off" inputmode="numeric"
+                style="width:100%;box-sizing:border-box;padding:.45rem .6rem;border:2px solid #d1d5db;border-radius:.4rem;font-size:1.1rem;text-align:center;outline:none;margin-bottom:.6rem" placeholder="${confirmWord}">
               <div style="display:flex;gap:.5rem">
                 <button id="del-type-cancel" style="flex:1;padding:.45rem;border:1px solid #d1d5db;border-radius:.4rem;background:#f9fafb;cursor:pointer;font-size:.85rem">Cancel</button>
-                <button id="del-type-ok" ${hasData ? 'disabled style="flex:1;padding:.45rem;border:none;border-radius:.4rem;background:#dc2626;color:#fff;cursor:pointer;font-size:.85rem;opacity:.4"' : 'style="flex:1;padding:.45rem;border:none;border-radius:.4rem;background:#dc2626;color:#fff;cursor:pointer;font-size:.85rem"'}>Delete</button>
+                <button id="del-type-ok" disabled style="flex:1;padding:.45rem;border:none;border-radius:.4rem;background:#dc2626;color:#fff;cursor:pointer;font-size:.85rem;opacity:.4">Confirm Delete</button>
               </div>
             </div>`;
             const modalSheet = $("manage-modal").querySelector(".modal-sheet");
@@ -13468,17 +13471,14 @@ function renderTargetManageContent(student, target) {
             modalSheet.appendChild(overlay);
             const inp = overlay.querySelector("#del-type-input");
             const okBtn = overlay.querySelector("#del-type-ok");
-            if (inp) {
-              inp.focus();
-              inp.addEventListener("input", () => {
-                const ok = inp.value === confirmWord;
-                okBtn.disabled = !ok;
-                okBtn.style.opacity = ok ? "1" : ".4";
-              });
-            }
+            inp.focus();
+            inp.addEventListener("input", () => {
+              const ok = inp.value === confirmWord;
+              okBtn.disabled = !ok;
+              okBtn.style.opacity = ok ? "1" : ".4";
+            });
             overlay.querySelector("#del-type-cancel").addEventListener("click", () => overlay.remove());
             okBtn.addEventListener("click", async () => {
-              if (inp && inp.value !== confirmWord) return;
               overlay.remove();
               const actIdx = acts.indexOf(pa);
               if (actIdx >= 0) { acts.splice(actIdx, 1); acts.forEach((a, i) => a.order = i); }
@@ -13574,8 +13574,11 @@ function renderTargetManageContent(student, target) {
         const subInput = $(`mn-act-title-${idx + 1}`);
         if (subInput) {
           subInput.focus();
-          subInput.classList.add("input-bg-blink");
-          subInput.addEventListener("animationend", () => subInput.classList.remove("input-bg-blink"), { once: true });
+          let n = 0; const orig = subInput.style.background;
+          const iv = setInterval(() => {
+            subInput.style.background = (n % 2 === 0) ? "#bfdbfe" : (orig || "");
+            if (++n >= 6) { clearInterval(iv); subInput.style.background = orig || ""; }
+          }, 110);
         }
       });
       saveTarget();
@@ -13715,13 +13718,10 @@ function renderTargetManageContent(student, target) {
       const idx = Number(btn.dataset.idx);
       if (!acts[idx]) return;
       const paId = acts[idx].id;
-      // Hide modal and navigate immediately — don't wait for Firestore save
-      $("manage-modal").classList.add("hidden");
+      await closeManageModal();
       const freshStudent = state.students.find(s => s.id === student.id) || student;
       openManageActivityScreen(freshStudent);
       maScrollAndBlink(paId);
-      // Save in background (renderTargetContent inside will update a hidden screen — no flicker)
-      closeManageModal().catch(() => {});
     });
   });
 
@@ -16382,7 +16382,7 @@ function renderGroupStudentBlock(studentName, target, data) {
 
   const cards = activityEntries.length
     ? activityEntries.map(({ actId, actName, actNote, pa }) =>
-        renderGroupStudentActivityCard(studentName, actName, actId, target, data, actNote, pa?.isMapped ? pa : null, !!pa?.maintained)).join("")
+        renderGroupStudentActivityCard(studentName, actName, actId, target, data, actNote, pa?.isMapped ? pa : null)).join("")
     : `<p class="empty-hint" contenteditable="false" style="padding:1rem">No activities yet. Add them under Edit Target.</p>`;
 
   return `<div class="group-by-student-block" data-student="${escHtml(studentName)}">
@@ -16391,7 +16391,7 @@ function renderGroupStudentBlock(studentName, target, data) {
   </div>`;
 }
 
-function renderGroupStudentActivityCard(studentName, actName, actId, target, data, actNote = null, mappedPa = null, isMaintained = false) {
+function renderGroupStudentActivityCard(studentName, actName, actId, target, data, actNote = null, mappedPa = null) {
   const remarksForThisStudent = actId
     ? Object.entries(data.remarks || {})
         .filter(([, r]) => r.activityId === actId && r.studentName === studentName)
@@ -16418,27 +16418,15 @@ function renderGroupStudentActivityCard(studentName, actName, actId, target, dat
     html += renderGroupStudentRowCompact(remId, rem, target, mappedInfo);
   }
 
-  if (remarksForThisStudent.length === 0 && isMaintained) {
-    html += `<div class="entry-field">
-      <span class="field-label" contenteditable="false">Remark</span>
-      <textarea class="field-input group-remark-input group-remark-input-empty" rows="1"
+  html += remarksForThisStudent.length === 0
+    ? `<button class="btn-add-remark btn-group-add-remark-pending" contenteditable="false"
+        data-student="${escHtml(studentName)}"
         data-act-id="${escHtml(actId || "")}"
         data-act-name="${escHtml(actName)}"
-        data-target="${escHtml(target.name)}"
-        data-is-predefined="true"
-        data-student="${escHtml(studentName)}">Maintain</textarea>
-    </div>`;
-  } else {
-    html += remarksForThisStudent.length === 0
-      ? `<button class="btn-add-remark btn-group-add-remark-pending" contenteditable="false"
-          data-student="${escHtml(studentName)}"
-          data-act-id="${escHtml(actId || "")}"
-          data-act-name="${escHtml(actName)}"
-          data-target="${escHtml(target.name)}">+ Add Remark${mappedPa ? "" : " &amp; Trials"}</button>`
-      : `<button class="btn-add-remark btn-group-add-remark-student-more" contenteditable="false"
-          data-act-id="${escHtml(actId || "")}"
-          data-student="${escHtml(studentName)}">+ Add Remark${mappedPa ? "" : " &amp; Trials"}</button>`;
-  }
+        data-target="${escHtml(target.name)}">+ Add Remark${mappedPa ? "" : " &amp; Trials"}</button>`
+    : `<button class="btn-add-remark btn-group-add-remark-student-more" contenteditable="false"
+        data-act-id="${escHtml(actId || "")}"
+        data-student="${escHtml(studentName)}">+ Add Remark${mappedPa ? "" : " &amp; Trials"}</button>`;
 
   html += `</div>`;
   return html;
