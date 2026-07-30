@@ -299,6 +299,83 @@ export async function updateSessionChecks(sessionId, checks) {
   await updateDoc(doc(db, "sessions", sessionId), { checks: checks ?? {} });
 }
 
+/** Update the workflow queue status + optional subject metadata. Pass null status to clear. */
+export async function updateWorkflowStatus(sessionId, status, meta = {}) {
+  const updates = status ? { workflowStatus: status } : { workflowStatus: deleteField() };
+  if (meta.subjectName !== undefined) updates.workflowSubjectName = meta.subjectName;
+  if (meta.subjectId   !== undefined) updates.workflowSubjectId   = meta.subjectId;
+  if (meta.isGroup     !== undefined) updates.workflowIsGroup     = !!meta.isGroup;
+  if (meta.date        !== undefined) updates.workflowDate        = meta.date;
+  await updateDoc(doc(db, "sessions", sessionId), updates);
+}
+
+/** Add a review comment from Daisy. Returns the new comment ID. */
+export async function addReviewComment(sessionId, text) {
+  const id = generateId("cmt");
+  await updateDoc(doc(db, "sessions", sessionId), {
+    [`reviewComments.${id}`]: { text, fixedByName: null, fixedAt: null, order: Date.now() }
+  });
+  return id;
+}
+
+/** Delete a review comment. */
+export async function deleteReviewComment(sessionId, commentId) {
+  await updateDoc(doc(db, "sessions", sessionId), {
+    [`reviewComments.${commentId}`]: deleteField()
+  });
+}
+
+/** Save Daisy's general workflow note (stored directly on the session doc). */
+export async function updateWorkflowNote(sessionId, note) {
+  await updateDoc(doc(db, "sessions", sessionId), { workflowNote: note ?? "" });
+}
+
+/** Mark the review as submitted (true) or re-open it (false). */
+export async function setReviewSubmitted(sessionId, submitted) {
+  const updates = { reviewSubmitted: !!submitted };
+  if (submitted) updates.reviewSubmittedAt = Date.now();
+  else updates.reviewSubmittedAt = deleteField();
+  await updateDoc(doc(db, "sessions", sessionId), updates);
+}
+
+/** Mark Phase 3 revision as done (Ray manually ticks the pill). */
+export async function setRevisionDone(sessionId, done) {
+  if (done) {
+    await updateDoc(doc(db, "sessions", sessionId), { revisionDone: { by: "Ray", at: Date.now() } });
+  } else {
+    await updateDoc(doc(db, "sessions", sessionId), { revisionDone: deleteField() });
+  }
+}
+
+/** Update the text of an existing review comment (for auto-save on textarea input). */
+export async function updateReviewCommentText(sessionId, commentId, text) {
+  await updateDoc(doc(db, "sessions", sessionId), {
+    [`reviewComments.${commentId}.text`]: text
+  });
+}
+
+/** Mark a comment as fixed by name. Pass null fixedByName to unmark. */
+export async function markCommentFixed(sessionId, commentId, fixedByName) {
+  if (fixedByName) {
+    await updateDoc(doc(db, "sessions", sessionId), {
+      [`reviewComments.${commentId}.fixedByName`]: fixedByName,
+      [`reviewComments.${commentId}.fixedAt`]:     Date.now()
+    });
+  } else {
+    await updateDoc(doc(db, "sessions", sessionId), {
+      [`reviewComments.${commentId}.fixedByName`]: deleteField(),
+      [`reviewComments.${commentId}.fixedAt`]:     deleteField()
+    });
+  }
+}
+
+/** Real-time listener for sessions awaiting Daisy's review or Ray's corrections. */
+export function listenToReviewQueue(callback) {
+  const q = query(collection(db, "sessions"),
+    where("workflowStatus", "in", ["daisy_pending", "ray_pending"]));
+  return onSnapshot(q, snap => callback(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+}
+
 /** Change the date (and recalculate month + session number) of an existing session. */
 export async function updateSessionDate(sessionId, newDateStr, studentId) {
   const month = getMonthString(newDateStr);
