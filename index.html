@@ -82,7 +82,7 @@
     <main class="home-main">
       <section>
         <div class="section-header">
-          <h2 class="section-title">Student Database</h2>
+          <h2 class="section-title">STUDENT DATABASE</h2>
         </div>
         <div id="student-database-button"></div>
       </section>
@@ -369,6 +369,27 @@
     </div>
     <div id="text-editor-content" class="text-editor-content" contenteditable="true"
          inputmode="none" data-placeholder="Write here…"></div>
+  </div>
+
+  <!-- Draggable corrections list -->
+  <div id="sticky-note" class="sticky-note hidden" role="dialog" aria-label="List of Corrections">
+    <div class="sticky-note-header" id="sticky-note-drag-handle">
+      <span>📝 List of Corrections</span>
+      <button class="sticky-note-close" id="btn-sticky-note-close" title="Close">✕</button>
+    </div>
+    <div class="sticky-note-body">
+      <table class="snote-table">
+        <thead>
+          <tr>
+            <th class="snote-th-no">No.</th>
+            <th class="snote-th-text">Correction</th>
+            <th class="snote-th-tick">✓</th>
+          </tr>
+        </thead>
+        <tbody id="sticky-note-rows"></tbody>
+      </table>
+      <button id="sticky-note-add-row-btn" class="snote-add-row-btn">+ Add Row</button>
+    </div>
   </div>
 
   <!-- Main app (ES module) -->

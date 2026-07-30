@@ -73,6 +73,15 @@ import {
   cleanupExpiredTrash,
   reassignGroupStudentAcrossSessions,
   updateSessionChecks,
+  updateWorkflowStatus,
+  updateWorkflowNote,
+  addReviewComment,
+  deleteReviewComment,
+  setReviewSubmitted,
+  setRevisionDone,
+  updateReviewCommentText,
+  markCommentFixed,
+  listenToReviewQueue,
   signInWithPin,
   signOutUser,
   onAuthChange,
@@ -158,9 +167,53 @@ function versionLineText() {
   return `Made by Lewis · Version ${APP_VERSION}`;
 }
 
-const APP_VERSION = "1268";
+const APP_VERSION = "1289";
 // Names shown on the approval strip in View/Edit Past Sessions.
-const CHECKED_BY = { assistant: "Ray", main: "Daisy" };
+const CHECKED_BY = { assistant: "Ray", main: "Ms. Daisy" };
+
+// ─── PASSWORD GATE ────────────────────────────────────────────
+// Single shared password for exports and old-session access.
+function requirePassword(onSuccess, message = "Enter password to continue") {
+  $("manage-modal-title").textContent = "Password Required";
+  $("manage-modal-body").innerHTML = `
+    <div style="padding:2rem 1rem;display:flex;flex-direction:column;align-items:center;gap:.75rem">
+      <div style="font-size:.85rem;color:var(--text-muted);text-align:center;max-width:260px;line-height:1.5">${message}</div>
+      <input id="req-pw-input" type="password" class="admin-input"
+        style="width:200px;text-align:center;font-size:1rem"
+        placeholder="Enter password" autocomplete="new-password">
+      <div id="req-pw-err" style="font-size:.8rem;color:#dc2626;display:none">Incorrect password</div>
+      <button class="btn-primary-sm" id="req-pw-btn" style="padding:.5rem 1.5rem">Continue</button>
+    </div>`;
+  $("manage-modal").classList.remove("hidden");
+  const pwInput = $("req-pw-input");
+  pwInput.value = "";
+  setTimeout(() => pwInput.focus(), 50);
+  const check = () => {
+    if (pwInput.value !== "0823") {
+      $("req-pw-err").style.display = "";
+      pwInput.value = "";
+      return;
+    }
+    closeManageModal();
+    onSuccess();
+  };
+  $("req-pw-btn").addEventListener("click", check);
+  pwInput.addEventListener("keydown", e => { if (e.key === "Enter") check(); });
+}
+
+const LEGAL_WARNING = `<strong>Client data is confidential</strong> and must only be accessed, used, or shared for authorised purposes. Unauthorised <strong>downloading of client data</strong> without permission for personal use is <strong>strictly prohibited</strong>.<br><br>Any violation of this policy constitutes a serious breach of privacy law. Violators may be <strong>reported to the relevant authorities</strong> and may be subject to civil and criminal liability.`;
+const EXPIRED_MSG = `This session is over 7 days old and has expired for free viewing. A password is required to continue.<br><br>${LEGAL_WARNING}`;
+const EXPORT_MSG  = `Enter password to continue.<br><br>${LEGAL_WARNING}`;
+
+function isOlderThan7Days(dateStr) {
+  if (!dateStr) return false;
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const sessionDate = new Date(y, m - 1, d);
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - 7);
+  cutoff.setHours(0, 0, 0, 0);
+  return sessionDate < cutoff;
+}
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -218,6 +271,9 @@ const state = {
   viewGroupSessionData:   null,
   fbViewGroupUnsubscribe: null,
   viewGroupRenderPending: false,
+  // Review queue (home screen checklist for pending review work)
+  reviewQueueItems:        [],
+  reviewQueueUnsubscribe:  null,
 };
 window._s = state; // debug helper
 
@@ -495,10 +551,16 @@ function closeTextEditorSheet() {
 }
 
 // ─── INIT ────────────────────────────────────────────────────
+// Block Ctrl+P (print dialog keyboard shortcut)
+document.addEventListener("keydown", e => {
+  if ((e.ctrlKey || e.metaKey) && e.key === "p") e.preventDefault();
+});
+
 document.addEventListener("DOMContentLoaded", async () => {
 
   // Register SW immediately — don't wait for Firebase so updates are never blocked.
   registerServiceWorker();
+  setupStickyNote();
 
   // If auth never resolves (e.g. Firebase CDN unreachable on iOS after cache clear),
   // show a reload button after 10 s so the user isn't trapped on the loading screen.
@@ -597,6 +659,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       return;
     }
     if (!user) {
+      if (state.reviewQueueUnsubscribe) { state.reviewQueueUnsubscribe(); state.reviewQueueUnsubscribe = null; }
       await waitForUpdatingScreenMinimum();
       initPin();
       return;
@@ -604,6 +667,14 @@ document.addEventListener("DOMContentLoaded", async () => {
     await loadAppData();
     await migrateGrayActivitiesToMaintained();
     await waitForUpdatingScreenMinimum();
+    // Start live review queue listener (updates home screen checklist in real time)
+    if (state.reviewQueueUnsubscribe) { state.reviewQueueUnsubscribe(); state.reviewQueueUnsubscribe = null; }
+    state.reviewQueueUnsubscribe = listenToReviewQueue(items => {
+      state.reviewQueueItems = items;
+      if ($("screen-home") && !$("screen-home").classList.contains("hidden")) {
+        renderStudentDatabaseButton();
+      }
+    });
     showHome();
     cleanupExpiredTrash();
   });
@@ -1058,8 +1129,69 @@ $("search-template").addEventListener("input", e => {
 function renderStudentDatabaseButton() {
   const container = $("student-database-button");
   if (!container) return;
-  container.innerHTML = `<button class="export-btn export-btn-all" id="btn-open-student-registry">View</button>`;
+  const pending = (state.reviewQueueItems || []).length;
+  const badge   = pending > 0 ? ` (${pending})` : "";
+  container.innerHTML = `<div class="info-btn-row">
+    <button class="export-btn export-btn-all" id="btn-open-student-registry">View</button>
+  </div>`;
   $("btn-open-student-registry").addEventListener("click", () => openStudentRegistryScreen());
+}
+
+function openChecklistModal() {
+  const items = state.reviewQueueItems || [];
+  $("session-picker-title").textContent = "📋 Checklist";
+
+  if (items.length === 0) {
+    $("session-picker-list").innerHTML = `<p class="empty-hint" style="padding:1rem 1.25rem">No pending reviews or corrections. All done! ✓</p>`;
+    $("session-picker-modal").classList.remove("hidden");
+    return;
+  }
+
+  const daisyItems = items.filter(i => i.workflowStatus === "daisy_pending")
+    .sort((a, b) => (a.workflowDate || a.date || "").localeCompare(b.workflowDate || b.date || ""));
+  const rayItems = items.filter(i => i.workflowStatus === "ray_pending")
+    .sort((a, b) => (a.workflowDate || a.date || "").localeCompare(b.workflowDate || b.date || ""));
+
+  const itemHtml = item => {
+    const d       = item.workflowDate || item.date;
+    const dateStr = d ? formatDateWithDay(d) : "Unknown date";
+    return `<button class="choice-btn checklist-modal-item" data-session-id="${item.id}" data-subject-id="${escHtml(item.workflowSubjectId || "")}" data-is-group="${!!item.workflowIsGroup}">
+      <div class="choice-text">
+        <div class="choice-label">${escHtml(item.workflowSubjectName || "Unknown")}</div>
+        <div class="choice-sub">${escHtml(dateStr)}</div>
+      </div>
+    </button>`;
+  };
+
+  let html = '<div class="choice-list">';
+  if (daisyItems.length > 0) {
+    html += `<div class="checklist-group-header">🔍 Daisy – Review Needed</div>`;
+    html += daisyItems.map(itemHtml).join("");
+  }
+  if (rayItems.length > 0) {
+    html += `<div class="checklist-group-header">🔧 Ray – Corrections Needed</div>`;
+    html += rayItems.map(itemHtml).join("");
+  }
+  html += "</div>";
+
+  $("session-picker-list").innerHTML = html;
+  $("session-picker-modal").classList.remove("hidden");
+
+  $("session-picker-list").querySelectorAll(".checklist-modal-item").forEach(btn => {
+    btn.addEventListener("click", () => {
+      closeSessionPicker();
+      const sid       = btn.dataset.sessionId;
+      const subjectId = btn.dataset.subjectId;
+      const isGrp     = btn.dataset.isGroup === "true";
+      if (isGrp) {
+        const group = (state.groups || []).find(g => g.id === subjectId);
+        if (group) openGroupSessionView(group, sid);
+      } else {
+        const student = (state.students || []).find(s => s.id === subjectId);
+        if (student) openSessionView(student, sid);
+      }
+    });
+  });
 }
 
 // highlightAdd: briefly glows "+ Add New Student" — used when redirected
@@ -1947,20 +2079,22 @@ function renderExportButtons() {
     </div>`;
 
   const wire = (btnId, defaultLabel, includeTrials) => {
-    $(btnId).addEventListener("click", async () => {
-      const btn = $(btnId);
-      btn.style.width = btn.offsetWidth + "px";
-      btn.disabled = true;
-      btn.textContent = "Generating…";
-      try {
-        await exportAllStudents(state.students, state.groups, includeTrials);
-      } catch (err) {
-        alert("Export failed: " + err.message);
-      } finally {
-        btn.disabled = false;
-        btn.textContent = defaultLabel;
-        btn.style.width = "";
-      }
+    $(btnId).addEventListener("click", () => {
+      requirePassword(async () => {
+        const btn = $(btnId);
+        btn.style.width = btn.offsetWidth + "px";
+        btn.disabled = true;
+        btn.textContent = "Generating…";
+        try {
+          await exportAllStudents(state.students, state.groups, includeTrials);
+        } catch (err) {
+          alert("Export failed: " + err.message);
+        } finally {
+          btn.disabled = false;
+          btn.textContent = defaultLabel;
+          btn.style.width = "";
+        }
+      }, EXPORT_MSG);
     });
   };
   wire("btn-export-all-trials", "Backup All Excel (ZIP)", true);
@@ -2071,7 +2205,7 @@ function renderHalfYearReportsSection() {
     actFilter.style.display = "";
   });
 
-  $("hyr-btn-generate").addEventListener("click", hyrGenerate);
+  $("hyr-btn-generate").addEventListener("click", () => requirePassword(hyrGenerate, EXPORT_MSG));
 }
 
 function hyrExclKey(studentId, periodVal) {
@@ -2211,8 +2345,15 @@ async function hyrGenerate() {
       .slice(0, 5);
     const bottom5Names = bottom5Targets.map(r => r.name);
 
-    const aiPrompt = `${HYR_DEFAULT_PROMPT}
+    const excludedList = excludedActivities.size > 0
+      ? [...excludedActivities].map(k => {
+          const [t, a] = k.split("|");
+          return `  - ${a} (under target: ${t})`;
+        }).join("\n")
+      : null;
 
+    const aiPrompt = `${HYR_DEFAULT_PROMPT}
+${excludedList ? `\nEXCLUDED ACTIVITIES — ABSOLUTE RULE: The following activities have been deliberately excluded from this report by the author. They are NOT present in the session data below. Do NOT mention, reference, discuss, or draw any conclusions about them anywhere in the report — not in the executive summary, not in key insights, not in any target or observation section. Treat them as if they do not exist:\n${excludedList}\n` : ""}
 Student: ${student.name}
 Reporting Period: ${aiReportingPeriod}
 
@@ -2467,6 +2608,8 @@ async function hyrCollectData(student, period, year, excludedActivities = new Se
     if (actNames.size > 0) {
       lines.push("Activities:");
       for (const actName of actNames) {
+        // Skip activities excluded by the user in the report UI
+        if (excludedActivities.has(`${tName}|${actName}`)) continue;
         // Collect all remarks for this activity across all sessions, sorted by date
         const allRemarks = [];
         const hyrAliases  = paKeyToAliases[actName] || [];
@@ -4698,14 +4841,14 @@ function showStudentChoice(student) {
   $("session-picker-modal").classList.remove("hidden");
 
   $("session-picker-list").querySelector(".choice-export-excel").addEventListener("click", () => {
-    showExportTrialsChoice(student.name, includeTrials => exportStudentData(student, includeTrials));
+    requirePassword(() => showExportTrialsChoice(student.name, includeTrials => exportStudentData(student, includeTrials)), EXPORT_MSG);
   });
   $("session-picker-list").querySelector(".choice-export-word").addEventListener("click", () => {
-    showExportSessionPickerGeneric(
+    requirePassword(() => showExportSessionPickerGeneric(
       student.name,
       () => getRecentSessionsForStudent(student.id),
       session => exportStudentSingleSessionWord(student, session)
-    );
+    ), EXPORT_MSG);
   });
 
   $("session-picker-list").querySelector(".choice-today").addEventListener("click", () => {
@@ -4905,7 +5048,8 @@ function renderSessionsForMonth(student, month, monthSessions, byMonth, today, s
   list.querySelectorAll(".session-list-item").forEach(item => {
     item.addEventListener("click", () => {
       closeSessionPicker();
-      openSessionView(student, item.dataset.sessionId);
+      const open = () => openSessionView(student, item.dataset.sessionId);
+      if (isOlderThan7Days(item.dataset.sessionDate)) { requirePassword(open, EXPIRED_MSG); } else { open(); }
     });
   });
 }
@@ -5120,15 +5264,17 @@ function showGroupExportStudentPicker(group, mode) {
   $("session-picker-list").querySelectorAll(".choice-export-student").forEach(btn => {
     btn.addEventListener("click", () => {
       const name = btn.dataset.name;
-      if (mode === "word") {
-        showExportSessionPickerGeneric(
-          `${name} (Group)`,
-          () => getRecentGroupSessions(group.id),
-          session => exportGroupMemberSingleSessionWord(name, [group], session)
-        );
-        return;
-      }
-      showExportTrialsChoice(`${name} (Group)`, includeTrials => exportGroupMemberData(name, [group], includeTrials));
+      requirePassword(() => {
+        if (mode === "word") {
+          showExportSessionPickerGeneric(
+            `${name} (Group)`,
+            () => getRecentGroupSessions(group.id),
+            session => exportGroupMemberSingleSessionWord(name, [group], session)
+          );
+          return;
+        }
+        showExportTrialsChoice(`${name} (Group)`, includeTrials => exportGroupMemberData(name, [group], includeTrials));
+      }, EXPORT_MSG);
     });
   });
 }
@@ -5218,7 +5364,10 @@ function renderGoToSessionsForMonth(student, month, monthSessions, byMonth, toda
     item.addEventListener("click", () => {
       const sid = item.dataset.sessionId;
       closeSessionPicker();
-      if (sid !== state.viewSessionId) openSessionView(student, sid);
+      if (sid !== state.viewSessionId) {
+        const open = () => openSessionView(student, sid);
+        if (isOlderThan7Days(item.dataset.sessionDate)) { requirePassword(open, EXPIRED_MSG); } else { open(); }
+      }
     });
   });
 }
@@ -5398,7 +5547,8 @@ function renderStartSessionCalendar(student, today, displayDate, takenDates = ne
   $("session-picker-list").querySelectorAll(".date-picker-day:not([disabled])").forEach(btn => {
     btn.addEventListener("click", () => {
       closeSessionPicker();
-      openSession(student, null, btn.dataset.date);
+      const open = () => openSession(student, null, btn.dataset.date);
+      if (isOlderThan7Days(btn.dataset.date)) { requirePassword(open, EXPIRED_MSG); } else { open(); }
     });
   });
 }
@@ -7822,6 +7972,7 @@ async function openSessionView(student, sessionId) {
   $("view-session-meta").textContent = "";
   $("session-view-body").innerHTML = `<div class="loading">Loading…</div>`;
   _viewChkConfirmRole = null; clearTimeout(_viewChkConfirmTimer);
+  _viewReviewPanelOpen = false; _viewCommentDraft = ""; _viewSigningCmtId = null; _viewSigningName = "";
 
   if (state.fbViewUnsubscribe) { state.fbViewUnsubscribe(); state.fbViewUnsubscribe = null; }
 
@@ -7907,6 +8058,7 @@ async function leaveSessionView() {
   $("btn-delete-session")?.classList.add("hidden");
   $("btn-goto-session")?.classList.add("hidden");
   _viewChkConfirmRole = null; clearTimeout(_viewChkConfirmTimer);
+  _viewReviewPanelOpen = false; _viewCommentDraft = ""; _viewSigningCmtId = null; _viewSigningName = "";
   // Flush (and await it) while the Firestore listener is still live, same as
   // leaveSession() does for the live entry screen — flush() only writes to
   // Firestore, state.viewSessionData only updates once the listener echoes
@@ -7960,6 +8112,7 @@ async function leaveSessionView() {
     }
   }
 
+  closeStickyNote();
   showHome();
 }
 
@@ -7977,6 +8130,39 @@ let _viewChkConfirmTimer = null;
 let _grpChkConfirmRole   = null;
 let _grpChkConfirmTimer  = null;
 
+// Review panel state (individual / group)
+let _viewReviewPanelOpen = false;
+let _viewCommentDraft    = "";
+let _viewSigningCmtId    = null;
+let _viewSigningName     = "";
+let _grpReviewPanelOpen  = false;
+let _grpCommentDraft     = "";
+let _grpSigningCmtId     = null;
+let _grpSigningName      = "";
+
+// Sticky note (floating draggable corrections list)
+let _stickyNoteSessionId    = null;
+let _stickyNoteIsGroup      = false;
+let _noteDebounce           = null;
+let _focusNewRow            = false;
+let _phase3Error            = null; // error string shown in Phase 3 node, auto-clears
+const _textareaDebounce     = new Map();
+
+function getWorkflowState(data) {
+  const checks    = data?.checks || {};
+  const rayDone   = !!checks.assistant;
+  const daisyDone = !!checks.main;
+  const reviewUnlocked  = rayDone && daisyDone;
+  const reviewSubmitted = !!data?.reviewSubmitted;
+  const revisionDone    = data?.revisionDone || null; // { by, at } or null
+  const comments  = Object.entries(data?.reviewComments || {})
+    .sort(([,a],[,b]) => (a.order || 0) - (b.order || 0));
+  const allFixed   = comments.length > 0 && comments.every(([,c]) => !!c.fixedByName);
+  const noComments = comments.length === 0;
+  const ready = reviewSubmitted && !!revisionDone;
+  return { rayDone, daisyDone, reviewUnlocked, reviewSubmitted, revisionDone, comments, allFixed, noComments, ready };
+}
+
 function fmtCheckTimestamp(ts) {
   const d = new Date(ts);
   const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
@@ -7984,36 +8170,117 @@ function fmtCheckTimestamp(ts) {
   return `${d.getDate()} ${months[d.getMonth()]} ${h % 12 || 12}:${m}${h < 12 ? "am" : "pm"}`;
 }
 
-function renderCheckedByStripHtml(data, confirmRole) {
+function renderCheckedByStripHtml(data, confirmRole, isGroup = false) {
+  const ws     = getWorkflowState(data);
   const checks = data?.checks || {};
 
-  const pillHtml = role => {
-    const check        = checks[role];
-    const name         = CHECKED_BY[role];
-    const isChecked    = !!check;
-    const isConfirming = confirmRole === role;
-    const classes = ["checked-by-pill", isChecked && "is-checked", isConfirming && "is-confirming"].filter(Boolean).join(" ");
+  // Refresh sticky note if open for this session
+  const curSid = isGroup ? state.viewGroupSessionId : state.viewSessionId;
+  if (_stickyNoteSessionId === curSid) renderStickyNoteContent(data, isGroup);
 
-    if (isConfirming) {
-      const msg = isChecked
-        ? `✓ ${escHtml(name)} · ${escHtml(fmtCheckTimestamp(check.at))} — Undo?`
-        : `${escHtml(name)}: Are you sure?`;
-      return `<div class="${classes}">
-        <span class="chk-label">${msg}</span>
-        <span class="chk-confirm-btns">
-          <button class="chk-btn-yes" data-role="${role}">${isChecked ? "Undo ✓" : "Confirm ✓"}</button>
-          <button class="chk-btn-no"  data-role="${role}">Cancel</button>
-        </span>
-      </div>`;
-    }
+  const arrow = `<div class="wf-arrow" aria-hidden="true">
+    <svg width="32" height="24" viewBox="0 0 32 24" fill="none">
+      <line x1="0" y1="12" x2="22" y2="12" stroke="#9ca3af" stroke-width="2"/>
+      <polygon points="19,6 32,12 19,18" fill="#9ca3af"/>
+    </svg>
+  </div>`;
 
-    const inner = isChecked
-      ? `<span class="chk-mark">✓</span> <span class="chk-label">${escHtml(name)} · ${escHtml(fmtCheckTimestamp(check.at))}</span>`
-      : `<span class="chk-label">${escHtml(name)}: ${role === "assistant" ? "Incomplete" : "Not Yet Approved"}</span>`;
-    return `<button class="${classes}" data-role="${role}">${inner}</button>`;
+  // Shared confirm widget
+  const mkConfirm = (role, msg) => `
+    <div class="wf-confirming">
+      <span class="wf-confirm-msg">${msg}</span>
+      <div class="wf-confirm-btns">
+        <button class="chk-btn-yes" data-role="${role}">Confirm ✓</button>
+        <button class="chk-btn-no"  data-role="${role}">Cancel</button>
+      </div>
+    </div>`;
+
+  // ── Phase 1: Enter Data ───────────────────────────────────────
+  const mkPill1 = (role, done, at) => {
+    const name = role === "assistant" ? "Ray" : "Ms. Daisy";
+    if (confirmRole === role) return mkConfirm(role, done ? `Undo ${name}?` : `${name}: Sure?`);
+    if (done) return `<button class="wf-pill wf-pill--done" data-role="${role}">✓ ${escHtml(name)} · ${escHtml(fmtCheckTimestamp(at))}</button>`;
+    return `<button class="wf-pill wf-pill--pending" data-role="${role}">○ ${escHtml(name)}: Incomplete</button>`;
   };
 
-  return `<div class="checked-by-strip" contenteditable="false"><div class="chk-inner">${pillHtml("assistant")}${pillHtml("main")}<button class="chk-export-btn" title="Export this session to Word">📄 Export to Word (Daily Session Note)</button></div></div>`;
+  const p1State = (ws.rayDone && ws.daisyDone) ? "done" : "pending";
+  const p1Node = `<div class="wf-node wf-node--${p1State}">
+    <div class="wf-node-label">Phase 1: Enter Data</div>
+    <div class="wf-node-body">
+      ${mkPill1("assistant", ws.rayDone, checks.assistant?.at)}
+      ${mkPill1("main", ws.daisyDone, checks.main?.at)}
+    </div>
+  </div>`;
+
+  // ── Phase 2: Review & Feedback ────────────────────────────────
+  let p2State, p2Body;
+  if (!ws.reviewUnlocked) {
+    p2State = "pending";
+    p2Body  = `<div class="wf-pill wf-pill--pending">○ Ms. Daisy: Incomplete</div>`;
+  } else if (confirmRole === "phase2") {
+    p2State = "p2-active";
+    p2Body  = mkConfirm("phase2", ws.reviewSubmitted ? "Undo Phase 2?" : "Mark as reviewed?");
+  } else if (!ws.reviewSubmitted) {
+    p2State = "p2-active";
+    p2Body  = `<button class="wf-pill wf-pill--attention" data-role="phase2">○ Ms. Daisy: Incomplete</button>`;
+  } else {
+    p2State = "done";
+    p2Body  = `<button class="wf-pill wf-pill--done" data-role="phase2">✓ Ms. Daisy · ${escHtml(fmtCheckTimestamp(data.reviewSubmittedAt))}</button>`;
+  }
+  const p2Node = `<div class="wf-node wf-node--${p2State}">
+    <div class="wf-node-label">Phase 2: Review &amp; Feedback</div>
+    <div class="wf-node-body">${p2Body}</div>
+  </div>`;
+
+  // ── Phase 3: Revision ─────────────────────────────────────────
+  let p3State, p3Body;
+  if (!ws.reviewSubmitted) {
+    p3State = "pending";
+    p3Body  = `<div class="wf-pill wf-pill--pending">○ Ray: Incomplete</div>`;
+  } else if (confirmRole === "phase3") {
+    p3State = "corrections";
+    p3Body  = mkConfirm("phase3", ws.revisionDone ? "Undo Phase 3?" : "Mark revision done?");
+  } else if (!ws.revisionDone) {
+    p3State = "corrections";
+    p3Body  = `<button class="wf-pill wf-pill--warn" data-role="phase3">○ Ray: Incomplete</button>`;
+  } else {
+    p3State = "done";
+    p3Body  = `<button class="wf-pill wf-pill--done" data-role="phase3">✓ Ray · ${escHtml(fmtCheckTimestamp(ws.revisionDone.at))}</button>`;
+  }
+  const p3Node = `<div class="wf-node wf-node--${p3State}">
+    <div class="wf-node-label">Phase 3: Revision</div>
+    <div class="wf-node-body">${p3Body}</div>
+    ${_phase3Error ? `<div class="wf-error-msg">⚠ ${escHtml(_phase3Error)}</div>` : ""}
+  </div>`;
+
+  // ── Phase 4: Nigel ────────────────────────────────────────────
+  const nigelState = ws.ready ? "nigel-ready" : "nigel";
+  const nigelNode  = `<div class="wf-node wf-node--${nigelState}">
+    <div class="wf-node-label">Phase 4: Nigel</div>
+    <div class="wf-node-body">
+      <div class="wf-node-line">${ws.ready ? "Ready to Send! 🎉" : "Waiting... 🤔"}</div>
+    </div>
+  </div>`;
+
+  // ── Row 2: Note (col 3-5, between Phase 2 & 3) + Export (col 7)
+  const hasCmts = ws.comments.length > 0;
+  const noteTrigger = `<div class="wf-note-wrap">
+    <button class="wf-note-btn${hasCmts ? " has-note" : ""}" data-action="open-note">
+      📝 List of Corrections${hasCmts ? ` (${ws.comments.length})` : ""}
+    </button>
+  </div>`;
+
+  const exportTrigger = `<div class="wf-export-wrap">
+    <button class="chk-export-btn" title="Export this session to Word">📄 Export to Word</button>
+  </div>`;
+
+  return `<div class="checked-by-strip" contenteditable="false">
+    <div class="workflow-chart">
+      ${p1Node}${arrow}${p2Node}${arrow}${p3Node}${arrow}${nigelNode}
+      ${noteTrigger}
+      ${exportTrigger}
+    </div>
+  </div>`;
 }
 
 async function handleCheckedByClick(e, isGroup) {
@@ -8022,64 +8289,291 @@ async function handleCheckedByClick(e, isGroup) {
   const clearTimer   = ()  => clearTimeout(isGroup ? _grpChkConfirmTimer : _viewChkConfirmTimer);
   const setTimer     = fn  => { const t = setTimeout(fn, 4000); if (isGroup) _grpChkConfirmTimer = t; else _viewChkConfirmTimer = t; };
   const rerender     = ()  => isGroup ? renderGroupSessionView() : renderSessionView();
+  const getSid       = ()  => isGroup ? state.viewGroupSessionId  : state.viewSessionId;
+  const getData      = ()  => isGroup ? state.viewGroupSessionData : state.viewSessionData;
+  const getSubjectMeta = () => {
+    const data = getData();
+    return {
+      subjectName: isGroup ? state.viewGroup?.name : state.viewStudent?.name,
+      subjectId:   isGroup ? data?.groupId          : data?.studentId,
+      isGroup:     !!isGroup,
+      date:        data?.date
+    };
+  };
 
-  // Export to Word button
-  const exportBtn = e.target.closest(".chk-export-btn");
-  if (exportBtn) {
-    if (isGroup) {
-      const attendees = state.viewGroupSessionData?.attendees || state.viewGroup?.students || [];
-      const session   = { id: state.viewGroupSessionId, ...(state.viewGroupSessionData || {}) };
-      if (attendees.length === 1) {
-        exportGroupMemberSingleSessionWord(attendees[0], [state.viewGroup], session);
-      } else {
-        $("session-picker-title").textContent = "Export for…";
-        $("session-picker-list").innerHTML = attendees.length
-          ? `<div class="choice-list">` + attendees.map(name => `
-              <button class="choice-btn choice-grp-view-export" data-name="${escHtml(name)}">
-                <span class="choice-icon">📤</span>
-                <div class="choice-text"><div class="choice-label">${escHtml(name)}</div></div>
-              </button>`).join("") + `</div>`
-          : `<p class="empty-hint">No attendees found.</p>`;
-        $("session-picker-modal").classList.remove("hidden");
-        $("session-picker-list").querySelectorAll(".choice-grp-view-export").forEach(btn => {
-          btn.addEventListener("click", () => {
-            closeSessionPicker();
-            exportGroupMemberSingleSessionWord(btn.dataset.name, [state.viewGroup], session);
-          });
-        });
-      }
-    } else {
-      exportStudentSingleSessionWord(state.viewStudent, { id: state.viewSessionId, ...(state.viewSessionData || {}) });
-    }
+  // ── Note / corrections list button ───────────────────────────
+  if (e.target.closest("[data-action='open-note']")) {
+    openStickyNote(getSid(), !!isGroup, getData());
     return true;
   }
 
-  // Pill click → confirming state
-  const pill = e.target.closest(".checked-by-pill:not(.is-confirming)");
-  if (pill) {
+  // ── Export to Word button ────────────────────────────────────
+  const exportBtn = e.target.closest(".chk-export-btn");
+  if (exportBtn) {
+    requirePassword(() => {
+      if (isGroup) {
+        const attendees = state.viewGroupSessionData?.attendees || state.viewGroup?.students || [];
+        const session   = { id: state.viewGroupSessionId, ...(state.viewGroupSessionData || {}) };
+        if (attendees.length === 1) {
+          exportGroupMemberSingleSessionWord(attendees[0], [state.viewGroup], session);
+        } else {
+          $("session-picker-title").textContent = "Export for…";
+          $("session-picker-list").innerHTML = attendees.length
+            ? `<div class="choice-list">` + attendees.map(name => `
+                <button class="choice-btn choice-grp-view-export" data-name="${escHtml(name)}">
+                  <span class="choice-icon">📤</span>
+                  <div class="choice-text"><div class="choice-label">${escHtml(name)}</div></div>
+                </button>`).join("") + `</div>`
+            : `<p class="empty-hint">No attendees found.</p>`;
+          $("session-picker-modal").classList.remove("hidden");
+          $("session-picker-list").querySelectorAll(".choice-grp-view-export").forEach(btn => {
+            btn.addEventListener("click", () => {
+              closeSessionPicker();
+              exportGroupMemberSingleSessionWord(btn.dataset.name, [state.viewGroup], session);
+            });
+          });
+        }
+      } else {
+        exportStudentSingleSessionWord(state.viewStudent, { id: state.viewSessionId, ...(state.viewSessionData || {}) });
+      }
+    }, EXPORT_MSG);
+    return true;
+  }
+
+  // ── Phase-1 pill click → confirm flow ───────────────────────
+  const pillBtn = e.target.closest(".wf-pill[data-role]");
+  if (pillBtn) {
     clearTimer();
-    setConfirm(pill.dataset.role);
+    setConfirm(pillBtn.dataset.role);
     rerender();
     setTimer(() => { setConfirm(null); rerender(); });
     return true;
   }
-  // Confirm button
+
+  // ── Confirm button ───────────────────────────────────────────
   const yesBtn = e.target.closest(".chk-btn-yes");
   if (yesBtn) {
-    clearTimer(); setConfirm(null);
-    const sid    = isGroup ? state.viewGroupSessionId : state.viewSessionId;
-    const data   = isGroup ? state.viewGroupSessionData : state.viewSessionData;
+    clearTimer(); setConfirm(null); rerender(); // remove confirm UI immediately — no lag
+    const sid  = getSid();
+    const data = getData();
     if (!sid) return true;
-    const checks    = { ...(data?.checks || {}) };
-    const role      = yesBtn.dataset.role;
-    if (checks[role]) { delete checks[role]; } else { checks[role] = { by: CHECKED_BY[role], at: Date.now() }; }
-    try { await updateSessionChecks(sid, checks); } catch (err) { console.error("updateSessionChecks failed:", err); }
+    const role = yesBtn.dataset.role;
+
+    if (role === "assistant" || role === "main") {
+      const checks  = { ...(data?.checks || {}) };
+      const wasDone = !!checks[role];
+      if (wasDone) { delete checks[role]; } else { checks[role] = { by: CHECKED_BY[role], at: Date.now() }; }
+      try {
+        await updateSessionChecks(sid, checks);
+        const bothDone  = !!checks.assistant && !!checks.main;
+        const wasQueued = data?.workflowStatus === "daisy_pending";
+        if (bothDone && !data?.reviewSubmitted) {
+          await updateWorkflowStatus(sid, "daisy_pending", getSubjectMeta());
+        } else if (!bothDone && wasQueued) {
+          await updateWorkflowStatus(sid, null);
+        }
+      } catch (err) { console.error("updateSessionChecks:", err); }
+    } else if (role === "phase2") {
+      const ws     = getWorkflowState(data);
+      const newDone = !ws.reviewSubmitted;
+      try {
+        await setReviewSubmitted(sid, newDone);
+        const newStatus = newDone ? (ws.comments.length > 0 ? "ray_pending" : null) : "daisy_pending";
+        await updateWorkflowStatus(sid, newStatus, getSubjectMeta());
+      } catch (err) { console.error("togglePhase2:", err); }
+    } else if (role === "phase3") {
+      const ws     = getWorkflowState(data);
+      const newDone = !ws.revisionDone;
+      if (newDone && ws.comments.length > 0 && !ws.allFixed) {
+        const unfixed = ws.comments.filter(([,c]) => !c.fixedByName).length;
+        _phase3Error = `${unfixed} correction${unfixed > 1 ? "s" : ""} still unticked.`;
+        rerender();
+        setTimeout(() => { _phase3Error = null; rerender(); }, 3500);
+        return true;
+      }
+      _phase3Error = null;
+      try {
+        await setRevisionDone(sid, newDone);
+        await updateWorkflowStatus(sid, newDone ? null : "ray_pending", getSubjectMeta());
+      } catch (err) { console.error("togglePhase3:", err); }
+    }
     return true;
   }
-  // Cancel button
+
+  // ── Cancel button ────────────────────────────────────────────
   const noBtn = e.target.closest(".chk-btn-no");
   if (noBtn) { clearTimer(); setConfirm(null); rerender(); return true; }
+
   return false;
+}
+
+// ── Sticky Note — "List of Corrections" ──────────────────────
+
+function renderStickyNoteContent(data, isGroup) {
+  const tbody = document.getElementById("sticky-note-rows");
+  if (!tbody) return;
+
+  const ws = getWorkflowState(data);
+
+  // Preserve focused textarea and caret position across re-renders
+  const activeEl      = document.activeElement;
+  const focusedCmtId  = activeEl?.classList.contains("snote-textarea") ? activeEl.dataset.cmtId : null;
+  const caretPos      = focusedCmtId ? activeEl.selectionEnd : null;
+  // Keep live value so re-render doesn't lose in-flight text
+  const liveText      = focusedCmtId ? activeEl.value : null;
+
+  if (ws.comments.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="3" class="snote-empty">No corrections — click + Add Row to start.</td></tr>`;
+  } else {
+    tbody.innerHTML = ws.comments.map(([id, c], i) => {
+      const text = (focusedCmtId === id && liveText !== null) ? liveText : (c.text || "");
+      return `<tr class="snote-row${c.fixedByName ? " snote-row--done" : ""}">
+        <td class="snote-no">${i + 1}</td>
+        <td class="snote-text"><textarea class="snote-textarea" data-cmt-id="${id}" rows="1" placeholder="Type here…">${escHtml(text)}</textarea></td>
+        <td class="snote-tick"><input type="checkbox" class="snote-check" data-cmt-id="${id}" ${c.fixedByName ? "checked" : ""}></td>
+      </tr>`;
+    }).join("");
+
+    // Auto-size all textareas
+    tbody.querySelectorAll(".snote-textarea").forEach(ta => {
+      ta.style.height = "auto";
+      ta.style.height = ta.scrollHeight + "px";
+    });
+  }
+
+  // Restore focus & caret
+  if (focusedCmtId) {
+    const ta = tbody.querySelector(`.snote-textarea[data-cmt-id="${focusedCmtId}"]`);
+    if (ta) {
+      ta.focus();
+      if (caretPos !== null) { try { ta.selectionEnd = caretPos; ta.selectionStart = caretPos; } catch {} }
+    }
+  }
+
+  // Focus newly added row
+  if (_focusNewRow) {
+    _focusNewRow = false;
+    const all = tbody.querySelectorAll(".snote-textarea");
+    if (all.length > 0) all[all.length - 1].focus();
+  }
+
+}
+
+function openStickyNote(sessionId, isGroup, data) {
+  _stickyNoteSessionId = sessionId;
+  _stickyNoteIsGroup   = !!isGroup;
+  const el = document.getElementById("sticky-note");
+  if (!el) return;
+  if (!el.dataset.positioned) {
+    el.style.right = "20px";
+    el.style.top   = "110px";
+    el.style.left  = "";
+  }
+  el.classList.remove("hidden");
+  renderStickyNoteContent(data, isGroup);
+}
+
+function closeStickyNote() {
+  const el = document.getElementById("sticky-note");
+  if (el) el.classList.add("hidden");
+  _stickyNoteSessionId = null;
+}
+
+function setupStickyNote() {
+  const note    = document.getElementById("sticky-note");
+  const handle  = document.getElementById("sticky-note-drag-handle");
+  const closeEl = document.getElementById("btn-sticky-note-close");
+  if (!note || !handle || !closeEl) return;
+
+  // ── Drag ─────────────────────────────────────────────────────
+  let dragging = false, ox = 0, oy = 0, nl = 0, nt = 0;
+
+  function startDrag(cx, cy) {
+    if (!note.dataset.positioned) {
+      const rect = note.getBoundingClientRect();
+      note.style.left  = rect.left + "px";
+      note.style.right = "";
+      note.style.top   = rect.top + "px";
+      note.dataset.positioned = "1";
+    }
+    nl = parseFloat(note.style.left) || 0;
+    nt = parseFloat(note.style.top)  || 0;
+    ox = cx; oy = cy;
+    dragging = true;
+  }
+  function onMove(cx, cy) {
+    if (!dragging) return;
+    note.style.left  = Math.max(0, nl + cx - ox) + "px";
+    note.style.top   = Math.max(0, nt + cy - oy) + "px";
+    note.style.right = "";
+    note.dataset.positioned = "1";
+  }
+  handle.addEventListener("mousedown",  e => { startDrag(e.clientX, e.clientY); e.preventDefault(); });
+  document.addEventListener("mousemove", e => onMove(e.clientX, e.clientY));
+  document.addEventListener("mouseup",   () => { dragging = false; });
+  handle.addEventListener("touchstart", e => { const t = e.touches[0]; startDrag(t.clientX, t.clientY); }, { passive: false });
+  document.addEventListener("touchmove", e => { if (!dragging) return; const t = e.touches[0]; onMove(t.clientX, t.clientY); e.preventDefault(); }, { passive: false });
+  document.addEventListener("touchend", () => { dragging = false; });
+
+  closeEl.addEventListener("click", closeStickyNote);
+
+  // ── Context helpers ──────────────────────────────────────────
+  const getCtx = () => ({
+    sid:    _stickyNoteSessionId,
+    data:   _stickyNoteIsGroup ? state.viewGroupSessionData : state.viewSessionData,
+    isGroup: _stickyNoteIsGroup,
+    meta: {
+      subjectName: _stickyNoteIsGroup ? state.viewGroup?.name : state.viewStudent?.name,
+      subjectId:   _stickyNoteIsGroup ? state.viewGroupSessionData?.groupId : state.viewSessionData?.studentId,
+      isGroup:     !!_stickyNoteIsGroup,
+      date:        _stickyNoteIsGroup ? state.viewGroupSessionData?.date : state.viewSessionData?.date
+    }
+  });
+
+  // ── Click delegation ─────────────────────────────────────────
+  note.addEventListener("click", async e => {
+    // + Add Row
+    if (e.target.id === "sticky-note-add-row-btn") {
+      const { sid } = getCtx();
+      if (!sid) return;
+      _focusNewRow = true;
+      try { await addReviewComment(sid, ""); }
+      catch (err) { console.error("addReviewComment:", err); }
+      return;
+    }
+
+    // Tick/untick checkbox
+    const chk = e.target.closest(".snote-check");
+    if (chk) {
+      const { sid } = getCtx();
+      if (!sid) return;
+      const cmtId  = chk.dataset.cmtId;
+      const fixing = chk.checked;
+      try { await markCommentFixed(sid, cmtId, fixing ? "Ray" : null); }
+      catch (err) { console.error("markCommentFixed:", err); }
+      return;
+    }
+  });
+
+  // ── Textarea auto-save (debounced, per-row) ──────────────────
+  note.addEventListener("input", e => {
+    const ta = e.target.closest(".snote-textarea");
+    if (!ta) return;
+    const cmtId = ta.dataset.cmtId;
+    if (!cmtId) return;
+    // Auto-grow
+    ta.style.height = "auto";
+    ta.style.height = ta.scrollHeight + "px";
+    // Debounce save
+    if (_textareaDebounce.has(cmtId)) clearTimeout(_textareaDebounce.get(cmtId));
+    _textareaDebounce.set(cmtId, setTimeout(async () => {
+      _textareaDebounce.delete(cmtId);
+      const { sid } = getCtx();
+      if (!sid) return;
+      try { await updateReviewCommentText(sid, cmtId, ta.value); }
+      catch (err) { console.error("updateReviewCommentText:", err); }
+    }, 600));
+  });
 }
 
 function renderSessionView() {
@@ -8125,7 +8619,7 @@ function renderSessionView() {
   const body = $("session-view-body");
   const scrollTop = body.scrollTop;
   const captured = captureActiveEditState(body);
-  const stripHtml = renderCheckedByStripHtml(data, _viewChkConfirmRole);
+  const stripHtml = renderCheckedByStripHtml(data, _viewChkConfirmRole, false);
   body.innerHTML = stripHtml + (sorted.length
     ? sorted.map(t => buildTargetViewTable(t, data)).join("")
     : `<p style="color:var(--text-muted);padding:1rem">No targets recorded.</p>`);
@@ -9854,6 +10348,24 @@ function attachViewListeners() {
     });
   });
 
+  // ── Review panel inputs (recreated on each render) ────────────
+  const cmtInput = body.querySelector(".review-comment-input");
+  if (cmtInput) {
+    cmtInput.addEventListener("input", () => { _viewCommentDraft = cmtInput.value; });
+    cmtInput.addEventListener("keydown", async e => {
+      if (e.key !== "Enter" || !cmtInput.value.trim()) return;
+      e.preventDefault();
+      const text = cmtInput.value.trim();
+      _viewCommentDraft = "";
+      try { await addReviewComment(state.viewSessionId, text); } catch (err) { console.error("addReviewComment:", err); }
+    });
+  }
+  const signInput = body.querySelector(".review-sign-input");
+  if (signInput) {
+    signInput.addEventListener("input", () => { _viewSigningName = signInput.value; });
+    signInput.focus();
+  }
+
 }
 
 // ============================================================
@@ -9879,6 +10391,7 @@ async function openGroupSessionView(group, sessionId) {
   $("group-view-session-meta").textContent = "";
   $("group-session-view-body").innerHTML = `<div class="loading">Loading…</div>`;
   _grpChkConfirmRole = null; clearTimeout(_grpChkConfirmTimer);
+  _grpReviewPanelOpen = false; _grpCommentDraft = ""; _grpSigningCmtId = null; _grpSigningName = "";
   if (state.viewGroupChkDelegate) $("group-session-view-body").removeEventListener("click", state.viewGroupChkDelegate);
   state.viewGroupChkDelegate = async e => { await handleCheckedByClick(e, true); };
   $("group-session-view-body").addEventListener("click", state.viewGroupChkDelegate);
@@ -9918,6 +10431,7 @@ async function leaveGroupSessionView() {
   $("btn-group-delete-session")?.classList.add("hidden");
   $("btn-group-goto-session")?.classList.add("hidden");
   _grpChkConfirmRole = null; clearTimeout(_grpChkConfirmTimer);
+  _grpReviewPanelOpen = false; _grpCommentDraft = ""; _grpSigningCmtId = null; _grpSigningName = "";
   if (state.viewGroupChkDelegate) { $("group-session-view-body")?.removeEventListener("click", state.viewGroupChkDelegate); state.viewGroupChkDelegate = null; }
   // See the matching comment in leaveSessionView() — flush (and await it)
   // before unsubscribing, not after, so the listener is still alive to
@@ -9959,6 +10473,7 @@ async function leaveGroupSessionView() {
     }
   }
 
+  closeStickyNote();
   showHome();
 }
 
@@ -10008,7 +10523,7 @@ function renderGroupSessionView() {
   const body = $("group-session-view-body");
   const scrollTop = body.scrollTop;
   const captured = captureActiveEditState(body);
-  const grpStripHtml = renderCheckedByStripHtml(data, _grpChkConfirmRole);
+  const grpStripHtml = renderCheckedByStripHtml(data, _grpChkConfirmRole, true);
   body.innerHTML = grpStripHtml + (sorted.length
     ? sorted.map(t => buildGroupTargetViewTable(t, data, attendees)).join("")
     : `<p style="color:var(--text-muted);padding:1rem">No targets recorded.</p>`);
@@ -11153,6 +11668,24 @@ function attachGroupViewListeners() {
       await updateFedcComment(sid(), target.name, ta.value);
     });
   });
+
+  // ── Review panel inputs (recreated on each render) ────────────
+  const grpCmtInput = body.querySelector(".review-comment-input");
+  if (grpCmtInput) {
+    grpCmtInput.addEventListener("input", () => { _grpCommentDraft = grpCmtInput.value; });
+    grpCmtInput.addEventListener("keydown", async e => {
+      if (e.key !== "Enter" || !grpCmtInput.value.trim()) return;
+      e.preventDefault();
+      const text = grpCmtInput.value.trim();
+      _grpCommentDraft = "";
+      try { await addReviewComment(sid(), text); } catch (err) { console.error("addReviewComment (grp):", err); }
+    });
+  }
+  const grpSignInput = body.querySelector(".review-sign-input");
+  if (grpSignInput) {
+    grpSignInput.addEventListener("input", () => { _grpSigningName = grpSignInput.value; });
+    grpSignInput.focus();
+  }
 }
 
 // ── Go To Another (group) Session ─────────────────────────────
@@ -11237,7 +11770,10 @@ function renderGoToGroupSessionsForMonth(group, month, monthSessions, byMonth, t
     item.addEventListener("click", () => {
       const sid = item.dataset.sessionId;
       closeSessionPicker();
-      if (sid !== state.viewGroupSessionId) openGroupSessionView(group, sid);
+      if (sid !== state.viewGroupSessionId) {
+        const open = () => openGroupSessionView(group, sid);
+        if (isOlderThan7Days(item.dataset.sessionDate)) { requirePassword(open, EXPIRED_MSG); } else { open(); }
+      }
     });
   });
 }
@@ -18018,7 +18554,7 @@ function renderSessionListRows(sorted, display, today, { isCurrentId, extraLine,
     const label     = sessionItemLabel(s.date, today);
     const labelHtml = renderLabel ? renderLabel(s, label) : `<strong>Session ${s.sessionNumber}</strong>: ${label}`;
     const extra     = extraLine ? extraLine(s) : "";
-    html += `<div class="${cls}" data-session-id="${s.id}">
+    html += `<div class="${cls}" data-session-id="${s.id}" data-session-date="${s.date}">
       <div class="session-list-meta">
         <div class="session-list-label">${labelHtml}</div>
         ${extra}
