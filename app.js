@@ -72,6 +72,7 @@ import {
   permanentlyDeleteTrashItem,
   cleanupExpiredTrash,
   reassignGroupStudentAcrossSessions,
+  updateSessionChecks,
   signInWithPin,
   signOutUser,
   onAuthChange,
@@ -157,7 +158,9 @@ function versionLineText() {
   return `Made by Lewis · Version ${APP_VERSION}`;
 }
 
-const APP_VERSION = "1239";
+const APP_VERSION = "1266";
+// Names shown on the approval strip in View/Edit Past Sessions.
+const CHECKED_BY = { assistant: "Ray", main: "Daisy" };
 
 // ─── STATE ───────────────────────────────────────────────────
 const state = {
@@ -4331,14 +4334,19 @@ function renderManageActivityScreen(student) {
       return '';
     };
 
-    const card = (pa, indent = false, orphanParent = '', num = null, subIdx = null) => {
+    const card = (pa, indent = false, orphanParent = '', num = null, subIdx = null, forceMaint = false) => {
       const nameHtml = paDisplayHtml(pa) || `<em style="color:#9ca3af;font-size:.85rem">Untitled</em>`;
       const badge = statusBadge(pa);
       const parentTag = orphanParent ? `<span style="font-size:.71rem;color:#9ca3af;display:block;margin-top:.1rem">from Parent Activity: ${escHtml(orphanParent)}</span>` : '';
       const numTag = num !== null ? `<span style="color:#6b7280;font-weight:600;margin-right:.25rem">${num})</span>` :
                      subIdx !== null ? `<span style="color:#0369a1;font-weight:600;margin-right:.25rem">${String.fromCharCode(97 + subIdx)})</span>` : '';
-      const borderLeft = indent ? 'border-left:3px solid #60a5fa' : 'border-left:3px solid var(--primary)';
-      const bg = indent ? 'background:#f0f9ff' : 'background:#fff';
+      const isMaint = forceMaint || maIsMaintained(pa);
+      const borderLeft = indent
+        ? (isMaint ? 'border-left:3px solid #9ca3af' : 'border-left:3px solid #60a5fa')
+        : (isMaint ? 'border-left:3px solid #9ca3af' : 'border-left:3px solid var(--primary)');
+      const bg = indent
+        ? (isMaint ? 'background:#f3f4f6' : 'background:#f0f9ff')
+        : (isMaint ? 'background:#f9fafb' : 'background:#fff');
       const ml = indent ? 'margin-left:1.4rem;' : '';
       return `<div data-pa-id="${escHtml(pa.id||'')}" style="${ml}${bg};border:1px solid #e5e7eb;${borderLeft};border-radius:.5rem;padding:.6rem .75rem .6rem .9rem;display:flex;align-items:flex-start;gap:.5rem;box-shadow:0 1px 3px rgba(0,0,0,.06)">
         <div style="flex:1;min-width:0;line-height:1.5;white-space:pre-wrap">${numTag}${nameHtml}${parentTag}${badge}</div>
@@ -4362,15 +4370,18 @@ function renderManageActivityScreen(student) {
         continue;
       }
 
-      if (!maIsActive(pa)) continue;
+      if (!maIsActive(pa) && !maIsMaintained(pa)) continue;
 
       actNum++;
       activeHtml += card(pa, false, '', actNum);
-      const children = activeSubs.filter(s => s.parentActivity === (pa.title || pa.name));
-      children.forEach((child, ci) => { activeHtml += card(child, true, '', null, ci); });
+      const paKey = pa.title || pa.name;
+      const activeChildren = activeSubs.filter(s => s.parentActivity === paKey);
+      const maintChildren  = maintPas.filter(s => !!s.parentActivity && s.parentActivity === paKey);
+      [...activeChildren, ...maintChildren].forEach((child, ci) => { activeHtml += card(child, true, '', null, ci); });
     }
-    // Orphaned subs whose parent isn't active
-    const orphaned = activeSubs.filter(s => !activeTopLevel.some(p => (p.title || p.name) === s.parentActivity));
+    // Orphaned subs whose parent isn't active or maintained in the main list
+    const shownTopLevelKeys = new Set([...activeTopLevel, ...maintPas.filter(p => !p.parentActivity)].map(p => p.title || p.name));
+    const orphaned = activeSubs.filter(s => !shownTopLevelKeys.has(s.parentActivity));
     for (const sub of orphaned) activeHtml += card(sub, false, sub.parentActivity || '');
 
     const collapseSection = (label, emoji, color, bgCard, borderCard, pas) => {
@@ -4430,7 +4441,6 @@ function renderManageActivityScreen(student) {
       </div>
       ${collapseSection('mastered','⭐','#059669','#f0fdf4','#bbf7d0',masteredPas)}
       ${collapseSection('discontinued','🚩','#dc2626','#fff5f5','#fecaca',discontPas)}
-      ${collapseSection('maintained','🆗','#6b7280','#f9fafb','#e5e7eb',maintPas)}
     </div>`;
 
   const dropHtml = `<div class="target-selector" style="position:static;margin-bottom:.8rem">
@@ -4489,7 +4499,8 @@ function renderManageActivityScreen(student) {
       if (!pa) return;
       btn.closest(".ma-kebab-menu").style.display = "none";
       const actWord = pa.parentActivity ? "sub-activity" : "activity";
-      const paDisplayName = escHtml(pa.title || pa.name || '');
+      const _stripMk = s => (s || "").replace(/\*_([\s\S]+?)_\*/g, "$1").replace(/_\*([\s\S]+?)\*_/g, "$1").replace(/\*([\s\S]+?)\*/g, "$1").replace(/_([\s\S]+?)_/g, "$1");
+      const paDisplayName = escHtml(_stripMk(pa.title || pa.name || ''));
 
       const _maLoadLatest = async () => {
         const origText = btn.textContent;
@@ -4502,7 +4513,7 @@ function renderManageActivityScreen(student) {
       const _buildInfoHtml = (latestDate, minDate, latestSubName, restrictionText) => {
         if (!latestDate) return `No previous session data was found for <strong>"${paDisplayName}"</strong>.`;
         const sourcePart = latestSubName
-          ? `The last recorded session for the sub-activity <strong>"${escHtml(latestSubName)}"</strong> was on <strong>${fmtPeriodDate(latestDate)}</strong>.`
+          ? `The last recorded session for the sub-activity <strong>"${escHtml(_stripMk(latestSubName))}"</strong> was on <strong>${fmtPeriodDate(latestDate)}</strong>.`
           : `The last recorded session for <strong>"${paDisplayName}"</strong> was on <strong>${fmtPeriodDate(latestDate)}</strong>.`;
         return `${sourcePart} So, ${restrictionText.charAt(0).toLowerCase() + restrictionText.slice(1)} <strong>${fmtPeriodDate(minDate)}</strong> onwards.`;
       };
@@ -6239,16 +6250,25 @@ function renderFedcTarget(target) {
       if (isPending) {
         html += renderPendingRemarkFields(pendingKey, actId, pa.name, idx, target);
       } else if (pa.maintained && remarks.length === 0) {
-        // Pre-render "Maintain" as a read-only placeholder. autoFillMaintainedRemarks
-        // will write it to Firestore once the session has real data. Showing it here
-        // immediately means: (1) the boss knows the auto-fill is coming (no empty-box
-        // confusion), and (2) when the Firestore write triggers a re-render, the label
-        // was already visible so there is no layout jerk.
+        const addLabel = pa.isMapped ? "Score" : pa.manualScore ? "Remark &amp; Score" : "Remark &amp; Trials";
         html += `<div class="entry-divider" contenteditable="false"></div>
         <div class="entry-field" contenteditable="false">
           <span class="field-label">Remark</span>
-          <span class="field-value-fixed" style="color:#9ca3af;font-style:italic">Maintain</span>
-        </div>`;
+          <textarea class="field-input maintained-remark-pending" rows="1"
+            data-act-id="${actId || ""}"
+            data-pa-name="${escHtml(pa.name || pa.title)}"
+            data-pa-order="${idx}"
+            data-cfg-id="${escHtml(pa.id || "")}"
+            data-target="${escHtml(target.name)}">Maintain</textarea>
+        </div>
+        <button class="btn-add-remark" contenteditable="false"
+          data-pending-key="${escHtml(pendingKey)}"
+          data-act-id="${actId || ""}"
+          data-pa-name="${escHtml(pa.name || pa.title)}"
+          data-pa-order="${idx}"
+          data-is-mapped="${pa.isMapped ? "1" : ""}"
+          data-cfg-id="${escHtml(pa.id || "")}"
+          data-target="${escHtml(target.name)}">+ Add ${addLabel}</button>`;
       } else {
         const addLabel = pa.isMapped ? "Score" : pa.manualScore ? "Remark &amp; Score" : "Remark &amp; Trials";
         html += `<button class="btn-add-remark" contenteditable="false"
@@ -6889,14 +6909,14 @@ function renderRemarkFields(rem, target, inlineOptions = null, sentenceStarter =
 }
 
 
-function renderPendingRemarkFields(pendingKey, actId, paName, paOrder, target) {
+function renderPendingRemarkFields(pendingKey, actId, paName, paOrder, target, initialValue = "") {
   return `
     <div class="entry-divider" contenteditable="false"></div>
     <div class="entry-field">
       <span class="field-label" contenteditable="false">Remark</span>
       <button class="btn-sketch btn-sketch-pending" contenteditable="false" aria-label="Open sketch board">✏</button>
       <textarea id="new-remark-textarea" class="field-input" rows="1"
-        placeholder="Type remark…"></textarea>
+        placeholder="Type remark…">${escHtml(initialValue)}</textarea>
     </div>
     <div class="pending-remark-actions" contenteditable="false">
       <button class="btn-cancel-remark btn-remark-cancel">✕ Cancel</button>
@@ -7336,23 +7356,7 @@ function attachTargetListeners(target) {
       const student = state.currentStudent;
       const tgt = student?.targets?.find(t => t.name === state.selectedTargetName);
       if (!student || !tgt) return;
-      openManageModal(student, tgt);
-      // Modal renders synchronously; rAF lets the browser paint first so
-      // scrollIntoView has real layout dimensions to work with.
-      requestAnimationFrame(() => requestAnimationFrame(() => {
-        if (!paId) return;
-        const acts = tgt.predefinedActivities || [];
-        const idx = acts.findIndex(a => a.id === paId);
-        if (idx < 0) return;
-        const modalBody = $("manage-modal-body");
-        const el = modalBody?.querySelector(`.admin-list-item[data-idx="${idx}"]`);
-        if (!el || !modalBody) return;
-        // Scroll the modal body so the element lands ~120px from the top
-        const elOffsetTop = el.offsetTop;
-        modalBody.scrollTop = elOffsetTop - 120;
-        el.classList.add("activity-cfg-blink");
-        el.addEventListener("animationend", () => el.classList.remove("activity-cfg-blink"), { once: true });
-      }));
+      openManageModal(student, tgt, null, null, paId || null);
     });
   });
 
@@ -7602,12 +7606,6 @@ const maintainedRemarkAutoFillInFlight = new Set();
 
 async function autoFillMaintainedRemarks(student, sessionId) {
   const data = state.sessionData;
-  // Only fill if the session already has at least one real piece of recorded data.
-  // This prevents creating a "ghost" session when the user opens but doesn't record anything.
-  const hasRealData = Object.values(data.remarks || {}).some(r =>
-    (r.text && r.text.trim()) || (r.trials || []).some(t => t >= 0) || r.optionScore !== undefined
-  );
-  if (!hasRealData) return 0;
   const toFill = [];
   for (const target of (student.targets || [])) {
     for (const pa of (target.predefinedActivities || [])) {
@@ -7823,6 +7821,7 @@ async function openSessionView(student, sessionId) {
   $("view-student-name").textContent = student.name;
   $("view-session-meta").textContent = "";
   $("session-view-body").innerHTML = `<div class="loading">Loading…</div>`;
+  _viewChkConfirmRole = null; clearTimeout(_viewChkConfirmTimer);
 
   if (state.fbViewUnsubscribe) { state.fbViewUnsubscribe(); state.fbViewUnsubscribe = null; }
 
@@ -7836,7 +7835,8 @@ async function openSessionView(student, sessionId) {
   if (state.viewClickDelegate) {
     $("session-view-body").removeEventListener("click", state.viewClickDelegate);
   }
-  state.viewClickDelegate = e => {
+  state.viewClickDelegate = async e => {
+    if (await handleCheckedByClick(e, false)) return;
     const addRemarkBtn = e.target.closest(".view-add-remark-target");
     if (addRemarkBtn) { showViewAddRemarkPicker(addRemarkBtn.dataset.target); return; }
 
@@ -7902,6 +7902,7 @@ async function leaveSessionView() {
   $("text-editor-sheet").classList.add("hidden");
   $("btn-delete-session")?.classList.add("hidden");
   $("btn-goto-session")?.classList.add("hidden");
+  _viewChkConfirmRole = null; clearTimeout(_viewChkConfirmTimer);
   // Flush (and await it) while the Firestore listener is still live, same as
   // leaveSession() does for the live entry screen — flush() only writes to
   // Firestore, state.viewSessionData only updates once the listener echoes
@@ -7961,6 +7962,122 @@ async function leaveSessionView() {
 $("btn-view-back").addEventListener("click", leaveSessionView);
 $("btn-student-registry-back")?.addEventListener("click", showHome);
 
+// ── Checked By strip (View/Edit Past Sessions approval flow) ──────────────────
+// Ray = assistant teacher; Daisy = main teacher. Rendered as the first item
+// inside the scrollable body so it scrolls away with the content naturally.
+// Confirm state lives in module-level vars (the DOM element is recreated on
+// every renderSessionView call so dataset can't carry it between renders).
+
+let _viewChkConfirmRole  = null;
+let _viewChkConfirmTimer = null;
+let _grpChkConfirmRole   = null;
+let _grpChkConfirmTimer  = null;
+
+function fmtCheckTimestamp(ts) {
+  const d = new Date(ts);
+  const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const h = d.getHours(), m = String(d.getMinutes()).padStart(2, "0");
+  return `${d.getDate()} ${months[d.getMonth()]} ${h % 12 || 12}:${m}${h < 12 ? "am" : "pm"}`;
+}
+
+function renderCheckedByStripHtml(data, confirmRole) {
+  const checks = data?.checks || {};
+
+  const pillHtml = role => {
+    const check        = checks[role];
+    const name         = CHECKED_BY[role];
+    const isChecked    = !!check;
+    const isConfirming = confirmRole === role;
+    const classes = ["checked-by-pill", isChecked && "is-checked", isConfirming && "is-confirming"].filter(Boolean).join(" ");
+
+    if (isConfirming) {
+      const msg = isChecked
+        ? `✓ ${escHtml(name)} · ${escHtml(fmtCheckTimestamp(check.at))} — Undo?`
+        : `${escHtml(name)}: Are you sure?`;
+      return `<div class="${classes}">
+        <span class="chk-label">${msg}</span>
+        <span class="chk-confirm-btns">
+          <button class="chk-btn-yes" data-role="${role}">${isChecked ? "Undo ✓" : "Confirm ✓"}</button>
+          <button class="chk-btn-no"  data-role="${role}">Cancel</button>
+        </span>
+      </div>`;
+    }
+
+    const inner = isChecked
+      ? `<span class="chk-mark">✓</span> <span class="chk-label">${escHtml(name)} · ${escHtml(fmtCheckTimestamp(check.at))}</span>`
+      : `<span class="chk-label">${escHtml(name)}: ${role === "assistant" ? "Incomplete" : "Not Yet Approved"}</span>`;
+    return `<button class="${classes}" data-role="${role}">${inner}</button>`;
+  };
+
+  return `<div class="checked-by-strip" contenteditable="false"><div class="chk-inner">${pillHtml("assistant")}${pillHtml("main")}<button class="chk-export-btn" title="Export this session to Word">📄 Export to Word (Daily Session Note)</button></div></div>`;
+}
+
+async function handleCheckedByClick(e, isGroup) {
+  const confirmRole  = isGroup ? _grpChkConfirmRole  : _viewChkConfirmRole;
+  const setConfirm   = r => { if (isGroup) _grpChkConfirmRole = r; else _viewChkConfirmRole = r; };
+  const clearTimer   = ()  => clearTimeout(isGroup ? _grpChkConfirmTimer : _viewChkConfirmTimer);
+  const setTimer     = fn  => { const t = setTimeout(fn, 4000); if (isGroup) _grpChkConfirmTimer = t; else _viewChkConfirmTimer = t; };
+  const rerender     = ()  => isGroup ? renderGroupSessionView() : renderSessionView();
+
+  // Export to Word button
+  const exportBtn = e.target.closest(".chk-export-btn");
+  if (exportBtn) {
+    if (isGroup) {
+      const attendees = state.viewGroupSessionData?.attendees || state.viewGroup?.students || [];
+      const session   = { id: state.viewGroupSessionId, ...(state.viewGroupSessionData || {}) };
+      if (attendees.length === 1) {
+        exportGroupMemberSingleSessionWord(attendees[0], [state.viewGroup], session);
+      } else {
+        $("session-picker-title").textContent = "Export for…";
+        $("session-picker-list").innerHTML = attendees.length
+          ? `<div class="choice-list">` + attendees.map(name => `
+              <button class="choice-btn choice-grp-view-export" data-name="${escHtml(name)}">
+                <span class="choice-icon">📤</span>
+                <div class="choice-text"><div class="choice-label">${escHtml(name)}</div></div>
+              </button>`).join("") + `</div>`
+          : `<p class="empty-hint">No attendees found.</p>`;
+        $("session-picker-modal").classList.remove("hidden");
+        $("session-picker-list").querySelectorAll(".choice-grp-view-export").forEach(btn => {
+          btn.addEventListener("click", () => {
+            closeSessionPicker();
+            exportGroupMemberSingleSessionWord(btn.dataset.name, [state.viewGroup], session);
+          });
+        });
+      }
+    } else {
+      exportStudentSingleSessionWord(state.viewStudent, { id: state.viewSessionId, ...(state.viewSessionData || {}) });
+    }
+    return true;
+  }
+
+  // Pill click → confirming state
+  const pill = e.target.closest(".checked-by-pill:not(.is-confirming)");
+  if (pill) {
+    clearTimer();
+    setConfirm(pill.dataset.role);
+    rerender();
+    setTimer(() => { setConfirm(null); rerender(); });
+    return true;
+  }
+  // Confirm button
+  const yesBtn = e.target.closest(".chk-btn-yes");
+  if (yesBtn) {
+    clearTimer(); setConfirm(null);
+    const sid    = isGroup ? state.viewGroupSessionId : state.viewSessionId;
+    const data   = isGroup ? state.viewGroupSessionData : state.viewSessionData;
+    if (!sid) return true;
+    const checks    = { ...(data?.checks || {}) };
+    const role      = yesBtn.dataset.role;
+    if (checks[role]) { delete checks[role]; } else { checks[role] = { by: CHECKED_BY[role], at: Date.now() }; }
+    try { await updateSessionChecks(sid, checks); } catch (err) { console.error("updateSessionChecks failed:", err); }
+    return true;
+  }
+  // Cancel button
+  const noBtn = e.target.closest(".chk-btn-no");
+  if (noBtn) { clearTimer(); setConfirm(null); rerender(); return true; }
+  return false;
+}
+
 function renderSessionView() {
   const data    = state.viewSessionData;
   const student = state.viewStudent;
@@ -8002,13 +8119,12 @@ function renderSessionView() {
   const sorted  = sortTargetsByOrder(targets);
 
   const body = $("session-view-body");
-  // body itself scrolls (overflow-y:auto) — replacing its innerHTML resets
-  // scrollTop to 0 in every browser, so capture/restore around the swap.
   const scrollTop = body.scrollTop;
   const captured = captureActiveEditState(body);
-  body.innerHTML = sorted.length
+  const stripHtml = renderCheckedByStripHtml(data, _viewChkConfirmRole);
+  body.innerHTML = stripHtml + (sorted.length
     ? sorted.map(t => buildTargetViewTable(t, data)).join("")
-    : `<p style="color:var(--text-muted);padding:1rem">No targets recorded.</p>`;
+    : `<p style="color:var(--text-muted);padding:1rem">No targets recorded.</p>`);
 
   attachViewListeners();
   restoreActiveEditState(body, captured);
@@ -8330,19 +8446,6 @@ function viewActivityRows(no, actName, actId, data, target, isPredefined = true,
   if (remarks.length === 0) {
     const opts = parseOpts(inlineOptions);
     const showEmpty = opts.length === 0;
-    if (showEmpty && _maintained) {
-      // Static placeholder — mirrors the live-entry behaviour. The auto-fill will
-      // write the real remark when the session has data; until then this signals
-      // the boss that "Maintain" is expected here, not that the cell is blank.
-      return `<tr${rowClass ? ` class="${rowClass}"` : ""}>
-        <td class="vcol-no" contenteditable="false">${no}</td>
-        <td class="vcol-act" contenteditable="false">${actCell}</td>
-        <td class="vcol-rem" contenteditable="false"><span style="color:#9ca3af;font-style:italic">Maintain</span></td>
-        <td class="vcol-trials" contenteditable="false">&nbsp;</td>
-        <td class="vcol-total" contenteditable="false">&nbsp;</td>
-        <td class="vcol-score" contenteditable="false">&nbsp;</td>
-      </tr>`;
-    }
     if (showEmpty) {
       const emptyCell = `<textarea class="view-remark-edit view-remark-empty" rows="1"
            data-act-id="${escHtml(actId || "")}"
@@ -8350,7 +8453,7 @@ function viewActivityRows(no, actName, actId, data, target, isPredefined = true,
            data-target="${escHtml(target.name)}"
            data-is-predefined="${isPredefined}"
            data-parent-activity="${escHtml(paConfig?.parentActivity || "")}"
-           data-config-id="${escHtml(paConfig?.id || "")}"></textarea>`;
+           data-config-id="${escHtml(paConfig?.id || "")}">${_maintained ? "Maintain" : ""}</textarea>`;
       const addTrialBtn = mappedInfo
         ? ""
         : `<button class="view-add-trial-new" data-act-id="${escHtml(actId || "")}"
@@ -8620,8 +8723,9 @@ function calcViewDayAvg(data, target, visited = new Set()) {
           return;
         }
         const trials = (rem.trials || []).filter(t => t !== -1);
-        if (!trials.length) return;
-        avgs.push(trials.reduce((a, b) => a + b, 0) / (trials.length * (target.maxPoints || 3)) * 100);
+        const allScores = rem.optionScore !== undefined ? [...trials, rem.optionScore] : trials;
+        if (!allScores.length) return;
+        avgs.push(allScores.reduce((a, b) => a + b, 0) / (allScores.length * (target.maxPoints || 3)) * 100);
       });
     });
   return avgs.length ? Math.round(avgs.reduce((a, b) => a + b, 0) / avgs.length) : null;
@@ -9027,9 +9131,41 @@ function setupEntryRemarkSaving(host, getSessionId, onIdle) {
     // real text" guard as above, plus a remId/creating check so a debounce
     // timer firing right after focusout (or vice versa) can't create a
     // second, duplicate remark from the same typed text.
+    // Individual maintained placeholder — only save if user actually changed the text.
+    // Autofill handles writing the default "Maintain" to Firestore; racing it here
+    // caused duplicate remarks (v1253 bug). Same in-flight key as autoFillMaintainedRemarks.
+    host.querySelectorAll(".maintained-remark-pending[data-pa-name]").forEach(el => {
+      const text = el.value.trim();
+      if (!text || text === "Maintain" || el.dataset.creating === "true" || el.dataset.remId) return;
+      const key = `${sid}:${el.dataset.target}:${el.dataset.paName}:maintained`;
+      if (maintainedRemarkAutoFillInFlight.has(key)) return;
+      maintainedRemarkAutoFillInFlight.add(key);
+      el.dataset.creating = "true";
+      const create = async () => {
+        try {
+          const paOrder = el.dataset.paOrder !== "" ? Number(el.dataset.paOrder) : 0;
+          let actId = el.dataset.actId || null;
+          if (!actId) {
+            actId = await addActivity(sid, el.dataset.target, el.dataset.paName, paOrder, true,
+              undefined, null, el.dataset.cfgId || null);
+          }
+          const remId = await addRemark(sid, actId, text);
+          el.dataset.actId = actId;
+          el.dataset.remId = remId;
+          el.dataset.savedHtml = htmlForStorage(text);
+        } finally {
+          el.dataset.creating = "false";
+          maintainedRemarkAutoFillInFlight.delete(key);
+        }
+      };
+      trackWrite(create());
+    });
+
     host.querySelectorAll(".group-remark-input-empty[data-student]").forEach(el => {
       const text = el.value.trim();
       if (!text || el.dataset.creating === "true" || el.dataset.remId) return;
+      // Maintained placeholder — autofill writes "Maintain" to Firestore, don't race it.
+      if (text === "Maintain" && el.dataset.isMaintained === "true") return;
       el.dataset.creating = "true";
       const create = async () => {
         try {
@@ -9647,6 +9783,10 @@ async function openGroupSessionView(group, sessionId) {
   $("group-view-group-name").textContent = group.name;
   $("group-view-session-meta").textContent = "";
   $("group-session-view-body").innerHTML = `<div class="loading">Loading…</div>`;
+  _grpChkConfirmRole = null; clearTimeout(_grpChkConfirmTimer);
+  if (state.viewGroupChkDelegate) $("group-session-view-body").removeEventListener("click", state.viewGroupChkDelegate);
+  state.viewGroupChkDelegate = async e => { await handleCheckedByClick(e, true); };
+  $("group-session-view-body").addEventListener("click", state.viewGroupChkDelegate);
 
   if (state.fbViewGroupUnsubscribe) { state.fbViewGroupUnsubscribe(); state.fbViewGroupUnsubscribe = null; }
 
@@ -9678,6 +9818,8 @@ async function leaveGroupSessionView() {
   $("text-editor-sheet").classList.add("hidden");
   $("btn-group-delete-session")?.classList.add("hidden");
   $("btn-group-goto-session")?.classList.add("hidden");
+  _grpChkConfirmRole = null; clearTimeout(_grpChkConfirmTimer);
+  if (state.viewGroupChkDelegate) { $("group-session-view-body")?.removeEventListener("click", state.viewGroupChkDelegate); state.viewGroupChkDelegate = null; }
   // See the matching comment in leaveSessionView() — flush (and await it)
   // before unsubscribing, not after, so the listener is still alive to
   // reflect the flushed write into state.viewGroupSessionData before the
@@ -9767,9 +9909,10 @@ function renderGroupSessionView() {
   const body = $("group-session-view-body");
   const scrollTop = body.scrollTop;
   const captured = captureActiveEditState(body);
-  body.innerHTML = sorted.length
+  const grpStripHtml = renderCheckedByStripHtml(data, _grpChkConfirmRole);
+  body.innerHTML = grpStripHtml + (sorted.length
     ? sorted.map(t => buildGroupTargetViewTable(t, data, attendees)).join("")
-    : `<p style="color:var(--text-muted);padding:1rem">No targets recorded.</p>`;
+    : `<p style="color:var(--text-muted);padding:1rem">No targets recorded.</p>`);
 
   attachGroupViewListeners();
   restoreActiveEditState(body, captured);
@@ -11344,7 +11487,7 @@ function periodSectionHtml(activeFrom, activeTo, idx, withBorder, inactiveReason
 
 // ── Open / close ──────────────────────────────────────────────
 
-function openManageModal(student, targetOrNull, templateOrNull = null, remarkPresetOrNull = null) {
+function openManageModal(student, targetOrNull, templateOrNull = null, remarkPresetOrNull = null, scrollToPaId = null) {
   $("manage-modal").classList.remove("hidden");
   if (remarkPresetOrNull) {
     renderRemarkPresetManageContent(remarkPresetOrNull);
@@ -11371,6 +11514,19 @@ function openManageModal(student, targetOrNull, templateOrNull = null, remarkPre
         return;
       }
       renderTargetManageContent(student, targetOrNull);
+      if (scrollToPaId) {
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+          const acts = targetOrNull.predefinedActivities || [];
+          const idx = acts.findIndex(a => a.id === scrollToPaId);
+          if (idx < 0) return;
+          const modalBody = $("manage-modal-body");
+          const el = modalBody?.querySelector(`.admin-list-item[data-idx="${idx}"]`);
+          if (!el || !modalBody) return;
+          modalBody.scrollTop = el.offsetTop - 120;
+          el.classList.add("activity-cfg-blink");
+          el.addEventListener("animationend", () => el.classList.remove("activity-cfg-blink"), { once: true });
+        }));
+      }
     };
     pwInput.addEventListener("keydown", e => { if (e.key === "Enter") checkPw(); });
   } else {
@@ -12367,8 +12523,11 @@ function initDragSort(listEl, onReorder) {
     e.preventDefault();
     e.stopPropagation();
 
+    // Instantly collapse all cards to compact rows; measure AFTER so placeholder matches
+    listEl.classList.add('is-reordering');
     const rect = item.getBoundingClientRect();
-    offsetY = e.clientY - rect.top;
+    // Pin cursor to the card's center (where ⠿ sits due to align-items:center)
+    offsetY = rect.height / 2;
     lastY   = e.clientY;
 
     placeholder = document.createElement('div');
@@ -12407,6 +12566,7 @@ function initDragSort(listEl, onReorder) {
   const endDrag = () => {
     if (!dragEl) return;
     if (scrollRaf) { cancelAnimationFrame(scrollRaf); scrollRaf = null; }
+    listEl.classList.remove('is-reordering');
     dragEl.style.cssText = '';
     if (placeholder?.parentNode) placeholder.parentNode.insertBefore(dragEl, placeholder);
     placeholder?.remove();
@@ -12745,7 +12905,9 @@ function renderTargetManageContent(student, target) {
 
       html += `<div class="admin-list-item" data-idx="${idx}">
         <span class="drag-handle">⠿</span>
-        <div style="flex:1;display:flex;flex-direction:column;gap:.55rem">
+        <div style="flex:1;min-width:0">
+          <div class="mn-act-compact-title">${paDisplayHtml(a, true)}</div>
+          <div class="mn-act-body" style="display:flex;flex-direction:column;gap:.55rem">
             <div>
               <div style="font-size:.95rem;font-weight:700;color:#374151;margin-bottom:.28rem">Activity Title</div>
               <div style="border:1px solid #b8bcc4;border-radius:.45rem;overflow:hidden">
@@ -12780,6 +12942,7 @@ function renderTargetManageContent(student, target) {
                 ${mappedOptions}
               </select>
             </div>
+          </div>
         </div>
         <div style="position:relative">
           <button class="btn-adm-del mn-kebab-btn" data-idx="${idx}" title="Activity options" style="font-size:1.35rem;font-weight:900;min-width:36px;min-height:36px">⋮</button>
@@ -12859,7 +13022,9 @@ function renderTargetManageContent(student, target) {
           <span class="drag-handle">⠿</span>
           <div style="flex:1;display:flex;gap:.5rem;align-items:flex-start">
             <span style="font-size:.8rem;font-weight:700;color:#6b7280;flex-shrink:0;min-width:1.6rem;padding-top:.2rem">${manageActNo})</span>
-            <div style="flex:1;display:flex;flex-direction:column;gap:.55rem">
+            <div style="flex:1;min-width:0">
+              <div class="mn-act-compact-title">${paDisplayHtml(a, true)}</div>
+              <div class="mn-act-body" style="display:flex;flex-direction:column;gap:.55rem">
               <div>
                 <div style="font-size:.95rem;font-weight:700;color:#374151;margin-bottom:.28rem">Activity Title</div>
                 <div style="border:1px solid #b8bcc4;border-radius:.45rem;overflow:hidden">
@@ -12889,6 +13054,7 @@ function renderTargetManageContent(student, target) {
                 <button class="mn-add-sub-act-btn" data-parent-idx="${idx}" style="font-size:.82rem;padding:.3rem .7rem;background:#f9fafb;border:1px solid #d1d5db;border-radius:.35rem;color:#374151;cursor:pointer">+ Add Sub-activity</button>
                 ${a._linkKey ? `<button class="mn-undo-convert-btn" data-idx="${idx}" style="font-size:.82rem;padding:.3rem .7rem;background:#fee2e2;border:1px solid #fca5a5;border-radius:.35rem;color:#dc2626;cursor:pointer">↩ Undo — keep as its own activity</button>` : ''}
               </div>
+              </div>
             </div>
           </div>
           <div style="position:relative">
@@ -12909,7 +13075,9 @@ function renderTargetManageContent(student, target) {
           <span class="drag-handle">⠿</span>
           <div style="flex:1;display:flex;gap:.5rem;align-items:flex-start">
             <span style="font-size:.8rem;font-weight:700;color:#6b7280;flex-shrink:0;min-width:1.6rem;padding-top:.2rem">${manageActNo})</span>
-            <div style="flex:1;display:flex;flex-direction:column;gap:.55rem">
+            <div style="flex:1;min-width:0">
+              <div class="mn-act-compact-title">${paDisplayHtml(a, true)}</div>
+              <div class="mn-act-body" style="display:flex;flex-direction:column;gap:.55rem">
               <div>
                 <div style="font-size:.95rem;font-weight:700;color:#374151;margin-bottom:.28rem">Activity Title</div>
                 <div style="border:1px solid #b8bcc4;border-radius:.45rem;overflow:hidden">
@@ -12938,6 +13106,7 @@ function renderTargetManageContent(student, target) {
                 ${remarkTypeSelect}
               </div>
               ${maintainedRow}
+              </div>
             </div>
           </div>
           <div style="position:relative">
@@ -13411,32 +13580,31 @@ function renderTargetManageContent(student, target) {
             const allSessions = _groupForTargetEdit
               ? await getAllSessionsForGroup(_groupForTargetEdit.id)
               : await getAllSessionsForStudent(student.id);
-            const paPA = pa.parentActivity || null;
+            // Include sub-activities when checking a parent activity
+            const paKey = pa._linkKey || pa.title || pa.name;
+            const toCheck = [{ name: pa.name, title: pa.title, paPA: pa.parentActivity || null }];
+            (acts || []).filter(a => a.parentActivity === paKey && !a.isHeading && !a.isNote && !a.isExportNote)
+              .forEach(sub => toCheck.push({ name: sub.name, title: sub.title, paPA: paKey }));
             affectedSessions = allSessions.filter(s => {
               const sActs = s.activities || {}; const sRems = s.remarks || {};
-              const matchIds = Object.entries(sActs).filter(([, a]) =>
-                a.targetName === target.name && (a.activityName === pa.name || (pa.title && a.activityName === pa.title)) &&
-                (paPA === null ? !a.parentActivity : a.parentActivity === paPA)
-              ).map(([id]) => id);
-              return matchIds.some(actId => Object.values(sRems).some(r =>
-                r.activityId === actId && (
-                  (r.text || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim().length > 0 ||
-                  (r.trials || []).some(t => t !== null && t !== -1)
-                )
-              ));
+              return toCheck.some(({ name, title, paPA }) => {
+                const matchIds = Object.entries(sActs).filter(([, a]) =>
+                  a.targetName === target.name && (a.activityName === name || (title && a.activityName === title)) &&
+                  (paPA === null ? !a.parentActivity : a.parentActivity === paPA)
+                ).map(([id]) => id);
+                return matchIds.some(actId => Object.values(sRems).some(r =>
+                  r.activityId === actId && (
+                    (r.text || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim().length > 0 ||
+                    (r.trials || []).some(t => t !== null && t !== -1)
+                  )
+                ));
+              });
             });
             affected = affectedSessions.length;
           } catch { affected = -1; }
           btn.disabled = false;
           btn.textContent = "🗑️ Delete Activity";
-          if (affected === 0) {
-            if (!confirm(`No past data found for this activity — safe to delete.`)) return;
-            const actIdx = acts.indexOf(pa);
-            if (actIdx >= 0) { acts.splice(actIdx, 1); acts.forEach((a, i) => a.order = i); }
-            target.predefinedActivities = acts;
-            await saveTarget();
-            renderTargetManageContent(student, target);
-          } else {
+          {
             const confirmWord = affected > 0 ? String(affected) : "DELETE";
             $("manage-modal").querySelectorAll("[data-del-overlay]").forEach(el => el.remove());
             const overlay = document.createElement("div");
@@ -13444,26 +13612,25 @@ function renderTargetManageContent(student, target) {
             overlay.style.cssText = "position:absolute;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:flex-start;justify-content:center;padding-top:1.25rem;z-index:200;border-radius:.75rem;overflow-y:auto";
             const _delLatest3 = [...affectedSessions].sort((a, b) => (b.date || "").localeCompare(a.date || "")).slice(0, 3);
             const sessionDateList = affectedSessions.length > 0
-              ? `<p style="font-size:.82rem;margin:.4rem 0 .6rem;color:#374151;font-weight:600">Sessions with data (${affectedSessions.length} total — showing 3 latest):</p>
-                 <ul style="font-size:.82rem;color:#374151;margin:0 0 .7rem;padding-left:1.2rem;line-height:1.8">${
-                   _delLatest3.map(s => `<li>Session ${escHtml(String(s.sessionNumber || s.number || "?"))}: ${escHtml(formatDateWithDay(s.date))}</li>`).join("")
-                 }${affectedSessions.length > 3 ? `<li style="color:#9ca3af">…and ${affectedSessions.length - 3} more</li>` : ''}</ul>` : "";
+              ? `<p style="font-size:.82rem;margin:.4rem 0 .35rem;color:#374151;font-weight:600">Latest ${Math.min(affectedSessions.length, 3)} Session${Math.min(affectedSessions.length, 3) !== 1 ? "s" : ""} with Data:</p>
+                 <ul style="font-size:.82rem;color:#374151;margin:0 0 .7rem;padding-left:0;list-style:none;line-height:1.9">${
+                   _delLatest3.map(s => `<li>• Session ${escHtml(String(s.sessionNumber || s.number || "?"))} — ${escHtml(formatDateWithDay(s.date))}</li>`).join("")
+                 }${affectedSessions.length > 3 ? `<li style="color:#9ca3af">  …and ${affectedSessions.length - 3} more</li>` : ''}</ul>` : "";
+            const hasData = affected > 0;
             overlay.innerHTML = `<div style="background:#fff;padding:1.25rem;border-radius:.75rem;width:min(320px,92%);box-shadow:0 4px 24px rgba(0,0,0,.25);margin-bottom:1rem">
-              <p style="font-size:.88rem;margin:0 0 .6rem;color:#111;font-weight:700">⚠️ If you delete this activity, all data from the past <strong>${confirmWord} session${affected !== 1 ? "s" : ""}</strong> will be permanently lost.</p>
-              ${sessionDateList}
-              <p style="font-size:.84rem;margin:0 0 .5rem;color:#374151">We recommend selecting <strong>"Mark as Mastered"</strong> or <strong>"Mark as Discontinued"</strong> instead. Once marked, the activity will no longer appear in new sessions, but it will remain in your previous sessions and your existing data will be preserved.</p>
-              <p style="font-size:.84rem;margin:.5rem 0 .3rem;color:#374151;font-weight:600">To proceed without deleting, follow these steps:</p>
-              <ol style="font-size:.84rem;color:#374151;margin:.2rem 0 .8rem;padding-left:1.3rem;line-height:1.8">
-                <li>Tap the <strong>Cancel</strong> button below</li>
-                <li>Find the activity you wanted to delete and tap the <strong>⋮</strong> button on the right</li>
-                <li>Select <strong>"Mark as Mastered"</strong> or <strong>"Mark as Discontinued"</strong></li>
-              </ol>
-              <p style="font-size:.84rem;margin:0 0 .5rem;color:#374151">Still want to delete? Type <strong>${confirmWord}</strong> to confirm.</p>
-              <input id="del-type-input" type="text" autocomplete="off" inputmode="numeric"
-                style="width:100%;box-sizing:border-box;padding:.45rem .6rem;border:2px solid #d1d5db;border-radius:.4rem;font-size:1.1rem;text-align:center;outline:none;margin-bottom:.6rem" placeholder="${confirmWord}">
+              <p style="font-size:.88rem;margin:0 0 .5rem;color:#111;font-weight:700">⚠️ Delete "${escHtml(pa.title || pa.name || 'this activity')}"?</p>
+              ${hasData
+                ? `<p style="font-size:.84rem;margin:0 0 .4rem;color:#374151">This activity contains data from ${affected} session${affected !== 1 ? "s" : ""}. Deleting it will permanently remove all associated data.</p>
+                   ${sessionDateList}
+                   <p style="font-size:.84rem;margin:0 0 .6rem;color:#374151">We recommend selecting <strong>"Mark as Discontinued"</strong> instead. This will remove the activity from future sessions while keeping your past data intact.</p>
+                   <p style="font-size:.84rem;margin:0 0 .35rem;color:#374151">To confirm deletion, type: <strong>${confirmWord}</strong></p>
+                   <input id="del-type-input" type="text" autocomplete="off" inputmode="numeric"
+                     style="width:100%;box-sizing:border-box;padding:.45rem .6rem;border:2px solid #d1d5db;border-radius:.4rem;font-size:1.1rem;text-align:center;outline:none;margin-bottom:.6rem" placeholder="${confirmWord}">`
+                : `<p style="font-size:.84rem;margin:0 0 .75rem;color:#374151">This activity has no session data recorded. It is safe to delete. Would you like to proceed?</p>`
+              }
               <div style="display:flex;gap:.5rem">
                 <button id="del-type-cancel" style="flex:1;padding:.45rem;border:1px solid #d1d5db;border-radius:.4rem;background:#f9fafb;cursor:pointer;font-size:.85rem">Cancel</button>
-                <button id="del-type-ok" disabled style="flex:1;padding:.45rem;border:none;border-radius:.4rem;background:#dc2626;color:#fff;cursor:pointer;font-size:.85rem;opacity:.4">Confirm Delete</button>
+                <button id="del-type-ok" ${hasData ? 'disabled style="flex:1;padding:.45rem;border:none;border-radius:.4rem;background:#dc2626;color:#fff;cursor:pointer;font-size:.85rem;opacity:.4"' : 'style="flex:1;padding:.45rem;border:none;border-radius:.4rem;background:#dc2626;color:#fff;cursor:pointer;font-size:.85rem"'}>Delete</button>
               </div>
             </div>`;
             const modalSheet = $("manage-modal").querySelector(".modal-sheet");
@@ -13471,14 +13638,17 @@ function renderTargetManageContent(student, target) {
             modalSheet.appendChild(overlay);
             const inp = overlay.querySelector("#del-type-input");
             const okBtn = overlay.querySelector("#del-type-ok");
-            inp.focus();
-            inp.addEventListener("input", () => {
-              const ok = inp.value === confirmWord;
-              okBtn.disabled = !ok;
-              okBtn.style.opacity = ok ? "1" : ".4";
-            });
+            if (inp) {
+              inp.focus();
+              inp.addEventListener("input", () => {
+                const ok = inp.value === confirmWord;
+                okBtn.disabled = !ok;
+                okBtn.style.opacity = ok ? "1" : ".4";
+              });
+            }
             overlay.querySelector("#del-type-cancel").addEventListener("click", () => overlay.remove());
             okBtn.addEventListener("click", async () => {
+              if (inp && inp.value !== confirmWord) return;
               overlay.remove();
               const actIdx = acts.indexOf(pa);
               if (actIdx >= 0) { acts.splice(actIdx, 1); acts.forEach((a, i) => a.order = i); }
@@ -13574,11 +13744,8 @@ function renderTargetManageContent(student, target) {
         const subInput = $(`mn-act-title-${idx + 1}`);
         if (subInput) {
           subInput.focus();
-          let n = 0; const orig = subInput.style.background;
-          const iv = setInterval(() => {
-            subInput.style.background = (n % 2 === 0) ? "#bfdbfe" : (orig || "");
-            if (++n >= 6) { clearInterval(iv); subInput.style.background = orig || ""; }
-          }, 110);
+          subInput.classList.add("input-bg-blink");
+          subInput.addEventListener("animationend", () => subInput.classList.remove("input-bg-blink"), { once: true });
         }
       });
       saveTarget();
@@ -13718,10 +13885,13 @@ function renderTargetManageContent(student, target) {
       const idx = Number(btn.dataset.idx);
       if (!acts[idx]) return;
       const paId = acts[idx].id;
-      await closeManageModal();
+      // Hide modal and navigate immediately — don't wait for Firestore save
+      $("manage-modal").classList.add("hidden");
       const freshStudent = state.students.find(s => s.id === student.id) || student;
       openManageActivityScreen(freshStudent);
       maScrollAndBlink(paId);
+      // Save in background (renderTargetContent inside will update a hidden screen — no flicker)
+      closeManageModal().catch(() => {});
     });
   });
 
@@ -15846,11 +16016,15 @@ async function openGroupSession(group, dateStr, attendees) {
             if (mappedFilled > 0) return;
             const structuredFilled = await autoFillGroupStructuredRemarks(group, sid, data, state.selectedGroupTargetName, attendees);
             if (structuredFilled > 0) return;
-            const maintainedFilled = await autoFillGroupMaintainedRemarks(group, sid, data, state.selectedGroupTargetName, attendees);
-            if (maintainedFilled > 0) return;
           } catch (err) { console.error("Group session auto-fill failed:", err); }
         }
       }
+      // Run on every snapshot (not just firstLoad) so all targets get "Maintain"
+      // written as soon as the session opens, regardless of which target is selected.
+      try {
+        const maintainedFilled = await autoFillGroupMaintainedRemarks(group, sid, state.groupAttendees);
+        if (maintainedFilled > 0) return;
+      } catch (err) { console.error("autoFillGroupMaintainedRemarks failed:", err); }
       if (state.scorePicker?.open && state.scorePicker?.isGroup) renderScoreModalTrials(state.scorePicker.remId);
       // Busy = dropdown open, or a button's own multi-step write still in
       // flight — see the matching comment in openSession's listener for why
@@ -15956,6 +16130,10 @@ function populateGroupTargetDropdown(targets) {
           state.selectedGroupTargetName, state.groupAttendees
         );
         if (structuredFilled > 0) return;
+        const maintainedFilled = await autoFillGroupMaintainedRemarks(
+          state.currentGroup, state.groupSessionId, state.groupAttendees
+        );
+        if (maintainedFilled > 0) return;
       } catch (err) { console.error("Group target auto-fill failed:", err); }
     }
     renderGroupTargetContent();
@@ -16015,31 +16193,40 @@ async function autoFillGroupMappedRemarks(group, sessionId, data, targetName, at
 }
 
 // Group-entry counterpart of autoFillMaintainedRemarks.
-async function autoFillGroupMaintainedRemarks(group, sessionId, data, targetName, attendees) {
-  const target = group.targets.find(t => t.name === targetName);
-  if (!target) return 0;
-  const hasRealData = Object.values(data.remarks || {}).some(r =>
-    (r.text && r.text.trim()) || (r.trials || []).some(t => t >= 0) || r.optionScore !== undefined
-  );
-  if (!hasRealData) return 0;
+async function autoFillGroupMaintainedRemarks(group, sessionId, attendees) {
+  const data = state.groupSessionData;
+  if (!data) return 0;
   let count = 0;
-  for (const pa of (target.predefinedActivities || [])) {
-    if (!pa.maintained || pa.isHeading || pa.isNote || pa.isExportNote || pa.isMaintainHeading || (!pa.name && !pa.title)) continue;
-    const existingAct = Object.entries(data.activities || {})
-      .find(([, a]) => a.targetName === targetName && (a.activityName === pa.name || (pa.title && a.activityName === pa.title) || (pa.id && a.configId === pa.id)));
-    const actId = existingAct?.[0];
-    if (!actId) continue;
-    for (const studentName of attendees) {
-      const hasRemark = Object.values(data.remarks || {})
-        .some(r => r.activityId === actId && r.studentName === studentName);
-      if (hasRemark) continue;
-      const key = `${sessionId}:${targetName}:${pa.name}:${studentName}:maintained`;
-      if (maintainedRemarkAutoFillInFlight.has(key)) continue;
-      maintainedRemarkAutoFillInFlight.add(key);
-      try {
-        await addGroupRemark(sessionId, actId, studentName, "Maintain");
-        count++;
-      } finally { maintainedRemarkAutoFillInFlight.delete(key); }
+  for (const target of (group.targets || [])) {
+    for (const pa of (target.predefinedActivities || [])) {
+      if (!pa.maintained || pa.isHeading || pa.isNote || pa.isExportNote || pa.isMaintainHeading || (!pa.name && !pa.title)) continue;
+      const allMatches = Object.entries(data.activities || {})
+        .filter(([, a]) => a.targetName === target.name && !a.parentActivity &&
+                           (a.activityName === pa.name || (pa.title && a.activityName === pa.title) || (pa.id && a.configId === pa.id)));
+      const canonical = allMatches.find(([, a]) => pa.id && a.configId === pa.id) || allMatches[0] || null;
+      let actId = canonical?.[0] || null;
+      if (!actId) {
+        const actKey = `${sessionId}:${target.name}:${pa.name}:maintained:act`;
+        if (maintainedRemarkAutoFillInFlight.has(actKey)) continue;
+        maintainedRemarkAutoFillInFlight.add(actKey);
+        try {
+          actId = await addActivity(sessionId, target.name, pa.name, pa.order ?? 0, true);
+          count++;
+        } catch { maintainedRemarkAutoFillInFlight.delete(actKey); continue; }
+        maintainedRemarkAutoFillInFlight.delete(actKey);
+      }
+      for (const studentName of attendees) {
+        const hasRemark = Object.values(data.remarks || {})
+          .some(r => r.activityId === actId && r.studentName === studentName);
+        if (hasRemark) continue;
+        const key = `${sessionId}:${target.name}:${pa.name}:${studentName}:maintained`;
+        if (maintainedRemarkAutoFillInFlight.has(key)) continue;
+        maintainedRemarkAutoFillInFlight.add(key);
+        try {
+          await addGroupRemark(sessionId, actId, studentName, "Maintain");
+          count++;
+        } finally { maintainedRemarkAutoFillInFlight.delete(key); }
+      }
     }
   }
   return count;
@@ -16106,7 +16293,18 @@ async function leaveGroupSession() {
     // Delete if no useful data
     const hasData = Object.values(data.remarks || {}).some(r => {
       const strip = s => (s || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim();
-      return strip(r.text).length > 0 || (r.trials || []).some(t => t !== -1);
+      const text = strip(r.text);
+      // "Maintain" placed by autofill doesn't count as real recorded data — mirrors
+      // the same exclusion in leaveSession for individual sessions.
+      if (text === "Maintain" && !(r.trials || []).some(t => t !== -1) && !r.note) {
+        const act = data.activities?.[r.activityId];
+        const tgt = (group?.targets || []).find(t => t.name === act?.targetName);
+        const pa = (tgt?.predefinedActivities || []).find(p =>
+          p.maintained && (p.name === act?.activityName || (p.id && p.id === act?.configId))
+        );
+        if (pa) return false;
+      }
+      return text.length > 0 || (r.trials || []).some(t => t !== -1);
     });
     if (!hasData) {
       deleteSession(sessionId).catch(() => {});
@@ -16382,7 +16580,7 @@ function renderGroupStudentBlock(studentName, target, data) {
 
   const cards = activityEntries.length
     ? activityEntries.map(({ actId, actName, actNote, pa }) =>
-        renderGroupStudentActivityCard(studentName, actName, actId, target, data, actNote, pa?.isMapped ? pa : null)).join("")
+        renderGroupStudentActivityCard(studentName, actName, actId, target, data, actNote, pa?.isMapped ? pa : null, !!pa?.maintained)).join("")
     : `<p class="empty-hint" contenteditable="false" style="padding:1rem">No activities yet. Add them under Edit Target.</p>`;
 
   return `<div class="group-by-student-block" data-student="${escHtml(studentName)}">
@@ -16391,7 +16589,7 @@ function renderGroupStudentBlock(studentName, target, data) {
   </div>`;
 }
 
-function renderGroupStudentActivityCard(studentName, actName, actId, target, data, actNote = null, mappedPa = null) {
+function renderGroupStudentActivityCard(studentName, actName, actId, target, data, actNote = null, mappedPa = null, isMaintained = false) {
   const remarksForThisStudent = actId
     ? Object.entries(data.remarks || {})
         .filter(([, r]) => r.activityId === actId && r.studentName === studentName)
@@ -16418,15 +16616,28 @@ function renderGroupStudentActivityCard(studentName, actName, actId, target, dat
     html += renderGroupStudentRowCompact(remId, rem, target, mappedInfo);
   }
 
-  html += remarksForThisStudent.length === 0
-    ? `<button class="btn-add-remark btn-group-add-remark-pending" contenteditable="false"
-        data-student="${escHtml(studentName)}"
+  if (remarksForThisStudent.length === 0 && isMaintained) {
+    html += `<div class="entry-field">
+      <span class="field-label" contenteditable="false">Remark</span>
+      <textarea class="field-input group-remark-input group-remark-input-empty" rows="1"
         data-act-id="${escHtml(actId || "")}"
         data-act-name="${escHtml(actName)}"
-        data-target="${escHtml(target.name)}">+ Add Remark${mappedPa ? "" : " &amp; Trials"}</button>`
-    : `<button class="btn-add-remark btn-group-add-remark-student-more" contenteditable="false"
-        data-act-id="${escHtml(actId || "")}"
-        data-student="${escHtml(studentName)}">+ Add Remark${mappedPa ? "" : " &amp; Trials"}</button>`;
+        data-target="${escHtml(target.name)}"
+        data-is-predefined="true"
+        data-is-maintained="true"
+        data-student="${escHtml(studentName)}">Maintain</textarea>
+    </div>`;
+  } else {
+    html += remarksForThisStudent.length === 0
+      ? `<button class="btn-add-remark btn-group-add-remark-pending" contenteditable="false"
+          data-student="${escHtml(studentName)}"
+          data-act-id="${escHtml(actId || "")}"
+          data-act-name="${escHtml(actName)}"
+          data-target="${escHtml(target.name)}">+ Add Remark${mappedPa ? "" : " &amp; Trials"}</button>`
+      : `<button class="btn-add-remark btn-group-add-remark-student-more" contenteditable="false"
+          data-act-id="${escHtml(actId || "")}"
+          data-student="${escHtml(studentName)}">+ Add Remark${mappedPa ? "" : " &amp; Trials"}</button>`;
+  }
 
   html += `</div>`;
   return html;
