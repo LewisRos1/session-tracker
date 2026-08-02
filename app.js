@@ -92,7 +92,8 @@ import {
   getAllSessionsForGroup,
   changeSessionNumber,
   loadHalfYearReportConfig,
-  saveHalfYearReportConfig
+  saveHalfYearReportConfig,
+  getStudentById
 } from "./firebase-service.js";
 import {
   exportStudentData, exportAllStudents, exportGroupMemberData,
@@ -167,7 +168,7 @@ function versionLineText() {
   return `Made by Lewis · Version ${APP_VERSION}`;
 }
 
-const APP_VERSION = "1319";
+const APP_VERSION = "1337";
 // Names shown on the approval strip in View/Edit Past Sessions.
 const CHECKED_BY = { assistant: "Ray", main: "Ms. Daisy" };
 
@@ -4943,6 +4944,9 @@ function maScrollAndBlink(paId) {
 
 // Show three-choice sheet: Today's Session | Edit Past Sessions | Manage Student
 function showStudentChoice(student) {
+  // Pre-fetch sessions as soon as the picker opens so the tick marks are
+  // ready by the time the user navigates to "Pick A Date".
+  const sessionsFetch = getRecentSessionsForStudent(student.id);
   $("session-picker-title").textContent = student.name;
   $("session-picker-list").innerHTML = `
     <div class="choice-list">
@@ -5009,8 +5013,6 @@ function showStudentChoice(student) {
       return `${d} ${months[m - 1]}`;
     };
 
-    // Pre-fetch sessions immediately so ticks are ready by the time user clicks "Pick A Date"
-    const sessionsFetch = getRecentSessionsForStudent(student.id);
 
     $("session-picker-list").innerHTML = `
       <div class="session-date-step">
@@ -5850,6 +5852,9 @@ async function openSession(student, existingSessionId = null, dateStr = null) {
   // looking at, not silently reset to the first target in the list —
   // only a genuine student switch starts fresh.
   const preservedTargetName = state.currentStudent?.id === student.id ? state.selectedTargetName : null;
+
+  // Show the session screen immediately — before any network call — so
+  // closing the picker never flashes the home screen while we fetch.
   state.currentStudent     = student;
   state.selectedTargetName = null;
   state.sessionData        = null;
@@ -5885,6 +5890,18 @@ async function openSession(student, existingSessionId = null, dateStr = null) {
   state.entryEnterKeyCleanup = setupEntryEnterKeyDelegation($("target-content"),
     () => getEffectiveTargets().find(t => t.name === state.selectedTargetName));
 
+  // Refresh student data from Firestore now that the loading screen is visible,
+  // so target config changes made on another device are picked up.
+  try {
+    const fresh = await getStudentById(student.id);
+    if (fresh) {
+      Object.assign(student, fresh);
+      state.currentStudent = student;
+      const si = (state.students || []).findIndex(s => s.id === student.id);
+      if (si >= 0) state.students[si] = student;
+    }
+  } catch {}
+
   try {
     const sessionId = existingSessionId
       ? existingSessionId
@@ -5912,6 +5929,31 @@ async function openSession(student, existingSessionId = null, dateStr = null) {
         // Persist the Firestore cleanup once on open, not on every snapshot.
         if (orphanActIds.length > 0) {
           deleteOrphanActivities(sessionId, orphanActIds, orphanRemIds).catch(() => {});
+        }
+        // Clean up isPredefined session records for activities that are no longer
+        // in the current target config (e.g., activities deleted from Edit Target after
+        // they were already auto-filled into session data as maintained activities).
+        // Without this, stale session records survive in Firestore forever and
+        // autoFillMaintainedRemarks re-fills them on every snapshot.
+        const staleActIds = [];
+        const staleRemIds = [];
+        for (const [actId, act] of Object.entries(data.activities || {})) {
+          if (!act.isPredefined || !act.targetName) continue;
+          const tc = (student.targets || []).find(t => t.name === act.targetName);
+          if (!tc) continue;
+          const inConfig = (tc.predefinedActivities || []).some(pa =>
+            (act.configId && pa.id && pa.id === act.configId) ||
+            pa.name === act.activityName || pa.title === act.activityName
+          );
+          if (inConfig) continue;
+          const remEntries = Object.entries(data.remarks || {}).filter(([, r]) => r.activityId === actId);
+          staleActIds.push(actId);
+          for (const [remId] of remEntries) staleRemIds.push(remId);
+          delete data.activities[actId];
+          if (data.remarks) for (const [remId] of remEntries) delete data.remarks[remId];
+        }
+        if (staleActIds.length > 0) {
+          deleteOrphanActivities(sessionId, staleActIds, staleRemIds).catch(() => {});
         }
         const eff = getEffectiveTargets();
         state.selectedTargetName = (preservedTargetName && eff.some(t => t.name === preservedTargetName))
@@ -5941,7 +5983,7 @@ async function openSession(student, existingSessionId = null, dateStr = null) {
         if (mappedFilled > 0) return;
       } catch (err) { console.error("autoFillMappedRemarks failed:", err); }
       try {
-        const maintainedFilled = await autoFillMaintainedRemarks(student, sessionId);
+        const maintainedFilled = await autoFillMaintainedRemarks(student, sessionId, state.selectedTargetName);
         if (maintainedFilled > 0) return;
       } catch (err) { console.error("autoFillMaintainedRemarks failed:", err); }
       // Keep score modal trial badges in sync with Firestore
@@ -6110,17 +6152,22 @@ function populateTargetDropdown(targets) {
     // as "still choosing" — so leaving it focused here would block every
     // future render until the user happens to click elsewhere.
     sel.blur();
+    // Render the newly-selected target synchronously NOW, before any async
+    // work starts.  Auto-fills and snapshot callbacks can throw or arrive in
+    // any order — this guarantees the correct target content is shown
+    // immediately regardless of what happens next.
+    try { renderTargetContent(); } catch(e) { console.error("renderTargetContent (sync) failed:", e); }
     // Also run auto-fills on target switch: the Firestore snapshot listener
     // only fires when session data changes, but switching targets alone doesn't
     // cause a write, so newly-added structured/mapped activities would otherwise
     // never auto-fill until a write happened.
     (async () => {
       try {
-        if (await autoFillStructuredRemarks(state.currentStudent, state.currentSessionId) > 0) return;
-        if (await autoFillMappedRemarks(state.currentStudent, state.currentSessionId) > 0) return;
-        if (await autoFillMaintainedRemarks(state.currentStudent, state.currentSessionId) > 0) return;
-        renderTargetContent();
-      } catch { renderTargetContent(); }
+        await autoFillStructuredRemarks(state.currentStudent, state.currentSessionId);
+        await autoFillMappedRemarks(state.currentStudent, state.currentSessionId);
+        await autoFillMaintainedRemarks(state.currentStudent, state.currentSessionId, state.selectedTargetName);
+      } catch (e) { console.error("auto-fill error on target switch:", e); }
+      try { renderTargetContent(); } catch(e) { console.error("renderTargetContent (post-fill) failed:", e); }
     })();
   };
 }
@@ -6202,7 +6249,8 @@ function calcDaysAverage(target, visited = new Set()) {
       if (mappedPct !== null) avgs.push(mappedPct);
       continue;
     }
-    const manualPa = (target.predefinedActivities || []).find(p => p.manualScore && p.name === act.activityName);
+    const manualPa = (target.predefinedActivities || []).find(p => p.manualScore &&
+        (p.name === act.activityName || (act.configId && p.id === act.configId)));
     for (const rem of getRemarksForActivity(act.id)) {
       if (manualPa) {
         const pct = parseManualScore(plainTextForEdit(rem.text || "").trim());
@@ -6257,9 +6305,14 @@ function renderTargetContent() {
   const scrollHost = container.closest(".session-body");
   const scrollTop  = scrollHost?.scrollTop;
   const captured = captureActiveEditState(container);
-  container.innerHTML = target.predefinedActivities?.length > 0
-    ? renderFedcTarget(target)
-    : renderRegularTarget(target);
+  try {
+    container.innerHTML = target.predefinedActivities?.length > 0
+      ? renderFedcTarget(target)
+      : renderRegularTarget(target);
+  } catch(e) {
+    console.error("renderTargetContent innerHTML failed for target:", target?.name, e);
+    throw e;
+  }
 
   attachTargetListeners(target);
   restoreActiveEditState(container, captured);
@@ -6471,8 +6524,15 @@ function renderFedcTarget(target) {
             <span style="flex-shrink:0;align-self:flex-start;margin-top:.45rem;display:inline-block;background:#dbeafe;color:#1e40af;border-radius:.4rem;padding:.12rem .5rem;font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em;white-space:nowrap">Subactivity</span>
             <span class="field-value-fixed"><span style="color:#1e40af;font-weight:700;margin-right:.25rem">${subLabel})</span>${inactiveReasonBadge(sub)}${paDisplayHtml(sub)}</span>
           </div>`;
+        const _subNoOpts = (sub.remarkHasNote || sub.optionsMulti) && parseOpts(getActivityInlineOptions(sub)).length === 0;
+        if (_subNoOpts) {
+          html += `<div class="entry-field" contenteditable="false">
+            <span class="field-label">Remark</span>
+            <span style="color:#9ca3af;font-style:italic;font-size:.88rem">&lt;Please Add Options in Edit Target&gt;</span>
+          </div>`;
+        } else {
         for (const rem of subRemarks) {
-          html += renderRemarkFields(rem, target, getActivityInlineOptions(sub), (sub.inlineOptions || sub.remarkPresetId || sub.remarkHasNote) ? (sub.sentenceStarter || null) : null, sub.optionsMulti || false, null, sub.remarkHasNote || false, false, sub.optionScores || null);
+          html += renderRemarkFields(rem, target, getActivityInlineOptions(sub), (sub.inlineOptions || sub.remarkPresetId || sub.remarkHasNote) ? (sub.sentenceStarter || null) : null, sub.optionsMulti || false, null, sub.remarkHasNote || false, false, sub.optionScores || null, !!(sub.manualScore || sub.remarkHasNote || sub.inlineOptions || sub.remarkPresetId));
         }
         if (subPending) {
           html += renderPendingRemarkFields(sub.name, subActId, sub.name, idx, target);
@@ -6486,6 +6546,7 @@ function renderFedcTarget(target) {
             data-cfg-id="${escHtml(sub.id || "")}"
             data-target="${escHtml(target.name)}">+ Add Remark &amp; Trials</button>`;
         }
+        } // end _subNoOpts else
         html += `</div>`;
       });
       html += `</div>`;
@@ -6546,8 +6607,15 @@ function renderFedcTarget(target) {
         }
       }
     } else {
+      const _paNoOpts = (pa.remarkHasNote || pa.optionsMulti) && parseOpts(getActivityInlineOptions(pa)).length === 0;
+      if (_paNoOpts) {
+        html += `<div class="entry-field" contenteditable="false">
+          <span class="field-label">Remark</span>
+          <span style="color:#9ca3af;font-style:italic;font-size:.88rem">&lt;Please Add Options in Edit Target&gt;</span>
+        </div>`;
+      } else {
       for (const rem of remarks) {
-        html += renderRemarkFields(rem, target, getActivityInlineOptions(pa), (pa.inlineOptions || pa.remarkPresetId || pa.remarkHasNote) ? (pa.sentenceStarter || null) : null, pa.optionsMulti || false, mappedInfo, pa.remarkHasNote || false, pa.manualScore || false, pa.optionScores || null);
+        html += renderRemarkFields(rem, target, getActivityInlineOptions(pa), (pa.inlineOptions || pa.remarkPresetId || pa.remarkHasNote) ? (pa.sentenceStarter || null) : null, pa.optionsMulti || false, mappedInfo, pa.remarkHasNote || false, pa.manualScore || false, pa.optionScores || null, !!(pa.manualScore || pa.remarkHasNote || pa.inlineOptions || pa.remarkPresetId));
       }
       if (isPending) {
         html += renderPendingRemarkFields(pendingKey, actId, pa.name, idx, target);
@@ -6582,6 +6650,7 @@ function renderFedcTarget(target) {
           data-cfg-id="${escHtml(pa.id || "")}"
           data-target="${escHtml(target.name)}">+ Add ${addLabel}</button>`;
       }
+      } // end _paNoOpts else
     }
 
     html += `</div>`;
@@ -7051,7 +7120,7 @@ function toggleBulletSelection(el) {
 
 // ─── REMARK FIELDS ───────────────────────────────────────────
 
-function renderRemarkFields(rem, target, inlineOptions = null, sentenceStarter = null, multiSelect = false, mappedInfo = null, remarkHasNote = false, manualScore = false, optionScores = null) {
+function renderRemarkFields(rem, target, inlineOptions = null, sentenceStarter = null, multiSelect = false, mappedInfo = null, remarkHasNote = false, manualScore = false, optionScores = null, noteCapable = false) {
   const opts = parseOpts(inlineOptions);
 
   // Sync optionScore with current config whenever the target is re-rendered.
@@ -7074,18 +7143,32 @@ function renderRemarkFields(rem, target, inlineOptions = null, sentenceStarter =
   if (manualScore) {
     const currentVal = rem.text ? stripRemarkHtml(rem.text).trim() : "";
     const parsed = parseManualScore(currentVal);
-    const parsedHint = currentVal && parsed !== null ? `<span style="font-size:.78rem;color:#6b7280;margin-left:.25rem">= ${Math.round(parsed * 10) / 10}%</span>` : "";
+    const parsedPct  = parsed !== null ? Math.round(parsed * 10) / 10 : null;
+    const parsedHintText = parsedPct !== null ? `= ${parsedPct}%` : "";
+    const parsedHint = `<span class="manual-score-hint" data-rem-id="${rem.id}" style="font-size:.88rem;color:#9ca3af;margin-left:.5rem;white-space:nowrap${parsedPct === null ? ";display:none" : ""}">${escHtml(parsedHintText)}</span>`;
+    const msNoteField = noteCapable
+      ? `<div class="entry-field entry-note-field" data-rem-id="${rem.id}">
+          <span class="field-label" contenteditable="false">Notes</span>
+          <button class="btn-sketch" contenteditable="false" data-rem-id="${rem.id}" aria-label="Open sketch board">✏</button>
+          <textarea class="field-input mastery-note-input" rows="1"
+            data-rem-id="${rem.id}" placeholder="Notes…"
+            data-saved-html="${escHtml(rem.masteryNote || "")}">${escHtml(plainTextForEdit(rem.masteryNote || ""))}</textarea>
+          <button class="btn-delete-note" contenteditable="false" data-rem-id="${rem.id}" style="font-size:.75rem;color:#9ca3af;background:transparent;border:1px solid #d1d5db;border-radius:.3rem;padding:.2rem .45rem;cursor:pointer;white-space:nowrap;flex-shrink:0">Delete Note</button>
+        </div>`
+      : "";
     return `
     <div class="entry-divider" contenteditable="false"></div>
     <div class="entry-field" contenteditable="false">
       <span class="field-label">Score</span>
-      <input type="text" class="field-input remark-text-input" style="max-width:10rem"
+      <input type="text" class="field-input remark-text-input" style="max-width:14rem"
         data-rem-id="${rem.id}" data-saved-html="${escHtml(currentVal)}"
-        placeholder="e.g. 5/20, 25% or 25"
+        data-manual-score="1"
+        placeholder="e.g. 5/20, 25%, 25, 0.25"
         value="${escHtml(currentVal)}">${parsedHint}
       <button class="btn-icon btn-delete-remark" contenteditable="false"
         data-rem-id="${rem.id}" title="Delete score">🗑</button>
-    </div>`;
+    </div>
+    ${msNoteField}`;
   }
 
   const trials = rem.trials || [];
@@ -7096,6 +7179,8 @@ function renderRemarkFields(rem, target, inlineOptions = null, sentenceStarter =
   const optBadge = rem.optionScore !== undefined
     ? `<span class="trial-badge trial-badge--option">${rem.optionScore}</span>` : "";
   const badgesHtml = regularBadges + optBadge;
+
+  const _existingNote = (rem.masteryNote || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim();
 
   const trailingField = mappedInfo
     ? `<div class="entry-field" contenteditable="false">
@@ -7176,27 +7261,27 @@ function renderRemarkFields(rem, target, inlineOptions = null, sentenceStarter =
     remarkContent = optBtns;
   }
 
-  // Generalized version of Mastery's separate Notes field — same idea, but
-  // the select-one options above are whatever the boss configured (not
-  // hardcoded mastery values), so this reuses the same .mastery-note-input
-  // class/rem.masteryNote field to pick up the existing save wiring for free.
-  const _hiddenNote = !remarkHasNote
-    ? ((rem.masteryNote || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim())
-    : "";
-  const noteField = remarkHasNote
-    ? `<div class="entry-field">
+  // Note field: shown immediately if there's existing data; otherwise hidden until
+  // user clicks [+ Note]. For activities that had noteCapable=false in the past
+  // but somehow have note data, show an "Old data" fallback.
+  let noteField;
+  if (noteCapable) {
+    noteField = `<div class="entry-field entry-note-field" data-rem-id="${rem.id}">
         <span class="field-label" contenteditable="false">Notes</span>
         <button class="btn-sketch" contenteditable="false" data-rem-id="${rem.id}" aria-label="Open sketch board">✏</button>
         <textarea class="field-input mastery-note-input" rows="1"
           data-rem-id="${rem.id}" placeholder="Notes…"
           data-saved-html="${escHtml(rem.masteryNote || "")}">${escHtml(plainTextForEdit(rem.masteryNote || ""))}</textarea>
-      </div>`
-    : (_hiddenNote
-        ? `<div class="entry-field">
-            <span class="field-label" contenteditable="false">Notes</span>
-            <div style="font-size:.78rem;color:#9ca3af;font-style:italic">Old data: ${escHtml(_hiddenNote)}</div>
-          </div>`
-        : "");
+        <button class="btn-delete-note" contenteditable="false" data-rem-id="${rem.id}" style="font-size:.75rem;color:#9ca3af;background:transparent;border:1px solid #d1d5db;border-radius:.3rem;padding:.2rem .45rem;cursor:pointer;white-space:nowrap;flex-shrink:0">Delete Note</button>
+      </div>`;
+  } else {
+    noteField = _existingNote
+      ? `<div class="entry-field">
+          <span class="field-label" contenteditable="false">Notes</span>
+          <div style="font-size:.78rem;color:#9ca3af;font-style:italic">Old data: ${escHtml(_existingNote)}</div>
+        </div>`
+      : "";
+  }
 
   return `
     <div class="entry-divider" contenteditable="false"></div>
@@ -7648,6 +7733,23 @@ function attachTargetListeners(target) {
     });
   });
 
+  // ── Delete note ───────────────────────────────────────────
+  c.querySelectorAll(".btn-delete-note").forEach(btn => {
+    btn.addEventListener("click", () => {
+      if (!confirm("Delete this note? The text will be lost.")) return;
+      const remId = btn.dataset.remId;
+      const entryBlock = btn.closest(".entry-block");
+      if (state.sessionData?.remarks?.[remId]) state.sessionData.remarks[remId].masteryNote = "";
+      const sid = state.currentSessionId;
+      if (sid) updateRemarkNote(sid, remId, "").catch(() => {});
+      const noteDiv = entryBlock?.querySelector(`.entry-note-field[data-rem-id="${remId}"]`);
+      if (noteDiv) {
+        const ta = noteDiv.querySelector(".mastery-note-input");
+        if (ta) { ta.value = ""; ta.dataset.savedHtml = ""; }
+      }
+    });
+  });
+
   // Ghost (.predef-remark-input) and live (.predef-remark-input-live) predefined
   // remark inputs are also saved by the shared merged-editing host — see above.
   // Enter is handled by the delegated keydown listener at the top of this function.
@@ -7710,6 +7812,73 @@ function attachTargetListeners(target) {
     });
   });
 
+  // ── Manual score input: allow only numeric characters, update hint live ──
+  c.querySelectorAll(".remark-text-input[data-manual-score='1']").forEach(input => {
+    const _msHint = () => c.querySelector(`.manual-score-hint[data-rem-id="${input.dataset.remId}"]`);
+    const _msSetHint = (hint, pct) => {
+      if (pct !== null) { hint.textContent = `= ${pct}%`; hint.style.display = ""; hint.style.color = "#9ca3af"; }
+      else              { hint.textContent = ""; hint.style.display = "none"; hint.style.color = ""; }
+    };
+    const _msUpdateAvgChip = (rawVal) => {
+      const remId = input.dataset.remId;
+      const rem = state.sessionData?.remarks?.[remId];
+      if (!rem) return;
+      const prevText = rem.text;
+      rem.text = rawVal;
+      const target = getEffectiveTargets().find(t => t.name === state.selectedTargetName);
+      if (target) {
+        const liveAvg = calcDaysAverage(target);
+        const avgEl = $("days-average-value");
+        if (avgEl) avgEl.textContent = liveAvg !== null ? liveAvg + "%" : "—";
+      }
+      rem.text = prevText;
+    };
+    const _msSanitize = (raw) => {
+      let s = raw.replace(/[^0-9./%]/g, "");
+      // Nothing allowed after %
+      const pctIdx = s.indexOf("%");
+      if (pctIdx !== -1) s = s.slice(0, pctIdx + 1);
+      // Only one /
+      const slashIdx = s.indexOf("/");
+      if (slashIdx !== -1) s = s.slice(0, slashIdx + 1) + s.slice(slashIdx + 1).replace(/\//g, "");
+      // Collapse consecutive dots
+      s = s.replace(/\.{2,}/g, ".");
+      return s;
+    };
+    input.addEventListener("input", () => {
+      const sanitized = _msSanitize(input.value);
+      if (input.value !== sanitized) {
+        const pos = input.selectionStart - (input.value.length - sanitized.length);
+        input.value = sanitized;
+        input.setSelectionRange(Math.max(0, pos), Math.max(0, pos));
+      }
+      const hint = _msHint();
+      if (!hint) return;
+      const parsed = parseManualScore(sanitized.trim());
+      const pct    = parsed !== null ? Math.round(parsed * 10) / 10 : null;
+      _msSetHint(hint, pct);
+      _msUpdateAvgChip(sanitized.trim());
+    });
+    let _msAlerting = false;
+    input.addEventListener("blur", () => {
+      if (_msAlerting) return;
+      const val = input.value.trim();
+      const err = validateManualScore(val);
+      if (!err) {
+        const hint = _msHint();
+        if (hint) {
+          const parsed = parseManualScore(val);
+          _msSetHint(hint, parsed !== null ? Math.round(parsed * 10) / 10 : null);
+        }
+        return;
+      }
+      _msAlerting = true;
+      alert(err);
+      _msAlerting = false;
+      setTimeout(() => input.focus(), 0);
+    });
+  });
+
 }
 
 // ─── ACTION HELPERS ──────────────────────────────────────────
@@ -7757,6 +7926,7 @@ async function saveNewRemark(target) {
 // there's nothing to pre-select, so they stay collapsed behind "+ Add
 // Remark & Trials" until the boss actually has something to type.
 function isAutoOpenRemarkType(pa) {
+  if (pa.manualScore) return true;
   if (pa.remarkHasNote) return true;
   if (pa.sentenceStarter && pa.inlineOptions) return true;
   if (pa.sentenceStarter) return false;
@@ -7907,10 +8077,34 @@ async function autoFillMappedRemarks(student, sessionId) {
 // Mirrors autoFillMappedRemarks — runs on first load and target switch only.
 const maintainedRemarkAutoFillInFlight = new Set();
 
-async function autoFillMaintainedRemarks(student, sessionId) {
+// Shared fill executor: creates the activity (if missing) then the remark.
+async function _runMaintainedFills(sessionId, items) {
+  await Promise.all(items.map(async item => {
+    if (!item.actId) {
+      try {
+        item.actId = await addActivity(sessionId, item.target.name, item.pa.name, item.pa.order ?? 0, true);
+      } catch { maintainedRemarkAutoFillInFlight.delete(item.key); item.actId = null; }
+    }
+  }));
+  await Promise.all(items.map(async item => {
+    if (!item.actId) return;
+    try { await addRemark(sessionId, item.actId, "Maintain"); }
+    finally { maintainedRemarkAutoFillInFlight.delete(item.key); }
+  }));
+}
+
+// selectedTargetName: the target currently on screen. Fills for that target
+// block the return value (so the snapshot listener defers rendering until
+// they land). Fills for OTHER targets start concurrently in the background
+// so a target with many maintained activities never stalls a different
+// target that has none.
+async function autoFillMaintainedRemarks(student, sessionId, selectedTargetName = null) {
   const data = state.sessionData;
-  const toFill = [];
+  const currentFill = [];
+  const bgFill = [];
   for (const target of (student.targets || [])) {
+    const bucket = (selectedTargetName === null || target.name === selectedTargetName)
+      ? currentFill : bgFill;
     for (const pa of (target.predefinedActivities || [])) {
       if (!pa.maintained || pa.isHeading || pa.isNote || pa.isExportNote || pa.isMaintainHeading || (!pa.name && !pa.title)) continue;
       // Match by name OR by configId so a character-level name mismatch never spawns a duplicate.
@@ -7925,27 +8119,28 @@ async function autoFillMaintainedRemarks(student, sessionId) {
         deleteActivity(sessionId, dupeActId, dupeRemIds);
       }
       let actId = canonical?.[0] || null;
-      if (actId && Object.values(data.remarks || {}).some(r => r.activityId === actId)) continue;
+      if (actId) {
+        const existingRems = Object.entries(data.remarks || {}).filter(([, r]) => r.activityId === actId);
+        if (existingRems.length > 1) {
+          existingRems.sort(([, a], [, b]) => (b.order || 0) - (a.order || 0));
+          for (const [remId] of existingRems.slice(1)) {
+            deleteRemark(sessionId, remId).catch(() => {});
+            delete data.remarks[remId];
+          }
+        }
+        if (existingRems.length > 0) continue;
+      }
       const key = `${sessionId}:${target.name}:${pa.name}:maintained`;
       if (maintainedRemarkAutoFillInFlight.has(key)) continue;
       maintainedRemarkAutoFillInFlight.add(key);
-      toFill.push({ target, pa, actId, key });
+      bucket.push({ target, pa, actId, key });
     }
   }
-  if (toFill.length === 0) return 0;
-  await Promise.all(toFill.map(async item => {
-    if (!item.actId) {
-      try {
-        item.actId = await addActivity(sessionId, item.target.name, item.pa.name, item.pa.order ?? 0, true);
-      } catch { maintainedRemarkAutoFillInFlight.delete(item.key); item.actId = null; }
-    }
-  }));
-  await Promise.all(toFill.map(async item => {
-    if (!item.actId) return;
-    try { await addRemark(sessionId, item.actId, "Maintain"); }
-    finally { maintainedRemarkAutoFillInFlight.delete(item.key); }
-  }));
-  return toFill.length;
+  // Other targets: start fills but don't block rendering on them.
+  if (bgFill.length > 0) _runMaintainedFills(sessionId, bgFill).catch(() => {});
+  if (currentFill.length === 0) return 0;
+  await _runMaintainedFills(sessionId, currentFill);
+  return currentFill.length;
 }
 
 // Deletes remarks that have no text, no mastery note, and no valid trials for
@@ -9371,7 +9566,8 @@ function calcViewDayAvg(data, target, visited = new Set()) {
         }
         return;
       }
-      const manualPa = (target.predefinedActivities || []).find(p => p.manualScore && p.name === act.activityName);
+      const manualPa = (target.predefinedActivities || []).find(p => p.manualScore &&
+          (p.name === act.activityName || (act.configId && p.id === act.configId)));
       viewGetRemarks(data, actId).forEach(rem => {
         if (manualPa) {
           const pct = parseManualScore(plainTextForEdit(rem.text || "").trim());
@@ -9818,8 +10014,12 @@ function setupEntryRemarkSaving(host, getSessionId, onIdle) {
       });
     };
 
-    diffAndSave(".remark-text-input[data-rem-id]", el => htmlForStorage(el.value),
-      (el, html) => updateRemarkText(sid, el.dataset.remId, html));
+    diffAndSave(".remark-text-input[data-rem-id]", el => {
+      // Block saving manual score inputs whose current value is invalid
+      if (el.dataset.manualScore === '1' && el.value.trim() && validateManualScore(el.value.trim()) !== null)
+        return el.dataset.savedHtml;
+      return htmlForStorage(el.value);
+    }, (el, html) => updateRemarkText(sid, el.dataset.remId, html));
 
     diffAndSave(".mastery-note-input[data-rem-id]", el => htmlForStorage(el.value),
       (el, html) => updateRemarkNote(sid, el.dataset.remId, html));
@@ -12233,9 +12433,9 @@ function fmtPeriodDate(d) {
 }
 
 function presetLabel(val) {
-  return { "": "Free Text", fixed_remark: "Fixed Remark", manual_score: "Manual Score",
-    starter_fixed: "Sentence Starter + Select one", starter_fixed_multi: "Sentence Starter + Tick boxes",
-    starter_fixed_note: "Sentence Starter + Select One + Free Text" }[val] ?? "Free Text";
+  return { "": "Text Only", fixed_remark: "Fixed Remark", manual_score: "Manual Score",
+    starter_fixed: "Multiple Choice", starter_fixed_multi: "Checkboxes",
+    starter_fixed_note: "Multiple Choice" }[val] ?? "Text Only";
 }
 
 function periodSectionHtml(activeFrom, activeTo, idx, withBorder, inactiveReason) {
@@ -12694,11 +12894,11 @@ async function closeManageModal() {
       // session doc.
       (async () => {
         try {
-          if (await autoFillStructuredRemarks(state.currentStudent, state.currentSessionId) > 0) return;
-          if (await autoFillMappedRemarks(state.currentStudent, state.currentSessionId) > 0) return;
-          if (await autoFillMaintainedRemarks(state.currentStudent, state.currentSessionId) > 0) return;
-          renderTargetContent();
-        } catch { renderTargetContent(); }
+          await autoFillStructuredRemarks(state.currentStudent, state.currentSessionId);
+          await autoFillMappedRemarks(state.currentStudent, state.currentSessionId);
+          await autoFillMaintainedRemarks(state.currentStudent, state.currentSessionId, state.selectedTargetName);
+        } catch (e) { console.error("auto-fill error after Edit Target:", e); }
+        renderTargetContent();
       })();
     }
   }
@@ -13445,6 +13645,30 @@ function stripNoteHtml(text) {
     .trim();
 }
 
+// Strips HTML tags and decodes entities from a stored remark string.
+function stripRemarkHtml(s) {
+  return (s || "")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/div>/gi, "\n").replace(/<div>/gi, "")
+    .replace(/<\/p>/gi, "\n").replace(/<p>/gi, "")
+    .replace(/<[^>]*>/g, "")
+    .replace(/&amp;/g, "&").replace(/&nbsp;/g, " ")
+    .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"')
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+// Validates a manual score string. Returns null if valid (or empty), or an
+// error string to show the user if it's invalid (bad format or out of range).
+const MS_ACCEPTED = "Accepted formats:\n1. 25\n2. 25.5\n3. 25%\n4. 25.5%\n5. 1/4\n6. 5/20";
+function validateManualScore(val) {
+  if (!val || !String(val).trim()) return null;
+  const parsed = parseManualScore(String(val).trim());
+  if (parsed === null) return `Invalid format.\n\n${MS_ACCEPTED}`;
+  if (parsed > 100)    return `Score cannot exceed 100%.\n\n${MS_ACCEPTED}`;
+  return null;
+}
+
 // Parses a manually-typed score value into a percentage (0–100).
 // Accepts: "5/20" → 25, "25%" → 25, "25" → 25.  Returns null if unparseable.
 function parseManualScore(val) {
@@ -13467,18 +13691,17 @@ function buildRemarkTypeControls(a, idx, maxPts = 3) {
   const type = a.manualScore ? "manual_score"
     : a.remarkHasNote ? "starter_fixed_note"
     : (a.sentenceStarter && a.inlineOptions && a.optionsMulti) ? "starter_fixed_multi"
-    : (a.sentenceStarter && a.inlineOptions) ? "starter_fixed"
+    : (a.sentenceStarter && a.inlineOptions) ? "starter_fixed_note"
     : a.sentenceStarter ? ""
     : (a.inlineOptions && a.optionsMulti) ? "starter_fixed_multi"
-    : (a.inlineOptions || a.remarkPresetId) ? "starter_fixed" : "";
-  const showStarter = type === "starter_fixed" || type === "starter_fixed_multi" || type === "starter_fixed_note";
+    : (a.inlineOptions || a.remarkPresetId) ? "starter_fixed_note" : "";
+  const showStarter = type === "starter_fixed_multi" || type === "starter_fixed_note";
   return `<div style="flex:1;display:flex;flex-direction:column;gap:.4rem;min-width:0">
     <select class="act-preset-select mn-act-preset" data-idx="${idx}" style="border-color:#b8bcc4">
-      <option value="">Free text</option>
+      <option value="">Text Only</option>
       <option value="manual_score"${type === "manual_score" ? " selected" : ""}>Manual Score</option>
-      <option value="starter_fixed"${type === "starter_fixed" ? " selected" : ""}>Sentence Starter + Multiple Options</option>
-      <option value="starter_fixed_multi"${type === "starter_fixed_multi" ? " selected" : ""}>Sentence Starter + Checkboxes</option>
-      <option value="starter_fixed_note"${type === "starter_fixed_note" ? " selected" : ""}>Sentence Starter + Multiple Options + Free Text</option>
+      <option value="starter_fixed_note"${type === "starter_fixed_note" ? " selected" : ""}>Multiple Choice</option>
+      <option value="starter_fixed_multi"${type === "starter_fixed_multi" ? " selected" : ""}>Checkboxes</option>
     </select>
     <div class="mn-act-starter-wrap" data-idx="${idx}" style="${showStarter ? "display:flex;flex-direction:column;gap:.3rem" : "display:none"}">
       <span style="font-size:.95rem;color:#374151;font-weight:700">Sentence Starter</span>
@@ -15134,7 +15357,7 @@ function renderTargetManageContent(student, target) {
         $("manage-modal-body").scrollTop = sp;
         return;
       }
-      const usesOpts = (type === "starter_fixed" || type === "starter_fixed_multi" || type === "starter_fixed_note");
+      const usesOpts = (type === "starter_fixed_multi" || type === "starter_fixed_note");
       acts[idx].sentenceStarter = null;
       acts[idx].remarkPresetId  = null;
       if (!usesOpts) { acts[idx].inlineOptions = null; delete acts[idx].optionScores; }
@@ -16148,7 +16371,7 @@ function renderTemplateManageContent(template) {
         $("manage-modal-body").scrollTop = sp;
         return;
       }
-      const usesOpts = (type === "starter_fixed" || type === "starter_fixed_multi" || type === "starter_fixed_note");
+      const usesOpts = (type === "starter_fixed_multi" || type === "starter_fixed_note");
       acts[idx].sentenceStarter = null;
       acts[idx].remarkPresetId  = null;
       if (!usesOpts) { acts[idx].inlineOptions = null; delete acts[idx].optionScores; }
@@ -17499,6 +17722,7 @@ function renderGroupActivityCard(actName, actId, target, data, attendees, actNot
   const sentenceStarter = (paEntry?.inlineOptions || paEntry?.remarkPresetId || paEntry?.remarkHasNote) ? (paEntry?.sentenceStarter || null) : null;
   const multiSelect     = paEntry?.optionsMulti || false;
   const remarkHasNote   = paEntry?.remarkHasNote || false;
+  const noteCapableGrp  = !!(paEntry?.manualScore || paEntry?.remarkHasNote || paEntry?.inlineOptions || paEntry?.remarkPresetId);
   const isFreeText      = parseOpts(inlineOptions).length === 0 && !sentenceStarter;
 
   const noteRow = actNote && actNote.trim()
@@ -17521,7 +17745,7 @@ function renderGroupActivityCard(actName, actId, target, data, attendees, actNot
       if (remarks.length === 0) return renderGroupStudentPendingRow(studentName, actId, actName, target, true);
       const mappedInfo = resolveGroupMappedScoreDisplay(mappedPa, target, data, studentName);
       return remarks.map(([remId, rem]) => renderGroupStudentRow(
-        studentName, remId, rem, target, mappedInfo, inlineOptions, sentenceStarter, multiSelect, remarkHasNote, paEntry?.optionScores || null
+        studentName, remId, rem, target, mappedInfo, inlineOptions, sentenceStarter, multiSelect, remarkHasNote, paEntry?.optionScores || null, noteCapableGrp
       )).join("");
     }).join("");
     return `<div class="entry-block entry-block-predefined" data-act-name="${escHtml(actName)}" data-act-id="${escHtml(actId || "")}">
@@ -17597,7 +17821,7 @@ function renderGroupActivityCard(actName, actId, target, data, attendees, actNot
       bodyHtml = attendees.map(studentName => {
         const entry = byStudent[studentName]?.[i] || null;
         if (entry) return renderGroupStudentRow(
-          studentName, entry[0], entry[1], target, null, inlineOptions, sentenceStarter, multiSelect, remarkHasNote, paEntry?.optionScores || null
+          studentName, entry[0], entry[1], target, null, inlineOptions, sentenceStarter, multiSelect, remarkHasNote, paEntry?.optionScores || null, noteCapableGrp
         );
         return isFreeText
           ? renderGroupStudentEmptyRow(studentName, actId, actName, target, isPredefined)
@@ -17675,7 +17899,7 @@ function renderGroupStudentTrialsOnlyRow(studentName, remId, rem, target) {
 // just with .group-remark-input instead of .remark-text-input for the
 // free-text fallback box, since this row is one attendee's slice of a
 // shared-activity card instead of a single student's own remark field.
-function renderGroupStudentRow(studentName, remId, rem, target, mappedInfo = null, inlineOptions = null, sentenceStarter = null, multiSelect = false, remarkHasNote = false, optionScores = null) {
+function renderGroupStudentRow(studentName, remId, rem, target, mappedInfo = null, inlineOptions = null, sentenceStarter = null, multiSelect = false, remarkHasNote = false, optionScores = null, noteCapable = false) {
   const trials = rem.trials || [];
   const regularBadges = trials.map((t, i) =>
     `<span class="trial-badge">${t === -1 ? "—" : t}<button class="btn-trial-delete btn-group-trial-del" data-rem-id="${remId}" data-idx="${i}">×</button></span>`
@@ -17683,6 +17907,8 @@ function renderGroupStudentRow(studentName, remId, rem, target, mappedInfo = nul
   const optBadge = rem.optionScore !== undefined
     ? `<span class="trial-badge trial-badge--option">${rem.optionScore}</span>` : "";
   const badges = regularBadges + optBadge;
+  const _grpExistingNote = (rem.masteryNote || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim();
+
   const trailingField = mappedInfo
     ? `<div class="entry-field" contenteditable="false">
         <span class="field-label">${escHtml(mappedInfo.label)}</span>
@@ -17743,15 +17969,24 @@ function renderGroupStudentRow(studentName, remId, rem, target, mappedInfo = nul
     remarkContent = makeOptPills(rem.text) || freeTextBox;
   }
 
-  const noteField = remarkHasNote
-    ? `<div class="entry-field" contenteditable="false">
-        <span class="field-label">Notes</span>
-        <button class="btn-sketch btn-group-sketch" data-rem-id="${remId}" aria-label="Open sketch board">✏</button>
+  let noteField;
+  if (noteCapable) {
+    noteField = `<div class="entry-field entry-note-field" data-rem-id="${remId}">
+        <span class="field-label" contenteditable="false">Notes</span>
+        <button class="btn-sketch btn-group-sketch" contenteditable="false" data-rem-id="${remId}" aria-label="Open sketch board">✏</button>
         <textarea class="field-input mastery-note-input" rows="1"
           data-rem-id="${remId}" placeholder="Notes…"
           data-saved-html="${escHtml(rem.masteryNote || "")}">${escHtml(plainTextForEdit(rem.masteryNote || ""))}</textarea>
-      </div>`
-    : "";
+        <button class="btn-delete-note" contenteditable="false" data-rem-id="${remId}" style="font-size:.75rem;color:#9ca3af;background:transparent;border:1px solid #d1d5db;border-radius:.3rem;padding:.2rem .45rem;cursor:pointer;white-space:nowrap;flex-shrink:0">Delete Note</button>
+      </div>`;
+  } else {
+    noteField = _grpExistingNote
+      ? `<div class="entry-field" contenteditable="false">
+          <span class="field-label">Notes</span>
+          <div style="font-size:.78rem;color:#9ca3af;font-style:italic">Old data: ${escHtml(_grpExistingNote)}</div>
+        </div>`
+      : "";
+  }
 
   return `<div class="group-student-section" data-rem-id="${remId}" data-student="${escHtml(studentName)}">
     <div class="group-student-name-row" contenteditable="false">
@@ -18155,6 +18390,23 @@ function attachGroupTargetListeners(target) {
         renderGroupTargetContent();
         alert("Couldn't delete remark — check your connection and try again.\n\n" + err.message);
       });
+    });
+  });
+
+  // ── Delete note (group) ───────────────────────────────────
+  c.querySelectorAll(".btn-delete-note").forEach(btn => {
+    btn.addEventListener("click", () => {
+      if (!confirm("Delete this note? The text will be lost.")) return;
+      const remId = btn.dataset.remId;
+      const section = btn.closest(".group-student-section");
+      if (state.groupSessionData?.remarks?.[remId]) state.groupSessionData.remarks[remId].masteryNote = "";
+      const sid = state.groupSessionId;
+      if (sid) updateRemarkNote(sid, remId, "").catch(() => {});
+      const noteDiv = section?.querySelector(`.entry-note-field[data-rem-id="${remId}"]`);
+      if (noteDiv) {
+        const ta = noteDiv.querySelector(".mastery-note-input");
+        if (ta) { ta.value = ""; ta.dataset.savedHtml = ""; }
+      }
     });
   });
 
