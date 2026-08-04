@@ -170,7 +170,7 @@ function versionLineText() {
   return `Made by Lewis · Version ${APP_VERSION}`;
 }
 
-const APP_VERSION = "1387";
+const APP_VERSION = "1391";
 // Names shown on the approval strip in View/Edit Past Sessions.
 const CHECKED_BY = { assistant: "Ray", main: "Ms. Daisy" };
 
@@ -622,13 +622,19 @@ document.addEventListener("DOMContentLoaded", async () => {
   setupStickyNote();
   $("btn-ai-report-back").addEventListener("click", showHome);
 
-  // If auth never resolves (e.g. Firebase CDN unreachable on iOS after cache clear),
-  // show a reload button after 10 s so the user isn't trapped on the loading screen.
-  setTimeout(() => {
-    if (document.getElementById("screen-loading")?.classList.contains("active")) {
-      document.getElementById("btn-loading-reload")?.classList.remove("hidden");
-    }
-  }, 10000);
+  // If there's no today-login record in localStorage, Firebase auth can't possibly
+  // auto-sign-in (either first load or site data was cleared). Skip the Firebase
+  // wait entirely and go straight to PIN — no loading screen hang.
+  let authResolved = false;
+  if (!hasLoggedInToday()) {
+    initPin();
+    authResolved = true; // prevent the timeout below from calling initPin a second time
+  } else {
+    // Logged in today — wait for Firebase to confirm, but give up after 5 s.
+    setTimeout(() => {
+      if (!authResolved) initPin();
+    }, 5000);
+  }
 
   // On iOS, relatedTarget is always null and pointerdown may not fire for <select>.
   // Use both pointerdown and touchstart (touchstart fires reliably before focusout on iOS).
@@ -714,6 +720,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   // signed back out here, which makes onAuthChange fire again with
   // user = null and fall into the PIN branch below.
   onAuthChange(async user => {
+    authResolved = true;
     if (user && !hasLoggedInToday()) {
       await signOutUser();
       return;
@@ -5118,7 +5125,8 @@ async function monthlyDownloadWord(student, year, month, monthName, sessionCount
       shading: { fill: "eff6ff" },
       borders: { top: tblBR, bottom: tblBR, left: tblBR, right: tblBR },
       children: [new Paragraph({ children: [new TextRun({ text: tName, bold: true, size: 24 })], spacing: { before: 60, after: 60 } })]
-    })]});
+    })]})
+  );
 
     // Chart row
     const noDataPara = txt => [new Paragraph({ children: [new TextRun({ text: txt, italics: true, size: 20, color: "9ca3af" })], alignment: AlignmentType.CENTER, spacing: { before: 80, after: 80 } })];
