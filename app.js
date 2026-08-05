@@ -75,6 +75,7 @@ import {
   cleanupExpiredTrash,
   reassignGroupStudentAcrossSessions,
   updateSessionChecks,
+  updateSessionParticipants,
   updateWorkflowStatus,
   updateWorkflowNote,
   addReviewComment,
@@ -84,6 +85,7 @@ import {
   updateReviewCommentText,
   markCommentFixed,
   listenToReviewQueue,
+  getSessionsWithParticipant,
   signInWithPin,
   signOutUser,
   onAuthChange,
@@ -170,9 +172,42 @@ function versionLineText() {
   return `Made by Lewis · Version ${APP_VERSION}`;
 }
 
-const APP_VERSION = "1398";
-// Names shown on the approval strip in View/Edit Past Sessions.
-const CHECKED_BY = { assistant: "Ray", main: "Ms. Daisy" };
+const APP_VERSION = "1442";
+// The three instructors — id keys match Firestore checks fields (p1_*, p3_*)
+const INSTRUCTORS = [
+  { id: "daisy", name: "Ms. Daisy", isMain: true  },
+  { id: "ray",   name: "Rayhanah",  isMain: false },
+  { id: "nigel", name: "Nigel",     isMain: false },
+];
+
+// Show the instructor picker as a step inside the session-picker modal.
+// Calls onConfirm(participantIds[]) when the user taps Next.
+function showInstructorPickerStep(onConfirm, preSelected = [], onBack = null, dateStr = null) {
+  $("session-picker-title").textContent = "Instructors";
+  $("session-picker-list").innerHTML = `
+    <div style="padding:1.5rem 1.25rem;display:flex;flex-direction:column;align-items:center">
+      <p style="margin:0 0 .35rem;font-weight:600;color:#374151;text-align:center">Who is facilitating this session?</p>
+      ${dateStr ? `<p style="margin:0 0 1.25rem;font-size:.9rem;color:#6b7280;text-align:center">${escHtml(dateStr)}</p>` : `<div style="margin-bottom:1.25rem"></div>`}
+      <div style="width:100%;max-width:320px">
+        ${INSTRUCTORS.map(inst => `
+          <label style="display:flex;align-items:center;justify-content:center;gap:.85rem;padding:.75rem 0;cursor:pointer;font-size:1rem;border-bottom:1px solid #f3f4f6">
+            <input type="checkbox" class="inst-check" value="${inst.id}"
+              ${preSelected.includes(inst.id) ? "checked" : ""}
+              style="width:1.2rem;height:1.2rem;accent-color:#3b82f6;cursor:pointer;flex-shrink:0">
+            <span style="color:#1f2937;width:7rem">${escHtml(inst.name)}</span>
+          </label>`).join("")}
+      </div>
+      <div style="display:flex;gap:.75rem;margin-top:1.5rem;width:100%">
+        ${onBack ? `<button class="btn-inst-back export-btn" style="flex:0 0 auto;padding:.85rem 1.25rem;font-size:1rem">← Back</button>` : ""}
+        <button class="btn-inst-next export-btn" style="flex:1;padding:.85rem;font-size:1rem;text-align:center">Next →</button>
+      </div>
+    </div>`;
+  if (onBack) $("session-picker-list").querySelector(".btn-inst-back").addEventListener("click", onBack);
+  $("session-picker-list").querySelector(".btn-inst-next").addEventListener("click", () => {
+    const participants = [...$("session-picker-list").querySelectorAll(".inst-check:checked")].map(c => c.value);
+    onConfirm(participants);
+  });
+}
 
 // ─── PASSWORD GATE ────────────────────────────────────────────
 // Single shared password for exports and old-session access.
@@ -1199,9 +1234,11 @@ function renderStudentDatabaseButton() {
   container.innerHTML = `<div class="info-btn-row">
     <button class="export-btn export-btn-all" id="btn-open-student-registry" style="margin-bottom:0">Student Database</button>
     <button class="export-btn" id="btn-open-ai-report">AI Report Generator</button>
+    <button class="export-btn" id="btn-open-todo">To Do List</button>
   </div>`;
   $("btn-open-student-registry").addEventListener("click", () => openStudentRegistryScreen());
   $("btn-open-ai-report").addEventListener("click", () => showScreen("screen-ai-report"));
+  $("btn-open-todo").addEventListener("click", () => openTodoScreen());
 }
 
 function openChecklistModal() {
@@ -1251,6 +1288,142 @@ function openChecklistModal() {
       const isGrp     = btn.dataset.isGroup === "true";
       const doOpen = () => {
         closeSessionPicker();
+        if (isGrp) {
+          const group = (state.groups || []).find(g => g.id === subjectId);
+          if (group) openGroupSessionView(group, sid);
+        } else {
+          const student = (state.students || []).find(s => s.id === subjectId);
+          if (student) openSessionView(student, sid);
+        }
+      };
+      if (isOlderThan7Days(btn.dataset.sessionDate)) { requirePassword(doOpen, EXPIRED_MSG); } else { doOpen(); }
+    });
+  });
+}
+
+async function openTodoScreen() {
+  showScreen("screen-todo");
+  renderTodoTiles(null); // show loading state
+
+  const results = await Promise.all(INSTRUCTORS.map(async inst => {
+    const sessions = await getSessionsWithParticipant(inst.id).catch(() => []);
+    const pending = sessions.filter(s => {
+      const checks = s.checks || {};
+      const ws = getWorkflowState(s);
+      if (!checks[`p1_${inst.id}`]) return true;
+      if (inst.id === "daisy" && !s.reviewSubmitted) return true;
+      if (inst.id !== "daisy" && s.reviewSubmitted && !checks[`p3_${inst.id}`] && !ws.p3Bypassed) return true;
+      if (inst.id === "nigel" && ws.ready && !ws.p4Done) return true;
+      return false;
+    });
+    return { inst, pending };
+  }));
+
+  renderTodoTiles(results);
+}
+
+function renderTodoTiles(results) {
+  const body = $("todo-body");
+
+  if (!results) {
+    body.innerHTML = `<p style="padding:1.5rem;color:var(--text-muted)">Loading…</p>`;
+    return;
+  }
+
+  const allDone = results.every(r => r.pending.length === 0);
+  if (allDone) {
+    body.innerHTML = `<p style="padding:2rem;text-align:center;color:var(--text-muted);font-size:1.05rem">All caught up! No pending tasks. ✓</p>`;
+    return;
+  }
+
+  const mkSessionRow = (s, inst) => {
+    const isGroup   = !!s.groupId;
+    const subjectId = s.studentId || s.groupId || "";
+    let name = s.workflowSubjectName || "";
+    if (!name) {
+      if (isGroup) {
+        name = (state.groups || []).find(g => g.id === s.groupId)?.name || s.groupName || "Unknown";
+      } else {
+        name = (state.students || []).find(st => st.id === s.studentId)?.name || s.studentName || "Unknown";
+      }
+    }
+    const dateStr = s.date ? relativeTodoDate(s.date) : "Unknown date";
+    const checks  = s.checks || {};
+    const ws      = getWorkflowState(s);
+
+    // Compute all pending tasks for this instructor on this session
+    const tasks = [];
+    if (!checks[`p1_${inst.id}`]) tasks.push("Enter Data");
+    if (inst.id === "daisy" && !s.reviewSubmitted) {
+      // Phase 2 only shows if it's unlocked (all non-Daisy p1 done)
+      const nonDaisy = (s.participants || []).filter(id => id !== "daisy");
+      const p2Unlocked = nonDaisy.length > 0 ? nonDaisy.every(id => !!checks[`p1_${id}`]) : !!checks["p1_daisy"];
+      if (p2Unlocked) tasks.push("Check");
+    }
+    if (inst.id !== "daisy" && s.reviewSubmitted && !checks[`p3_${inst.id}`] && !ws.p3Bypassed) tasks.push("Revision");
+    if (inst.id === "nigel" && ws.ready && !ws.p4Done) tasks.push("Export");
+
+    const pillStyle = t => t === "Enter Data"
+      ? "background:#eff6ff;color:#1d4ed8"
+      : t === "Export"
+        ? "background:#f0fdf4;color:#15803d"
+        : "background:#fff7ed;color:#c2410c";
+
+    return `<button class="todo-session-row"
+        data-session-id="${s.id}"
+        data-subject-id="${escHtml(subjectId)}"
+        data-is-group="${isGroup}"
+        data-session-date="${escHtml(s.date || "")}"
+        style="display:flex;flex-direction:column;align-items:flex-start;width:100%;padding:.65rem .9rem;border:none;border-top:1px solid #f3f4f6;background:transparent;cursor:pointer;text-align:left">
+      <span style="font-size:.88rem;font-weight:600;color:#1f2937">${escHtml(name)}</span>
+      <span style="display:flex;align-items:center;gap:.4rem;margin-top:.15rem;flex-wrap:wrap">
+        <span style="font-size:.78rem;color:var(--text-muted)">${escHtml(dateStr)}</span>
+        ${tasks.map(t => `<span style="font-size:.8rem;font-weight:600;padding:.15rem .55rem;border-radius:999px;${pillStyle(t)}">${escHtml(t)}</span>`).join("")}
+      </span>
+    </button>`;
+  };
+
+  body.innerHTML = `
+    <div style="padding:1rem;display:grid;grid-template-columns:repeat(3,1fr);gap:1rem;align-items:start">
+      ${results.map(({ inst, pending }) => {
+        const hasPending = pending.length > 0;
+        const sorted = [...pending].sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+        return `
+        <div class="todo-col" style="border:1.5px solid #e5e7eb;border-radius:14px;overflow:hidden;background:#fff;box-shadow:0 1px 4px rgba(0,0,0,.06)">
+          <button class="todo-col-header" data-id="${inst.id}"
+            style="display:flex;align-items:center;justify-content:space-between;width:100%;padding:.9rem 1rem;border:none;background:#f9fafb;cursor:${hasPending ? "pointer" : "default"};text-align:left">
+            <div style="display:flex;align-items:center;gap:.5rem">
+              <span style="font-weight:700;font-size:.95rem;color:#1f2937">${escHtml(inst.name)}</span>
+              <span style="background:#3b82f6;color:#fff;border-radius:999px;min-width:20px;height:20px;display:flex;align-items:center;justify-content:center;font-size:.72rem;font-weight:700;padding:0 5px;flex-shrink:0">${pending.length}</span>
+            </div>
+            ${hasPending ? `<span class="todo-chevron" style="color:#6b7280;font-size:1.5rem;line-height:1;transition:transform .2s;transform:rotate(-90deg)">▾</span>` : ""}
+          </button>
+          <div class="todo-col-body" data-id="${inst.id}" style="display:none">
+            ${hasPending ? sorted.map(s => mkSessionRow(s, inst)).join("") : ""}
+          </div>
+        </div>`;
+      }).join("")}
+    </div>`;
+
+  // Toggle collapse
+  body.querySelectorAll(".todo-col-header").forEach(btn => {
+    if (!btn.querySelector(".todo-chevron")) return;
+    btn.addEventListener("click", () => {
+      const colBody = body.querySelector(`.todo-col-body[data-id="${btn.dataset.id}"]`);
+      const chevron = btn.querySelector(".todo-chevron");
+      const open = colBody.style.display === "none";
+      colBody.style.display = open ? "" : "none";
+      chevron.style.transform = open ? "rotate(0deg)" : "rotate(-90deg)";
+    });
+  });
+
+  // Open session on tap
+  body.querySelectorAll(".todo-session-row").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const sid       = btn.dataset.sessionId;
+      const subjectId = btn.dataset.subjectId;
+      const isGrp     = btn.dataset.isGroup === "true";
+      const doOpen = () => {
         if (isGrp) {
           const group = (state.groups || []).find(g => g.id === subjectId);
           if (group) openGroupSessionView(group, sid);
@@ -5579,6 +5752,8 @@ function openManageActivityScreen(student) {
   if (sub) sub.textContent = student.name;
   showScreen("screen-manage-activity");
   $("btn-manage-activity-back").onclick = showHome;
+  // Hide the old header button — the button is now inline next to the dropdown
+  $("btn-ma-reorder-targets")?.classList.add("hidden");
   renderManageActivityScreen(student);
 }
 
@@ -5762,14 +5937,17 @@ function renderManageActivityScreen(student) {
       ${collapseSection('discontinued','🚩','#dc2626','#fff5f5','#fecaca',discontPas)}
     </div>`;
 
-  const dropHtml = `<div class="target-selector" style="position:static;margin-bottom:.8rem">
-    <label class="target-label">Target</label>
-    <select id="ma-target-select" class="target-dropdown">
+  const dropHtml = `<div class="target-selector" style="position:static;margin-bottom:.8rem;display:flex;align-items:center;gap:.5rem">
+    <label class="target-label" style="flex-shrink:0">Target</label>
+    <select id="ma-target-select" class="target-dropdown" style="flex:1">
       ${targets.map((t, i) => `<option value="${i}"${i === _maSelectedTargetIdx ? ' selected' : ''}>${escHtml(t.name)}</option>`).join('')}
     </select>
+    <button id="btn-ma-rearrange-inline" class="btn-manage-targets">↕️ Rearrange Targets</button>
   </div>`;
 
   body.innerHTML = dropHtml + html;
+
+  body.querySelector("#btn-ma-rearrange-inline").addEventListener("click", () => showTargetReorderList(student));
 
   document.getElementById("ma-target-select").addEventListener("change", function() {
     _maSelectedTargetIdx = parseInt(this.value, 10);
@@ -6001,7 +6179,7 @@ function showStudentChoice(student) {
       <button class="choice-btn choice-manage-activity">
         <span class="choice-icon">🪄</span>
         <div class="choice-text">
-          <div class="choice-label">Manage Activity</div>
+          <div class="choice-label">Manage Activity & Targets</div>
         </div>
       </button>
       <button class="choice-btn choice-export-excel">
@@ -6044,51 +6222,63 @@ function showStudentChoice(student) {
     };
 
 
-    $("session-picker-list").innerHTML = `
-      <div class="session-date-step">
-        <p class="session-date-prompt">What date is this session for?</p>
-        <div class="date-quick-btns">
-          <button class="btn-date-quick" data-date="${yesterday}">Yesterday (${fmtShort(yesterday)})</button>
-          <button class="btn-date-quick" data-date="${today}">Today (${fmtShort(today)})</button>
-          <button class="btn-date-other">Pick A Date</button>
-        </div>
-      </div>`;
-
-    $("session-picker-list").querySelectorAll(".btn-date-quick").forEach(btn => {
-      btn.addEventListener("click", () => {
-        closeSessionPicker();
-        openSession(student, null, btn.dataset.date);
+    const renderDateStep = () => {
+      $("session-picker-title").textContent = student.name;
+      $("session-picker-list").innerHTML = `
+        <div class="session-date-step">
+          <p class="session-date-prompt">What date is this session for?</p>
+          <div class="date-quick-btns">
+            <button class="btn-date-quick" data-date="${yesterday}">Yesterday (${fmtShort(yesterday)})</button>
+            <button class="btn-date-quick" data-date="${today}">Today (${fmtShort(today)})</button>
+            <button class="btn-date-other">Pick A Date</button>
+          </div>
+        </div>`;
+      $("session-picker-list").querySelectorAll(".btn-date-quick").forEach(btn => {
+        btn.addEventListener("click", async () => {
+          const chosenDate = btn.dataset.date;
+          let preSelected = [];
+          try {
+            const sessions = await sessionsFetch;
+            preSelected = sessions.find(s => s.date === chosenDate)?.participants || [];
+          } catch {}
+          if (preSelected.length > 0) {
+            closeSessionPicker();
+            openSession(student, null, chosenDate, preSelected);
+          } else {
+            showInstructorPickerStep(participants => {
+              closeSessionPicker();
+              openSession(student, null, chosenDate, participants);
+            }, [], renderDateStep, formatDateWithDay(chosenDate));
+          }
+        });
       });
-    });
-
-    $("session-picker-list").querySelector(".btn-date-other").addEventListener("click", () => {
-      const [ty, tm] = today.split("-").map(Number);
-      const displayDate = `${ty}-${String(tm).padStart(2,"0")}-01`;
-      // Render immediately so iPad doesn't see a frozen UI while waiting for network
-      renderStartSessionCalendar(student, today, displayDate, new Set());
-      // Use the pre-fetched promise — likely already resolved by now
-      sessionsFetch
-        .then(sessions => {
-          // Filter out empty sessions so stale Firestore docs don't show phantom checkmarks.
-          // Matches the same hasUsefulData logic used in showSessionPicker.
-          const curTgtNames = new Set((student.targets || []).map(t => t.name));
-          const stripE = s => (s || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").replace(/ /g, " ").trim();
-          const hasData = s => {
-            if (Object.values(s.fedcComments || {}).some(c => stripE(c).length > 0)) return true;
-            return Object.values(s.remarks || {}).some(r => {
-              const act = (s.activities || {})[r.activityId];
-              if (!act || !curTgtNames.has(act.targetName)) return false;
-              return stripE(r.text).length > 0 || (r.trials || []).some(t => t !== null && t !== -1) || stripE(r.masteryNote).length > 0;
-            });
-          };
-          const empties = sessions.filter(s => !hasData(s));
-          empties.forEach(s => deleteSession(s.id).catch(() => {}));
-          if (empties.length > 0) resequenceIndividualSessions(student.id).catch(() => {});
-          const takenDates = new Set(sessions.filter(hasData).map(s => s.date));
-          renderStartSessionCalendar(student, today, displayDate, takenDates);
-        })
-        .catch(() => {});
-    });
+      $("session-picker-list").querySelector(".btn-date-other").addEventListener("click", () => {
+        const [ty, tm] = today.split("-").map(Number);
+        const displayDate = `${ty}-${String(tm).padStart(2,"0")}-01`;
+        renderStartSessionCalendar(student, today, displayDate, new Set(), new Map(), renderDateStep);
+        sessionsFetch
+          .then(sessions => {
+            const curTgtNames = new Set((student.targets || []).map(t => t.name));
+            const stripE = s => (s || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").replace(/ /g, " ").trim();
+            const hasData = s => {
+              if (Object.values(s.fedcComments || {}).some(c => stripE(c).length > 0)) return true;
+              return Object.values(s.remarks || {}).some(r => {
+                const act = (s.activities || {})[r.activityId];
+                if (!act || !curTgtNames.has(act.targetName)) return false;
+                return stripE(r.text).length > 0 || (r.trials || []).some(t => t !== null && t !== -1) || stripE(r.masteryNote).length > 0;
+              });
+            };
+            const empties = sessions.filter(s => !hasData(s));
+            empties.forEach(s => deleteSession(s.id).catch(() => {}));
+            if (empties.length > 0) resequenceIndividualSessions(student.id).catch(() => {});
+            const takenDates = new Set(sessions.filter(hasData).map(s => s.date));
+            const sessionsByDate = new Map(sessions.map(s => [s.date, s.participants || []]));
+            renderStartSessionCalendar(student, today, displayDate, takenDates, sessionsByDate, renderDateStep);
+          })
+          .catch(() => {});
+      });
+    };
+    renderDateStep();
   });
   $("session-picker-list").querySelector(".choice-other").addEventListener("click", () => {
     showSessionPicker(student);
@@ -6099,7 +6289,7 @@ function showStudentChoice(student) {
   });
   $("session-picker-list").querySelector(".choice-manage-activity").addEventListener("click", () => {
     closeSessionPicker();
-    $("manage-modal-title").textContent = "Manage Activity";
+    $("manage-modal-title").textContent = "Manage Activity & Targets";
     $("manage-modal-body").innerHTML = `
       <div style="padding:2rem 1rem;display:flex;flex-direction:column;align-items:center;gap:.75rem">
         <div style="font-size:.9rem;color:var(--text-muted)">Enter password to continue</div>
@@ -6676,7 +6866,7 @@ async function showEditDatePicker() {
   renderDatePickerCalendar(currentDate, takenDates, getTodayString(), currentDate);
 }
 
-function renderStartSessionCalendar(student, today, displayDate, takenDates = new Set()) {
+function renderStartSessionCalendar(student, today, displayDate, takenDates = new Set(), sessionsByDate = new Map(), onBack = null) {
   const [y, m] = displayDate.split("-").map(Number);
   const monthLabel = new Date(y, m - 1, 1)
     .toLocaleString("default", { month: "long", year: "numeric" });
@@ -6720,23 +6910,31 @@ function renderStartSessionCalendar(student, today, displayDate, takenDates = ne
   $("session-picker-list").innerHTML = html;
 
   $("session-picker-list").querySelector(".btn-date-prev").addEventListener("click", () => {
-    renderStartSessionCalendar(student, today, prevM, takenDates);
+    renderStartSessionCalendar(student, today, prevM, takenDates, sessionsByDate, onBack);
   });
   if (canNext) {
     $("session-picker-list").querySelector(".btn-date-next").addEventListener("click", () => {
-      renderStartSessionCalendar(student, today, nextM, takenDates);
+      renderStartSessionCalendar(student, today, nextM, takenDates, sessionsByDate, onBack);
     });
   }
   $("session-picker-list").querySelectorAll(".date-picker-day:not([disabled])").forEach(btn => {
     btn.addEventListener("click", () => {
-      closeSessionPicker();
-      const open = () => openSession(student, null, btn.dataset.date);
-      if (isOlderThan7Days(btn.dataset.date)) { requirePassword(open, EXPIRED_MSG); } else { open(); }
+      const chosenDate = btn.dataset.date;
+      const preSelected = sessionsByDate.get(chosenDate) || [];
+      const proceed = participants => {
+        closeSessionPicker();
+        openSession(student, null, chosenDate, participants);
+      };
+      const backFn = () => renderStartSessionCalendar(student, today, displayDate, takenDates, sessionsByDate, onBack);
+      const pickAndProceed = () => preSelected.length > 0
+        ? proceed(preSelected)
+        : showInstructorPickerStep(proceed, [], onBack || backFn, formatDateWithDay(chosenDate));
+      if (isOlderThan7Days(chosenDate)) { requirePassword(pickAndProceed, EXPIRED_MSG); } else { pickAndProceed(); }
     });
   });
 }
 
-function renderGroupStartSessionCalendar(group, today, displayDate, takenDates = new Set()) {
+function renderGroupStartSessionCalendar(group, today, displayDate, takenDates = new Set(), sessionsByDate = new Map(), onBack = null) {
   const [y, m] = displayDate.split("-").map(Number);
   const monthLabel = new Date(y, m - 1, 1)
     .toLocaleString("default", { month: "long", year: "numeric" });
@@ -6780,18 +6978,23 @@ function renderGroupStartSessionCalendar(group, today, displayDate, takenDates =
   $("session-picker-list").innerHTML = html;
 
   $("session-picker-list").querySelector(".btn-date-prev").addEventListener("click", () => {
-    renderGroupStartSessionCalendar(group, today, prevM, takenDates);
+    renderGroupStartSessionCalendar(group, today, prevM, takenDates, sessionsByDate, onBack);
   });
   if (canNext) {
     $("session-picker-list").querySelector(".btn-date-next").addEventListener("click", () => {
-      renderGroupStartSessionCalendar(group, today, nextM, takenDates);
+      renderGroupStartSessionCalendar(group, today, nextM, takenDates, sessionsByDate, onBack);
     });
   }
   $("session-picker-list").querySelectorAll(".date-picker-day:not([disabled])").forEach(btn => {
     btn.addEventListener("click", () => {
       const ds = btn.dataset.date;
-      const doOpen = () => { closeSessionPicker(); openGroupSession(group, ds, group.students); };
-      if (isOlderThan7Days(ds)) { requirePassword(doOpen, EXPIRED_MSG); } else { doOpen(); }
+      const preSelected = sessionsByDate.get(ds) || [];
+      const proceed = participants => { closeSessionPicker(); openGroupSession(group, ds, group.students, participants); };
+      const backFn = () => renderGroupStartSessionCalendar(group, today, displayDate, takenDates, sessionsByDate, onBack);
+      const pickAndProceed = () => preSelected.length > 0
+        ? proceed(preSelected)
+        : showInstructorPickerStep(proceed, [], onBack || backFn, formatDateWithDay(ds));
+      if (isOlderThan7Days(ds)) { requirePassword(pickAndProceed, EXPIRED_MSG); } else { pickAndProceed(); }
     });
   });
 }
@@ -6876,7 +7079,7 @@ function getEffectiveTargets() {
   return state.currentStudent?.targets || [];
 }
 
-async function openSession(student, existingSessionId = null, dateStr = null) {
+async function openSession(student, existingSessionId = null, dateStr = null, participants = null) {
   // Jumping to another date for the SAME student via "Go To Another
   // Session" should land back on whatever target they were already
   // looking at, not silently reset to the first target in the list —
@@ -6937,6 +7140,9 @@ async function openSession(student, existingSessionId = null, dateStr = null) {
       ? existingSessionId
       : await getOrCreateSessionForDate(student.id, dateStr || getTodayString(), student.targets);
     state.currentSessionId = sessionId;
+    if (participants && !existingSessionId) {
+      updateSessionParticipants(sessionId, participants).catch(() => {});
+    }
 
     state.fbUnsubscribe = listenToSession(sessionId, async data => {
       const firstLoad = state.sessionData === null;
@@ -7013,8 +7219,9 @@ async function openSession(student, existingSessionId = null, dateStr = null) {
         if (mappedFilled > 0) return;
       } catch (err) { console.error("autoFillMappedRemarks failed:", err); }
       try {
-        const maintainedFilled = await autoFillMaintainedRemarks(student, sessionId, state.selectedTargetName);
-        if (maintainedFilled > 0) return;
+        await autoFillMaintainedRemarks(student, sessionId, state.selectedTargetName);
+        // Don't return early — render now and let the Firestore write from
+        // the fill trigger its own snapshot update rather than blocking here.
       } catch (err) { console.error("autoFillMaintainedRemarks failed:", err); }
       // Keep score modal trial badges in sync with Firestore
       if (state.scorePicker?.open && state.scorePicker?.remId) {
@@ -7150,10 +7357,32 @@ function populateTargetDropdown(targets) {
 
   sel.value = state.selectedTargetName || sorted[0]?.name || "";
 
-  const reorderBtn = $("btn-reorder-targets");
-  if (reorderBtn) {
-    reorderBtn.classList.toggle("hidden", targets.length < 2);
-    reorderBtn.onclick = () => showTargetReorderList(state.currentStudent);
+  const editInstBtn2 = $("btn-entry-edit-instructors");
+  if (editInstBtn2) {
+    editInstBtn2.classList.remove("hidden");
+    editInstBtn2.onclick = () => {
+      const curParticipants = state.sessionData?.participants || [];
+      $("session-picker-title").textContent = "Edit Instructors";
+      $("session-picker-list").innerHTML = `
+        <div style="padding:1.5rem 1.25rem;display:flex;flex-direction:column;align-items:center">
+          <p style="margin:0 0 1.25rem;font-weight:600;color:#374151;text-align:center">Who is facilitating this session?</p>
+          <div style="width:100%;max-width:320px">
+            ${INSTRUCTORS.map(inst => `
+              <label style="display:flex;align-items:center;justify-content:center;gap:.85rem;padding:.75rem 0;cursor:pointer;font-size:1rem;border-bottom:1px solid #f3f4f6">
+                <input type="checkbox" class="inst-edit-check" value="${inst.id}"${curParticipants.includes(inst.id) ? " checked" : ""}
+                  style="width:1.2rem;height:1.2rem;accent-color:#3b82f6;cursor:pointer;flex-shrink:0">
+                <span style="color:#1f2937;width:7rem">${escHtml(inst.name)}</span>
+              </label>`).join("")}
+          </div>
+          <button class="btn-inst-save export-btn" style="margin-top:1.5rem;width:100%;padding:.85rem;font-size:1rem;text-align:center">Save</button>
+        </div>`;
+      $("session-picker-modal").classList.remove("hidden");
+      $("session-picker-list").querySelector(".btn-inst-save").addEventListener("click", async () => {
+        const participants = [...$("session-picker-list").querySelectorAll(".inst-edit-check:checked")].map(c => c.value);
+        closeSessionPicker();
+        await updateSessionParticipants(state.currentSessionId, participants).catch(() => {});
+      });
+    };
   }
 
   sel.onchange = async () => {
@@ -7687,6 +7916,7 @@ function renderFedcTarget(target) {
           data-pa-name="${escHtml(pa.name || pa.title)}"
           data-pa-order="${idx}"
           data-is-mapped="${pa.isMapped ? "1" : ""}"
+          data-is-maintained="1"
           data-cfg-id="${escHtml(pa.id || "")}"
           data-target="${escHtml(target.name)}">+ Add ${addLabel}</button>`;
       } else {
@@ -8650,6 +8880,21 @@ function attachTargetListeners(target) {
         }
         if (paName) actId = await ensureFedcActivity(target.name, paName, paOrder, btn.dataset.paParent || null, btn.dataset.cfgId || null);
         if (!actId) { btn.disabled = false; return; }
+        // Maintained placeholder: ensure "Maintain" remark exists before adding the
+        // empty one. Autofill may have already written it during the ensureFedcActivity
+        // await, so check first to avoid a duplicate.
+        if (btn.dataset.isMaintained === "1") {
+          const alreadyMaintained = Object.values(state.sessionData.remarks || {})
+            .some(r => r.activityId === actId && r.text === "Maintain");
+          if (!alreadyMaintained) {
+            const mId = generateId("r");
+            state.sessionData.remarks = state.sessionData.remarks || {};
+            state.sessionData.remarks[mId] = { activityId: actId, text: "Maintain", trials: [], order: Date.now() - 1 };
+            addRemark(state.currentSessionId, actId, "Maintain", null, mId).catch(() => {
+              delete state.sessionData.remarks[mId];
+            });
+          }
+        }
         const initialText = "";
         // Write the remark into local state and render right away instead of
         // waiting on the Firestore round trip — addRemark() is handed the
@@ -9170,13 +9415,6 @@ async function autoFillMaintainedRemarks(student, sessionId, selectedTargetName 
       let actId = canonical?.[0] || null;
       if (actId) {
         const existingRems = Object.entries(data.remarks || {}).filter(([, r]) => r.activityId === actId);
-        if (existingRems.length > 1) {
-          existingRems.sort(([, a], [, b]) => (b.order || 0) - (a.order || 0));
-          for (const [remId] of existingRems.slice(1)) {
-            deleteRemark(sessionId, remId).catch(() => {});
-            delete data.remarks[remId];
-          }
-        }
         if (existingRems.length > 0) continue;
       }
       const key = `${sessionId}:${target.name}:${pa.name}:maintained`;
@@ -9515,6 +9753,7 @@ async function leaveSessionView() {
 
 $("btn-view-back").addEventListener("click", leaveSessionView);
 $("btn-student-registry-back")?.addEventListener("click", showHome);
+$("btn-todo-back")?.addEventListener("click", showHome);
 
 // ── Checked By strip (View/Edit Past Sessions approval flow) ──────────────────
 // Ray = assistant teacher; Daisy = main teacher. Rendered as the first item
@@ -9546,18 +9785,51 @@ let _phase3Error            = null; // error string shown in Phase 3 node, auto-
 const _textareaDebounce     = new Map();
 
 function getWorkflowState(data) {
-  const checks    = data?.checks || {};
-  const rayDone   = !!checks.assistant;
-  const daisyDone = !!checks.main;
-  const reviewUnlocked  = rayDone && daisyDone;
+  const checks       = data?.checks || {};
+  const participants = data?.participants || [];
+
+  // Phase 1 — one pill per participant
+  const p1Ids   = participants;
+  const p1Check = id => checks[`p1_${id}`] || null;
+  const p1Done  = id => !!p1Check(id);
+  const allP1Done = p1Ids.length > 0 && p1Ids.every(p1Done);
+
+  // Phase 2 — always Daisy, uses reviewSubmitted flag
   const reviewSubmitted = !!data?.reviewSubmitted;
-  const revisionDone    = data?.revisionDone || null; // { by, at } or null
+
+  // Phase 3 — Phase 1 participants except Daisy
+  const p3Ids   = p1Ids.filter(id => id !== "daisy");
+  const p3Check = id => checks[`p3_${id}`] || null;
+  const p3Done  = id => !!p3Check(id);
+  const allP3Done = p3Ids.length === 0 || p3Ids.every(p3Done);
+
+  // No-corrections decision — Daisy declares Phase 3 not needed
+  const noCorrectionsDecision = checks["no_corrections"] || null;
+
   const comments  = Object.entries(data?.reviewComments || {})
     .sort(([,a],[,b]) => (a.order || 0) - (b.order || 0));
   const allFixed   = comments.length > 0 && comments.every(([,c]) => !!c.fixedByName);
   const noComments = comments.length === 0;
-  const ready = reviewSubmitted && !!revisionDone;
-  return { rayDone, daisyDone, reviewUnlocked, reviewSubmitted, revisionDone, comments, allFixed, noComments, ready };
+  const p3Bypassed = !!noCorrectionsDecision;
+  const effectiveAllP3Done = allP3Done || p3Bypassed;
+  const ready = allP1Done && reviewSubmitted && effectiveAllP3Done && (noComments || allFixed);
+
+  // Phase 4 — Nigel exports to Word
+  const p4Check = checks["p4_nigel"] || null;
+  const p4Done  = !!p4Check;
+
+  const revisionDone = (allP3Done && p3Ids.length > 0)
+    ? { by: "done", at: Math.max(...p3Ids.map(id => p3Check(id)?.at || 0)) }
+    : null;
+
+  return {
+    p1Ids, p1Done, p1Check, allP1Done,
+    reviewSubmitted, reviewUnlocked: allP1Done,
+    p3Ids, p3Done, p3Check, allP3Done, p3Bypassed, noCorrectionsDecision,
+    p4Check, p4Done,
+    comments, allFixed, noComments, ready, revisionDone,
+    rayDone: p1Done("ray"), daisyDone: p1Done("daisy"),
+  };
 }
 
 function fmtCheckTimestamp(ts) {
@@ -9568,8 +9840,7 @@ function fmtCheckTimestamp(ts) {
 }
 
 function renderCheckedByStripHtml(data, confirmRole, isGroup = false) {
-  const ws     = getWorkflowState(data);
-  const checks = data?.checks || {};
+  const ws = getWorkflowState(data);
 
   // Refresh sticky note if open for this session
   const curSid = isGroup ? state.viewGroupSessionId : state.viewSessionId;
@@ -9582,7 +9853,6 @@ function renderCheckedByStripHtml(data, confirmRole, isGroup = false) {
     </svg>
   </div>`;
 
-  // Shared confirm widget
   const mkConfirm = (role, msg) => `
     <div class="wf-confirming">
       <span class="wf-confirm-msg">${msg}</span>
@@ -9592,28 +9862,45 @@ function renderCheckedByStripHtml(data, confirmRole, isGroup = false) {
       </div>
     </div>`;
 
+  const instName = id => (INSTRUCTORS.find(i => i.id === id) || { name: id }).name;
+
   // ── Phase 1: Enter Data ───────────────────────────────────────
-  const mkPill1 = (role, done, at) => {
-    const name = role === "assistant" ? "Ray" : "Ms. Daisy";
+  const mkPill1 = id => {
+    const name = instName(id);
+    const role = `p1_${id}`;
+    const done = ws.p1Done(id);
+    const at   = ws.p1Check(id)?.at;
     if (confirmRole === role) return mkConfirm(role, done ? `Undo ${name}?` : `${name}: Sure?`);
     if (done) return `<button class="wf-pill wf-pill--done" data-role="${role}">✓ ${escHtml(name)} · ${escHtml(fmtCheckTimestamp(at))}</button>`;
     return `<button class="wf-pill wf-pill--pending" data-role="${role}">○ ${escHtml(name)}: Incomplete</button>`;
   };
 
-  const p1State = (ws.rayDone && ws.daisyDone) ? "done" : "pending";
+  const editInstBtn = `<button class="wf-pill wf-pill--edit-inst" data-action="edit-instructors"
+    style="margin-top:.4rem;font-size:.78rem;padding:.2rem .65rem;background:#eff6ff;color:#3b82f6;border:1px solid #bfdbfe;border-radius:6px;cursor:pointer">✏ Edit Instructors</button>`;
+
+  const p1State = ws.allP1Done ? "done" : "pending";
+  const p1Body  = ws.p1Ids.length === 0
+    ? `<div class="wf-pill wf-pill--pending">○ No instructors selected</div>${editInstBtn}`
+    : `${ws.p1Ids.map(mkPill1).join("")}${editInstBtn}`;
   const p1Node = `<div class="wf-node wf-node--${p1State}">
     <div class="wf-node-label">Phase 1: Enter Data</div>
-    <div class="wf-node-body">
-      ${mkPill1("assistant", ws.rayDone, checks.assistant?.at)}
-      ${mkPill1("main", ws.daisyDone, checks.main?.at)}
-    </div>
+    <div class="wf-node-body">${p1Body}</div>
   </div>`;
 
-  // ── Phase 2: Review & Feedback ────────────────────────────────
+  // Phase 2 unlocks when all non-Daisy Phase 1 participants are done
+  const p2Unlocked = ws.p3Ids.length > 0
+    ? ws.p3Ids.every(id => ws.p1Done(id))
+    : ws.allP1Done;
+
+  // ── Phase 2: Review & Feedback ───────────────────────────────
   let p2State, p2Body;
-  if (!ws.reviewUnlocked) {
-    p2State = "pending";
-    p2Body  = `<div class="wf-pill wf-pill--pending">○ Ms. Daisy: Incomplete</div>`;
+  if (!p2Unlocked) {
+    const pending = ws.p3Ids.filter(id => !ws.p1Done(id)).map(instName);
+    const pendingStr = pending.length === 1
+      ? pending[0]
+      : pending.slice(0, -1).join(", ") + " & " + pending[pending.length - 1];
+    p2State = "locked";
+    p2Body  = `<div class="wf-pill wf-pill--locked">🔒 ${escHtml(pendingStr)} to complete Phase 1 first</div>`;
   } else if (confirmRole === "phase2") {
     p2State = "p2-active";
     p2Body  = mkConfirm("phase2", ws.reviewSubmitted ? "Undo Phase 2?" : "Mark as reviewed?");
@@ -9625,24 +9912,34 @@ function renderCheckedByStripHtml(data, confirmRole, isGroup = false) {
     p2Body  = `<button class="wf-pill wf-pill--done" data-role="phase2">✓ Ms. Daisy · ${escHtml(fmtCheckTimestamp(data.reviewSubmittedAt))}</button>`;
   }
   const p2Node = `<div class="wf-node wf-node--${p2State}">
-    <div class="wf-node-label">Phase 2: Review &amp; Feedback</div>
+    <div class="wf-node-label">Phase 2: Check</div>
     <div class="wf-node-body">${p2Body}</div>
   </div>`;
 
-  // ── Phase 3: Revision ─────────────────────────────────────────
+  // ── Phase 3: Revision (non-Daisy participants, no lock) ───────
+  const mkPill3 = id => {
+    const name = instName(id);
+    const role = `p3_${id}`;
+    const done = ws.p3Done(id);
+    const at   = ws.p3Check(id)?.at;
+    if (confirmRole === role) return mkConfirm(role, done ? `Undo ${name}?` : `${name}: Sure?`);
+    if (done) return `<button class="wf-pill wf-pill--done" data-role="${role}">✓ ${escHtml(name)} · ${escHtml(fmtCheckTimestamp(at))}</button>`;
+    return `<button class="wf-pill wf-pill--warn" data-role="${role}">○ ${escHtml(name)}: Incomplete</button>`;
+  };
+
   let p3State, p3Body;
   if (!ws.reviewSubmitted) {
-    p3State = "pending";
-    p3Body  = `<div class="wf-pill wf-pill--pending">○ Ray: Incomplete</div>`;
-  } else if (confirmRole === "phase3") {
-    p3State = "corrections";
-    p3Body  = mkConfirm("phase3", ws.revisionDone ? "Undo Phase 3?" : "Mark revision done?");
-  } else if (!ws.revisionDone) {
-    p3State = "corrections";
-    p3Body  = `<button class="wf-pill wf-pill--warn" data-role="phase3">○ Ray: Incomplete</button>`;
-  } else {
+    p3State = "locked";
+    p3Body  = `<div class="wf-pill wf-pill--locked">🔒 Complete Phase 2 first</div>`;
+  } else if (ws.p3Bypassed) {
     p3State = "done";
-    p3Body  = `<button class="wf-pill wf-pill--done" data-role="phase3">✓ Ray · ${escHtml(fmtCheckTimestamp(ws.revisionDone.at))}</button>`;
+    p3Body  = `<div class="wf-pill wf-pill--done">✓ No revisions needed</div>`;
+  } else if (ws.p3Ids.length === 0) {
+    p3State = "done";
+    p3Body  = `<div class="wf-pill wf-pill--done">✓ No revision needed</div>`;
+  } else {
+    p3State = ws.allP3Done ? "done" : "corrections";
+    p3Body  = ws.p3Ids.map(mkPill3).join("");
   }
   const p3Node = `<div class="wf-node wf-node--${p3State}">
     <div class="wf-node-label">Phase 3: Revision</div>
@@ -9650,16 +9947,26 @@ function renderCheckedByStripHtml(data, confirmRole, isGroup = false) {
     ${_phase3Error ? `<div class="wf-error-msg">⚠ ${escHtml(_phase3Error)}</div>` : ""}
   </div>`;
 
-  // ── Phase 4: Nigel ────────────────────────────────────────────
-  const nigelState = ws.ready ? "nigel-ready" : "nigel";
+  // ── Phase 4: Export (Nigel) ───────────────────────────────────
+  let nigelState, nigelBody;
+  if (!ws.ready) {
+    nigelState = "locked";
+    nigelBody  = `<div class="wf-pill wf-pill--locked">🔒 Complete previous phases first</div>`;
+  } else if (confirmRole === "p4_nigel") {
+    nigelState = "nigel-ready";
+    nigelBody  = mkConfirm("p4_nigel", ws.p4Done ? "Undo export mark?" : "Mark as exported?");
+  } else if (ws.p4Done) {
+    nigelState = "nigel-ready";
+    nigelBody  = `<button class="wf-pill wf-pill--done" data-role="p4_nigel">✓ Nigel · ${escHtml(fmtCheckTimestamp(ws.p4Check?.at))}</button>`;
+  } else {
+    nigelState = "nigel-ready";
+    nigelBody  = `<button class="wf-pill wf-pill--attention" data-role="p4_nigel">○ Nigel: Export to Word</button>`;
+  }
   const nigelNode  = `<div class="wf-node wf-node--${nigelState}">
-    <div class="wf-node-label">Phase 4: Nigel</div>
-    <div class="wf-node-body">
-      <div class="wf-node-line">${ws.ready ? "Ready to Send! 🎉" : "Waiting... 🤔"}</div>
-    </div>
+    <div class="wf-node-label">Phase 4: Export</div>
+    <div class="wf-node-body">${nigelBody}</div>
   </div>`;
 
-  // ── Row 2: Note (col 3-5, between Phase 2 & 3) + Export (col 7)
   const hasCmts = ws.comments.length > 0;
   const noteTrigger = `<div class="wf-note-wrap">
     <button class="wf-note-btn${hasCmts ? " has-note" : ""}" data-action="open-note">
@@ -9737,7 +10044,34 @@ async function handleCheckedByClick(e, isGroup) {
     return true;
   }
 
-  // ── Phase-1 pill click → confirm flow ───────────────────────
+  // ── Edit Instructors button ──────────────────────────────────
+  if (e.target.closest("[data-action='edit-instructors']")) {
+    const curParticipants = getData()?.participants || [];
+    $("session-picker-title").textContent = "Edit Instructors";
+    $("session-picker-list").innerHTML = `
+      <div style="padding:1.5rem 1.25rem;display:flex;flex-direction:column;align-items:center">
+        <p style="margin:0 0 1.25rem;font-weight:600;color:#374151;text-align:center">Who is facilitating this session?</p>
+        <div style="width:100%;max-width:320px">
+          ${INSTRUCTORS.map(inst => `
+            <label style="display:flex;align-items:center;justify-content:center;gap:.85rem;padding:.75rem 0;cursor:pointer;font-size:1rem;border-bottom:1px solid #f3f4f6">
+              <input type="checkbox" class="inst-edit-check" value="${inst.id}"${curParticipants.includes(inst.id) ? " checked" : ""}
+                style="width:1.2rem;height:1.2rem;accent-color:#3b82f6;cursor:pointer;flex-shrink:0">
+              <span style="color:#1f2937;width:7rem">${escHtml(inst.name)}</span>
+            </label>`).join("")}
+        </div>
+        <button class="btn-inst-save export-btn" style="margin-top:1.5rem;width:100%;padding:.85rem;font-size:1rem;text-align:center">Save</button>
+      </div>`;
+    $("session-picker-modal").classList.remove("hidden");
+    $("session-picker-list").querySelector(".btn-inst-save").addEventListener("click", async () => {
+      const participants = [...$("session-picker-list").querySelectorAll(".inst-edit-check:checked")].map(c => c.value);
+      if (!participants.length) { alert("Please select at least one instructor."); return; }
+      closeSessionPicker();
+      await updateSessionParticipants(getSid(), participants).catch(() => {});
+    });
+    return true;
+  }
+
+  // ── Phase-pill click → confirm flow ─────────────────────────
   const pillBtn = e.target.closest(".wf-pill[data-role]");
   if (pillBtn) {
     clearTimer();
@@ -9756,31 +10090,51 @@ async function handleCheckedByClick(e, isGroup) {
     if (!sid) return true;
     const role = yesBtn.dataset.role;
 
-    if (role === "assistant" || role === "main") {
+    if (role.startsWith("p1_")) {
       const checks  = { ...(data?.checks || {}) };
       const wasDone = !!checks[role];
-      if (wasDone) { delete checks[role]; } else { checks[role] = { by: CHECKED_BY[role], at: Date.now() }; }
+      if (wasDone) { delete checks[role]; } else { checks[role] = { by: role.slice(3), at: Date.now() }; }
       try {
         await updateSessionChecks(sid, checks);
-        const bothDone  = !!checks.assistant && !!checks.main;
-        const wasQueued = data?.workflowStatus === "daisy_pending";
-        if (bothDone && !data?.reviewSubmitted) {
+        const ws2 = getWorkflowState({ ...data, checks });
+        if (ws2.allP1Done && !data?.reviewSubmitted) {
           await updateWorkflowStatus(sid, "daisy_pending", getSubjectMeta());
-        } else if (!bothDone && wasQueued) {
+        } else if (!ws2.allP1Done && data?.workflowStatus === "daisy_pending") {
           await updateWorkflowStatus(sid, null);
         }
-      } catch (err) { console.error("updateSessionChecks:", err); }
+      } catch (err) { console.error("updateSessionChecks p1:", err); }
     } else if (role === "phase2") {
-      const ws     = getWorkflowState(data);
+      const ws      = getWorkflowState(data);
       const newDone = !ws.reviewSubmitted;
       try {
         await setReviewSubmitted(sid, newDone);
-        const newStatus = newDone ? (ws.comments.length > 0 ? "ray_pending" : null) : "daisy_pending";
-        await updateWorkflowStatus(sid, newStatus, getSubjectMeta());
+
+        if (newDone) {
+          // Auto-delete empty correction rows
+          const allCmts   = Object.entries(data?.reviewComments || {});
+          const emptyIds  = allCmts.filter(([, c]) => !(c.text || "").trim()).map(([id]) => id);
+          await Promise.all(emptyIds.map(id => deleteReviewComment(sid, id).catch(() => {})));
+
+          // If no real corrections remain, ask about skipping Phase 3
+          const hasRealCorrections = allCmts.some(([, c]) => (c.text || "").trim());
+          if (!hasRealCorrections) {
+            if (confirm("List of Corrections is empty, confirm no revisions needed?")) {
+              const checks = { ...(data?.checks || {}), no_corrections: { by: "daisy", at: Date.now() } };
+              await updateSessionChecks(sid, checks);
+            }
+          }
+
+          const updatedCmts = allCmts.filter(([id, c]) => !emptyIds.includes(id) && (c.text || "").trim());
+          const newStatus = updatedCmts.length > 0 ? "ray_pending" : null;
+          await updateWorkflowStatus(sid, newStatus, getSubjectMeta());
+        } else {
+          await updateWorkflowStatus(sid, "daisy_pending", getSubjectMeta());
+        }
       } catch (err) { console.error("togglePhase2:", err); }
-    } else if (role === "phase3") {
+    } else if (role.startsWith("p3_")) {
       const ws     = getWorkflowState(data);
-      const newDone = !ws.revisionDone;
+      const id     = role.slice(3);
+      const newDone = !ws.p3Done(id);
       if (newDone && ws.comments.length > 0 && !ws.allFixed) {
         const unfixed = ws.comments.filter(([,c]) => !c.fixedByName).length;
         _phase3Error = `${unfixed} correction${unfixed > 1 ? "s" : ""} still unticked.`;
@@ -9789,10 +10143,21 @@ async function handleCheckedByClick(e, isGroup) {
         return true;
       }
       _phase3Error = null;
+      const checks  = { ...(data?.checks || {}) };
+      if (newDone) { checks[role] = { by: id, at: Date.now() }; } else { delete checks[role]; }
       try {
-        await setRevisionDone(sid, newDone);
-        await updateWorkflowStatus(sid, newDone ? null : "ray_pending", getSubjectMeta());
-      } catch (err) { console.error("togglePhase3:", err); }
+        await updateSessionChecks(sid, checks);
+        const ws2    = getWorkflowState({ ...data, checks });
+        const allDone = ws2.allP3Done && ws2.p3Ids.length > 0;
+        await updateWorkflowStatus(sid, allDone ? null : "ray_pending", getSubjectMeta());
+      } catch (err) { console.error("updateSessionChecks p3:", err); }
+    } else if (role === "p4_nigel") {
+      const ws      = getWorkflowState(data);
+      const newDone = !ws.p4Done;
+      const checks  = { ...(data?.checks || {}) };
+      if (newDone) { checks["p4_nigel"] = { by: "nigel", at: Date.now() }; } else { delete checks["p4_nigel"]; }
+      try { await updateSessionChecks(sid, checks); }
+      catch (err) { console.error("updateSessionChecks p4:", err); }
     }
     return true;
   }
@@ -9820,7 +10185,7 @@ function renderStickyNoteContent(data, isGroup) {
   const liveText      = focusedCmtId ? activeEl.value : null;
 
   if (ws.comments.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="3" class="snote-empty">No corrections — click + Add Row to start.</td></tr>`;
+    tbody.innerHTML = "";
   } else {
     tbody.innerHTML = ws.comments.map(([id, c], i) => {
       const text = (focusedCmtId === id && liveText !== null) ? liveText : (c.text || "");
@@ -9828,6 +10193,7 @@ function renderStickyNoteContent(data, isGroup) {
         <td class="snote-no">${i + 1}</td>
         <td class="snote-text"><textarea class="snote-textarea" data-cmt-id="${id}" rows="1" placeholder="Type here…">${escHtml(text)}</textarea></td>
         <td class="snote-tick"><input type="checkbox" class="snote-check" data-cmt-id="${id}" ${c.fixedByName ? "checked" : ""}></td>
+        <td class="snote-del"><button class="snote-del-btn" data-cmt-id="${id}" title="Delete row">🗑</button></td>
       </tr>`;
     }).join("");
 
@@ -9912,7 +10278,17 @@ function setupStickyNote() {
   document.addEventListener("touchmove", e => { if (!dragging) return; const t = e.touches[0]; onMove(t.clientX, t.clientY); e.preventDefault(); }, { passive: false });
   document.addEventListener("touchend", () => { dragging = false; });
 
-  closeEl.addEventListener("click", closeStickyNote);
+  closeEl.addEventListener("click", async () => {
+    // Auto-delete empty rows before closing
+    const { sid, data } = getCtx();
+    if (sid) {
+      const emptyIds = Object.entries(data?.reviewComments || {})
+        .filter(([, c]) => !(c.text || "").trim())
+        .map(([id]) => id);
+      await Promise.all(emptyIds.map(id => deleteReviewComment(sid, id).catch(() => {})));
+    }
+    closeStickyNote();
+  });
 
   // ── Context helpers ──────────────────────────────────────────
   const getCtx = () => ({
@@ -9929,7 +10305,7 @@ function setupStickyNote() {
 
   // ── Click delegation ─────────────────────────────────────────
   note.addEventListener("click", async e => {
-    // + Add Row
+    // + Add Correction
     if (e.target.id === "sticky-note-add-row-btn") {
       const { sid } = getCtx();
       if (!sid) return;
@@ -9939,6 +10315,7 @@ function setupStickyNote() {
       return;
     }
 
+
     // Tick/untick checkbox
     const chk = e.target.closest(".snote-check");
     if (chk) {
@@ -9946,8 +10323,20 @@ function setupStickyNote() {
       if (!sid) return;
       const cmtId  = chk.dataset.cmtId;
       const fixing = chk.checked;
-      try { await markCommentFixed(sid, cmtId, fixing ? "Ray" : null); }
+      try { await markCommentFixed(sid, cmtId, fixing ? "Rayhanah" : null); }
       catch (err) { console.error("markCommentFixed:", err); }
+      return;
+    }
+
+    // Delete row
+    const delBtn = e.target.closest(".snote-del-btn");
+    if (delBtn) {
+      const { sid } = getCtx();
+      if (!sid) return;
+      if (!confirm("Delete this row? This cannot be undone.")) return;
+      const cmtId = delBtn.dataset.cmtId;
+      try { await deleteReviewComment(sid, cmtId); }
+      catch (err) { console.error("deleteReviewComment:", err); }
       return;
     }
   });
@@ -14048,7 +14437,10 @@ function renderTargetReorderList(student) {
     renderTargetReorderList(student);
   });
 
-  $("btn-mn-done-reorder").addEventListener("click", closeManageModal);
+  $("btn-mn-done-reorder").addEventListener("click", () => {
+    closeManageModal();
+    renderManageActivityScreen(student);
+  });
 }
 
 function showAddTargetPicker(student) {
@@ -18125,25 +18517,51 @@ function showGroupChoice(group) {
           <button class="btn-date-other">Pick A Date</button>
         </div>
       </div>`;
-    $("session-picker-list").querySelectorAll(".btn-date-quick").forEach(btn => {
-      btn.addEventListener("click", () => {
-        closeSessionPicker();
-        openGroupSession(group, btn.dataset.date, group.students);
+    const groupSessionsFetch = getRecentGroupSessions(group.id);
+    const renderGroupDateStep = () => {
+      $("session-picker-title").textContent = group.name || "Group";
+      $("session-picker-list").innerHTML = `
+        <div class="session-date-step">
+          <p class="session-date-prompt">What date is this session for?</p>
+          <div class="date-quick-btns">
+            <button class="btn-date-quick" data-date="${(() => { const d = new Date(today + "T00:00:00"); d.setDate(d.getDate() - 1); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; })()}">Yesterday</button>
+            <button class="btn-date-quick" data-date="${today}">Today</button>
+            <button class="btn-date-other">Pick A Date</button>
+          </div>
+        </div>`;
+      $("session-picker-list").querySelectorAll(".btn-date-quick").forEach(btn => {
+        btn.addEventListener("click", async () => {
+          const chosenDate = btn.dataset.date;
+          let preSelected = [];
+          try {
+            const sessions = await groupSessionsFetch;
+            preSelected = sessions.find(s => s.date === chosenDate)?.participants || [];
+          } catch {}
+          if (preSelected.length > 0) {
+            closeSessionPicker();
+            openGroupSession(group, chosenDate, group.students, preSelected);
+          } else {
+            showInstructorPickerStep(participants => {
+              closeSessionPicker();
+              openGroupSession(group, chosenDate, group.students, participants);
+            }, [], renderGroupDateStep, formatDateWithDay(chosenDate));
+          }
+        });
       });
-    });
-    $("session-picker-list").querySelector(".btn-date-other").addEventListener("click", () => {
-      const [ty, tm] = today.split("-").map(Number);
-      const displayDate = `${ty}-${String(tm).padStart(2,"0")}-01`;
-      // Render immediately so iPad doesn't see a frozen UI while waiting for network
-      renderGroupStartSessionCalendar(group, today, displayDate, new Set());
-      // Then load taken dates and re-render with blue dots
-      getRecentGroupSessions(group.id)
-        .then(sessions => {
-          const takenDates = new Set(sessions.map(s => s.date));
-          renderGroupStartSessionCalendar(group, today, displayDate, takenDates);
-        })
-        .catch(() => {});
-    });
+      $("session-picker-list").querySelector(".btn-date-other").addEventListener("click", () => {
+        const [ty, tm] = today.split("-").map(Number);
+        const displayDate = `${ty}-${String(tm).padStart(2,"0")}-01`;
+        renderGroupStartSessionCalendar(group, today, displayDate, new Set(), new Map(), renderGroupDateStep);
+        groupSessionsFetch
+          .then(sessions => {
+            const takenDates = new Set(sessions.map(s => s.date));
+            const sessionsByDate = new Map(sessions.map(s => [s.date, s.participants || []]));
+            renderGroupStartSessionCalendar(group, today, displayDate, takenDates, sessionsByDate, renderGroupDateStep);
+          })
+          .catch(() => {});
+      });
+    };
+    renderGroupDateStep();
   });
   $("session-picker-list").querySelector(".choice-other").addEventListener("click", () => {
     closeSessionPicker();
@@ -18156,7 +18574,7 @@ function showGroupChoice(group) {
 }
 
 // ── Open group session ───────────────────────────────────────
-async function openGroupSession(group, dateStr, attendees) {
+async function openGroupSession(group, dateStr, attendees, participants = null) {
   attendees = (attendees || []).filter(Boolean);
   // Same reasoning as openSession's preservedTargetName above — jumping to
   // another date for the SAME group should keep the currently-viewed
@@ -18190,6 +18608,7 @@ async function openGroupSession(group, dateStr, attendees) {
   try {
     const sid = await getOrCreateGroupSessionForDate(group.id, dateStr, group.targets, attendees, group.studentLinks || {});
     state.groupSessionId = sid;
+    if (participants) updateSessionParticipants(sid, participants).catch(() => {});
     let firstLoad = true;
     state.fbGroupUnsubscribe = listenToSession(sid, async data => {
       state.groupSessionData = data;
@@ -20081,6 +20500,19 @@ function formatDate(dateStr) {
 }
 function formatDateWithDay(dateStr) {
   return `${dayAbbr(dateStr)}, ${formatDate(dateStr)}`;
+}
+function relativeTodoDate(dateStr) {
+  const today = new Date(); today.setHours(0,0,0,0);
+  const [y,m,d] = dateStr.split("-").map(Number);
+  const date = new Date(y, m-1, d);
+  const diffDays = Math.round((today - date) / 86400000);
+  const day = dayAbbr(dateStr);
+  const full = formatDate(dateStr); // "29 Jul 2026"
+  if (diffDays === 0) return "Today";
+  if (diffDays === 1) return `Yesterday, ${full}`;
+  if (diffDays <= 7) return `Last ${day}, ${full}`;
+  const weeks = Math.round(diffDays / 7);
+  return `(${weeks} week${weeks > 1 ? "s" : ""} ago) ${day}, ${full}`;
 }
 function relativeDaySuffix(dateStr) {
   return dateStr === getTodayString() ? " (Today)" : "";

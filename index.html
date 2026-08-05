@@ -178,7 +178,7 @@
           <span class="days-average-label">Target's Avg</span>
           <span class="days-average-value" id="days-average-value">—</span>
         </div>
-        <button id="btn-reorder-targets" class="btn-manage-targets hidden">Rearrange Targets</button>
+        <button id="btn-entry-edit-instructors" class="btn-manage-targets hidden">Edit Instructors</button>
         <button id="btn-manage-targets" class="btn-manage-targets hidden">Edit Target</button>
       </div>
 
@@ -286,11 +286,27 @@
     <header class="session-header">
       <button class="btn-back" id="btn-manage-activity-back" aria-label="Back to home">←</button>
       <div class="session-info">
-        <span class="session-student-name" id="manage-activity-title">Manage Activity</span>
+        <span class="session-student-name" id="manage-activity-title">Manage Activity & Targets</span>
         <span class="session-meta" id="manage-activity-subtitle"></span>
       </div>
+      <button id="btn-ma-reorder-targets" class="btn-manage-targets hidden">↕️ Rearrange Targets</button>
     </header>
     <div id="manage-activity-body" style="overflow-y:auto;flex:1;padding:1rem 1.1rem 2rem">
+      <!-- populated by JS -->
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════
+       TO DO LIST SCREEN
+       ══════════════════════════════════════════════════════ -->
+  <div id="screen-todo" class="screen hidden">
+    <header class="session-header">
+      <button class="btn-back" id="btn-todo-back" aria-label="Back to home">←</button>
+      <div class="session-info">
+        <span class="session-student-name">To Do List</span>
+      </div>
+    </header>
+    <div id="todo-body" style="overflow-y:auto;flex:1;padding:1rem 1.1rem 2rem">
       <!-- populated by JS -->
     </div>
   </div>
@@ -395,11 +411,12 @@
             <th class="snote-th-no">No.</th>
             <th class="snote-th-text">Correction</th>
             <th class="snote-th-tick">✓</th>
+            <th class="snote-th-del"></th>
           </tr>
         </thead>
         <tbody id="sticky-note-rows"></tbody>
       </table>
-      <button id="sticky-note-add-row-btn" class="snote-add-row-btn">+ Add Row</button>
+      <button id="sticky-note-add-row-btn" class="snote-add-row-btn">+ Add Correction</button>
     </div>
   </div>
 
