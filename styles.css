@@ -1118,6 +1118,8 @@ input.field-input::placeholder {
 
 .btn-remark-opt:hover { border-color: var(--primary); color: var(--primary); }
 
+.btn-remark-opt--multi { border-radius: 4px; }
+
 .btn-remark-opt.active {
   background: var(--primary);
   border-color: var(--primary);
@@ -2873,14 +2875,14 @@ div.admin-note-editable:empty::before {
 .wf-node--done, .wf-node--nigel-ready {
   border-color: #34d399; background: #d1fae5; color: #065f46;
 }
-.wf-node--p2-active {
-  border-color: #fbbf24; background: #fef3c7; color: #92400e;
+.wf-node--locked {
+  border-color: #d1d5db; background: #f3f4f6; color: #9ca3af;
 }
-.wf-node--corrections {
-  border-color: #f87171; background: #fee2e2; color: #991b1b;
-}
+.wf-node--p2-active,
+.wf-node--corrections,
+.wf-node--pending,
 .wf-node--nigel {
-  border-color: #d1d5db; background: #f9fafb; color: #6b7280;
+  border-color: #f87171; background: #fee2e2; color: #991b1b;
 }
 
 /* Status pills / badges inside nodes */
@@ -2905,9 +2907,10 @@ button.wf-pill { cursor: pointer; transition: filter .1s; }
 button.wf-pill:hover { filter: brightness(.93); }
 
 .wf-pill--done    { border-color: #34d399; background: #d1fae5; color: #065f46; }
-.wf-pill--pending { border-color: #d1d5db; background: #f9fafb; color: #6b7280; }
-.wf-pill--attention { border-color: #fbbf24; background: #fef3c7; color: #92400e; }
-.wf-pill--warn    { border-color: #f87171; background: #fee2e2; color: #991b1b; }
+.wf-pill--locked  { border-color: #e5e7eb; background: #f9fafb; color: #9ca3af; font-style: italic; }
+.wf-pill--pending,
+.wf-pill--attention,
+.wf-pill--warn    { border-color: #d1d5db; background: #fff; color: #374151; }
 
 /* Confirm state (replaces a pill in Phase 1) */
 .wf-confirming {
@@ -3041,6 +3044,7 @@ button.wf-pill:hover { filter: brightness(.93); }
 .snote-table thead th:last-child { border-right: none; }
 .snote-th-no   { width: 2rem; text-align: center; }
 .snote-th-tick { width: 2.2rem; text-align: center; }
+.snote-th-del  { width: 1.8rem; }
 .snote-th-text { text-align: center; }
 
 .snote-row td {
@@ -3088,6 +3092,22 @@ button.wf-pill:hover { filter: brightness(.93); }
   transition: background .12s;
 }
 .snote-add-row-btn:hover { background: #fef08a; }
+
+.snote-no-corrections-btn {
+  width: 100%;
+  margin-top: .35rem;
+  padding: .35rem;
+  background: none;
+  border: 1.5px solid #34d399;
+  border-radius: 6px;
+  color: #065f46;
+  font-size: .82rem;
+  font-family: inherit;
+  cursor: pointer;
+  text-align: center;
+  transition: background .12s;
+}
+.snote-no-corrections-btn:hover { background: #d1fae5; }
 
 /* Phase shortcut pill at the bottom of the sticky note */
 .snote-footer {
@@ -3141,6 +3161,18 @@ button.wf-pill:hover { filter: brightness(.93); }
   cursor: pointer;
 }
 .snote-phase-confirm-no:hover { background: #f3f4f6; }
+
+.snote-del { width: 1.8rem; text-align: center; padding: .1rem .2rem; }
+.snote-del-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: .9rem;
+  padding: .1rem .25rem;
+  border-radius: 4px;
+  opacity: .6;
+}
+.snote-del-btn:hover { opacity: 1; background: #fde68a; }
 
 .snote-delete {
   background: none;
