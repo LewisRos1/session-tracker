@@ -172,7 +172,7 @@ function versionLineText() {
   return `Made by Lewis · Version ${APP_VERSION}`;
 }
 
-const APP_VERSION = "1458";
+const APP_VERSION = "1461";
 // The three instructors — id keys match Firestore checks fields (p1_*, p3_*)
 const INSTRUCTORS = [
   { id: "daisy", name: "Ms. Daisy", isMain: true  },
@@ -1624,7 +1624,6 @@ async function renderStudentRegistryBody({ highlightAdd = false } = {}) {
             <col style="width:15%">
             <col style="width:10%">
             <col style="width:190px">
-            <col style="width:110px">
             <col style="width:130px">
             <col style="width:130px">
             <col style="width:160px">
@@ -1634,9 +1633,8 @@ async function renderStudentRegistryBody({ highlightAdd = false } = {}) {
             <tr>
               <th>No.</th>
               <th>Full Name</th>
-              <th style="white-space:normal">Short Name (Used in Reports)</th>
+              <th style="white-space:normal">Short Name (Used in AI Reports)</th>
               <th>Note</th>
-              <th style="white-space:normal">Ready for Word Export</th>
               <th style="white-space:normal">Imported Excel data to Website</th>
               <th style="white-space:normal">Ready for AI H1 Report</th>
               <th style="white-space:normal">Latest Individual Session Recorded</th>
@@ -1649,24 +1647,18 @@ async function renderStudentRegistryBody({ highlightAdd = false } = {}) {
                 <td style="text-align:center">${i + 1}</td>
                 <td style="text-align:center" onclick="event.stopPropagation()">
                   <input class="admin-input db-fullname-input" data-id="${escHtml(s.id)}"
-                    value="${escHtml(s.name || '')}"
+                    value="${escHtml(s.name || '')}" autocomplete="off"
                     style="width:100%;text-align:center" />
                 </td>
                 <td style="text-align:center" onclick="event.stopPropagation()">
                   <input class="admin-input db-shortname-input" data-id="${escHtml(s.id)}"
-                    value="${escHtml(s.preferredName || '')}" placeholder="—"
+                    value="${escHtml(s.preferredName || '')}" placeholder="—" autocomplete="off"
                     style="width:100%;text-align:center" />
                 </td>
                 <td style="text-align:center" onclick="event.stopPropagation()">
                   <input class="admin-input db-note-input" data-id="${escHtml(s.id)}"
-                    value="${escHtml(s.note || '')}" placeholder="—"
+                    value="${escHtml(s.note || '')}" placeholder="—" autocomplete="off"
                     style="width:100%;text-align:center" />
-                </td>
-                <td style="text-align:center">
-                  <button class="btn-word-export-ready${s.readyForWordExport ? " is-ready" : ""}"
-                    data-id="${escHtml(s.id)}" data-ready="${s.readyForWordExport ? "1" : "0"}">
-                    ${s.readyForWordExport ? "✓ Ready" : "No"}
-                  </button>
                 </td>
                 <td class="reg-excel-export-cell" data-id="${escHtml(s.id)}" style="text-align:center">…</td>
                 <td class="reg-ai-h1-cell" data-id="${escHtml(s.id)}" style="text-align:center">…</td>
@@ -1683,29 +1675,6 @@ async function renderStudentRegistryBody({ highlightAdd = false } = {}) {
     row.addEventListener("click", () => {
       const s = state.students.find(x => x.id === row.dataset.id);
       if (s) openManageModal(s);
-    });
-  });
-
-  $("student-registry-body").querySelectorAll(".btn-word-export-ready").forEach(btn => {
-    btn.addEventListener("click", async e => {
-      e.stopPropagation(); // don't open the manage modal
-      const studentId = btn.dataset.id;
-      const currentlyReady = btn.dataset.ready === "1";
-      const s = state.students.find(x => x.id === studentId);
-      if (!s) return;
-      const action = currentlyReady ? "mark as NOT ready" : "mark as READY";
-      if (!confirm(`Are you sure you want to ${action} for Word export?\n\n${s.name}`)) return;
-      const newReady = !currentlyReady;
-      btn.disabled = true;
-      try {
-        await setStudentWordExportReady(studentId, newReady);
-        s.readyForWordExport = newReady;
-        btn.dataset.ready = newReady ? "1" : "0";
-        btn.textContent = newReady ? "✓ Ready" : "No";
-        btn.classList.toggle("is-ready", newReady);
-      } finally {
-        btn.disabled = false;
-      }
     });
   });
 
@@ -1776,7 +1745,12 @@ async function renderStudentRegistryBody({ highlightAdd = false } = {}) {
       if (!excelCell) return;
       const hasIndiv = indiv.length > 0;
       const hasGroup = group.length > 0;
-      if (!hasIndiv && !hasGroup) { excelCell.textContent = "—"; return; }
+      if (!hasIndiv && !hasGroup) {
+        excelCell.textContent = "—";
+        const aiH1CellEmpty = body.querySelector(`.reg-ai-h1-cell[data-id="${s.id}"]`);
+        if (aiH1CellEmpty) aiH1CellEmpty.textContent = "—";
+        return;
+      }
       excelCell.innerHTML = "";
       const makeBtn = (type, isReady) => {
         const btn = document.createElement("button");
@@ -7382,24 +7356,21 @@ async function openSession(student, existingSessionId = null, dateStr = null, pa
         // Auto-create an empty remark for "pick from options" activities
         // (Select one / Tick boxes / Sentence Starter + either, or + Select
         // One + Free Text) so the boss can start picking immediately
-        // instead of clicking "+ Add Remark & Trials" first. Free text and
-        // Sentence Starter + Free Text stay collapsed — there's nothing to
-        // pre-open for those. If any are created the Firestore write
-        // triggers another snapshot which will render — so we return early
-        // here to avoid a stale render. Wrapped in try/catch: an uncaught
-        // error here (e.g. malformed target config) would otherwise leave
-        // the screen stuck on "Loading…" forever, since nothing below this
-        // line would ever run.
+        // instead of clicking "+ Add Remark & Trials" first. Wrapped in
+        // try/catch so a malformed config never leaves the screen at "Loading…".
+        // We render immediately after (rather than waiting for the Firestore
+        // write's snapshot) so a delayed/missing follow-up snapshot can never
+        // cause a permanent stuck-loading state. The subsequent snapshot from
+        // the write will correct the display within ~100ms.
         try {
-          const structuredFilled = await autoFillStructuredRemarks(student, sessionId);
-          if (structuredFilled > 0) return;
+          await autoFillStructuredRemarks(student, sessionId);
         } catch (err) { console.error("autoFillStructuredRemarks failed:", err); }
       }
       // Mapped-score activities can become fillable any time during the
       // session (not just on open), so this check isn't gated to firstLoad.
+      // Same render-immediately approach: don't wait for the write's snapshot.
       try {
-        const mappedFilled = await autoFillMappedRemarks(student, sessionId);
-        if (mappedFilled > 0) return;
+        await autoFillMappedRemarks(student, sessionId);
       } catch (err) { console.error("autoFillMappedRemarks failed:", err); }
       try {
         await autoFillMaintainedRemarks(student, sessionId, state.selectedTargetName);
