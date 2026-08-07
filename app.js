@@ -172,7 +172,7 @@ function versionLineText() {
   return `Made by Lewis · Version ${APP_VERSION}`;
 }
 
-const APP_VERSION = "1477";
+const APP_VERSION = "1482";
 // The three instructors — id keys match Firestore checks fields (p1_*, p3_*)
 const INSTRUCTORS = [
   { id: "daisy", name: "Ms. Daisy", isMain: true  },
@@ -2532,6 +2532,8 @@ GLOBAL RULES (apply to every section):
 - NEVER use the em dash symbol (—) anywhere in the report. Use a comma, a full stop, or rewrite the sentence instead.
 - CRITICAL: A remark of "No Event" means the student did NOT perform or exhibit that behaviour or activity in that session. For negative/problem behaviours (e.g. snatching food, hitting, interrupting), "No Event" is a POSITIVE outcome — the bad behaviour simply did not occur. For skill or learning activities, "No Event" means the skill was not observed or demonstrated that session — treat it as neutral, not a failure. Do NOT treat "No Event" negatively in either case.
 - CRITICAL: A remark of "IP", "In Progress", or an activity with NO remark AND NO score, means there was not enough time to do that activity in that session. This tells you nothing about the student's ability or progress. Do NOT comment on it, do NOT treat it as a missed attempt, and do NOT use it as evidence of difficulty or strength. Ignore these entries entirely when forming your observations.
+- CRITICAL: Any activity labelled "NOT TESTED this term" was never attempted during this period. The student's ability in that area is completely unknown — it could be easy or hard, we simply do not know. NEVER describe it as a weakness, a difficulty, or an area where the student struggles. NEVER mention it anywhere in the report. Treat it as if it does not exist.
+- CRITICAL: Write ONLY what the session remarks directly and explicitly state. Do NOT extrapolate or infer related skills. "Identifies a face" is NOT the same as "knows a name." "Follows a one-step instruction" is NOT the same as "follows two-step instructions." "Points to an object" is NOT the same as "can name it." Stay word-for-word within what was actually recorded — never assume a student can or cannot do something that was not directly observed.
 - CRITICAL: Some activities track NEGATIVE or PROBLEM BEHAVIOURS (e.g. snatching food, interrupting others, hitting, distracting behaviour). For these activities, scoring is INVERTED — a HIGH score (e.g. 3 out of 3) means the student did NOT exhibit the bad behaviour and showed good self-control, while a LOW score (e.g. 0) means the bad behaviour DID occur. Always interpret scores for problem/negative behaviour activities with this in mind: high = good, low = the behaviour occurred.`;
 
 let _hyrConfig = null;
@@ -2785,12 +2787,12 @@ async function hyrGenerate() {
   let inCancelMode = false;
   const setProgress = (pct, text) => {
     bar.style.width = pct + "%";
-    label.textContent = text;
-    if (!inCancelMode) btn.textContent = text;
+    label.textContent = text === "Done!" ? text : "";
+    if (text === "Done!") btn.textContent = text;
   };
 
   btn.disabled = true; progress.style.display = "";
-  setProgress(5, "Collecting session data…");
+  setProgress(5, "");
 
   try {
     const excludedActivities = new Set();
@@ -2878,6 +2880,8 @@ STRICT RULES — follow every one:
 - Do NOT say things like "modalities", "regulatory capacity", "situational influences", "low-demand contexts". Use real words instead — "free play", "good days and bad days", "room noise".
 - Do NOT summarise what the graph already shows. Add insight the graph cannot.
 - Warm and supportive, but completely honest. Never sugarcoat, but never sound cold.
+- ABSOLUTE: For Weaknesses, only name difficulties that are directly evidenced by remarks or low scores on TESTED activities. Never name a skill that was marked "NOT TESTED". Never extrapolate from one skill to another — if data shows "identifies face", write about face identification only, not about name recognition or any other skill not in the data.
+- ABSOLUTE: For Strengths, only name things the student was directly observed doing in sessions. Do not infer or generalise — if the student identified one person's face, do not write that they "know their family members" or "understand names". Use only what the remarks literally say.
 ===END===`).join("\n\n")}
 
 ${qualitativeWithData.map(r => `===OBSERVED: ${r.name}===
@@ -2891,14 +2895,14 @@ Same rules: plain English, no jargon, no numbers, warm tone. Labels in ** bold. 
 ===ACTION_PLAN===
 These are the areas where ${firstName} has the lowest scores this term: ${bottom5Names.join(", ")}.
 
-Write one block for each target above, in the same order. Each block: 2 to 3 short bullet points describing what ${firstName} specifically finds difficult in that area. Keep each point to one brief sentence. No strategies — just the specific difficulties.
-${categorized.qualitative.length ? `\nAlso write one block for each of these qualitative targets (observed in sessions, no percentage scores): ${categorized.qualitative.map(r => r.name).join(", ")}.\n\nSame format: 2 to 3 short bullet points about what ${firstName} most needs support with in this area. One brief sentence per bullet. No strategies.` : ""}
+Write one block for each target above, in the same order. Each block: EXACTLY 2 bullet points describing the 2 most important difficulties ${firstName} has in that area, then ONE STRATEGY line with a short practical recommendation for parents or teachers. Plain English, no jargon.
+${categorized.qualitative.length ? `\nAlso write one block for each of these qualitative targets (observed in sessions, no percentage scores): ${categorized.qualitative.map(r => r.name).join(", ")}.\n\nSame format: exactly 2 bullets about the 2 most important support needs, then a STRATEGY line.` : ""}
 
 Format EXACTLY as (one block per target):
 TARGET: [exact target name]
-• [Specific difficulty]
-• [Specific difficulty]
-• [Optional third difficulty]
+• [Most important difficulty]
+• [Second most important difficulty]
+STRATEGY: [One short practical recommendation — what parents or teachers can do to help. Plain English.]
 ===END===`;
 
     // Start fetch immediately — fake phases will play while it runs in background
@@ -2917,9 +2921,9 @@ TARGET: [exact target name]
 
     // Fake phases run while fetch is already in flight
     await new Promise(r => setTimeout(r, 1000));
-    setProgress(20, "Processing data…");
+    setProgress(20, "");
     await new Promise(r => setTimeout(r, 1000));
-    setProgress(35, "Sending to AI (Approx. ~15 seconds)…");
+    setProgress(35, "");
     await new Promise(r => setTimeout(r, 500));
 
     // Switch button to Cancel
@@ -2935,11 +2939,12 @@ TARGET: [exact target name]
     _hyrAbortController = null;
     inCancelMode = false;
     btn.disabled = true;
+    btn.textContent = "Generate Report";
     btn.style.background = ""; btn.style.color = ""; btn.style.borderColor = "";
 
-    setProgress(70, "AI response received…");
+    setProgress(70, "");
     await new Promise(r => setTimeout(r, 600));
-    setProgress(85, "Writing report…");
+    setProgress(85, "");
     await new Promise(r => setTimeout(r, 700));
 
     if (!resp.ok) {
@@ -3155,7 +3160,7 @@ async function hyrCollectData(student, period, year, excludedActivities = new Se
         }
 
         if (allRemarks.length === 0) {
-          lines.push(`  • ${actName}: no data recorded`);
+          lines.push(`  • ${actName}: NOT TESTED this term — ignore completely, do not mention in any section`);
           continue;
         }
 
@@ -4065,7 +4070,9 @@ function hyrParseAiResponse(text) {
       const t = line.trim();
       if (t.startsWith("TARGET:")) {
         if (cur) out.actionPlanRows.push(cur);
-        cur = { target: t.slice(7).trim(), points: [] };
+        cur = { target: t.slice(7).trim(), points: [], strategy: "" };
+      } else if (cur && t.startsWith("STRATEGY:")) {
+        cur.strategy = t.slice(9).trim();
       } else if (cur && (t.startsWith("•") || t.startsWith("-") || t.startsWith("*"))) {
         const pt = t.replace(/^[•\-\*]\s*/, "").trim();
         if (pt) cur.points.push(pt);
@@ -4188,10 +4195,7 @@ function hyrBuildPreviewHtml(student, period, year, trendRows, categorized, pars
   if (parsed.biggestWins?.length || parsed.keyFocusAreas?.length) {
     const fmtKI = s => { const c = s.replace(/\*\*/g, ""); const i = c.indexOf(': '); return i > 0 ? `<strong>${esc(c.slice(0,i))}</strong>: ${esc(c.slice(i+2))}` : esc(c); };
     const bwItems = (parsed.biggestWins || []).map(s => `<li style="margin:.5rem 0;line-height:1.6">${fmtKI(s)}</li>`).join("");
-    const kfItems = (parsed.keyFocusAreas || []).map((s, i) => {
-      const strat = (parsed.keyFocusStrategies || [])[i] || "";
-      return `<li style="margin:.5rem 0;line-height:1.6">${fmtKI(s)}${strat ? `<br><span style="color:#9ca3af;font-size:.9em">${esc(strat)}</span>` : ""}</li>`;
-    }).join("");
+    const kfItems = (parsed.keyFocusAreas || []).map(s => `<li style="margin:.5rem 0;line-height:1.6">${fmtKI(s)}</li>`).join("");
     h += `<p style="margin:1.25rem 0 .75rem;line-height:1.7">Below are the top 4 most important wins and the 4 most critical focus areas that ${esc(firstName)} needs support with.</p>`;
     h += `<table style="width:100%;border-collapse:collapse;font-size:11pt;margin:1.25rem 0">
       <tbody>
@@ -4243,12 +4247,13 @@ function hyrBuildPreviewHtml(student, period, year, trendRows, categorized, pars
   h += `<p style="margin:.5rem 0 1rem;line-height:1.7">The table below highlights the areas where ${esc(firstName)} has the most room for improvement this term, along with recommendations for supporting their progress in each one.</p>`;
   if (parsed.actionPlanRows.length) {
     const rows = parsed.actionPlanRows.map((r, idx) => {
-      const pts = (r.points || []).map(p => `<li style="margin:.25rem 0">${esc(p)}</li>`).join("");
+      const pts = (r.points || []).slice(0, 2).map(p => `<li style="margin:.25rem 0">${esc(p)}</li>`).join("");
+      const strat = r.strategy ? `<span style="color:#9ca3af">${esc(r.strategy)}</span>` : "";
       return `<tr>
         <td style="padding:.55rem .75rem;border:1px solid #e5e7eb;text-align:center;width:7.6%;color:#6b7280">${idx + 1}</td>
         <td style="padding:.55rem .75rem;border:1px solid #e5e7eb;font-weight:600;vertical-align:top;text-align:center;width:25%">${esc(r.target || "")}</td>
         <td style="padding:.55rem .75rem;border:1px solid #e5e7eb;vertical-align:top"><ol style="margin:0;padding-left:1.2rem;line-height:1.6">${pts}</ol></td>
-        <td style="padding:.55rem .75rem;border:1px solid #e5e7eb;vertical-align:top"></td>
+        <td style="padding:.55rem .75rem;border:1px solid #e5e7eb;vertical-align:top;font-size:.88rem;line-height:1.6">${strat}</td>
       </tr>`;
     }).join("");
     h += `<table style="width:100%;border-collapse:collapse;font-size:.9rem;margin:.75rem 0">
@@ -4600,7 +4605,7 @@ async function hyrDownloadWord(student, period, year, trendRows, categorized, pa
     });
     const kiRows = [
       new TableRow({ tableHeader: true, cantSplit: true, children: [mkKiColorCell("Biggest Wins",    "d1fae5", "16a34a"), mkKiNumberedCell(parsed.biggestWins    || [], KI_NUM_REF)] }),
-      new TableRow({                    cantSplit: true, children: [mkKiColorCell("Key Focus Areas",  "fef3c7", "d97706"), mkKiNumberedCell(parsed.keyFocusAreas  || [], KI_NUM_REF_2, parsed.keyFocusStrategies || [])] }),
+      new TableRow({                    cantSplit: true, children: [mkKiColorCell("Key Focus Areas",  "fef3c7", "d97706"), mkKiNumberedCell(parsed.keyFocusAreas  || [], KI_NUM_REF_2)] }),
     ];
     paragraphs.push(new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: kiRows }));
     paragraphs.push(new Paragraph({ run: { size: 22 }, children: [], spacing: { before: 280, after: 0 } }));
@@ -4661,10 +4666,16 @@ async function hyrDownloadWord(student, period, year, trendRows, categorized, pa
         width: { size: 5616, type: WidthType.DXA },
         margins: { top: 100, bottom: 100, left: 150, right: 150 },
         children: (r.points || []).length
-          ? (r.points || []).map(p => new Paragraph({ children: [new TextRun({ text: p, size: 22 })], numbering: { reference: AP_NUM_REFS[idx], level: 0 }, alignment: AlignmentType.JUSTIFIED, spacing: { before: 40, after: 80, ...LS } }))
+          ? (r.points || []).slice(0, 2).map(p => new Paragraph({ children: [new TextRun({ text: p, size: 22 })], numbering: { reference: AP_NUM_REFS[idx], level: 0 }, alignment: AlignmentType.JUSTIFIED, spacing: { before: 40, after: 80, ...LS } }))
           : [new Paragraph({ children: [new TextRun({ text: "", size: 22 })], spacing: { before: 80, after: 80 } })]
       }),
-      mkCell("", { dxa: 5616 })
+      new TableCell({
+        width: { size: 5616, type: WidthType.DXA },
+        margins: { top: 100, bottom: 100, left: 150, right: 150 },
+        children: r.strategy
+          ? [new Paragraph({ children: [new TextRun({ text: r.strategy, size: 22, color: "9ca3af" })], alignment: AlignmentType.JUSTIFIED, spacing: { before: 80, after: 80 } })]
+          : [new Paragraph({ children: [new TextRun({ text: "", size: 22 })], spacing: { before: 80, after: 80 } })]
+      })
     ]}));
     actionPlanParas.push(new Table({ width: { size: 13954, type: WidthType.DXA }, rows: [headerRow, ...dataRows] }));
   }
@@ -4782,12 +4793,13 @@ async function monthlyGenerate() {
   const label = $("hyr-progress-label");
   let inCancelMode = false;
   const setProgress = (pct, text) => {
-    bar.style.width = pct + "%"; label.textContent = text;
-    if (!inCancelMode) btn.textContent = text;
+    bar.style.width = pct + "%";
+    label.textContent = text === "Done!" ? text : "";
+    if (text === "Done!") btn.textContent = text;
   };
 
   btn.disabled = true; progress.style.display = "";
-  setProgress(5, "Collecting session data…");
+  setProgress(5, "");
   try {
     const excludedActivities = new Set();
     document.querySelectorAll(".hyr-act-cb[data-excluded='true']").forEach(b => {
@@ -4795,7 +4807,7 @@ async function monthlyGenerate() {
     });
 
     const allSessions = await getAllSessionsForStudent(studentId);
-    setProgress(15, "Processing data…");
+    setProgress(15, "");
 
     const FULL_MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
     const monthName = FULL_MONTHS[month - 1];
@@ -4825,19 +4837,20 @@ ${activeTargets.map(t => {
   const td = threeMonthData[t.name] || {};
   const md = miniData[t.name] || {};
   const isFocus = md.trend !== "up";
-  return `===SUMMARY: ${t.name}===
-Past 3 months (${(td.labels||[]).join(", ")}): ${trendLabel(td.trend)}
-This month (${md.lastMonthLabel}→${md.thisMonthLabel}): ${trendLabel(md.trend)}
-Session data:
-${(aiData[t.name] || []).join("\n")}
-Write EXACTLY ONE short sentence (max 15 words) that adds meaning the parent cannot already see from the trend arrows. Do NOT describe or restate the trend direction — the arrows already show that. Instead: if both trends agree, say WHY or what it means for the child. If the two trends differ (e.g. stable overall but declined this month), explain what changed or what drove the shift. Give a real insight. Honest, warm, plain English. No jargon, no percentages, no trend words like "improved" or "declined".
+  return `TARGET: ${t.name}
+• Past 3 months (${(td.labels||[]).join(", ")}): ${trendLabel(td.trend)}
+• This month (${md.lastMonthLabel}→${md.thisMonthLabel}): ${trendLabel(md.trend)}
+Session data: ${(aiData[t.name] || []).join(" | ")}
+
+Now write your response for this target using EXACTLY these markers:
+===SUMMARY: ${t.name}===
+[Write EXACTLY ONE short sentence, max 15 words. Add meaning the parent cannot see from the arrows. Do NOT restate the trend — say WHY or what it means for the child. If the two trends differ (e.g. stable overall but declined this month), explain what changed or what drove the shift. Honest, warm, plain English. No jargon, no percentages, no trend words like "improved" or "declined".]
 ===END===
-${isFocus ? `
-===FOCUS: ${t.name}===
-Write EXACTLY ONE sentence about the single biggest struggle. Use the simplest everyday words — as if explaining to a parent on the phone with no therapy background. Short words, short sentence. Honest but kind. No jargon.
+${isFocus ? `===FOCUS: ${t.name}===
+[Write EXACTLY ONE sentence about the single biggest struggle. Simplest everyday words, as if explaining to a parent on the phone. Short, honest, kind. No jargon.]
 ===END===
 ===REC: ${t.name}===
-Write EXACTLY ONE short, practical recommendation — something specific parents or teachers can try to support this focus area. Plain everyday English, no jargon, no clinical terms.
+[Write EXACTLY ONE short practical recommendation — something specific parents or teachers can try. Plain English, no jargon.]
 ===END===` : ""}`;
 }).join("\n\n")}`;
 
@@ -4855,9 +4868,9 @@ Write EXACTLY ONE short, practical recommendation — something specific parents
     });
 
     await new Promise(r => setTimeout(r, 800));
-    setProgress(25, "Processing data…");
+    setProgress(25, "");
     await new Promise(r => setTimeout(r, 800));
-    setProgress(38, "Sending to AI (Approx. ~15 seconds)…");
+    setProgress(38, "");
     await new Promise(r => setTimeout(r, 400));
 
     inCancelMode = true;
@@ -4869,11 +4882,12 @@ Write EXACTLY ONE short, practical recommendation — something specific parents
     _hyrAbortController = null;
     inCancelMode = false;
     btn.disabled = true;
+    btn.textContent = "Generate Report";
     btn.style.background = ""; btn.style.color = ""; btn.style.borderColor = "";
 
-    setProgress(72, "AI response received…");
+    setProgress(72, "");
     await new Promise(r => setTimeout(r, 500));
-    setProgress(86, "Writing report…");
+    setProgress(86, "");
     await new Promise(r => setTimeout(r, 600));
 
     if (!resp.ok) {
@@ -8179,7 +8193,7 @@ function renderFedcTarget(target) {
     html += `<div style="margin-top:.75rem">
       ${renderSection('Mastered', '#059669', masteredPas)}
       ${renderSection('Discontinued', '#dc2626', discontinuedPas)}
-      ${renderSection('Other Inactive', '#6b7280', otherPas)}
+      ${renderSection('Inactive', '#6b7280', otherPas)}
     </div>`;
   }
 
@@ -14008,11 +14022,15 @@ function showDatePickerOverlay({ heading, infoHtml, minDate, defaultDate, confir
     overlay.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;display:flex;align-items:center;justify-content:center;padding:1rem";
     const min = minDate || todayDateStr();
     const def = defaultDate && defaultDate >= min ? defaultDate : min;
+    const defFormatted = fmtPeriodDate(def) || def;
     overlay.innerHTML = `<div style="background:#fff;border-radius:.75rem;padding:1.5rem;max-width:400px;width:100%;box-shadow:0 8px 32px rgba(0,0,0,.22)">
       <div style="font-size:.93rem;font-weight:700;color:#111;margin-bottom:.55rem">${heading}</div>
       ${infoHtml ? `<div style="font-size:.85rem;color:#374151;margin-bottom:.9rem;line-height:1.6">${infoHtml}</div>` : ''}
       <label style="font-size:.82rem;font-weight:600;color:#374151;display:block;margin-bottom:.35rem">Please select the final date you want this activity to appear.</label>
-      <input type="date" id="dp-date-inp" value="${def}" min="${min}" style="width:100%;box-sizing:border-box;padding:.5rem .7rem;border:1.5px solid #d1d5db;border-radius:.4rem;font-size:.95rem;outline:none;margin-bottom:1rem">
+      <div style="position:relative;margin-bottom:1rem">
+        <input type="date" id="dp-date-inp" value="${def}" min="${min}" style="width:100%;box-sizing:border-box;padding:.5rem .7rem;border:1.5px solid #d1d5db;border-radius:.4rem;font-size:.95rem;outline:none;color:transparent;caret-color:transparent;background:#fff;cursor:pointer">
+        <div id="dp-date-display" style="position:absolute;top:0;left:0;bottom:0;right:2.5rem;padding:.5rem .7rem;font-size:.95rem;color:#111;pointer-events:none;display:flex;align-items:center">${defFormatted}</div>
+      </div>
       <div style="display:flex;gap:.6rem;justify-content:flex-end">
         <button class="dp-cancel" style="padding:.5rem 1rem;border:1px solid #d1d5db;border-radius:.4rem;background:#fff;cursor:pointer;font-size:.9rem">Cancel</button>
         <button class="dp-confirm" style="padding:.5rem 1rem;border:none;border-radius:.4rem;background:var(--primary);color:#fff;cursor:pointer;font-size:.9rem;font-weight:600">${confirmLabel}</button>
@@ -14020,6 +14038,8 @@ function showDatePickerOverlay({ heading, infoHtml, minDate, defaultDate, confir
     </div>`;
     document.body.appendChild(overlay);
     const inp = overlay.querySelector("#dp-date-inp");
+    const dpDisplay = overlay.querySelector("#dp-date-display");
+    inp.addEventListener("input", () => { dpDisplay.textContent = inp.value ? (fmtPeriodDate(inp.value) || inp.value) : "Select a date"; });
     const finish = val => { overlay.remove(); document.removeEventListener("keydown", onKey); resolve(val); };
     overlay.querySelector(".dp-cancel").addEventListener("click", () => finish(null));
     overlay.querySelector(".dp-confirm").addEventListener("click", () => {
@@ -16185,12 +16205,12 @@ function renderTargetManageContent(student, target) {
         const overlay = document.createElement("div");
         overlay.dataset.delOverlay = "1";
         overlay.style.cssText = "position:absolute;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:flex-start;justify-content:center;padding-top:1.25rem;z-index:200;border-radius:.75rem;overflow-y:auto";
-        const _delLatest3 = [...affectedSessions].sort((a, b) => (b.date || "").localeCompare(a.date || "")).slice(0, 3);
+        const _delLatest3 = [...affectedSessions].sort((a, b) => (b.date || "").localeCompare(a.date || "")).slice(0, 5);
         const sessionDateList = affectedSessions.length > 0
-          ? `<p style="font-size:.82rem;margin:.4rem 0 .35rem;color:#374151;font-weight:600">Latest ${Math.min(affectedSessions.length, 3)} Session${Math.min(affectedSessions.length, 3) !== 1 ? "s" : ""} with Data:</p>
+          ? `<p style="font-size:.82rem;margin:.4rem 0 .35rem;color:#374151;font-weight:600">Latest ${Math.min(affectedSessions.length, 5)} Session${Math.min(affectedSessions.length, 5) !== 1 ? "s" : ""} with Data:</p>
              <ul style="font-size:.82rem;color:#374151;margin:0 0 .7rem;padding-left:0;list-style:none;line-height:1.9">${
                _delLatest3.map(s => `<li>• Session ${escHtml(String(s.sessionNumber || s.number || "?"))} — ${escHtml(formatDateWithDay(s.date))}</li>`).join("")
-             }${affectedSessions.length > 3 ? `<li style="color:#9ca3af">  …and ${affectedSessions.length - 3} more</li>` : ''}</ul>` : "";
+             }${affectedSessions.length > 5 ? `<li style="color:#9ca3af">  …and ${affectedSessions.length - 5} more</li>` : ''}</ul>` : "";
         const hasData = affected > 0;
         overlay.innerHTML = `<div style="background:#fff;padding:1.25rem;border-radius:.75rem;width:min(320px,92%);box-shadow:0 4px 24px rgba(0,0,0,.25);margin-bottom:1rem">
           <p style="font-size:.88rem;margin:0 0 .5rem;color:#111;font-weight:700">⚠️ Delete "${escHtml(item.title || item.name || 'this activity')}"?</p>
@@ -16352,12 +16372,12 @@ function renderTargetManageContent(student, target) {
             const overlay = document.createElement("div");
             overlay.dataset.delOverlay = "1";
             overlay.style.cssText = "position:absolute;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:flex-start;justify-content:center;padding-top:1.25rem;z-index:200;border-radius:.75rem;overflow-y:auto";
-            const _delLatest3 = [...affectedSessions].sort((a, b) => (b.date || "").localeCompare(a.date || "")).slice(0, 3);
+            const _delLatest3 = [...affectedSessions].sort((a, b) => (b.date || "").localeCompare(a.date || "")).slice(0, 5);
             const sessionDateList = affectedSessions.length > 0
-              ? `<p style="font-size:.82rem;margin:.4rem 0 .35rem;color:#374151;font-weight:600">Latest ${Math.min(affectedSessions.length, 3)} Session${Math.min(affectedSessions.length, 3) !== 1 ? "s" : ""} with Data:</p>
+              ? `<p style="font-size:.82rem;margin:.4rem 0 .35rem;color:#374151;font-weight:600">Latest ${Math.min(affectedSessions.length, 5)} Session${Math.min(affectedSessions.length, 5) !== 1 ? "s" : ""} with Data:</p>
                  <ul style="font-size:.82rem;color:#374151;margin:0 0 .7rem;padding-left:0;list-style:none;line-height:1.9">${
                    _delLatest3.map(s => `<li>• Session ${escHtml(String(s.sessionNumber || s.number || "?"))} — ${escHtml(formatDateWithDay(s.date))}</li>`).join("")
-                 }${affectedSessions.length > 3 ? `<li style="color:#9ca3af">  …and ${affectedSessions.length - 3} more</li>` : ''}</ul>` : "";
+                 }${affectedSessions.length > 5 ? `<li style="color:#9ca3af">  …and ${affectedSessions.length - 5} more</li>` : ''}</ul>` : "";
             const hasData = affected > 0;
             overlay.innerHTML = `<div style="background:#fff;padding:1.25rem;border-radius:.75rem;width:min(320px,92%);box-shadow:0 4px 24px rgba(0,0,0,.25);margin-bottom:1rem">
               <p style="font-size:.88rem;margin:0 0 .5rem;color:#111;font-weight:700">⚠️ Delete "${escHtml(pa.title || pa.name || 'this activity')}"?</p>
@@ -16457,10 +16477,10 @@ function renderTargetManageContent(student, target) {
       btn.disabled = false; btn.textContent = origText;
       if (affectedSessions.length > 0) {
         const n = affectedSessions.length;
-        const latest3 = [...affectedSessions].sort((a, b) => (b.date || "").localeCompare(a.date || "")).slice(0, 3);
+        const latest3 = [...affectedSessions].sort((a, b) => (b.date || "").localeCompare(a.date || "")).slice(0, 5);
         const sessionList = `<ul style="font-size:.82rem;color:#374151;margin:.3rem 0 0;padding-left:1.2rem;line-height:1.8">${
           latest3.map(s => `<li>Session ${escHtml(String(s.sessionNumber || s.number || "?"))}: ${escHtml(formatDateWithDay(s.date))}</li>`).join("")
-        }${n > 3 ? `<li style="color:#9ca3af">…and ${n - 3} more</li>` : ''}</ul>`;
+        }${n > 5 ? `<li style="color:#9ca3af">…and ${n - 5} more</li>` : ''}</ul>`;
         const modalSheet = $("manage-modal").querySelector(".modal-sheet");
         modalSheet.querySelectorAll("[data-addsub-err]").forEach(el => el.remove());
         const errOverlay = document.createElement("div");
@@ -16582,10 +16602,10 @@ function renderTargetManageContent(student, target) {
             }
             if (affectedSessions.length > 0) {
               const n = affectedSessions.length;
-              const latest3 = [...affectedSessions].sort((a, b) => (b.date || "").localeCompare(a.date || "")).slice(0, 3);
+              const latest3 = [...affectedSessions].sort((a, b) => (b.date || "").localeCompare(a.date || "")).slice(0, 5);
               const sessionDateList = `<ul style="font-size:.82rem;color:#374151;margin:.3rem 0 0;padding-left:1.2rem;line-height:1.8">${
                 latest3.map(s => `<li>Session ${escHtml(String(s.sessionNumber || s.number || "?"))}: ${escHtml(formatDateWithDay(s.date))}</li>`).join("")
-              }${n > 3 ? `<li style="color:#9ca3af">…and ${n - 3} more</li>` : ''}</ul>`;
+              }${n > 5 ? `<li style="color:#9ca3af">…and ${n - 5} more</li>` : ''}</ul>`;
               showPicker(`<div style="background:#fef2f2;border:1px solid #fca5a5;border-radius:.4rem;padding:.5rem .7rem;font-size:.82rem;color:#dc2626;margin-bottom:.6rem">
                 <strong>"${escHtml(chosen.title || chosen.name)}"</strong> has data in ${n} session${n !== 1 ? 's' : ''} — it cannot become a parent activity.${sessionDateList}
               </div>`);
@@ -17201,7 +17221,7 @@ function renderTargetManageContent(student, target) {
       overlay.dataset.typeChangeOverlay = "1";
       overlay.style.cssText = "position:absolute;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:flex-start;justify-content:center;padding-top:1.25rem;z-index:200;border-radius:.75rem;overflow-y:auto";
       const sortedSessions = sessionsWithData.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
-      const shownSessions  = sortedSessions.slice(0, 3);
+      const shownSessions  = sortedSessions.slice(0, 5);
       const hiddenCount    = sortedSessions.length - shownSessions.length;
       const sessionDateHtml = shownSessions.map(s => `<li>Session ${escHtml(String(s.sessionNumber || s.number || "?"))}: ${escHtml(formatDateWithDay(s.date))}</li>`).join("")
         + (hiddenCount > 0 ? `<li style="color:#9ca3af">… and ${hiddenCount} earlier session${hiddenCount !== 1 ? "s" : ""}</li>` : "");
@@ -19455,7 +19475,7 @@ function buildGroupItemsByActivity(target, data, attendees) {
     items.push(`<div style="margin-top:.75rem">
       ${renderGrpSection('Mastered', '#059669', grpMastered)}
       ${renderGrpSection('Discontinued', '#dc2626', grpDiscontinued)}
-      ${renderGrpSection('Other Inactive', '#6b7280', grpOther)}
+      ${renderGrpSection('Inactive', '#6b7280', grpOther)}
     </div>`);
   }
   return items;
