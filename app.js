@@ -172,7 +172,7 @@ function versionLineText() {
   return `Made by Lewis · Version ${APP_VERSION}`;
 }
 
-const APP_VERSION = "1471";
+const APP_VERSION = "1476";
 // The three instructors — id keys match Firestore checks fields (p1_*, p3_*)
 const INSTRUCTORS = [
   { id: "daisy", name: "Ms. Daisy", isMain: true  },
@@ -1430,7 +1430,7 @@ function renderTodoTiles(results, filterInst = null) {
     // Compute all pending tasks for this instructor on this session
     const tasks = [];
     if (!checks[`p1_${inst.id}`]) tasks.push("Enter Data");
-    if (inst.id === "daisy" && !s.reviewSubmitted) {
+    if (inst.id === "daisy" && !s.reviewSubmitted && !ws.daisyOnly) {
       // Phase 2 only shows if it's unlocked (all non-Daisy p1 done)
       const nonDaisy = (s.participants || []).filter(id => id !== "daisy");
       const p2Unlocked = nonDaisy.length > 0 ? nonDaisy.every(id => !!checks[`p1_${id}`]) : !!checks["p1_daisy"];
@@ -2856,9 +2856,13 @@ ROW: Biggest Win | [2-4 word label — write it directly, no ** markers]: [One s
 ROW: Biggest Win | [2-4 word label — write it directly, no ** markers]: [One short sentence — a third win. Only real positives — do not invent.]
 ROW: Biggest Win | [2-4 word label — write it directly, no ** markers]: [One short sentence — a fourth data-backed achievement.]
 ROW: Key Focus Area | [2-4 word label — write it directly, no ** markers]: [One short sentence — what specifically is difficult and why it needs focus next term.]
+ROW: Key Focus Strategy | [One short, practical recommendation — what parents or teachers can try to help with the focus area above. Plain English, no jargon.]
 ROW: Key Focus Area | [2-4 word label — write it directly, no ** markers]: [One short sentence — a second area that needs work, with a specific detail.]
+ROW: Key Focus Strategy | [One short, practical recommendation for the focus area above.]
 ROW: Key Focus Area | [2-4 word label — write it directly, no ** markers]: [One short sentence — a third area to address next term. Be specific.]
+ROW: Key Focus Strategy | [One short, practical recommendation for the focus area above.]
 ROW: Key Focus Area | [2-4 word label — write it directly, no ** markers]: [One short sentence — a fourth focus area with a specific detail.]
+ROW: Key Focus Strategy | [One short, practical recommendation for the focus area above.]
 ===END===
 
 ${targetsWithData.map(r => `===OBSERVATION: ${r.name}===
@@ -4030,7 +4034,7 @@ function hyrDrawOverviewChartC(chartTrendRows, title) {
 }
 
 function hyrParseAiResponse(text) {
-  const out = { executiveSummary: "", biggestWins: [], keyFocusAreas: [], observations: {}, observed: {}, actionPlanRows: [] };
+  const out = { executiveSummary: "", biggestWins: [], keyFocusAreas: [], keyFocusStrategies: [], observations: {}, observed: {}, actionPlanRows: [] };
   const exec = text.match(/===EXECUTIVE_SUMMARY===\s*([\s\S]*?)\s*===END===/);
   if (exec) out.executiveSummary = exec[1].trim();
   const ki = text.match(/===KEY_INSIGHTS===\s*([\s\S]*?)\s*===END===/);
@@ -4043,6 +4047,7 @@ function hyrParseAiResponse(text) {
           const key = parts[0].trim(), val = parts[1].trim();
           if (key === "Biggest Win") out.biggestWins.push(val);
           else if (key === "Key Focus Area") out.keyFocusAreas.push(val);
+          else if (key === "Key Focus Strategy") out.keyFocusStrategies.push(val);
         }
       }
     }
@@ -4183,7 +4188,10 @@ function hyrBuildPreviewHtml(student, period, year, trendRows, categorized, pars
   if (parsed.biggestWins?.length || parsed.keyFocusAreas?.length) {
     const fmtKI = s => { const c = s.replace(/\*\*/g, ""); const i = c.indexOf(': '); return i > 0 ? `<strong>${esc(c.slice(0,i))}</strong>: ${esc(c.slice(i+2))}` : esc(c); };
     const bwItems = (parsed.biggestWins || []).map(s => `<li style="margin:.5rem 0;line-height:1.6">${fmtKI(s)}</li>`).join("");
-    const kfItems = (parsed.keyFocusAreas || []).map(s => `<li style="margin:.5rem 0;line-height:1.6">${fmtKI(s)}</li>`).join("");
+    const kfItems = (parsed.keyFocusAreas || []).map((s, i) => {
+      const strat = (parsed.keyFocusStrategies || [])[i] || "";
+      return `<li style="margin:.5rem 0;line-height:1.6">${fmtKI(s)}${strat ? `<br><span style="color:#9ca3af;font-size:.9em">${esc(strat)}</span>` : ""}</li>`;
+    }).join("");
     h += `<p style="margin:1.25rem 0 .75rem;line-height:1.7">Below are the top 4 most important wins and the 4 most critical focus areas that ${esc(firstName)} needs support with.</p>`;
     h += `<table style="width:100%;border-collapse:collapse;font-size:11pt;margin:1.25rem 0">
       <tbody>
@@ -4573,23 +4581,26 @@ async function hyrDownloadWord(student, period, year, trendRows, categorized, pa
       margins: { top: 120, bottom: 120, left: 150, right: 150 },
       children: [new Paragraph({ children: [new TextRun({ text, bold: true, size: 22, color: textColor })], alignment: AlignmentType.CENTER, spacing: { before: 80, after: 80 } })]
     });
-    const mkKiNumberedCell = (items, numRef = KI_NUM_REF) => new TableCell({
+    const mkKiNumberedCell = (items, numRef = KI_NUM_REF, strategies = null) => new TableCell({
       width: { size: 72, type: WidthType.PERCENTAGE },
       margins: { top: 100, bottom: 100, left: 150, right: 150 },
       children: items.length
-        ? items.map(s => {
+        ? items.flatMap((s, i) => {
             const c = s.replace(/\*\*/g, "");
             const ci = c.indexOf(': ');
             const runs = ci > 0
               ? [new TextRun({ text: c.slice(0, ci), bold: true, size: 22 }), new TextRun({ text: ': ' + c.slice(ci + 2), size: 22 })]
               : [new TextRun({ text: c, size: 22 })];
-            return new Paragraph({ children: runs, numbering: { reference: numRef, level: 0 }, alignment: AlignmentType.BOTH, spacing: { before: 40, after: 120, ...LS } });
+            const paras = [new Paragraph({ children: runs, numbering: { reference: numRef, level: 0 }, alignment: AlignmentType.BOTH, spacing: { before: 40, after: strategies ? 20 : 120, ...LS } })];
+            const strat = strategies?.[i] || "";
+            if (strat) paras.push(new Paragraph({ children: [new TextRun({ text: strat, size: 20, color: "9ca3af", italics: true })], alignment: AlignmentType.BOTH, spacing: { before: 0, after: 100, ...LS } }));
+            return paras;
           })
         : [new Paragraph({ children: [new TextRun({ text: "", size: 22 })], spacing: { before: 80, after: 80 } })]
     });
     const kiRows = [
       new TableRow({ tableHeader: true, cantSplit: true, children: [mkKiColorCell("Biggest Wins",    "d1fae5", "16a34a"), mkKiNumberedCell(parsed.biggestWins    || [], KI_NUM_REF)] }),
-      new TableRow({                    cantSplit: true, children: [mkKiColorCell("Key Focus Areas",  "fef3c7", "d97706"), mkKiNumberedCell(parsed.keyFocusAreas  || [], KI_NUM_REF_2)] }),
+      new TableRow({                    cantSplit: true, children: [mkKiColorCell("Key Focus Areas",  "fef3c7", "d97706"), mkKiNumberedCell(parsed.keyFocusAreas  || [], KI_NUM_REF_2, parsed.keyFocusStrategies || [])] }),
     ];
     paragraphs.push(new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: kiRows }));
     paragraphs.push(new Paragraph({ run: { size: 22 }, children: [], spacing: { before: 280, after: 0 } }));
@@ -4824,6 +4835,9 @@ Write EXACTLY ONE short sentence (max 15 words) that adds meaning the parent can
 ${isFocus ? `
 ===FOCUS: ${t.name}===
 Write EXACTLY ONE sentence about the single biggest struggle. Use the simplest everyday words — as if explaining to a parent on the phone with no therapy background. Short words, short sentence. Honest but kind. No jargon.
+===END===
+===REC: ${t.name}===
+Write EXACTLY ONE short, practical recommendation — something specific parents or teachers can try to support this focus area. Plain everyday English, no jargon, no clinical terms.
 ===END===` : ""}`;
 }).join("\n\n")}`;
 
@@ -5014,9 +5028,10 @@ function monthlyCollectData(student, year, month, allSessions, excludedActivitie
 }
 
 function monthlyParseAiResponse(text) {
-  const out = { summaries: {}, focusAreas: {} };
+  const out = { summaries: {}, focusAreas: {}, focusRecs: {} };
   const sumRe = /===SUMMARY:\s*(.+?)===\s*([\s\S]*?)\s*===END===/g;
   const focRe = /===FOCUS:\s*(.+?)===\s*([\s\S]*?)\s*===END===/g;
+  const recRe = /===REC:\s*(.+?)===\s*([\s\S]*?)\s*===END===/g;
   let m;
   while ((m = sumRe.exec(text)) !== null) {
     const content = m[2].trim();
@@ -5027,6 +5042,11 @@ function monthlyParseAiResponse(text) {
     const tName = m[1].trim(), content = m[2].trim();
     const sentence = content.split("\n").map(l => l.trim().replace(/^[•\-\d.)\s]+/, "").trim()).filter(Boolean)[0] || "";
     out.focusAreas[tName] = sentence ? [sentence.charAt(0).toUpperCase() + sentence.slice(1)] : [];
+  }
+  while ((m = recRe.exec(text)) !== null) {
+    const tName = m[1].trim(), content = m[2].trim();
+    const sentence = content.split("\n").map(l => l.trim().replace(/^[•\-\d.)\s]+/, "").trim()).filter(Boolean)[0] || "";
+    out.focusRecs[tName] = sentence ? sentence.charAt(0).toUpperCase() + sentence.slice(1) : "";
   }
   return out;
 }
@@ -5456,12 +5476,14 @@ async function monthlyDownloadWord(student, year, month, monthName, sessionCount
     ]});
     const focusDataRows = focusTargets.map((target, idx) => {
       const sentence = (parsed.focusAreas?.[target.name] || [])[0] || "";
+      const recSentence = parsed.focusRecs?.[target.name] || "";
       const cellKids = [new Paragraph({ children: [new TextRun({ text: sentence, size: 22 })], alignment: AlignmentType.BOTH, spacing: { before: 80, after: 80 } })];
+      const recKids = [new Paragraph({ children: [new TextRun({ text: recSentence, size: 22, color: "9ca3af" })], alignment: AlignmentType.BOTH, spacing: { before: 80, after: 80 } })];
       return new TableRow({ children: [
         mkCell(String(idx + 1), { align: AlignmentType.CENTER, dxa: 450 }),
         mkCell(target.name, { dxa: 1620, align: AlignmentType.CENTER }),
         new TableCell({ width: { size: 3465, type: WidthType.DXA }, verticalAlign: VerticalAlign.CENTER, margins: { top: 100, bottom: 100, left: 150, right: 150 }, children: cellKids }),
-        mkCell("", { dxa: 3465 })
+        new TableCell({ width: { size: 3465, type: WidthType.DXA }, verticalAlign: VerticalAlign.CENTER, margins: { top: 100, bottom: 100, left: 150, right: 150 }, children: recKids })
       ]});
     });
     focusParas.push(new Table({ width: { size: 9000, type: WidthType.DXA }, rows: [focusHdrRow, ...focusDataRows] }));
@@ -5851,6 +5873,7 @@ async function maGetLastDataDate(student, target, pa) {
         return matchIds.some(actId => Object.values(sRems).some(r =>
           r.activityId === actId && (
             (r.text || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim().length > 0 ||
+            (r.masteryNote || "").trim().length > 0 ||
             (r.trials || []).some(t => t !== null && t !== -1) ||
             (r.optionScore !== undefined && r.optionScore !== null)
           )
@@ -9964,7 +9987,10 @@ function getWorkflowState(data) {
   const noComments = comments.length === 0;
   const p3Bypassed = !!noCorrectionsDecision;
   const effectiveAllP3Done = allP3Done || p3Bypassed;
-  const ready = allP1Done && reviewSubmitted && effectiveAllP3Done && (noComments || allFixed);
+
+  // If Daisy is the ONLY instructor, skip Phase 2 & 3 entirely — go straight to Phase 4
+  const daisyOnly = p1Ids.length === 1 && p1Ids[0] === "daisy";
+  const ready = allP1Done && (daisyOnly || (reviewSubmitted && effectiveAllP3Done && (noComments || allFixed)));
 
   // Phase 4 — Nigel exports to Word
   const p4Check = checks["p4_nigel"] || null;
@@ -9979,7 +10005,7 @@ function getWorkflowState(data) {
     reviewSubmitted, reviewUnlocked: allP1Done,
     p3Ids, p3Done, p3Check, allP3Done, p3Bypassed, noCorrectionsDecision,
     p4Check, p4Done,
-    comments, allFixed, noComments, ready, revisionDone,
+    comments, allFixed, noComments, ready, revisionDone, daisyOnly,
     rayDone: p1Done("ray"), daisyDone: p1Done("daisy"),
   };
 }
@@ -10046,7 +10072,13 @@ function renderCheckedByStripHtml(data, confirmRole, isGroup = false) {
 
   // ── Phase 2: Review & Feedback ───────────────────────────────
   let p2State, p2Body;
-  if (!p2Unlocked) {
+  if (ws.daisyOnly) {
+    // Daisy entered alone — Phase 2 not needed
+    p2State = ws.allP1Done ? "done" : "locked";
+    p2Body  = ws.allP1Done
+      ? `<div class="wf-pill wf-pill--done">✓ Not needed</div>`
+      : `<div class="wf-pill wf-pill--locked">🔒 Complete Phase 1 first</div>`;
+  } else if (!p2Unlocked) {
     // Non-Daisy participants still pending; fall back to all participants if no non-Daisy ones exist
     let pending = ws.p3Ids.filter(id => !ws.p1Done(id)).map(instName);
     if (pending.length === 0) {
@@ -10086,7 +10118,13 @@ function renderCheckedByStripHtml(data, confirmRole, isGroup = false) {
   };
 
   let p3State, p3Body;
-  if (!ws.reviewSubmitted) {
+  if (ws.daisyOnly) {
+    // Daisy entered alone — Phase 3 not needed
+    p3State = ws.allP1Done ? "done" : "locked";
+    p3Body  = ws.allP1Done
+      ? `<div class="wf-pill wf-pill--done">✓ Not needed</div>`
+      : `<div class="wf-pill wf-pill--locked">🔒 Complete Phase 1 first</div>`;
+  } else if (!ws.reviewSubmitted) {
     p3State = "locked";
     p3Body  = `<div class="wf-pill wf-pill--locked">🔒 Complete Phase 2 first</div>`;
   } else if (ws.p3Bypassed) {
@@ -16108,14 +16146,6 @@ function renderTargetManageContent(student, target) {
       }
 
       // Regular activities — full data check + overlay (same as kebab delete)
-      if (!(item.name || "").trim()) {
-        acts.splice(idx, 1);
-        acts.forEach((a, i) => a.order = i);
-        target.predefinedActivities = acts;
-        await saveTarget();
-        renderTargetManageContent(student, target);
-        return;
-      }
       btn.disabled = true;
       btn.textContent = "⏳";
       let affected = 0;
@@ -16138,7 +16168,9 @@ function renderTargetManageContent(student, target) {
             return matchIds.some(actId => Object.values(sRems).some(r =>
               r.activityId === actId && (
                 (r.text || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim().length > 0 ||
-                (r.trials || []).some(t => t !== null && t !== -1)
+                (r.masteryNote || "").trim().length > 0 ||
+                (r.trials || []).some(t => t !== null && t !== -1) ||
+                (r.optionScore !== undefined && r.optionScore !== null)
               )
             ));
           });
@@ -16280,14 +16312,6 @@ function renderTargetManageContent(student, target) {
           await saveTarget();
           renderTargetManageContent(student, target);
         } else {
-          if (!(pa.name || "").trim()) {
-            const actIdx = acts.indexOf(pa);
-            if (actIdx >= 0) { acts.splice(actIdx, 1); acts.forEach((a, i) => a.order = i); }
-            target.predefinedActivities = acts;
-            await saveTarget();
-            renderTargetManageContent(student, target);
-            return;
-          }
           btn.disabled = true;
           btn.textContent = "Checking…";
           let affected = 0;
@@ -16311,7 +16335,9 @@ function renderTargetManageContent(student, target) {
                 return matchIds.some(actId => Object.values(sRems).some(r =>
                   r.activityId === actId && (
                     (r.text || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim().length > 0 ||
-                    (r.trials || []).some(t => t !== null && t !== -1)
+                    (r.masteryNote || "").trim().length > 0 ||
+                    (r.trials || []).some(t => t !== null && t !== -1) ||
+                    (r.optionScore !== undefined && r.optionScore !== null)
                   )
                 ));
               });
@@ -16419,6 +16445,7 @@ function renderTargetManageContent(student, target) {
           return matchIds.some(actId => Object.values(sRems).some(r =>
             r.activityId === actId && (
               (r.text || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim().length > 0 ||
+              (r.masteryNote || "").trim().length > 0 ||
               (r.trials || []).some(t => t !== null && t !== -1) || (r.optionScore !== undefined && r.optionScore !== null)
             )
           ));
@@ -16543,7 +16570,9 @@ function renderTargetManageContent(student, target) {
                 return matchIds.some(actId => Object.values(sRems).some(r =>
                   r.activityId === actId && (
                     (r.text || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim().length > 0 ||
-                    (r.trials || []).some(t => t !== null && t !== -1)
+                    (r.masteryNote || "").trim().length > 0 ||
+                    (r.trials || []).some(t => t !== null && t !== -1) ||
+                    (r.optionScore !== undefined && r.optionScore !== null)
                   )
                 ));
               });
@@ -16661,6 +16690,7 @@ function renderTargetManageContent(student, target) {
           return matchIds.some(actId => Object.values(sRems).some(r =>
             r.activityId === actId && (
               (r.text || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim().length > 0 ||
+              (r.masteryNote || "").trim().length > 0 ||
               (r.trials || []).some(t => t !== null && t !== -1) || (r.optionScore !== undefined && r.optionScore !== null)
             )
           ));
