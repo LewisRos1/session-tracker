@@ -173,7 +173,7 @@ function versionLineText() {
   return `Made by Lewis · Version ${APP_VERSION}`;
 }
 
-const APP_VERSION = "1505";
+const APP_VERSION = "1508";
 
 // Debug helpers — call from F12 console
 // 1) List all stored activity names under a target:
@@ -8722,7 +8722,7 @@ function renderRemarkFields(rem, target, inlineOptions = null, sentenceStarter =
           <span class="field-label" contenteditable="false">Notes</span>
           <button class="btn-sketch" contenteditable="false" data-rem-id="${rem.id}" aria-label="Open sketch board">✏</button>
           <textarea class="field-input mastery-note-input" rows="1"
-            autocomplete="off"
+            autocomplete="new-password"
             data-rem-id="${rem.id}"
             data-saved-html="${escHtml(rem.masteryNote || "")}">${escHtml(plainTextForEdit(rem.masteryNote || ""))}</textarea>
         </div>`
@@ -8733,7 +8733,7 @@ function renderRemarkFields(rem, target, inlineOptions = null, sentenceStarter =
       <span class="field-label">Score</span>
       <input type="text" class="field-input remark-text-input" style="max-width:14rem"
         data-rem-id="${rem.id}" data-saved-html="${escHtml(currentVal)}"
-        data-manual-score="1" autocomplete="off"
+        data-manual-score="1" autocomplete="one-time-code"
         placeholder="e.g. 5/20, 25%, 25, 0.25"
         value="${escHtml(currentVal)}">${parsedHint}
       <button class="btn-icon btn-delete-remark" contenteditable="false"
@@ -11777,7 +11777,13 @@ function setupEntryRemarkSaving(host, getSessionId, onIdle) {
     }, (el, html) => updateRemarkText(sid, el.dataset.remId, html));
 
     diffAndSave(".mastery-note-input[data-rem-id]", el => htmlForStorage(el.value),
-      (el, html) => updateRemarkNote(sid, el.dataset.remId, html));
+      (el, html) => {
+        const remId = el.dataset.remId;
+        [state.sessionData, state.groupSessionData].forEach(d => {
+          if (d?.remarks?.[remId]) d.remarks[remId].masteryNote = html;
+        });
+        return updateRemarkNote(sid, remId, html);
+      });
 
     diffAndSave(".activity-name-input[data-act-id]", el => el.value.trim(),
       (el, name) => {
@@ -16580,7 +16586,7 @@ function renderTargetManageContent(student, target) {
             // activity, exclude it — it's an orphan from a deleted/recreated activity
             // with the same name, not data for the current one.
             if (a.configId && act.id && a.configId !== act.id) return false;
-            return a.activityName === act.name || (act.title && a.activityName === act.title);
+            return (act.name && a.activityName === act.name) || (act.title && a.activityName === act.title);
           }).map(([id]) => id);
           return matchIds.some(actId => Object.values(sRems).some(r =>
             r.activityId === actId && (
@@ -16704,7 +16710,7 @@ function renderTargetManageContent(student, target) {
                 const sActs = s.activities || {}; const sRems = s.remarks || {};
                 const matchIds = Object.entries(sActs).filter(([, a]) =>
                   a.targetName === target.name &&
-                  (a.activityName === chosen.name || (chosen.title && a.activityName === chosen.title)) &&
+                  ((chosen.name && a.activityName === chosen.name) || (chosen.title && a.activityName === chosen.title)) &&
                   !a.parentActivity
                 ).map(([id]) => id);
                 return matchIds.some(actId => Object.values(sRems).some(r =>
