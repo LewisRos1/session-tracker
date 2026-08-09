@@ -174,7 +174,7 @@ function versionLineText() {
   return `Made by Lewis · Version ${APP_VERSION}`;
 }
 
-const APP_VERSION = "1523";
+const APP_VERSION = "1526";
 
 // Debug helpers — call from F12 console
 // 1) List all stored activity names under a target:
@@ -6273,17 +6273,26 @@ function renderManageActivityScreen(student) {
       ${collapseSection('discontinued','🚩','#dc2626','#fff5f5','#fecaca',discontPas)}
     </div>`;
 
-  const dropHtml = `<div class="target-selector" style="position:static;margin-bottom:.8rem;display:flex;align-items:center;gap:.5rem">
+  const isDiscontinued = !!target.discontinuedOn;
+  const discBadge = isDiscontinued
+    ? `<div style="font-size:.8rem;color:#dc2626;font-weight:600;padding:.2rem .1rem .4rem;display:flex;align-items:center;gap:.35rem">
+        🛑 Discontinued since ${fmtPeriodDate(target.discontinuedOn)} — hidden from session dropdown
+      </div>`
+    : '';
+  const dropHtml = `<div class="target-selector" style="position:static;margin-bottom:${isDiscontinued ? '.3rem' : '.8rem'};display:flex;align-items:center;gap:.5rem;flex-wrap:wrap">
     <label class="target-label" style="flex-shrink:0">Target</label>
-    <select id="ma-target-select" class="target-dropdown" style="flex:1">
-      ${targets.map((t, i) => `<option value="${i}"${i === _maSelectedTargetIdx ? ' selected' : ''}>${escHtml(t.name)}</option>`).join('')}
+    <select id="ma-target-select" class="target-dropdown" style="flex:1;min-width:8rem">
+      ${targets.map((t, i) => `<option value="${i}"${i === _maSelectedTargetIdx ? ' selected' : ''}>${t.discontinuedOn ? '🛑 ' : ''}${escHtml(t.name)}</option>`).join('')}
     </select>
     <button id="btn-ma-rearrange-inline" class="btn-manage-targets">↕️ Rearrange Targets</button>
-  </div>`;
+    <button id="btn-ma-discontinue-target" class="btn-manage-targets" style="${isDiscontinued ? 'background:#d1fae5;color:#065f46;border-color:#6ee7b7' : 'background:#fff0f0;color:#dc2626;border-color:#fca5a5'}">${isDiscontinued ? '✅ Restore Target' : '🛑 Discontinue Target'}</button>
+  </div>${discBadge}`;
 
   body.innerHTML = dropHtml + html;
 
   body.querySelector("#btn-ma-rearrange-inline").addEventListener("click", () => showTargetReorderList(student));
+
+  body.querySelector("#btn-ma-discontinue-target").addEventListener("click", () => handleDiscontinueTarget(student, target, false));
 
   document.getElementById("ma-target-select").addEventListener("change", function() {
     _maSelectedTargetIdx = parseInt(this.value, 10);
@@ -7680,7 +7689,7 @@ function sortTargetsByOrder(targets) {
 
 function populateTargetDropdown(targets) {
   const sel = $("target-select");
-  const sorted = sortTargetsByOrder(targets);
+  const sorted = sortTargetsByOrder(targets).filter(t => !t.discontinuedOn);
   const placeholder = sorted.length === 0
     ? `<option value="" disabled selected>— no targets yet —</option>` : "";
   sel.innerHTML = placeholder +
@@ -14165,7 +14174,7 @@ function showAutoDateConfirm({ message, confirmLabel }) {
   });
 }
 
-function showDatePickerOverlay({ heading, infoHtml, minDate, defaultDate, confirmLabel }) {
+function showDatePickerOverlay({ heading, infoHtml, minDate, defaultDate, confirmLabel, dateLabel = "activity" }) {
   return new Promise(resolve => {
     const overlay = document.createElement("div");
     overlay.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;display:flex;align-items:center;justify-content:center;padding:1rem";
@@ -14175,11 +14184,11 @@ function showDatePickerOverlay({ heading, infoHtml, minDate, defaultDate, confir
     overlay.innerHTML = `<div style="background:#fff;border-radius:.75rem;padding:1.5rem;max-width:400px;width:100%;box-shadow:0 8px 32px rgba(0,0,0,.22)">
       <div style="font-size:.93rem;font-weight:700;color:#111;margin-bottom:.55rem">${heading}</div>
       ${infoHtml ? `<div style="font-size:.85rem;color:#374151;margin-bottom:.9rem;line-height:1.6">${infoHtml}</div>` : ''}
-      <label style="font-size:.82rem;font-weight:600;color:#374151;display:block;margin-bottom:.35rem">Please select the final date you want this activity to appear.</label>
+      <label style="font-size:.82rem;font-weight:600;color:#374151;display:block;margin-bottom:.35rem">Please select the final date you want this ${dateLabel} to appear.</label>
       <style>#dp-date-inp::-webkit-calendar-picker-indicator{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer}</style>
       <div style="position:relative;margin-bottom:1rem;border:1.5px solid #d1d5db;border-radius:.4rem;background:#fff;cursor:pointer">
-        <input type="date" id="dp-date-inp" value="${def}" min="${min}" style="position:absolute;inset:0;width:100%;height:100%;border:none;background:transparent;color:transparent;caret-color:transparent;outline:none;cursor:pointer;box-sizing:border-box">
-        <div id="dp-date-display" style="padding:.5rem .7rem;font-size:.95rem;color:#111;pointer-events:none;display:flex;align-items:center">${defFormatted}<span style="margin-left:auto;padding-left:.5rem;font-size:1rem;color:#6b7280">🗓</span></div>
+        <input type="date" id="dp-date-inp" value="${def}" min="${min}" style="position:absolute;inset:0;width:100%;height:100%;border:none;background:transparent;opacity:0;outline:none;cursor:pointer;box-sizing:border-box">
+        <div id="dp-date-display" style="padding:.5rem .7rem;font-size:.95rem;color:#111;pointer-events:none;display:flex;align-items:center"><span id="dp-date-text">${defFormatted}</span><span style="margin-left:auto;padding-left:.5rem;font-size:1rem;color:#6b7280">🗓</span></div>
       </div>
       <div style="display:flex;gap:.6rem;justify-content:flex-end">
         <button class="dp-cancel" style="padding:.5rem 1rem;border:1px solid #d1d5db;border-radius:.4rem;background:#fff;cursor:pointer;font-size:.9rem">Cancel</button>
@@ -14189,7 +14198,7 @@ function showDatePickerOverlay({ heading, infoHtml, minDate, defaultDate, confir
     document.body.appendChild(overlay);
     const inp = overlay.querySelector("#dp-date-inp");
     const dpDisplay = overlay.querySelector("#dp-date-display");
-    inp.addEventListener("input", () => { dpDisplay.textContent = inp.value ? (fmtPeriodDate(inp.value) || inp.value) : "Select a date"; });
+    inp.addEventListener("input", () => { overlay.querySelector("#dp-date-text").textContent = inp.value ? (fmtPeriodDate(inp.value) || inp.value) : "Select a date"; });
     const finish = val => { overlay.remove(); document.removeEventListener("keydown", onKey); resolve(val); };
     overlay.querySelector(".dp-cancel").addEventListener("click", () => finish(null));
     overlay.querySelector(".dp-confirm").addEventListener("click", () => {
@@ -14810,6 +14819,78 @@ function renderTargetReorderList(student) {
     closeManageModal();
     renderManageActivityScreen(student);
   });
+}
+
+async function getLastSessionDateForTarget(studentId, targetName) {
+  const allSessions = await getAllSessionsForStudent(studentId);
+  const dates = allSessions.filter(s => {
+    const sActs = s.activities || {};
+    const sRems = s.remarks || {};
+    const targetActIds = Object.entries(sActs)
+      .filter(([, a]) => a.targetName === targetName)
+      .map(([id]) => id);
+    return targetActIds.some(actId => Object.values(sRems).some(r =>
+      r.activityId === actId && (
+        (r.text || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim().length > 0 ||
+        (r.masteryNote || "").trim().length > 0 ||
+        (r.trials || []).some(t => t !== null && t !== -1) ||
+        (r.optionScore !== undefined && r.optionScore !== null)
+      )
+    ));
+  }).map(s => s.date).sort();
+  return dates[dates.length - 1] || null;
+}
+
+async function handleDiscontinueTarget(entity, target, isGroup) {
+  const save = () => isGroup ? saveGroup(entity) : saveStudent(entity);
+  const rerender = () => isGroup
+    ? populateGroupTargetDropdown(entity.targets)
+    : renderManageActivityScreen(entity);
+
+  if (target.discontinuedOn) {
+    // Restore
+    delete target.discontinuedOn;
+    const si = isGroup
+      ? state.groups.findIndex(g => g.id === entity.id)
+      : state.students.findIndex(s => s.id === entity.id);
+    if (si >= 0) (isGroup ? state.groups : state.students)[si] = entity;
+    await save();
+    rerender();
+    return;
+  }
+
+  // Find last session date — only for individual students (group targets skip this)
+  let lastDate = null;
+  if (!isGroup) {
+    const btn = document.getElementById("btn-ma-discontinue-target");
+    const origText = btn?.textContent;
+    if (btn) { btn.disabled = true; btn.textContent = "Checking…"; }
+    try { lastDate = await getLastSessionDateForTarget(entity.id, target.name); }
+    finally { if (btn) { btn.disabled = false; btn.textContent = origText; } }
+  }
+
+  const minDate = lastDate ? addOneDay(lastDate) : todayDateStr();
+  const infoHtml = lastDate
+    ? `<strong>"${escHtml(target.name)}"</strong> will be hidden from the session dropdown from this date onwards. All past session data is preserved and will still appear in exports.<br><br>The last recorded session for this target was on <strong>${fmtPeriodDate(lastDate)}</strong>. So, the earliest you can discontinue is <strong>${fmtPeriodDate(minDate)}</strong>.`
+    : `<strong>"${escHtml(target.name)}"</strong> will be hidden from the session dropdown from this date onwards. All past session data is preserved and will still appear in exports.<br><br>No previous session data was found for this target.`;
+
+  const pickedDate = await showDatePickerOverlay({
+    heading: '🛑 Discontinue Target',
+    infoHtml,
+    minDate,
+    defaultDate: minDate,
+    confirmLabel: 'Confirm 🛑',
+    dateLabel: 'target'
+  });
+  if (!pickedDate) return;
+
+  target.discontinuedOn = pickedDate;
+  const si = isGroup
+    ? state.groups.findIndex(g => g.id === entity.id)
+    : state.students.findIndex(s => s.id === entity.id);
+  if (si >= 0) (isGroup ? state.groups : state.students)[si] = entity;
+  await save();
+  rerender();
 }
 
 function showAddTargetPicker(student) {
@@ -19184,7 +19265,7 @@ function renderGroupSessionHeader(data) {
 function populateGroupTargetDropdown(targets) {
   const sel = $("group-target-select");
   if (!sel) return;
-  const sorted = sortTargetsByOrder(targets);
+  const sorted = sortTargetsByOrder(targets).filter(t => !t.discontinuedOn);
   const placeholder = sorted.length === 0
     ? `<option value="" disabled selected>— no targets yet —</option>` : "";
   sel.innerHTML = placeholder +
@@ -19206,6 +19287,20 @@ function populateGroupTargetDropdown(targets) {
   if (reorderBtn) {
     reorderBtn.classList.toggle("hidden", targets.length < 2);
     reorderBtn.onclick = () => showGroupTargetReorderList(state.currentGroup);
+  }
+
+  const discBtn = $("btn-group-discontinue-target");
+  if (discBtn) {
+    const selTgt = state.currentGroup?.targets.find(t => t.name === state.selectedGroupTargetName);
+    discBtn.classList.toggle("hidden", !state.selectedGroupTargetName);
+    if (selTgt) {
+      const isDisc = !!selTgt.discontinuedOn;
+      discBtn.textContent = isDisc ? '✅ Restore Target' : '🛑 Discontinue Target';
+      discBtn.style.background = isDisc ? '#d1fae5' : '#fff0f0';
+      discBtn.style.color      = isDisc ? '#065f46' : '#dc2626';
+      discBtn.style.borderColor = isDisc ? '#6ee7b7' : '#fca5a5';
+      discBtn.onclick = () => handleDiscontinueTarget(state.currentGroup, selTgt, true);
+    }
   }
 
   // Wire change handler — same pattern as individual session's populateTargetDropdown
