@@ -174,7 +174,7 @@ function versionLineText() {
   return `Made by Lewis · Version ${APP_VERSION}`;
 }
 
-const APP_VERSION = "1560";
+const APP_VERSION = "1577";
 
 // Debug helpers — call from F12 console
 // 1) List all stored activity names under a target:
@@ -482,6 +482,11 @@ let _sheetOriginEl = null;
 // When editing a target belonging to a group, this is set so that
 // renderTargetManageContent saves to the group instead of the student.
 let _groupForTargetEdit = null;
+let _actStartPickerSaveFn = null;
+let _actStartPickerIdx    = null;
+let _actStartPickerActs   = null;
+let _actStartPickerStudent = null;
+let _actStartPickerTarget  = null;
 
 // Tracks in-flight rename-propagation operations so the manage modal can show
 // "Syncing history…" while they run, and warn the boss if one fails silently.
@@ -1361,17 +1366,28 @@ async function loadTodoHomeCounts() {
   // Update each badge independently — one slow/failed query won't stall others
   INSTRUCTORS.forEach(async inst => {
     try {
-      const sessions = inst.id === "nigel"
+      const sessions = (inst.id === "nigel" || inst.id === "daisy")
         ? await getAllSessions().catch(() => [])
         : await getSessionsWithParticipant(inst.id).catch(() => []);
       const count = sessions.reduce((n, s) => {
         try {
+          const subjectExists = s.groupId
+            ? (state.groups   || []).some(g  => g.id  === s.groupId)
+            : (state.students || []).some(st => st.id === s.studentId);
+          if (!subjectExists) return n;
           const checks = s.checks || {};
           const ws = getWorkflowState(s);
-          if (inst.id !== "nigel" && !checks[`p1_${inst.id}`]) return n + 1;
-          if (inst.id === "daisy" && !s.reviewSubmitted && !ws.daisyOnly) return n + 1;
+          const isMonthly = (state.students || []).find(st => st.id === s.studentId)?.exportDuration === "monthly";
+          const isParticipant = (s.participants || []).includes(inst.id);
+          if (inst.id !== "nigel" && inst.id !== "daisy" && !checks[`p1_${inst.id}`]) return n + 1;
+          if (inst.id === "daisy" && isParticipant && !checks["p1_daisy"]) return n + 1;
+          if (inst.id === "daisy" && !s.reviewSubmitted && !ws.daisyOnly) {
+            const nonDaisy = (s.participants || []).filter(id => id !== "daisy");
+            const p2Unlocked = nonDaisy.length > 0 ? nonDaisy.every(id => !!checks[`p1_${id}`]) : !!checks["p1_daisy"];
+            if (p2Unlocked) return n + 1;
+          }
           if (inst.id !== "daisy" && inst.id !== "nigel" && s.reviewSubmitted && !checks[`p3_${inst.id}`] && !ws.p3Bypassed) return n + 1;
-          if (inst.id === "nigel" && ws.ready && !ws.p4Done) return n + 1;
+          if (inst.id === "nigel" && ws.ready && !ws.p4Done && !isMonthly) return n + 1;
         } catch { /* skip malformed session */ }
         return n;
       }, 0);
@@ -1457,16 +1473,27 @@ async function openTodoScreen(filterInstId = null) {
 
   const instsToLoad = filterInst ? [filterInst] : INSTRUCTORS;
   const results = await Promise.all(instsToLoad.map(async inst => {
-    const sessions = inst.id === "nigel"
+    const sessions = (inst.id === "nigel" || inst.id === "daisy")
       ? await getAllSessions().catch(() => [])
       : await getSessionsWithParticipant(inst.id).catch(() => []);
     const pending = sessions.filter(s => {
+      const subjectExists = s.groupId
+        ? (state.groups   || []).some(g  => g.id  === s.groupId)
+        : (state.students || []).some(st => st.id === s.studentId);
+      if (!subjectExists) return false;
       const checks = s.checks || {};
       const ws = getWorkflowState(s);
-      if (inst.id !== "nigel" && !checks[`p1_${inst.id}`]) return true;
-      if (inst.id === "daisy" && !s.reviewSubmitted && !ws.daisyOnly) return true;
+      const isMonthly = (state.students || []).find(st => st.id === s.studentId)?.exportDuration === "monthly";
+      const isParticipant = (s.participants || []).includes(inst.id);
+      if (inst.id !== "nigel" && inst.id !== "daisy" && !checks[`p1_${inst.id}`]) return true;
+      if (inst.id === "daisy" && isParticipant && !checks["p1_daisy"]) return true;
+      if (inst.id === "daisy" && !s.reviewSubmitted && !ws.daisyOnly) {
+        const nonDaisy = (s.participants || []).filter(id => id !== "daisy");
+        const p2Unlocked = nonDaisy.length > 0 ? nonDaisy.every(id => !!checks[`p1_${id}`]) : !!checks["p1_daisy"];
+        if (p2Unlocked) return true;
+      }
       if (inst.id !== "daisy" && inst.id !== "nigel" && s.reviewSubmitted && !checks[`p3_${inst.id}`] && !ws.p3Bypassed) return true;
-      if (inst.id === "nigel" && ws.ready && !ws.p4Done) return true;
+      if (inst.id === "nigel" && ws.ready && !ws.p4Done && !isMonthly) return true;
       return false;
     });
     return { inst, pending };
@@ -1529,10 +1556,13 @@ function renderTodoTiles(results, filterInst = null) {
     const dateStr = s.date ? relativeTodoDate(s.date) : "Unknown date";
     const checks  = s.checks || {};
     const ws      = getWorkflowState(s);
+    const isMonthly = (state.students || []).find(st => st.id === s.studentId)?.exportDuration === "monthly";
+    const isParticipant = (s.participants || []).includes(inst.id);
 
     // Compute all pending tasks for this instructor on this session
     const tasks = [];
-    if (inst.id !== "nigel" && !checks[`p1_${inst.id}`]) tasks.push("Enter Data");
+    if (inst.id !== "nigel" && inst.id !== "daisy" && !checks[`p1_${inst.id}`]) tasks.push("Enter Data");
+    if (inst.id === "daisy" && isParticipant && !checks["p1_daisy"]) tasks.push("Enter Data");
     if (inst.id === "daisy" && !s.reviewSubmitted && !ws.daisyOnly) {
       // Phase 2 only shows if it's unlocked (all non-Daisy p1 done)
       const nonDaisy = (s.participants || []).filter(id => id !== "daisy");
@@ -1540,7 +1570,7 @@ function renderTodoTiles(results, filterInst = null) {
       if (p2Unlocked) tasks.push("Check");
     }
     if (inst.id !== "daisy" && inst.id !== "nigel" && s.reviewSubmitted && !checks[`p3_${inst.id}`] && !ws.p3Bypassed) tasks.push("Revision");
-    if (inst.id === "nigel" && ws.ready && !ws.p4Done) tasks.push("Export");
+    if (inst.id === "nigel" && ws.ready && !ws.p4Done && !isMonthly) tasks.push("Export");
 
     const pillStyle = t => t === "Enter Data"
       ? "background:#eff6ff;color:#1d4ed8"
@@ -1579,15 +1609,18 @@ function renderTodoTiles(results, filterInst = null) {
       const dateStr = s.date ? relativeTodoDate(s.date) : "Unknown date";
       const checks  = s.checks || {};
       const ws      = getWorkflowState(s);
+      const isMonthly = (state.students || []).find(st => st.id === s.studentId)?.exportDuration === "monthly";
+      const isParticipant = (s.participants || []).includes(inst.id);
       const tasks   = [];
-      if (inst.id !== "nigel" && !checks[`p1_${inst.id}`]) tasks.push("Enter Data");
+      if (inst.id !== "nigel" && inst.id !== "daisy" && !checks[`p1_${inst.id}`]) tasks.push("Enter Data");
+      if (inst.id === "daisy" && isParticipant && !checks["p1_daisy"]) tasks.push("Enter Data");
       if (inst.id === "daisy" && !s.reviewSubmitted && !ws.daisyOnly) {
         const nonDaisy = (s.participants || []).filter(id => id !== "daisy");
         const p2Unlocked = nonDaisy.length > 0 ? nonDaisy.every(id => !!checks[`p1_${id}`]) : !!checks["p1_daisy"];
         if (p2Unlocked) tasks.push("Check");
       }
       if (inst.id !== "daisy" && inst.id !== "nigel" && s.reviewSubmitted && !checks[`p3_${inst.id}`] && !ws.p3Bypassed) tasks.push("Revision");
-      if (inst.id === "nigel" && ws.ready && !ws.p4Done) tasks.push("Export");
+      if (inst.id === "nigel" && ws.ready && !ws.p4Done && !isMonthly) tasks.push("Export");
       const pillStyle = t => t === "Enter Data"
         ? "background:#eff6ff;color:#1d4ed8"
         : t === "Export" ? "background:#f0fdf4;color:#15803d" : "background:#fff7ed;color:#c2410c";
@@ -1727,6 +1760,7 @@ async function renderStudentRegistryBody({ highlightAdd = false } = {}) {
             <col style="width:15%">
             <col style="width:10%">
             <col style="width:190px">
+            <col style="width:120px">
             <col style="width:130px">
             <col style="width:130px">
             <col style="width:160px">
@@ -1738,6 +1772,7 @@ async function renderStudentRegistryBody({ highlightAdd = false } = {}) {
               <th>Full Name</th>
               <th style="white-space:normal">Short Name (Used in AI Reports)</th>
               <th>Note</th>
+              <th style="white-space:normal">Export Type</th>
               <th style="white-space:normal">Imported Excel data to Website</th>
               <th style="white-space:normal">Ready for AI H1 Report</th>
               <th style="white-space:normal">Latest Individual Session Recorded</th>
@@ -1762,6 +1797,9 @@ async function renderStudentRegistryBody({ highlightAdd = false } = {}) {
                   <input class="admin-input db-note-input" data-id="${escHtml(s.id)}"
                     value="${escHtml(s.note || '')}" placeholder="—" autocomplete="off"
                     style="width:100%;text-align:center" />
+                </td>
+                <td style="text-align:center" onclick="event.stopPropagation()">
+                  ${(() => { const m = s.exportDuration === "monthly"; return `<button class="db-export-dur-pill" data-id="${escHtml(s.id)}" style="padding:.28rem .7rem;border-radius:999px;border:1px solid ${m ? '#d1d5db' : '#93c5fd'};background:${m ? '#f3f4f6' : '#dbeafe'};color:${m ? '#6b7280' : '#1d4ed8'};font-size:.78rem;font-weight:600;cursor:pointer;white-space:nowrap">${m ? 'Monthly' : 'Every Session'}</button>`; })()}
                 </td>
                 <td class="reg-excel-export-cell" data-id="${escHtml(s.id)}" style="text-align:center">…</td>
                 <td class="reg-ai-h1-cell" data-id="${escHtml(s.id)}" style="text-align:center">…</td>
@@ -1821,6 +1859,21 @@ async function renderStudentRegistryBody({ highlightAdd = false } = {}) {
       s.note = note;
       await setStudentNote(id, note);
       renderExistingStudentButtons();
+    });
+  });
+
+  $("student-registry-body").querySelectorAll(".db-export-dur-pill").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const s = state.students.find(x => x.id === btn.dataset.id);
+      if (!s) return;
+      const newDur = s.exportDuration === "monthly" ? "every_session" : "monthly";
+      s.exportDuration = newDur;
+      const m = newDur === "monthly";
+      btn.textContent = m ? "Monthly" : "Every Session";
+      btn.style.background   = m ? "#f3f4f6" : "#dbeafe";
+      btn.style.color        = m ? "#6b7280" : "#1d4ed8";
+      btn.style.borderColor  = m ? "#d1d5db" : "#93c5fd";
+      await saveStudent(s);
     });
   });
 
@@ -6809,7 +6862,16 @@ function renderSessionsForMonth(student, month, monthSessions, byMonth, today, s
 // be auto-deleted on the way out, same as any other empty session, if
 // nothing ends up typed into it).
 function renderPickDateCalendar(student, sessions, byMonth, today, displayDate, { backFn, onSelect } = {}) {
-  const sessionIdByDate = new Map(sessions.map(s => [s.date, s.id]));
+  const _strip = t => (t || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").replace(/ /g, " ").trim();
+  const sessionHasData = s => {
+    if (Object.values(s.fedcComments || {}).some(c => _strip(c).length > 0)) return true;
+    return Object.values(s.remarks || {}).some(r =>
+      _strip(r.text).length > 0 ||
+      (r.trials || []).some(t => t !== null && t !== -1) ||
+      _strip(r.masteryNote).length > 0
+    );
+  };
+  const sessionIdByDate = new Map(sessions.filter(sessionHasData).map(s => [s.date, s.id]));
   const [y, m] = displayDate.split("-").map(Number);
   const monthLabel = new Date(y, m - 1, 1).toLocaleString("default", { month: "long", year: "numeric" });
   const [ty, tm] = today.split("-").map(Number);
@@ -8089,7 +8151,10 @@ function renderFedcTarget(target) {
         <div class="entry-field" contenteditable="false">
           <span class="field-label">Activity</span>
           <span class="field-value-fixed">${inactiveReasonBadge(pa)}<span style="color:#6b7280;font-weight:600;margin-right:.2rem">${actNum})</span>${paDisplayHtml(pa, true)}</span>
-          ${pa.id ? `<button class="btn-icon btn-edit-activity-pencil" contenteditable="false" data-pa-id="${escHtml(pa.id)}" title="Edit in Edit Target" style="flex-shrink:0;font-size:.85rem;opacity:.55;line-height:1">✏️</button>` : ""}
+          <div style="display:flex;align-items:center;gap:.35rem;flex-shrink:0;align-self:flex-start">
+            ${pa.activeFrom ? `<span style="font-size:.75rem;color:#9ca3af;white-space:nowrap">Activity Start Date: ${fmtPeriodDate(pa.activeFrom)}</span>` : ""}
+            ${pa.id ? `<button class="btn-icon btn-edit-activity-pencil" contenteditable="false" data-pa-id="${escHtml(pa.id)}" title="Edit in Edit Target" style="font-size:.85rem;opacity:.55;line-height:1">✏️</button>` : ""}
+          </div>
         </div>
       </div>`;
       children.forEach((sub, si) => {
@@ -8226,7 +8291,10 @@ function renderFedcTarget(target) {
       <div class="entry-field" contenteditable="false">
         <span class="field-label">Activity</span>
         <span class="field-value-fixed">${inactiveReasonBadge(pa)}<span style="color:#6b7280;font-weight:600;margin-right:.2rem">${actNum})</span>${paDisplayHtml(pa, true)}</span>
-        ${pa.id ? `<button class="btn-icon btn-edit-activity-pencil" contenteditable="false" data-pa-id="${escHtml(pa.id)}" title="Edit in Edit Target" style="flex-shrink:0;font-size:.85rem;opacity:.55;line-height:1">✏️</button>` : ""}
+        <div style="display:flex;align-items:center;gap:.35rem;flex-shrink:0;align-self:flex-start">
+          ${pa.activeFrom ? `<span style="font-size:.75rem;color:#9ca3af;white-space:nowrap">Activity Start Date: ${fmtPeriodDate(pa.activeFrom)}</span>` : ""}
+          ${pa.id ? `<button class="btn-icon btn-edit-activity-pencil" contenteditable="false" data-pa-id="${escHtml(pa.id)}" title="Edit in Edit Target" style="font-size:.85rem;opacity:.55;line-height:1">✏️</button>` : ""}
+        </div>
       </div>`;
 
     if (pa.actNote && pa.actNote.trim()) {
@@ -10357,7 +10425,11 @@ function renderCheckedByStripHtml(data, confirmRole, isGroup = false) {
 
   // ── Phase 4: Export (Nigel) ───────────────────────────────────
   let nigelState, nigelBody;
-  if (!ws.ready) {
+  const isMonthlyExport = !isGroup && state.viewStudent?.exportDuration === "monthly";
+  if (isMonthlyExport) {
+    nigelState = "nigel-ready";
+    nigelBody  = `<div class="wf-pill wf-pill--done">✓ This student registered for the "Monthly Report" plan. No need to export this session.</div>`;
+  } else if (!ws.ready) {
     nigelState = "locked";
     nigelBody  = `<div class="wf-pill wf-pill--locked">🔒 Complete previous phases first</div>`;
   } else if (confirmRole === "p4_nigel") {
@@ -14337,6 +14409,89 @@ function periodSectionHtml(activeFrom, activeTo, idx, withBorder, inactiveReason
   </div>`;
 }
 
+function actStartDateHtml(activeFrom, idx) {
+  return `<button class="mn-act-start-btn" data-idx="${idx}" style="width:100%;padding:.55rem .9rem;text-align:left;background:none;border:none;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:.84rem;color:#374151;white-space:nowrap">📅 Set Start Date</button>`;
+}
+
+function showActStartDatePicker() {
+  const act = _actStartPickerActs?.[_actStartPickerIdx];
+  const activeFrom = act?.activeFrom || '';
+  const actName = (act?.title || act?.name || '').replace(/<[^>]*>/g, '').trim();
+  let overlay = document.getElementById('act-start-picker-overlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'act-start-picker-overlay';
+    document.body.appendChild(overlay);
+  }
+  overlay.innerHTML = `<div style="position:fixed;inset:0;z-index:9000;background:rgba(0,0,0,.45);display:flex;flex-direction:column;justify-content:flex-end" id="act-start-picker-backdrop">
+    <div style="background:#fff;border-radius:1.1rem 1.1rem 0 0;padding:1.3rem 1.3rem calc(env(safe-area-inset-bottom,0px) + 1.3rem);box-shadow:0 -4px 24px rgba(0,0,0,.14)">
+      <div style="font-weight:700;font-size:1rem;color:#111827;margin-bottom:.25rem">Set Start Date</div>
+      <div style="font-size:.85rem;color:#6b7280;margin-bottom:.85rem">What date do you want this activity <strong style="color:#374151">(${escHtml(actName)})</strong> to start appearing?</div>
+      <div id="act-start-picker-err" style="display:none;font-size:.82rem;color:#dc2626;margin-bottom:.5rem;line-height:1.4;padding:.4rem .6rem;background:#fee2e2;border-radius:.4rem"></div>
+      <input type="date" id="act-start-picker-inp" value="${activeFrom}" style="width:100%;font-size:1rem;border:1.5px solid #d1d5db;border-radius:.5rem;padding:.55rem .65rem;box-sizing:border-box;margin-bottom:.85rem">
+      <div style="display:flex;gap:.5rem">
+        ${activeFrom ? `<button id="act-start-picker-clear" style="flex:1;padding:.65rem;font-size:.9rem;border:1px solid #fca5a5;border-radius:.5rem;background:#fee2e2;cursor:pointer;color:#dc2626;font-weight:600">✕ Clear Date</button>` : ''}
+        <button id="act-start-picker-cancel" style="flex:1;padding:.65rem;font-size:.9rem;border:1px solid #d1d5db;border-radius:.5rem;background:#f9fafb;cursor:pointer;color:#6b7280;font-weight:600">Cancel</button>
+      </div>
+    </div>
+  </div>`;
+  document.getElementById('act-start-picker-backdrop').onclick = e => { if (e.target.id === 'act-start-picker-backdrop') closeActStartDatePicker(); };
+  document.getElementById('act-start-picker-inp').addEventListener('change', handleActStartPickerChange);
+  const clearBtn = document.getElementById('act-start-picker-clear');
+  if (clearBtn) clearBtn.addEventListener('click', async () => { closeActStartDatePicker(); await _actStartPickerSaveFn(_actStartPickerIdx, 'activeFrom', null); });
+  document.getElementById('act-start-picker-cancel').addEventListener('click', closeActStartDatePicker);
+}
+
+function closeActStartDatePicker() {
+  const overlay = document.getElementById('act-start-picker-overlay');
+  if (overlay) overlay.innerHTML = '';
+}
+
+async function handleActStartPickerChange() {
+  const inp = document.getElementById('act-start-picker-inp');
+  const errDiv = document.getElementById('act-start-picker-err');
+  const value = inp?.value;
+  if (errDiv) { errDiv.style.display = 'none'; errDiv.textContent = ''; }
+  if (!value) return;
+  const act = _actStartPickerActs?.[_actStartPickerIdx];
+  if (!act) return;
+  const actName = act.title || act.name;
+  const allSessions = _groupForTargetEdit
+    ? await getAllSessionsForGroup(_groupForTargetEdit.id).catch(() => [])
+    : await getAllSessionsForStudent(_actStartPickerStudent.id).catch(() => []);
+  let oldestDate = null;
+  for (const session of allSessions) {
+    const sActs = session.activities || {};
+    const sRems = session.remarks || {};
+    const matchingActIds = Object.entries(sActs)
+      .filter(([, a]) => {
+        if (a.targetName !== _actStartPickerTarget.name) return false;
+        if (act.id && a.configId === act.id) return true;
+        return a.activityName === actName || (act.title && a.activityName === act.title);
+      })
+      .map(([id]) => id);
+    const hasData = matchingActIds.some(actId => Object.values(sRems).some(r =>
+      r.activityId === actId && (
+        (r.text || '').replace(/<[^>]*>/g, '').trim().length > 0 ||
+        (r.masteryNote || '').trim().length > 0 ||
+        (r.trials || []).some(t => t !== null && t !== -1) ||
+        (r.optionScore !== undefined && r.optionScore !== null)
+      )
+    ));
+    if (hasData && (!oldestDate || session.date < oldestDate)) oldestDate = session.date;
+  }
+  if (oldestDate && value > oldestDate) {
+    if (errDiv) {
+      errDiv.textContent = `The oldest recorded data for this activity is ${fmtPeriodDate(oldestDate)}, so the earliest start date you can set is ${fmtPeriodDate(oldestDate)}.`;
+      errDiv.style.display = 'block';
+    }
+    if (inp) inp.value = act.activeFrom || '';
+    return;
+  }
+  closeActStartDatePicker();
+  await _actStartPickerSaveFn(_actStartPickerIdx, 'activeFrom', value);
+}
+
 // ── Open / close ──────────────────────────────────────────────
 
 function openManageModal(student, targetOrNull, templateOrNull = null, remarkPresetOrNull = null, scrollToPaId = null) {
@@ -15921,9 +16076,10 @@ function renderTargetManageContent(student, target) {
           </div>
           </div>
         </div>
-        <div style="position:relative">
+        <div style="position:relative;align-self:flex-start">
           <button class="btn-adm-del mn-kebab-btn" data-idx="${idx}" title="Activity options" style="font-size:1.35rem;font-weight:900;min-width:36px;min-height:36px">⋮</button>
-          <div class="mn-kebab-menu" id="mn-km-${idx}" style="display:none;position:absolute;right:0;top:100%;z-index:100;background:white;border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:250px;overflow:hidden">
+          <div class="mn-kebab-menu" id="mn-km-${idx}" style="display:none;position:absolute;right:0;top:100%;z-index:100;background:white;border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:310px;overflow:hidden">
+            ${actStartDateHtml(a.activeFrom, idx)}
             <button class="mn-km-manage-act" data-idx="${idx}" style="width:100%;padding:.55rem .9rem;text-align:left;background:none;border:none;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:.84rem;color:#0369a1">🪄 Manage Activity</button>
             <button class="mn-km-convert-mapped" data-idx="${idx}" style="width:100%;padding:.55rem .9rem;text-align:left;background:none;border:none;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:.84rem;color:#7c3aed">🔄 Convert to Regular Activity</button>
             <div style="display:flex;align-items:stretch">
@@ -16038,9 +16194,10 @@ function renderTargetManageContent(student, target) {
               </div>
             </div>
           </div>
-          <div style="position:relative">
+          <div style="position:relative;align-self:flex-start">
             <button class="btn-adm-del mn-kebab-btn" data-idx="${idx}" title="Activity options" style="font-size:1.35rem;font-weight:900;min-width:36px;min-height:36px">⋮</button>
-            <div class="mn-kebab-menu" id="mn-km-${idx}" style="display:none;position:absolute;right:0;top:100%;z-index:100;background:white;border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:250px;overflow:hidden">
+            <div class="mn-kebab-menu" id="mn-km-${idx}" style="display:none;position:absolute;right:0;top:100%;z-index:100;background:white;border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:310px;overflow:hidden">
+              ${actStartDateHtml(a.activeFrom, idx)}
               <button class="mn-km-manage-act" data-idx="${idx}" style="width:100%;padding:.55rem .9rem;text-align:left;background:none;border:none;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:.84rem;color:#0369a1">🪄 Manage Activity</button>
               <div style="display:flex;align-items:stretch">
                 <button class="mn-km-opt" data-idx="${idx}" data-action="delete" style="flex:1;padding:.55rem .9rem;text-align:left;background:none;border:none;cursor:pointer;font-size:.84rem;color:#dc2626">🗑️ Delete Activity</button>
@@ -16090,11 +16247,12 @@ function renderTargetManageContent(student, target) {
               </div>
             </div>
           </div>
-          <div style="position:relative">
+          <div style="position:relative;align-self:flex-start">
             <button class="btn-adm-del mn-kebab-btn" data-idx="${idx}" title="Activity options" style="font-size:1.35rem;font-weight:900;min-width:36px;min-height:36px">⋮</button>
-            <div class="mn-kebab-menu" id="mn-km-${idx}" style="display:none;position:absolute;right:0;top:100%;z-index:100;background:white;border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:250px;overflow:hidden">
+            <div class="mn-kebab-menu" id="mn-km-${idx}" style="display:none;position:absolute;right:0;top:100%;z-index:100;background:white;border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:310px;overflow:hidden">
+              ${actStartDateHtml(a.activeFrom, idx)}
               <button class="mn-km-manage-act" data-idx="${idx}" style="width:100%;padding:.55rem .9rem;text-align:left;background:none;border:none;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:.84rem;color:#0369a1">🪄 Manage Activity</button>
-              <button class="mn-km-move-to-parent" data-idx="${idx}" style="width:100%;padding:.55rem .9rem;text-align:left;background:none;border:none;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:.84rem;color:#374151">↪️ Make this activity into a Sub-activity</button>
+              <button class="mn-km-move-to-parent" data-idx="${idx}" style="width:100%;padding:.55rem .9rem;text-align:left;background:none;border:none;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:.84rem;color:#374151;white-space:nowrap">↪️ Make this activity into a Sub-activity</button>
               <button class="mn-km-add-sub" data-idx="${idx}" style="width:100%;padding:.55rem .9rem;text-align:left;background:none;border:none;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:.84rem;color:#374151">➕ Add sub-activity</button>
               <div style="display:flex;align-items:stretch">
                 <button class="mn-km-opt" data-idx="${idx}" data-action="delete" style="flex:1;padding:.55rem .9rem;text-align:left;background:none;border:none;cursor:pointer;font-size:.84rem;color:#dc2626">🗑️ Delete Activity</button>
@@ -16616,7 +16774,14 @@ function renderTargetManageContent(student, target) {
       const wasHidden = menu.style.display !== "block";
       $("manage-modal-body").querySelectorAll(".mn-kebab-menu, .mn-inactive-km").forEach(m => m.style.display = "none");
       if (wasHidden) {
+        menu.style.top    = "100%";
+        menu.style.bottom = "auto";
         menu.style.display = "block";
+        const rect = menu.getBoundingClientRect();
+        if (rect.bottom > window.innerHeight - 8) {
+          menu.style.top    = "auto";
+          menu.style.bottom = "100%";
+        }
         const closeMenu = ev => {
           if (!menu.contains(ev.target)) { menu.style.display = "none"; document.removeEventListener("click", closeMenu); }
         };
@@ -17391,7 +17556,7 @@ function renderTargetManageContent(student, target) {
       const idx = Number(btn.dataset.idx);
       const subAct = acts[idx];
       if (!subAct) return;
-      if (!confirm(`Delete sub-activity "${subAct.name || '(unnamed)'}"?`)) return;
+      if (!confirm(`Delete sub-activity "${subAct.title || subAct.name || '(unnamed)'}"?`)) return;
       const parentName = subAct.parentActivity;
       acts.splice(idx, 1);
       acts.forEach((a2, i) => a2.order = i);
@@ -17758,6 +17923,21 @@ function renderTargetManageContent(student, target) {
     }
   };
   document.addEventListener("click", window._closePeriodPanels);
+
+  // Activity start date — opens global bottom sheet
+  $("manage-modal-body").querySelectorAll(".mn-act-start-btn").forEach(btn => {
+    btn.addEventListener("click", e => {
+      e.stopPropagation();
+      // Close kebab before opening picker
+      $("manage-modal-body").querySelectorAll(".mn-kebab-menu").forEach(m => m.style.display = "none");
+      _actStartPickerSaveFn  = savePeriodField;
+      _actStartPickerIdx     = +btn.dataset.idx;
+      _actStartPickerActs    = acts;
+      _actStartPickerStudent = student;
+      _actStartPickerTarget  = target;
+      showActStartDatePicker();
+    });
+  });
 
   const getOptsFromDom = idx =>
     [...$("manage-modal-body").querySelectorAll(`.mn-opt-item[data-idx="${idx}"]`)]
@@ -18199,9 +18379,9 @@ function renderTemplateManageContent(template) {
             ${remarkTypeSelect}
           </div>
         </div>
-        <div style="position:relative">
+        <div style="position:relative;align-self:flex-start">
           <button class="btn-adm-del mn-kebab-btn" data-idx="${idx}" title="Activity options" style="font-size:1.35rem;font-weight:900;min-width:36px;min-height:36px">⋮</button>
-          <div class="mn-kebab-menu" id="mn-km-${idx}" style="display:none;position:absolute;right:0;top:100%;z-index:100;background:white;border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:250px;overflow:hidden">
+          <div class="mn-kebab-menu" id="mn-km-${idx}" style="display:none;position:absolute;right:0;top:100%;z-index:100;background:white;border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:310px;overflow:hidden">
             <div style="display:flex;align-items:stretch">
               <button class="mn-km-opt" data-idx="${idx}" data-action="delete" style="flex:1;padding:.55rem .9rem;text-align:left;background:none;border:none;cursor:pointer;font-size:.84rem;color:#dc2626">🗑️ Delete Activity</button>
             </div>
@@ -19718,6 +19898,7 @@ function buildGroupItemsByActivity(target, data, attendees) {
         <div class="entry-field" contenteditable="false">
           <span class="field-label">Activity</span>
           <span class="field-value-fixed">${inactiveReasonBadge(pa)}<span style="color:#6b7280;font-weight:600;margin-right:.2rem"></span>${paDisplayHtml(pa, true)}</span>
+          ${pa.activeFrom ? `<span style="font-size:.75rem;color:#9ca3af;white-space:nowrap;flex-shrink:0;align-self:flex-start">Activity Start Date: ${fmtPeriodDate(pa.activeFrom)}</span>` : ""}
         </div>
       </div>`;
       children.forEach((sub, si) => {
@@ -20046,6 +20227,7 @@ function renderGroupActivityCard(actName, actId, target, data, attendees, actNot
       <div class="entry-field" contenteditable="false">
         <span class="field-label">Activity</span>
         <span class="field-value-fixed">${formatActivityMarkup(actName)}</span>
+        ${paEntry?.activeFrom ? `<span style="font-size:.75rem;color:#9ca3af;white-space:nowrap;flex-shrink:0;align-self:flex-start">Activity Start Date: ${fmtPeriodDate(paEntry.activeFrom)}</span>` : ""}
       </div>
       ${noteRow}
       <div class="entry-divider" contenteditable="false"></div>
@@ -20071,6 +20253,7 @@ function renderGroupActivityCard(actName, actId, target, data, attendees, actNot
       <div class="entry-field" contenteditable="false">
         <span class="field-label">Activity</span>
         <span class="field-value-fixed">${inactiveReasonBadge(paEntry)}${formatActivityMarkup(actName)}</span>
+        ${paEntry?.activeFrom ? `<span style="font-size:.75rem;color:#9ca3af;white-space:nowrap;flex-shrink:0;align-self:flex-start">Activity Start Date: ${fmtPeriodDate(paEntry.activeFrom)}</span>` : ""}
         ${combineToggle}
       </div>
       ${noteRow}
@@ -20145,6 +20328,7 @@ function renderGroupActivityCard(actName, actId, target, data, attendees, actNot
     <div class="entry-field" contenteditable="false">
       <span class="field-label">Activity</span>
       <span class="field-value-fixed">${formatActivityMarkup(actName)}${inactiveReasonBadge(paEntry)}</span>
+      ${paEntry?.activeFrom ? `<span style="font-size:.75rem;color:#9ca3af;white-space:nowrap;flex-shrink:0;align-self:flex-start">Activity Start Date: ${fmtPeriodDate(paEntry.activeFrom)}</span>` : ""}
       ${combineToggle}
     </div>
     ${noteRow}
