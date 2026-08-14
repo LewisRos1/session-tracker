@@ -174,7 +174,7 @@ function versionLineText() {
   return `Made by Lewis · Version ${APP_VERSION}`;
 }
 
-const APP_VERSION = "1597";
+const APP_VERSION = "1626";
 
 // Debug helpers — call from F12 console
 // 1) List all stored activity names under a target:
@@ -2564,7 +2564,12 @@ function renderExistingStudentButtons() {
   // Database page or a group roster picker) opts out of that default, so a
   // freshly-registered student doesn't show here until she actually +Adds
   // them via showRegisteredStudentPicker.
-  const students = state.students.filter(s => s.type !== "assessment" && s.type !== "unassigned");
+  // Also exclude any student whose name matches a group name — safeguard
+  // against accidentally created student records with group names.
+  const groupNames = new Set((state.groups || []).map(g => g.name));
+  const students = state.students.filter(s =>
+    s.type !== "assessment" && s.type !== "unassigned" && !groupNames.has(s.name)
+  );
   renderStudentList($("existing-student-buttons"), students, state.searchExisting);
 }
 
@@ -6034,8 +6039,10 @@ async function repairLevenChuaSubActivities() {
 // MANAGE ACTIVITY SCREEN
 // ============================================================
 
-async function maGetLastDataDate(student, target, pa) {
-  const allSessions = await getAllSessionsForStudent(student.id);
+async function maGetLastDataDate(entity, target, pa, isGroup = false) {
+  const allSessions = isGroup
+    ? await getAllSessionsForGroup(entity.id)
+    : await getAllSessionsForStudent(entity.id);
 
   const getLatestFor = checkPa => {
     const checkName = checkPa.title || checkPa.name;
@@ -6115,6 +6122,8 @@ function maKebabOptions(pa, tName, isParent = false) {
 }
 
 function openManageActivityScreen(student) {
+  _maIsGroup = false;
+  _maSelectedTargetIdx = 0;
   const sub = $("manage-activity-subtitle");
   if (sub) sub.textContent = student.name + (student.note ? ' ' + student.note : '');
   showScreen("screen-manage-activity");
@@ -6124,12 +6133,24 @@ function openManageActivityScreen(student) {
   renderManageActivityScreen(student);
 }
 
-let _maSelectedTargetIdx = 0;
+function openGroupManageActivityScreen(group) {
+  _maIsGroup = true;
+  _maSelectedTargetIdx = 0;
+  const sub = $("manage-activity-subtitle");
+  if (sub) sub.textContent = group.name;
+  showScreen("screen-manage-activity");
+  $("btn-manage-activity-back").onclick = showHome;
+  $("btn-ma-reorder-targets")?.classList.add("hidden");
+  renderManageActivityScreen(group);
+}
 
-function renderManageActivityScreen(student) {
+let _maSelectedTargetIdx = 0;
+let _maIsGroup = false;
+
+function renderManageActivityScreen(entity) {
   const body = $("manage-activity-body");
   if (!body) return;
-  const targets = (student.targets || []).filter(t => !t.archived);
+  const targets = (entity.targets || []).filter(t => !t.archived);
   if (!targets.length) { body.innerHTML = `<div style="padding:1rem;color:#9ca3af;font-style:italic">No targets found.</div>`; return; }
   if (_maSelectedTargetIdx >= targets.length) _maSelectedTargetIdx = 0;
 
@@ -6165,7 +6186,7 @@ function renderManageActivityScreen(student) {
           repaired = true;
         });
       });
-      if (repaired) saveStudent(student).catch(() => {});
+      if (repaired) (_maIsGroup ? saveGroup(entity) : saveStudent(entity)).catch(() => {});
     }
 
     const masteredPas = activityPas.filter(p => maIsMastered(p));
@@ -6328,14 +6349,15 @@ function renderManageActivityScreen(student) {
 
   body.innerHTML = dropHtml + html;
 
-  body.querySelector("#btn-ma-rearrange-inline").addEventListener("click", () => showTargetReorderList(student));
+  body.querySelector("#btn-ma-rearrange-inline").addEventListener("click", () =>
+    _maIsGroup ? showGroupTargetReorderList(entity) : showTargetReorderList(entity));
 
-  body.querySelector("#btn-ma-discontinue-target").addEventListener("click", () => handleDiscontinueTarget(student, target, false));
+  body.querySelector("#btn-ma-discontinue-target").addEventListener("click", () => handleDiscontinueTarget(entity, target, _maIsGroup));
 
   // Async fill: load the last 5 sessions with data for this target and show them
   // in the Danger Zone inline, so the boss sees what they're deleting before clicking.
   let _dangerSessionCount = null;
-  getAllSessionsForStudent(student.id).then(allSessions => {
+  (_maIsGroup ? getAllSessionsForGroup(entity.id) : getAllSessionsForStudent(entity.id)).then(allSessions => {
     const el = body.querySelector("#ma-danger-sessions");
     if (!el) return;
     const withData = allSessions.filter(s => {
@@ -6367,27 +6389,33 @@ function renderManageActivityScreen(student) {
   });
 
   body.querySelector("#btn-ma-delete-target").addEventListener("click", async () => {
-    const confirmed = await showDeleteTargetConfirm(student, target, _dangerSessionCount);
+    const confirmed = await showDeleteTargetConfirm(entity, target, _dangerSessionCount);
     if (!confirmed) return;
     // Re-read the freshest reference from state after the async confirm dialog —
-    // any pending Edit Target saves (fire-and-forget) may have updated state.students
-    // since this screen opened, and using the closure's student directly would
+    // any pending Edit Target saves (fire-and-forget) may have updated state
+    // since this screen opened, and using the closure's entity directly would
     // overwrite those new activities with the stale snapshot.
-    const liveStudent = (state.students || []).find(s => s.id === student.id) || student;
-    liveStudent.targets = (liveStudent.targets || []).filter(t => t.id !== target.id);
-    liveStudent.targets.forEach((t, i) => t.order = i);
-    if (_maSelectedTargetIdx >= liveStudent.targets.length) _maSelectedTargetIdx = Math.max(0, liveStudent.targets.length - 1);
-    const si = state.students.findIndex(s => s.id === liveStudent.id);
-    if (si >= 0) state.students[si] = liveStudent;
-    if (state.selectedTargetName === target.name) state.selectedTargetName = liveStudent.targets[0]?.name || null;
-    await saveStudent(liveStudent);
-    await deleteTargetDataFromSessions(liveStudent.id, target.name);
-    renderManageActivityScreen(liveStudent);
+    const stateArr = _maIsGroup ? state.groups : state.students;
+    const liveEntity = (stateArr || []).find(e => e.id === entity.id) || entity;
+    liveEntity.targets = (liveEntity.targets || []).filter(t => t.id !== target.id);
+    liveEntity.targets.forEach((t, i) => t.order = i);
+    if (_maSelectedTargetIdx >= liveEntity.targets.length) _maSelectedTargetIdx = Math.max(0, liveEntity.targets.length - 1);
+    const si = stateArr.findIndex(e => e.id === liveEntity.id);
+    if (si >= 0) stateArr[si] = liveEntity;
+    if (!_maIsGroup && state.selectedTargetName === target.name) state.selectedTargetName = liveEntity.targets[0]?.name || null;
+    if (_maIsGroup) {
+      await saveGroup(liveEntity);
+      await deleteGroupTargetDataFromSessions(liveEntity.id, target.name);
+    } else {
+      await saveStudent(liveEntity);
+      await deleteTargetDataFromSessions(liveEntity.id, target.name);
+    }
+    renderManageActivityScreen(liveEntity);
   });
 
   document.getElementById("ma-target-select").addEventListener("change", function() {
     _maSelectedTargetIdx = parseInt(this.value, 10);
-    renderManageActivityScreen(student);
+    renderManageActivityScreen(entity);
   });
 
   // Collapse toggles
@@ -6426,7 +6454,7 @@ function renderManageActivityScreen(student) {
       const action = btn.dataset.action;
       const paId   = btn.dataset.paId;
       const tName  = btn.dataset.tname;
-      const target = student.targets.find(t => t.name === tName);
+      const target = entity.targets.find(t => t.name === tName);
       if (!target) return;
       const pa = (target.predefinedActivities || []).find(a => a.id === paId);
       if (!pa) return;
@@ -6439,7 +6467,7 @@ function renderManageActivityScreen(student) {
         const origText = btn.textContent;
         btn.disabled = true; btn.textContent = "Checking…";
         let result = { date: null, subName: null };
-        try { result = await maGetLastDataDate(student, target, pa); }
+        try { result = await maGetLastDataDate(entity, target, pa, _maIsGroup); }
         finally { btn.disabled = false; btn.textContent = origText; }
         return result;
       };
@@ -6554,10 +6582,11 @@ function renderManageActivityScreen(student) {
         pa.maintained = true; pa.activityColor = "gray";
       }
 
-      const si = state.students.findIndex(s => s.id === student.id);
-      if (si >= 0) state.students[si] = student;
-      renderManageActivityScreen(student);
-      saveStudent(student).catch(() => {});
+      const _maSaveArr = _maIsGroup ? state.groups : state.students;
+      const _maSi = _maSaveArr.findIndex(e => e.id === entity.id);
+      if (_maSi >= 0) _maSaveArr[_maSi] = entity;
+      renderManageActivityScreen(entity);
+      (_maIsGroup ? saveGroup(entity) : saveStudent(entity)).catch(() => {});
     });
   });
 }
@@ -7569,36 +7598,36 @@ async function openSession(student, existingSessionId = null, dateStr = null, pa
   state.entryEnterKeyCleanup = setupEntryEnterKeyDelegation($("target-content"),
     () => getEffectiveTargets().find(t => t.name === state.selectedTargetName));
 
-  // Refresh student data from Firestore now that the loading screen is visible,
-  // so target config changes made on another device are picked up.
+  // Run student refresh + session lookup in parallel — previously sequential
+  // (two Firestore round-trips in series). Running both at once cuts loading time roughly in half.
   try {
-    const fresh = await getStudentById(student.id);
+    const [fresh, sessionId] = await Promise.all([
+      getStudentById(student.id).catch(() => null),
+      existingSessionId
+        ? Promise.resolve(existingSessionId)
+        : getOrCreateSessionForDate(student.id, dateStr || getTodayString(), student.targets)
+    ]);
+
     if (fresh) {
       Object.assign(student, fresh);
       state.currentStudent = student;
       const si = (state.students || []).findIndex(s => s.id === student.id);
       if (si >= 0) state.students[si] = student;
     }
-  } catch {}
 
-  // Backfill activeFrom on all activities that don't have one yet, without requiring Edit Target to be opened
-  try {
-    let _bfNeedsSave = false;
-    for (const t of (student.targets || [])) {
-      for (const a of (t.predefinedActivities || [])) {
-        if (!a.isHeading && !a.isMaintainHeading && !a.isNote && !a.isExportNote && a.activeFrom == null) {
-          a.activeFrom = "2026-01-01";
-          _bfNeedsSave = true;
+    // Backfill activeFrom on all activities that don't have one yet
+    try {
+      let _bfNeedsSave = false;
+      for (const t of (student.targets || [])) {
+        for (const a of (t.predefinedActivities || [])) {
+          if (!a.isHeading && !a.isMaintainHeading && !a.isNote && !a.isExportNote && a.activeFrom == null) {
+            a.activeFrom = "2026-01-01";
+            _bfNeedsSave = true;
+          }
         }
       }
-    }
-    if (_bfNeedsSave) saveStudent(student).catch(() => {});
-  } catch {}
-
-  try {
-    const sessionId = existingSessionId
-      ? existingSessionId
-      : await getOrCreateSessionForDate(student.id, dateStr || getTodayString(), student.targets);
+      if (_bfNeedsSave) saveStudent(student).catch(() => {});
+    } catch {}
     state.currentSessionId = sessionId;
     if (participants && !existingSessionId) {
       updateSessionParticipants(sessionId, participants).catch(() => {});
@@ -8056,11 +8085,11 @@ function renderTargetContent() {
 // Groups active top-level (non-sub) activities by their section heading.
 // Activities before the first heading fall into an implicit "General" group.
 // Notes are included in the section for inline rendering; headings themselves are not.
-function groupPasBySections(target, dateStr) {
+function groupPasBySections(target, dateStr, ignoreDate = false) {
   const sections = [];
   let current = null;
   for (const pa of (target.predefinedActivities || [])) {
-    if (!isActivityActive(pa, dateStr)) continue;
+    if (!ignoreDate && !isActivityActive(pa, dateStr)) continue;
     if (pa.parentActivity) continue;
     if (pa.isHeading || pa.isMaintainHeading) {
       current = { name: pa.name || "", headingPa: pa, pas: [] };
@@ -8598,9 +8627,14 @@ function renderFedcTargetWithSidebar(target, allPas, subActsByParent, sessionDat
 
   const pct = totalActs > 0 ? Math.round(totalWritten / totalActs * 100) : 0;
 
+  // Hide sections whose activities are all invisible (before start date / mastered / discontinued)
+  const _visData = sections.map((s, i) => ({ s, st: sectionStats[i] })).filter(({ st }) => st.total > 0);
+  if (_visData.length === 0) return renderFedcTarget(target, new Set());
+  if (_selectedSectionIdx >= _visData.length) _selectedSectionIdx = 0;
+
   // Render all sections continuously — each section wrapped in an anchor div for scroll tracking
   let allSectionsHtml = '';
-  sections.forEach((section, i) => {
+  _visData.forEach(({ s: section }, i) => {
     const sectionPaSet = new Set(section.pas);
     // _sectionOnly=true skips extras/inactive — those are rendered once at the end
     const secContent = renderFedcTarget(target, sectionPaSet, true);
@@ -8643,8 +8677,7 @@ function renderFedcTargetWithSidebar(target, allPas, subActsByParent, sessionDat
   </div>`;
 
   let sidebarNavHtml = '';
-  sections.forEach((grp, i) => {
-    const { total, written } = sectionStats[i];
+  _visData.forEach(({ s: grp, st: { total, written } }, i) => {
     // First section active initially; scroll listener updates dynamically
     const isAct = i === 0;
     sidebarNavHtml += `<button class="sec-nav-btn" data-sec-idx="${i}" contenteditable="false"
@@ -9343,9 +9376,8 @@ function attachTargetListeners(target) {
       const idx = parseInt(btn.dataset.secIdx, 10) || 0;
       const anchor = c.querySelector(`.sec-scroll-section[data-sec-anchor="${idx}"]`);
       if (anchor && _secScrollHost) {
-        const anchorRect = anchor.getBoundingClientRect();
-        const containerRect = _secScrollHost.getBoundingClientRect();
-        _secScrollHost.scrollBy({ top: anchorRect.top - containerRect.top - 8, behavior: "smooth" });
+        const targetScrollTop = _secScrollHost.scrollTop + anchor.getBoundingClientRect().top - _secScrollHost.getBoundingClientRect().top;
+        _secScrollHost.scrollTo({ top: targetScrollTop, behavior: "smooth" });
       }
     });
   });
@@ -11198,19 +11230,22 @@ function buildTargetViewTable(target, data) {
     const parentActNames = new Set(
       (target.predefinedActivities || []).filter(p => p.parentActivity).map(p => p.parentActivity)
     );
+    let _pendingViewHeading = null;
     for (const pa of target.predefinedActivities) {
       if (!isActivityActive(pa, data.date)) continue;
       if (pa.isCompleted || pa.isArchived || pa.isStopped) continue;
       if (pa.isHeading || pa.isMaintainHeading) {
         const isGray = pa.headingColor === "gray" || pa.isMaintainHeading;
         const isGreen = pa.headingColor === "green";
-        rows += `<tr class="view-heading-row${isGray ? " view-gray-row" : isGreen ? " view-green-row" : ""}"><td colspan="6" contenteditable="false">${escHtml(pa.name)}</td></tr>`;
+        _pendingViewHeading = `<tr class="view-heading-row${isGray ? " view-gray-row" : isGreen ? " view-green-row" : ""}"><td colspan="6" contenteditable="false">${escHtml(pa.name)}</td></tr>`;
         continue;
       }
       if (pa.isNote || pa.isExportNote) {
+        if (_pendingViewHeading) { rows += _pendingViewHeading; _pendingViewHeading = null; }
         rows += `<tr class="view-note-row"><td colspan="6" contenteditable="false">${noteToHtml(pa.text)}</td></tr>`;
         continue;
       }
+      if (_pendingViewHeading) { rows += _pendingViewHeading; _pendingViewHeading = null; }
       const isSub = !!pa.parentActivity;
       // Skip orphaned sub-activities whose parent was deleted from the predefined config.
       // Edit Target hides them (line: if (a.parentActivity) return) but they still exist in
@@ -13147,19 +13182,22 @@ function buildGroupTargetViewTable(target, data, attendees) {
     const parentActNamesGrp = new Set(
       (target.predefinedActivities || []).filter(p => p.parentActivity).map(p => p.parentActivity)
     );
+    let _pendingGrpViewHeading = null;
     for (const pa of target.predefinedActivities) {
       if (!isActivityActive(pa, data.date)) continue;
       if (pa.isCompleted || pa.isArchived || pa.isStopped) continue;
       if (pa.isHeading || pa.isMaintainHeading) {
         const isGray = pa.headingColor === "gray" || pa.isMaintainHeading;
         const isGreenHdg = pa.headingColor === "green";
-        rows += `<tr class="view-heading-row${isGray ? " view-gray-row" : isGreenHdg ? " view-green-row" : ""}"><td colspan="7" contenteditable="false">${escHtml(pa.name)}</td></tr>`;
+        _pendingGrpViewHeading = `<tr class="view-heading-row${isGray ? " view-gray-row" : isGreenHdg ? " view-green-row" : ""}"><td colspan="7" contenteditable="false">${escHtml(pa.name)}</td></tr>`;
         continue;
       }
       if (pa.isNote || pa.isExportNote) {
+        if (_pendingGrpViewHeading) { rows += _pendingGrpViewHeading; _pendingGrpViewHeading = null; }
         rows += `<tr class="view-note-row"><td colspan="7" contenteditable="false">${noteToHtml(pa.text)}</td></tr>`;
         continue;
       }
+      if (_pendingGrpViewHeading) { rows += _pendingGrpViewHeading; _pendingGrpViewHeading = null; }
       if (!pa.parentActivity && parentActNamesGrp.has(pa.name)) {
         no++;
         Object.entries(data.activities || {})
@@ -14827,6 +14865,11 @@ function openManageModal(student, targetOrNull, templateOrNull = null, remarkPre
   }
 }
 
+// ── Manage Activities & Targets (group) ──────────────────────
+function showGroupManageActivityContent(group) {
+  requirePassword(() => openGroupManageActivityScreen(group), EXPORT_MSG);
+}
+
 // ── Group Add Target picker ───────────────────────────────────
 
 // ── Reorder Targets (group) — same mechanism as the individual-student version ──
@@ -15052,7 +15095,7 @@ function showGroupDupFromTemplate(group) {
       if (!tmpl) continue;
       const copy = {
         id: cfgId("gt"), name: uniqueTargetName(group.targets, tmpl.name), maxPoints: tmpl.maxPoints || 3,
-        hasComment: false, fullName: "", order: group.targets.length,
+        hasComment: false, fullName: "", order: group.targets.length, groupLayout: "byActivity",
         predefinedActivities: JSON.parse(JSON.stringify(tmpl.predefinedActivities || [])),
         notes: JSON.parse(JSON.stringify(tmpl.notes || [])), isStructured: true
       };
@@ -15064,7 +15107,7 @@ function showGroupDupFromTemplate(group) {
     await saveGroup(group);
     if (lastAdded) state.selectedGroupTargetName = lastAdded.name;
     populateGroupTargetDropdown(group.targets);
-    renderGroupTargetContent();
+    try { renderGroupTargetContent(); } catch(e) { console.error("renderGroupTargetContent after template dup:", e); }
     if (lastAdded && checked.length === 1) openGroupManageModal(group, lastAdded);
   });
 }
@@ -15361,9 +15404,11 @@ async function getLastSessionDateForTarget(studentId, targetName) {
 
 async function handleDiscontinueTarget(entity, target, isGroup) {
   const save = () => isGroup ? saveGroup(entity) : saveStudent(entity);
-  const rerender = () => isGroup
-    ? populateGroupTargetDropdown(entity.targets)
-    : renderManageActivityScreen(entity);
+  const rerender = () => {
+    if (isGroup && _maIsGroup) renderManageActivityScreen(entity);
+    else if (isGroup) populateGroupTargetDropdown(entity.targets);
+    else renderManageActivityScreen(entity);
+  };
 
   if (target.discontinuedOn) {
     // Block restore if another active target already has the same name
@@ -17772,7 +17817,7 @@ function renderTargetManageContent(student, target) {
 
   $("btn-mn-add-act").addEventListener("click", () => {
     const btn = $("btn-mn-add-act"); if (btn) btn.disabled = true;
-    acts.push({ id: cfgId("a"), name: "", order: acts.length, createdOn: todayDateStr(), activeFrom: todayDateStr() });
+    acts.push({ id: cfgId("a"), name: "", order: acts.length, createdOn: todayDateStr(), activeFrom: _maIsGroup ? null : todayDateStr() });
     target.predefinedActivities = acts;
     renderTargetManageContent(student, target);
     saveTarget().catch(() => {});
@@ -17882,7 +17927,7 @@ function renderTargetManageContent(student, target) {
       parentAct.noRemark = true;
       const siblingIdxs = acts.map((a2, i) => a2.parentActivity === _parentKey ? i : -1).filter(i => i >= 0);
       const insertAfter = siblingIdxs.length > 0 ? Math.max(...siblingIdxs) : parentIdx;
-      acts.splice(insertAfter + 1, 0, { id: cfgId("a"), name: "", parentActivity: _parentKey, order: 0, activeFrom: todayDateStr(), createdOn: todayDateStr() });
+      acts.splice(insertAfter + 1, 0, { id: cfgId("a"), name: "", parentActivity: _parentKey, order: 0, activeFrom: _maIsGroup ? null : todayDateStr(), createdOn: todayDateStr() });
       acts.forEach((a2, i) => a2.order = i);
       target.predefinedActivities = acts;
       const sp = $("manage-modal-body").scrollTop;
@@ -19780,6 +19825,10 @@ function showGroupChoice(group) {
         <span class="choice-icon">✏️</span>
         <div class="choice-text"><div class="choice-label">Manage Group</div></div>
       </button>
+      <button class="choice-btn choice-manage-activity-group">
+        <span class="choice-icon">🪄</span>
+        <div class="choice-text"><div class="choice-label">Manage Activities & Targets</div></div>
+      </button>
       <button class="choice-btn choice-export-excel">
         <span class="choice-icon">📊</span>
         <div class="choice-text"><div class="choice-label">Export to Excel (Yearly Summary)</div></div>
@@ -19856,8 +19905,22 @@ function showGroupChoice(group) {
         renderGroupStartSessionCalendar(group, today, displayDate, new Set(), new Map(), renderGroupDateStep);
         groupSessionsFetch
           .then(sessions => {
-            const takenDates = new Set(sessions.map(s => s.date));
-            const sessionsByDate = new Map(sessions.map(s => [s.date, s.participants || []]));
+            const _stripGC = s => (s || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim();
+            const grpHasData = s => {
+              if (Object.values(s.fedcComments || {}).some(c => _stripGC(c).length > 0)) return true;
+              return Object.values(s.remarks || {}).some(r =>
+                _stripGC(r.text).length > 0 ||
+                (r.trials || []).some(t => t !== null && t !== -1) ||
+                _stripGC(r.masteryNote).length > 0 ||
+                (r.optionScore !== undefined && r.optionScore !== null) ||
+                (r.selectedOptions || []).length > 0
+              );
+            };
+            const empties = sessions.filter(s => !grpHasData(s));
+            empties.forEach(s => deleteSession(s.id).catch(() => {}));
+            const dataSessions = sessions.filter(grpHasData);
+            const takenDates = new Set(dataSessions.map(s => s.date));
+            const sessionsByDate = new Map(dataSessions.map(s => [s.date, s.participants || []]));
             renderGroupStartSessionCalendar(group, today, displayDate, takenDates, sessionsByDate, renderGroupDateStep);
           })
           .catch(() => {});
@@ -19872,6 +19935,10 @@ function showGroupChoice(group) {
   $("session-picker-list").querySelector(".choice-manage").addEventListener("click", () => {
     closeSessionPicker();
     openGroupManageModal(group);
+  });
+  $("session-picker-list").querySelector(".choice-manage-activity-group").addEventListener("click", () => {
+    closeSessionPicker();
+    showGroupManageActivityContent(group);
   });
 }
 
@@ -19934,6 +20001,7 @@ async function openGroupSession(group, dateStr, attendees, participants = null) 
         const stillValid = preservedGroupTargetName && group.targets.some(t => t.name === preservedGroupTargetName);
         state.selectedGroupTargetName = stillValid ? preservedGroupTargetName : (sortTargetsByOrder(group.targets)[0]?.name || null);
         populateGroupTargetDropdown(group.targets);
+        try { renderGroupTargetContent(); } catch (e) { console.error("renderGroupTargetContent (init) failed:", e); }
         if (state.selectedGroupTargetName) {
           try {
             const filled = await autoFillGroupSession(group, sid, data, state.selectedGroupTargetName, attendees);
@@ -19971,7 +20039,7 @@ async function openGroupSession(group, dateStr, attendees, participants = null) 
       // Re-check at fire time — see the matching comment in openSession's listener.
       setTimeout(() => {
         if (isGroupEntryBusy()) { state.groupRenderPending = true; }
-        else { renderGroupTargetContent(); }
+        else { try { renderGroupTargetContent(); } catch (e) { console.error("renderGroupTargetContent (snap):", e); } }
       }, 0);
     });
   } catch (err) {
@@ -19982,8 +20050,21 @@ async function openGroupSession(group, dateStr, attendees, participants = null) 
 
 function renderGroupSessionHeader(data) {
   if (!data) return;
-  $("group-session-meta").textContent =
-    `Session ${data.sessionNumber} of ${(data.month || "").split(" ")[0]} · ${formatDate(data.date)}`;
+  const attendees = data.attendees || [];
+  const links = state.currentGroup?.studentLinks || {};
+  const psn = data.attendeePersonalSessionNumbers || {};
+  const studentParts = attendees.map(name => {
+    const sid = links[name];
+    const student = sid ? (state.students || []).find(s => s.id === sid) : null;
+    const displayName = student?.preferredName || name;
+    const n = sid ? psn[sid] : null;
+    return n != null ? `${displayName} (Session ${n})` : displayName;
+  });
+  const datePart = data.date ? formatDate(data.date) : "";
+  const metaParts = studentParts.length > 0
+    ? [...studentParts, datePart].filter(Boolean)
+    : [`Session ${data.sessionNumber} of ${(data.month || "").split(" ")[0]}`, datePart].filter(Boolean);
+  $("group-session-meta").textContent = metaParts.join(" · ");
 }
 
 function populateGroupTargetDropdown(targets) {
@@ -20003,28 +20084,36 @@ function populateGroupTargetDropdown(targets) {
     manageBtn.classList.toggle("hidden", !state.selectedGroupTargetName);
     manageBtn.onclick = () => {
       const tgt = state.currentGroup?.targets.find(t => t.name === state.selectedGroupTargetName);
-      if (tgt) openGroupManageModal(state.currentGroup, tgt);
+      if (tgt) requirePassword(() => openGroupManageModal(state.currentGroup, tgt), EXPORT_MSG);
     };
   }
 
-  const reorderBtn = $("btn-group-reorder-targets");
-  if (reorderBtn) {
-    reorderBtn.classList.toggle("hidden", targets.length < 2);
-    reorderBtn.onclick = () => showGroupTargetReorderList(state.currentGroup);
-  }
-
-  const discBtn = $("btn-group-discontinue-target");
-  if (discBtn) {
-    const selTgt = state.currentGroup?.targets.find(t => t.name === state.selectedGroupTargetName);
-    discBtn.classList.toggle("hidden", !state.selectedGroupTargetName);
-    if (selTgt) {
-      const isDisc = !!selTgt.discontinuedOn;
-      discBtn.textContent = isDisc ? '✅ Restore Target' : '🛑 Discontinue Target';
-      discBtn.style.background = isDisc ? '#d1fae5' : '#fff0f0';
-      discBtn.style.color      = isDisc ? '#065f46' : '#dc2626';
-      discBtn.style.borderColor = isDisc ? '#6ee7b7' : '#fca5a5';
-      discBtn.onclick = () => handleDiscontinueTarget(state.currentGroup, selTgt, true);
-    }
+  const editInstBtn = $("btn-group-edit-instructors");
+  if (editInstBtn) {
+    editInstBtn.classList.remove("hidden");
+    editInstBtn.onclick = () => {
+      const curParticipants = state.groupSessionData?.participants || [];
+      $("session-picker-title").textContent = "Edit Instructors";
+      $("session-picker-list").innerHTML = `
+        <div style="padding:1.5rem 1.25rem;display:flex;flex-direction:column;align-items:center">
+          <p style="margin:0 0 1.25rem;font-weight:600;color:#374151;text-align:center">Who is facilitating this session?</p>
+          <div style="width:100%;max-width:320px">
+            ${INSTRUCTORS.map(inst => `
+              <label style="display:flex;align-items:center;justify-content:center;gap:.85rem;padding:.75rem 0;cursor:pointer;font-size:1rem;border-bottom:1px solid #f3f4f6">
+                <input type="checkbox" class="inst-edit-check" value="${inst.id}"${curParticipants.includes(inst.id) ? " checked" : ""}
+                  style="width:1.2rem;height:1.2rem;accent-color:#3b82f6;cursor:pointer;flex-shrink:0">
+                <span style="color:#1f2937;width:7rem">${escHtml(inst.name)}</span>
+              </label>`).join("")}
+          </div>
+          <button class="btn-inst-save export-btn" style="margin-top:1.5rem;width:100%;padding:.85rem;font-size:1rem;text-align:center">Save</button>
+        </div>`;
+      $("session-picker-modal").classList.remove("hidden");
+      $("session-picker-list").querySelector(".btn-inst-save").addEventListener("click", async () => {
+        const participants = [...$("session-picker-list").querySelectorAll(".inst-edit-check:checked")].map(c => c.value);
+        closeSessionPicker();
+        await updateSessionParticipants(state.groupSessionId, participants).catch(() => {});
+      });
+    };
   }
 
   // Wire change handler — same pattern as individual session's populateTargetDropdown
@@ -20268,7 +20357,13 @@ function renderGroupTargetContent() {
   if (!content) return;
   const group   = state.currentGroup;
   const data    = state.groupSessionData;
-  const target  = group?.targets.find(t => t.name === state.selectedGroupTargetName);
+  let   target  = group?.targets.find(t => t.name === state.selectedGroupTargetName);
+  // Fallback: if state says a target is selected but it's not found (brief state mismatch),
+  // auto-select the first available target so the screen never gets stuck on "No targets added yet"
+  if (!target && state.selectedGroupTargetName && group?.targets.length) {
+    const fallback = sortTargetsByOrder(group.targets).find(t => !t.discontinuedOn);
+    if (fallback) { state.selectedGroupTargetName = fallback.name; target = fallback; populateGroupTargetDropdown(group.targets); }
+  }
   if (!target || !data) {
     content.innerHTML = `<p class="empty-hint" contenteditable="false" style="padding:2rem;text-align:center">No targets added yet. Use the dropdown above to add one.</p>`;
     updateGroupAvgChips(null, null);
@@ -20277,9 +20372,17 @@ function renderGroupTargetContent() {
 
   const attendees = state.groupAttendees;
   const groupLayout = target.groupLayout || "byActivity";
-  const items = groupLayout === "byStudent"
-    ? buildGroupItemsByStudent(target, data, attendees)
-    : buildGroupItemsByActivity(target, data, attendees);
+  let items;
+  try {
+    items = groupLayout === "byStudent"
+      ? buildGroupItemsByStudent(target, data, attendees)
+      : buildGroupItemsByActivity(target, data, attendees);
+  } catch (e) {
+    console.error("renderGroupTargetContent build failed:", e);
+    content.innerHTML = `<p class="empty-hint" contenteditable="false" style="padding:2rem;text-align:center">No targets added yet. Use the dropdown above to add one.</p>`;
+    updateGroupAvgChips(null, null);
+    return;
+  }
 
   const scrollHost = content.closest(".session-body");
   const scrollTop  = scrollHost?.scrollTop;
@@ -20303,26 +20406,32 @@ function buildGroupItemsByActivity(target, data, attendees, _grpFilterPaSet = nu
   const items = [];
 
   // Predefined activities (with heading and note support)
-  const grpSessionDate = state.sessionData?.date || todayDateStr();
+  const grpSessionDate = state.groupSessionData?.date || state.sessionData?.date || todayDateStr();
   const allPas = target.predefinedActivities || [];
 
-  // Pre-compute active sub-activities per parent
+  // Pre-compute sub-activities per parent (group sessions: ignore activeFrom date)
   const grpSubsByParent = new Map();
   for (const pa of allPas) {
-    if (pa.parentActivity && isActivityActive(pa, grpSessionDate) && !pa.isCompleted && !pa.isArchived && !pa.isStopped) {
+    if (pa.parentActivity && !pa.isCompleted && !pa.isArchived && !pa.isStopped) {
       if (!grpSubsByParent.has(pa.parentActivity)) grpSubsByParent.set(pa.parentActivity, []);
       grpSubsByParent.get(pa.parentActivity).push(pa);
     }
   }
   const letters = "abcdefghij";
 
-  // Always use sidebar layout for non-filtered calls (but not when called for footer-only)
-  if (!_grpFilterPaSet && !_footerOnly) {
-    return buildGroupItemsWithSidebar(target, data, attendees, allPas, grpSubsByParent, grpSessionDate);
+  // Use sidebar layout for all FEDC-style targets (matches individual session behaviour:
+  // sidebar always shows when predefined activities exist, even if only "General" section)
+  if (!_grpFilterPaSet && !_footerOnly && allPas.length > 0) {
+    const _sections = groupPasBySections(target, grpSessionDate, true);
+    if (_sections.length > 0) {
+      return buildGroupItemsWithSidebar(target, data, attendees, allPas, grpSubsByParent, grpSessionDate);
+    }
   }
 
+  let grpActNum = 0;
   for (const pa of allPas) {
-    if (!isActivityActive(pa, grpSessionDate)) continue;
+    if (_footerOnly) continue; // predefined activities rendered in sections already; skip in footer
+    // Group sessions: don't filter predefined activities by activeFrom date — they apply to all sessions
     // Sub-activities rendered within their parent's group
     if (pa.parentActivity) continue;
     if (pa.isNote || pa.isExportNote) {
@@ -20349,20 +20458,21 @@ function buildGroupItemsByActivity(target, data, attendees, _grpFilterPaSet = nu
     if (_grpFilterPaSet && !_grpFilterPaSet.has(pa)) continue;
 
     // Parent activity with sub-activities — render as connected group
-    const children = grpSubsByParent.get(pa.name) || [];
+    const children = grpSubsByParent.get(pa.title || pa.name) || [];
     if (children.length > 0) {
+      grpActNum++;
       let groupHtml = `<div style="display:flex;flex-direction:column;gap:0">`;
       groupHtml += `<div class="entry-block" style="border:1px solid var(--border);border-left:5px solid var(--primary);background:var(--white);border-radius:var(--radius) var(--radius) 0 0;border-bottom:none;box-shadow:var(--shadow)">
         <div class="entry-field" contenteditable="false">
           <span class="field-label">Activity</span>
-          <span class="field-value-fixed">${inactiveReasonBadge(pa)}<span style="color:#6b7280;font-weight:600;margin-right:.2rem"></span>${paDisplayHtml(pa, true)}</span>
-          ${pa.activeFrom ? `<span style="font-size:.75rem;color:#9ca3af;white-space:nowrap;flex-shrink:0;align-self:flex-start">Created: ${fmtPeriodDate(pa.activeFrom)}</span>` : ""}
+          <span class="field-value-fixed">${inactiveReasonBadge(pa)}<span style="color:#6b7280;font-weight:600;margin-right:.2rem">${grpActNum})</span>${paDisplayHtml(pa, true)}</span>
+          ${(pa.createdOn || pa.activeFrom) ? `<span style="font-size:.75rem;color:#9ca3af;white-space:nowrap;flex-shrink:0;align-self:flex-start">Created: ${fmtPeriodDate(pa.createdOn || pa.activeFrom)}</span>` : ""}
         </div>
       </div>`;
       children.forEach((sub, si) => {
         let subActId = Object.entries(data.activities || {}).find(([, a]) =>
           (sub.id && a.configId === sub.id && a.targetName === target.name) ||
-          (a.targetName === target.name && a.activityName === sub.name && a.parentActivity === sub.parentActivity)
+          (a.targetName === target.name && a.activityName === (sub.title || sub.name) && a.parentActivity === sub.parentActivity)
         )?.[0] || null;
         // Extended-candidates fix (mirrors individual session): include records with no
         // configId that match by name+parent, in addition to configId-matched records.
@@ -20421,13 +20531,28 @@ function buildGroupItemsByActivity(target, data, attendees, _grpFilterPaSet = nu
           }
         }
         const isLast   = si === children.length - 1;
-        const subCard  = renderGroupActivityCard(sub.name, subActId, target, data, attendees, null, null, sub, true, sub.parentActivity, sub.id);
+        const _subHasContent = subActId && Object.values(data.remarks || {}).some(r => {
+          if (r.activityId !== subActId || !attendees.includes(r.studentName)) return false;
+          return (r.text || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim().length > 0 ||
+            (r.trials || []).some(t => t !== null && t !== -1) ||
+            (r.masteryNote || "").trim().length > 0 ||
+            (r.optionScore !== undefined && r.optionScore !== null) ||
+            (r.selectedOptions || []).length > 0;
+        });
+        const _subDot = _grpFilterPaSet
+          ? (_subHasContent
+            ? `<span style="display:inline-flex;align-items:center;justify-content:center;width:17px;height:17px;border-radius:50%;background:#22c55e;color:#fff;font-size:.6rem;font-weight:900;margin-right:.3rem;flex-shrink:0">✓</span>`
+            : `<span style="display:inline-flex;align-items:center;justify-content:center;width:17px;height:17px;border-radius:50%;border:2px solid #d1d5db;margin-right:.3rem;flex-shrink:0"></span>`)
+          : "";
+        const subCard  = renderGroupActivityCard(sub.title || sub.name, subActId, target, data, attendees, null, null, sub, true, sub.parentActivity, sub.id, _grpFilterPaSet, 0, true);
         const subRadius = isLast ? '0 0 var(--radius) var(--radius)' : '0';
+        const _subCreatedDate = sub.createdOn || sub.activeFrom;
         groupHtml += `<div style="border:1px solid var(--border);border-left:5px solid var(--primary);background:var(--white);border-top:1px solid var(--border);border-radius:${subRadius};overflow:hidden">
           <div style="padding:.4rem .6rem;display:flex;align-items:center;gap:.45rem">
-            <span style="flex-shrink:0;background:#dbeafe;color:#1e40af;border-radius:.4rem;padding:.12rem .5rem;font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em;white-space:nowrap">Subactivity</span>
-            <span style="font-size:.85rem;font-weight:700;color:#374151"><span style="color:#1e40af">${letters[si]})</span> ${escHtml(sub.name)}</span>${inactiveReasonBadge(sub)}
-            ${sub.activeFrom ? `<span style="font-size:.75rem;color:#9ca3af;white-space:nowrap;margin-left:auto">Created: ${fmtPeriodDate(sub.activeFrom)}</span>` : ""}
+            ${_subDot}<span style="flex-shrink:0;background:#dbeafe;color:#1e40af;border-radius:.4rem;padding:.12rem .5rem;font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em;white-space:nowrap">Subactivity</span>
+            <span style="font-size:.85rem;font-weight:700;color:#374151"><span style="color:#1e40af">${letters[si]})</span> ${escHtml(sub.title || sub.name)}</span>${inactiveReasonBadge(sub)}
+            ${_subCreatedDate ? `<span style="font-size:.75rem;color:#9ca3af;white-space:nowrap;margin-left:auto">Created: ${fmtPeriodDate(_subCreatedDate)}</span>` : ""}
+            ${sub.id ? `<button class="btn-icon btn-grp-edit-pencil" contenteditable="false" data-pa-id="${escHtml(sub.id)}" title="Edit in Edit Target" style="font-size:.85rem;opacity:.55;line-height:1">✏️</button>` : ""}
           </div>
           ${subCard}
         </div>`;
@@ -20439,10 +20564,11 @@ function buildGroupItemsByActivity(target, data, attendees, _grpFilterPaSet = nu
 
     const grpAllActs = Object.entries(data.activities || {});
     const actId = (pa.id && grpAllActs.find(([, a]) => a.configId === pa.id && a.targetName === target.name)?.[0])
-      || grpAllActs.find(([, a]) => a.targetName === target.name && a.activityName === pa.name && !a.parentActivity && !a.configId)?.[0]
+      || grpAllActs.find(([, a]) => a.targetName === target.name && a.activityName === (pa.title || pa.name) && !a.parentActivity && !a.configId)?.[0]
       || null;
     if (actId && pa.id && !data.activities[actId]?.configId) data.activities[actId].configId = pa.id;
-    items.push(renderGroupActivityCard(pa.name, actId, target, data, attendees, pa.actNote, pa.isMapped ? pa : null, pa, true, null, pa.id));
+    grpActNum++;
+    items.push(renderGroupActivityCard(pa.title || pa.name, actId, target, data, attendees, pa.actNote, pa.isMapped ? pa : null, pa, true, null, pa.id, _grpFilterPaSet, grpActNum));
   }
 
   if (_grpFilterPaSet && !_footerOnly) return items; // sidebar mode: manual/inactive sections handled by sidebar wrapper
@@ -20452,11 +20578,13 @@ function buildGroupItemsByActivity(target, data, attendees, _grpFilterPaSet = nu
     .filter(([, a]) => a.targetName === target.name && !a.isPredefined)
     .sort(([, a], [, b]) => (a.order || 0) - (b.order || 0))
     .forEach(([actId, act]) => {
-      items.push(renderGroupActivityCard(act.activityName, actId, target, data, attendees));
+      items.push(renderGroupActivityCard(act.activityName, actId, target, data, attendees, null, null, null, false, null, null, _grpFilterPaSet));
     });
 
+  // Group sessions: only show Mastered/Discontinued sections (not date-inactive activities)
   const grpInactivePas = (target.predefinedActivities || []).filter(pa =>
-    !isActivityActive(pa, grpSessionDate) && !pa.isCompleted && !pa.isArchived && !pa.isStopped
+    !pa.isCompleted && !pa.isArchived && !pa.isStopped &&
+    (pa.masteredOn || pa.discontinuedOn || pa.inactiveReason)
   );
   if (items.length === 0 && grpInactivePas.length === 0) {
     items.push(`<p class="empty-hint" contenteditable="false" style="padding:1.5rem">No activities yet. Add them under Edit Target.</p>`);
@@ -20514,11 +20642,35 @@ function buildGroupItemsByActivity(target, data, attendees, _grpFilterPaSet = nu
 
 // ─── SECTION SIDEBAR LAYOUT (group session) ──────────────────
 
-function buildGroupItemsWithSidebar(target, data, attendees, allPas, grpSubsByParent, grpSessionDate) {
-  const sections = groupPasBySections(target, grpSessionDate);
-  if (!sections.length) return buildGroupItemsByActivity(target, data, attendees, new Set());
+function buildGroupItemsWithSidebar(target, data, attendees, allPas, grpSubsByParent, grpSessionDate, layout = "byActivity") {
+  const sections = groupPasBySections(target, grpSessionDate, true);
+  if (!sections.length) {
+    return layout === "byStudent"
+      ? buildGroupItemsByStudent(target, data, attendees, new Set())
+      : buildGroupItemsByActivity(target, data, attendees, new Set());
+  }
 
   if (_selectedGroupSectionIdx >= sections.length) _selectedGroupSectionIdx = 0;
+
+  const _statStrip = t => (t || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim();
+  const grpActIdFor = pa => Object.entries(data.activities || {})
+    .find(([, a]) => {
+      if (a.targetName !== target.name) return false;
+      if (pa.id && a.configId === pa.id) return true;
+      if (pa.title && a.activityName === pa.title) return true;
+      if (pa.name && a.activityName === pa.name) return true;
+      return false;
+    })?.[0] || null;
+  const grpStudentHasContent = (actId, studentName) =>
+    !!actId && Object.values(data.remarks || {}).some(r =>
+      r.activityId === actId && r.studentName === studentName && (
+        _statStrip(r.text).length > 0 ||
+        (r.trials || []).some(t => t !== null && t !== -1) ||
+        _statStrip(r.masteryNote).length > 0 ||
+        (r.optionScore !== undefined && r.optionScore !== null) ||
+        (r.selectedOptions || []).length > 0
+      )
+    );
 
   let totalActs = 0, totalWritten = 0;
   const sectionStats = sections.map(grp => {
@@ -20529,12 +20681,20 @@ function buildGroupItemsWithSidebar(target, data, attendees, allPas, grpSubsByPa
       if (children.length > 0) {
         for (const sub of children) {
           if (sub.isCompleted || sub.isArchived || sub.isStopped) continue;
-          secTotal++;
-          if (grpPaIsWritten(sub, target, data, pa.title || pa.name)) secWritten++;
+          if (layout === "byStudent") {
+            for (const sName of attendees) { secTotal++; if (grpStudentHasContent(grpActIdFor(sub), sName)) secWritten++; }
+          } else {
+            secTotal++;
+            if (grpPaIsWritten(sub, target, data, pa.title || pa.name)) secWritten++;
+          }
         }
       } else {
-        secTotal++;
-        if (grpPaIsWritten(pa, target, data)) secWritten++;
+        if (layout === "byStudent") {
+          for (const sName of attendees) { secTotal++; if (grpStudentHasContent(grpActIdFor(pa), sName)) secWritten++; }
+        } else {
+          secTotal++;
+          if (grpPaIsWritten(pa, target, data)) secWritten++;
+        }
       }
     }
     totalActs += secTotal;
@@ -20544,18 +20704,29 @@ function buildGroupItemsWithSidebar(target, data, attendees, allPas, grpSubsByPa
 
   const pct = totalActs > 0 ? Math.round(totalWritten / totalActs * 100) : 0;
 
+  // Hide sections whose activities are all invisible (mastered / discontinued / stopped)
+  const _grpVisData = sections.map((s, i) => ({ s, st: sectionStats[i] })).filter(({ st }) => st.total > 0);
+  if (_grpVisData.length === 0) {
+    return layout === "byStudent"
+      ? buildGroupItemsByStudent(target, data, attendees, new Set())
+      : buildGroupItemsByActivity(target, data, attendees, new Set());
+  }
+  if (_selectedGroupSectionIdx >= _grpVisData.length) _selectedGroupSectionIdx = 0;
+
   // Render all sections continuously — each wrapped in an anchor div for scroll tracking
   let allSectionsHtml = '';
-  sections.forEach((section, i) => {
+  _grpVisData.forEach(({ s: section }, i) => {
     const sectionPaSet = new Set(section.pas);
-    const sectionItems = buildGroupItemsByActivity(target, data, attendees, sectionPaSet);
+    const sectionItems = layout === "byStudent"
+      ? buildGroupItemsByStudent(target, data, attendees, sectionPaSet)
+      : buildGroupItemsByActivity(target, data, attendees, sectionPaSet);
     allSectionsHtml += `<div class="grp-sec-scroll-section" data-sec-anchor="${i}" style="display:flex;flex-direction:column;gap:.85rem">
       <div contenteditable="false" style="font-size:1.43rem;font-weight:700;color:#374151;padding-bottom:.5rem;border-bottom:2px solid #e5e7eb">${escHtml(section.name)}</div>
       ${sectionItems.join("")}
     </div>`;
   });
-  // Footer: non-predefined (extra) activities and inactive section — rendered once after all sections
-  const footerItems = buildGroupItemsByActivity(target, data, attendees, null, true /* _footerOnly */);
+  // Footer: non-predefined (extra) activities — only for byActivity layout
+  const footerItems = layout === "byStudent" ? [] : buildGroupItemsByActivity(target, data, attendees, null, true /* _footerOnly */);
   if (footerItems.length) allSectionsHtml += `<div style="display:flex;flex-direction:column;gap:.85rem">${footerItems.join("")}</div>`;
 
   if (_grpSidebarCollapsed) {
@@ -20584,8 +20755,7 @@ function buildGroupItemsWithSidebar(target, data, attendees, allPas, grpSubsByPa
   </div>`;
 
   let sidebarNavHtml = '';
-  sections.forEach((grp, i) => {
-    const { total, written } = sectionStats[i];
+  _grpVisData.forEach(({ s: grp, st: { total, written } }, i) => {
     // First section active initially; scroll listener updates dynamically
     const isAct = i === 0;
     sidebarNavHtml += `<button class="grp-sec-nav-btn" data-sec-idx="${i}" contenteditable="false"
@@ -20607,35 +20777,80 @@ function buildGroupItemsWithSidebar(target, data, attendees, allPas, grpSubsByPa
 }
 
 // "Group activities together": student is the heading, activities are listed underneath
-function buildGroupItemsByStudent(target, data, attendees) {
+function buildGroupItemsByStudent(target, data, attendees, _grpFilterPaSet = null) {
   if (attendees.length === 0) {
     return [`<p class="empty-hint" contenteditable="false" style="padding:1.5rem">No attendees selected for this session.</p>`];
   }
-  const items = attendees.map(studentName => renderGroupStudentBlock(studentName, target, data));
-  return items;
+  const grpStudentDate = state.groupSessionData?.date || state.sessionData?.date || todayDateStr();
+
+  // Route to sidebar for FEDC targets (matches byActivity behaviour)
+  if (!_grpFilterPaSet && (target.predefinedActivities || []).length > 0) {
+    const _sections = groupPasBySections(target, grpStudentDate, true);
+    if (_sections.length > 0) {
+      const _allPas = target.predefinedActivities || [];
+      const _grpSubs = new Map();
+      for (const pa of _allPas) {
+        if (pa.parentActivity && !pa.isCompleted && !pa.isArchived && !pa.isStopped) {
+          if (!_grpSubs.has(pa.parentActivity)) _grpSubs.set(pa.parentActivity, []);
+          _grpSubs.get(pa.parentActivity).push(pa);
+        }
+      }
+      return buildGroupItemsWithSidebar(target, data, attendees, _allPas, _grpSubs, grpStudentDate, "byStudent");
+    }
+  }
+
+  const items = [];
+  for (const studentName of attendees) {
+    try {
+      const block = renderGroupStudentBlock(studentName, target, data, grpStudentDate, _grpFilterPaSet);
+      if (block) items.push(block);
+      else if (!_grpFilterPaSet) items.push(`<div class="group-by-student-block" data-student="${escHtml(studentName)}">
+        <div class="activity-group-heading" contenteditable="false">${liveGroupAttendeeLabel(studentName)}</div>
+        <p class="empty-hint" contenteditable="false" style="padding:1rem">No activities yet. Add them under Edit Target.</p>
+      </div>`);
+    } catch (e) {
+      console.error("renderGroupStudentBlock failed for", studentName, e);
+      items.push(`<div class="group-by-student-block" data-student="${escHtml(studentName)}">
+        <div class="activity-group-heading" contenteditable="false">${escHtml(studentName)}</div>
+        <p style="padding:1rem;color:#dc2626;font-size:.85rem">Error loading: ${escHtml(e?.message || String(e))}</p>
+      </div>`);
+    }
+  }
+  return items.length ? items : [`<p class="empty-hint" contenteditable="false" style="padding:1.5rem">No activities found.</p>`];
 }
 
-function renderGroupStudentBlock(studentName, target, data) {
+function renderGroupStudentBlock(studentName, target, data, grpStudentDate = null, _filterPaSet = null) {
   // Section headings/notes aren't tied to a specific student, so they're skipped here —
   // only actual scoreable activities make sense nested under a student.
   const activityEntries = [];
-  const grpStudentDate = todayDateStr();
+  if (!grpStudentDate) grpStudentDate = state.groupSessionData?.date || todayDateStr();
+  let byStudentActNum = 0;
   for (const pa of (target.predefinedActivities || [])) {
-    if (!isActivityActive(pa, grpStudentDate)) continue;
+    // Group sessions: don't filter by activeFrom date — activities apply to all sessions
+    if (_filterPaSet && !_filterPaSet.has(pa)) continue;
     if (pa.isNote || pa.isExportNote || pa.isHeading || pa.isMaintainHeading || pa.isCompleted || pa.isArchived || pa.isStopped || pa.isMaintain || (!pa.name && !pa.title)) continue;
     const actId = Object.entries(data.activities || {})
-      .find(([, a]) => a.targetName === target.name && (a.activityName === pa.name || (pa.title && a.activityName === pa.title)))?.[0] || null;
-    activityEntries.push({ actId, actName: pa.title || pa.name, actNote: pa.actNote, pa });
+      .find(([, a]) => {
+        if (a.targetName !== target.name) return false;
+        if (pa.id && a.configId === pa.id) return true;
+        if (pa.title && a.activityName === pa.title) return true;
+        if (pa.name && a.activityName === pa.name) return true;
+        return false;
+      })?.[0] || null;
+    if (!pa.parentActivity) byStudentActNum++;
+    activityEntries.push({ actId, actName: pa.title || pa.name, actNote: pa.actNote, pa, actNum: pa.parentActivity ? 0 : byStudentActNum });
   }
-  Object.entries(data.activities || {})
-    .filter(([, a]) => a.targetName === target.name && !a.isPredefined)
-    .sort(([, a], [, b]) => (a.order || 0) - (b.order || 0))
-    .forEach(([actId, act]) => activityEntries.push({ actId, actName: act.activityName }));
+  if (!_filterPaSet) {
+    Object.entries(data.activities || {})
+      .filter(([, a]) => a.targetName === target.name && !a.isPredefined)
+      .sort(([, a], [, b]) => (a.order || 0) - (b.order || 0))
+      .forEach(([actId, act]) => activityEntries.push({ actId, actName: act.activityName }));
+  }
 
-  const cards = activityEntries.length
-    ? activityEntries.map(({ actId, actName, actNote, pa }) =>
-        renderGroupStudentActivityCard(studentName, actName, actId, target, data, actNote, pa?.isMapped ? pa : null, !!pa?.maintained)).join("")
-    : `<p class="empty-hint" contenteditable="false" style="padding:1rem">No activities yet. Add them under Edit Target.</p>`;
+  if (activityEntries.length === 0) return '';
+
+  const cards = activityEntries.map(({ actId, actName, actNote, pa, actNum }) =>
+    renderGroupStudentActivityCard(studentName, actName, actId, target, data, actNote, pa?.isMapped ? pa : null, !!pa?.maintained, pa || null, actNum || 0)).join("");
 
   return `<div class="group-by-student-block" data-student="${escHtml(studentName)}">
     <div class="activity-group-heading" contenteditable="false">${liveGroupAttendeeLabel(studentName)}</div>
@@ -20643,7 +20858,7 @@ function renderGroupStudentBlock(studentName, target, data) {
   </div>`;
 }
 
-function renderGroupStudentActivityCard(studentName, actName, actId, target, data, actNote = null, mappedPa = null, isMaintained = false) {
+function renderGroupStudentActivityCard(studentName, actName, actId, target, data, actNote = null, mappedPa = null, isMaintained = false, pa = null, actNum = 0) {
   const remarksForThisStudent = actId
     ? Object.entries(data.remarks || {})
         .filter(([, r]) => r.activityId === actId && r.studentName === studentName)
@@ -20657,10 +20872,26 @@ function renderGroupStudentActivityCard(studentName, actName, actId, target, dat
       </div>`
     : "";
 
+  const _stripBys = t => (t || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim();
+  const byStudentIsWritten = actId && Object.values(data.remarks || {}).some(r =>
+    r.activityId === actId && r.studentName === studentName && (
+      _stripBys(r.text).length > 0 ||
+      (r.trials || []).some(t => t !== null && t !== -1) ||
+      (_stripBys(r.masteryNote)).length > 0 ||
+      (r.optionScore !== undefined && r.optionScore !== null) ||
+      (r.selectedOptions || []).length > 0
+    )
+  );
+  const byStudentDot = byStudentIsWritten
+    ? `<span style="display:inline-flex;align-items:center;justify-content:center;width:17px;height:17px;border-radius:50%;background:#22c55e;color:#fff;font-size:.6rem;font-weight:900;margin-right:.3rem;flex-shrink:0;align-self:flex-start;margin-top:.35rem">✓</span>`
+    : `<span style="display:inline-flex;align-items:center;justify-content:center;width:17px;height:17px;border-radius:50%;border:2px solid #d1d5db;margin-right:.3rem;flex-shrink:0;align-self:flex-start;margin-top:.35rem"></span>`;
+
   let html = `<div class="entry-block entry-block-predefined" data-act-name="${escHtml(actName)}" data-act-id="${escHtml(actId || "")}">
     <div class="entry-field" contenteditable="false">
-      <span class="field-label">Activity</span>
-      <span class="field-value-fixed">${formatActivityMarkup(actName)}</span>
+      ${byStudentDot}<span class="field-label">Activity</span>
+      <span class="field-value-fixed">${actNum ? `<span style="color:#6b7280;font-weight:600;margin-right:.2rem">${actNum})</span>` : ""}${formatActivityMarkup(actName)}</span>
+      ${(pa?.createdOn || pa?.activeFrom) ? `<span style="font-size:.75rem;color:#9ca3af;white-space:nowrap;flex-shrink:0;align-self:flex-start">Created: ${fmtPeriodDate(pa.createdOn || pa.activeFrom)}</span>` : ""}
+      ${pa?.id ? `<button class="btn-icon btn-grp-edit-pencil" contenteditable="false" data-pa-id="${escHtml(pa.id)}" title="Edit in Edit Target" style="font-size:.85rem;opacity:.55;line-height:1">✏️</button>` : ""}
     </div>
     ${noteRow}`;
 
@@ -20741,7 +20972,7 @@ function renderGroupStudentRowCompact(remId, rem, target, mappedInfo = null) {
     ${trailingField}`;
 }
 
-function renderGroupActivityCard(actName, actId, target, data, attendees, actNote = null, mappedPa = null, paEntry = null, isPredefined = false, parentActivity = null, configId = null) {
+function renderGroupActivityCard(actName, actId, target, data, attendees, actNote = null, mappedPa = null, paEntry = null, isPredefined = false, parentActivity = null, configId = null, filterPaSet = null, actNum = 0, suppressHeader = false) {
   // Free-text activities (no preset options, no sentence starter) get a
   // ready-to-type empty box for a pending attendee instead of a "+ Add
   // Remark & Trials" button once the card is already expanded (see
@@ -20762,6 +20993,12 @@ function renderGroupActivityCard(actName, actId, target, data, attendees, actNot
       </div>`
     : "";
 
+  // When used as a sub-card (suppressHeader=true), the outer subactivity wrapper already
+  // provides the border/shadow/radius — use plain padding-only div to avoid double border.
+  const _outerOpen = suppressHeader
+    ? `<div style="padding:.5rem .85rem" data-act-name="${escHtml(actName)}" data-act-id="${escHtml(actId || "")}">`
+    : `<div class="entry-block entry-block-predefined" data-act-name="${escHtml(actName)}" data-act-id="${escHtml(actId || "")}">`;
+
   // Mapped-score activities have no trials/combine-remarks concept at all —
   // bypass the rounds/combine machinery below entirely and just list every
   // attendee's own remark + their own per-attendee mapped score.
@@ -20778,14 +21015,15 @@ function renderGroupActivityCard(actName, actId, target, data, attendees, actNot
         studentName, remId, rem, target, mappedInfo, inlineOptions, sentenceStarter, multiSelect, remarkHasNote, paEntry?.optionScores || null, noteCapableGrp, paEntry?.noteSentenceStarter || null
       )).join("");
     }).join("");
-    return `<div class="entry-block entry-block-predefined" data-act-name="${escHtml(actName)}" data-act-id="${escHtml(actId || "")}">
-      <div class="entry-field" contenteditable="false">
+    return `${_outerOpen}
+      ${suppressHeader ? "" : `<div class="entry-field" contenteditable="false">
         <span class="field-label">Activity</span>
-        <span class="field-value-fixed">${formatActivityMarkup(actName)}</span>
-        ${paEntry?.activeFrom ? `<span style="font-size:.75rem;color:#9ca3af;white-space:nowrap;flex-shrink:0;align-self:flex-start">Created: ${fmtPeriodDate(paEntry.activeFrom)}</span>` : ""}
-      </div>
+        <span class="field-value-fixed">${actNum ? `<span style="color:#6b7280;font-weight:600;margin-right:.2rem">${actNum})</span>` : ""}${formatActivityMarkup(actName)}</span>
+        ${(paEntry?.createdOn || paEntry?.activeFrom) ? `<span style="font-size:.75rem;color:#9ca3af;white-space:nowrap;flex-shrink:0;align-self:flex-start">Created: ${fmtPeriodDate(paEntry.createdOn || paEntry.activeFrom)}</span>` : ""}
+        ${paEntry?.id ? `<button class="btn-icon btn-grp-edit-pencil" contenteditable="false" data-pa-id="${escHtml(paEntry.id)}" title="Edit in Edit Target" style="font-size:.85rem;opacity:.55;line-height:1">✏️</button>` : ""}
+      </div>`}
       ${noteRow}
-      <div class="entry-divider" contenteditable="false"></div>
+      ${suppressHeader ? "" : `<div class="entry-divider" contenteditable="false"></div>`}
       ${rows}
     </div>`;
   }
@@ -20802,22 +21040,33 @@ function renderGroupActivityCard(actName, actId, target, data, attendees, actNot
   const anyExpanded = actId && Object.values(data.remarks || {})
     .some(r => r.activityId === actId && attendees.includes(r.studentName));
 
+  // Green dot: only when there's actual content (text, trials, note, selected option)
+  const _stripDot = t => (t || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim();
+  const grpHasRealContent = actId && Object.values(data.remarks || {}).some(r => {
+    if (r.activityId !== actId || !attendees.includes(r.studentName)) return false;
+    return _stripDot(r.text).length > 0 ||
+      (r.trials || []).some(t => t !== null && t !== -1) ||
+      (r.masteryNote || "").trim().length > 0 ||
+      (r.optionScore !== undefined && r.optionScore !== null) ||
+      (r.selectedOptions || []).length > 0;
+  });
+
   const isGrpParentAct = (target.predefinedActivities || []).some(p => p.parentActivity && p.parentActivity === actName);
-  const grpWrittenDot = (_grpFilterPaSet && !isGrpParentAct)
-    ? (anyExpanded
+  const grpWrittenDot = (filterPaSet && !isGrpParentAct)
+    ? (grpHasRealContent
       ? `<span style="display:inline-flex;align-items:center;justify-content:center;width:17px;height:17px;border-radius:50%;background:#22c55e;color:#fff;font-size:.6rem;font-weight:900;margin-right:.3rem;flex-shrink:0;align-self:flex-start;margin-top:.35rem">✓</span>`
       : `<span style="display:inline-flex;align-items:center;justify-content:center;width:17px;height:17px;border-radius:50%;border:2px solid #d1d5db;margin-right:.3rem;flex-shrink:0;align-self:flex-start;margin-top:.35rem"></span>`)
     : '';
 
   // Collapsed: no data yet → single "+ Add Remark & Trials" button (like individual session)
   if (!anyExpanded) {
-    return `<div class="entry-block entry-block-predefined" data-act-name="${escHtml(actName)}" data-act-id="${escHtml(actId || "")}">
-      <div class="entry-field" contenteditable="false">
+    return `${_outerOpen}
+      ${suppressHeader ? "" : `<div class="entry-field" contenteditable="false">
         ${grpWrittenDot}<span class="field-label">Activity</span>
-        <span class="field-value-fixed">${inactiveReasonBadge(paEntry)}${formatActivityMarkup(actName)}</span>
-        ${paEntry?.activeFrom ? `<span style="font-size:.75rem;color:#9ca3af;white-space:nowrap;flex-shrink:0;align-self:flex-start">Created: ${fmtPeriodDate(paEntry.activeFrom)}</span>` : ""}
-        ${combineToggle}
-      </div>
+        <span class="field-value-fixed">${inactiveReasonBadge(paEntry)}${actNum ? `<span style="color:#6b7280;font-weight:600;margin-right:.2rem">${actNum})</span>` : ""}${formatActivityMarkup(actName)}</span>
+        ${(paEntry?.createdOn || paEntry?.activeFrom) ? `<span style="font-size:.75rem;color:#9ca3af;white-space:nowrap;flex-shrink:0;align-self:flex-start">Created: ${fmtPeriodDate(paEntry.createdOn || paEntry.activeFrom)}</span>` : ""}
+        ${paEntry?.id ? `<button class="btn-icon btn-grp-edit-pencil" contenteditable="false" data-pa-id="${escHtml(paEntry.id)}" title="Edit in Edit Target" style="font-size:.85rem;opacity:.55;line-height:1">✏️</button>` : ""}
+      </div>`}
       ${noteRow}
       ${noOpts
         ? `<div class="entry-field" contenteditable="false">
@@ -20875,10 +21124,6 @@ function renderGroupActivityCard(actName, actId, target, data, attendees, actNot
 
     roundHtmls.push(`<div class="group-remark-round">
       ${bodyHtml}
-      <div class="group-round-footer" contenteditable="false">
-        <button class="btn-icon btn-group-del-round"
-          data-rem-ids="${roundRemIds.join(",")}" title="Remove">🗑</button>
-      </div>
     </div>`);
   }
 
@@ -20886,17 +21131,17 @@ function renderGroupActivityCard(actName, actId, target, data, attendees, actNot
     (i > 0 ? `<div class="entry-divider entry-divider-round" contenteditable="false"></div>` : ``) + r
   ).join("");
 
-  return `<div class="entry-block entry-block-predefined" data-act-name="${escHtml(actName)}" data-act-id="${escHtml(actId || "")}">
-    <div class="entry-field" contenteditable="false">
+  return `${_outerOpen}
+    ${suppressHeader ? "" : `<div class="entry-field" contenteditable="false">
       ${grpWrittenDot}<span class="field-label">Activity</span>
-      <span class="field-value-fixed">${formatActivityMarkup(actName)}${inactiveReasonBadge(paEntry)}</span>
-      ${paEntry?.activeFrom ? `<span style="font-size:.75rem;color:#9ca3af;white-space:nowrap;flex-shrink:0;align-self:flex-start">Created: ${fmtPeriodDate(paEntry.activeFrom)}</span>` : ""}
+      <span class="field-value-fixed">${inactiveReasonBadge(paEntry)}${actNum ? `<span style="color:#6b7280;font-weight:600;margin-right:.2rem">${actNum})</span>` : ""}${formatActivityMarkup(actName)}</span>
+      ${(paEntry?.createdOn || paEntry?.activeFrom) ? `<span style="font-size:.75rem;color:#9ca3af;white-space:nowrap;flex-shrink:0;align-self:flex-start">Created: ${fmtPeriodDate(paEntry.createdOn || paEntry.activeFrom)}</span>` : ""}
+      ${paEntry?.id ? `<button class="btn-icon btn-grp-edit-pencil" contenteditable="false" data-pa-id="${escHtml(paEntry.id)}" title="Edit in Edit Target" style="font-size:.85rem;opacity:.55;line-height:1">✏️</button>` : ""}
       ${combineToggle}
-    </div>
+    </div>`}
     ${noteRow}
-    <div class="entry-divider" contenteditable="false"></div>
+    ${suppressHeader ? "" : `<div class="entry-divider" contenteditable="false"></div>`}
     ${roundsBody}
-    <div class="entry-divider" contenteditable="false"></div>
     <button class="btn-add-remark btn-group-add-remark-more" contenteditable="false"
       data-act-id="${escHtml(actId || "")}"
       data-act-name="${escHtml(actName)}"
@@ -21084,7 +21329,8 @@ function renderGroupStudentEmptyRow(studentName, actId, actName, target, isPrede
       <span class="group-student-name-label">${liveGroupAttendeeLabel(studentName)}</span>
     </div>
     <div class="entry-field">
-      <span class="field-label" contenteditable="false">Remark</span>
+      <span class="field-label" contenteditable="false">Notes</span>
+      <button class="btn-sketch btn-group-sketch" contenteditable="false" data-rem-id="" aria-label="Sketch">✏</button>
       <textarea class="field-input group-remark-input group-remark-input-empty" rows="1"
         placeholder="Remark…"
         data-act-id="${escHtml(actId || "")}"
@@ -21192,9 +21438,8 @@ function attachGroupTargetListeners(target) {
       const idx = parseInt(btn.dataset.secIdx, 10) || 0;
       const anchor = c.querySelector(`.grp-sec-scroll-section[data-sec-anchor="${idx}"]`);
       if (anchor && _grpSecScrollHost) {
-        const anchorRect = anchor.getBoundingClientRect();
-        const containerRect = _grpSecScrollHost.getBoundingClientRect();
-        _grpSecScrollHost.scrollBy({ top: anchorRect.top - containerRect.top - 8, behavior: "smooth" });
+        const targetScrollTop = _grpSecScrollHost.scrollTop + anchor.getBoundingClientRect().top - _grpSecScrollHost.getBoundingClientRect().top;
+        _grpSecScrollHost.scrollTo({ top: targetScrollTop, behavior: "smooth" });
       }
     });
   });
@@ -21496,6 +21741,16 @@ function attachGroupTargetListeners(target) {
     });
   });
 
+  // Pencil: open Edit Target and scroll to this activity (group sessions)
+  c.querySelectorAll(".btn-grp-edit-pencil").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const paId = btn.dataset.paId;
+      const tgt = state.currentGroup?.targets.find(t => t.name === state.selectedGroupTargetName);
+      if (!tgt) return;
+      requirePassword(() => openGroupManageModal(state.currentGroup, tgt, paId), EXPORT_MSG);
+    });
+  });
+
   // Delete a single round (student-grouped layout)
   c.querySelectorAll(".btn-group-del-student-remark").forEach(btn => {
     btn.addEventListener("click", () => {
@@ -21763,11 +22018,24 @@ function renderGroupSessionsForMonth(group, month, monthSessions, byMonth, sessi
 }
 
 // ── Group manage modal ───────────────────────────────────────
-function openGroupManageModal(group, target = null) {
+function openGroupManageModal(group, target = null, scrollToPaId = null) {
   $("manage-modal").classList.remove("hidden");
   if (target) {
     _groupForTargetEdit = group;
     renderTargetManageContent(group, target);
+    if (scrollToPaId) {
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        const acts = target.predefinedActivities || [];
+        const idx = acts.findIndex(a => a.id === scrollToPaId);
+        if (idx < 0) return;
+        const modalBody = $("manage-modal-body");
+        const el = modalBody?.querySelector(`.admin-list-item[data-idx="${idx}"]`);
+        if (!el || !modalBody) return;
+        modalBody.scrollTop = el.offsetTop - 120;
+        el.classList.add("activity-cfg-blink");
+        el.addEventListener("animationend", () => el.classList.remove("activity-cfg-blink"), { once: true });
+      }));
+    }
   } else {
     _groupForTargetEdit = null;
     renderGroupManageContent(group);
