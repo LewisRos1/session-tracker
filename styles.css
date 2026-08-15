@@ -894,6 +894,8 @@ html, body {
   align-items: flex-start;
   gap: .5rem;
 }
+/* Phantom spacer in note rows so textarea right-edge aligns with the 🗑 delete button in the main remark row */
+.entry-note-spacer { min-width: 32px; flex-shrink: 0; }
 
 .field-label {
   font-size: .75rem;
@@ -2227,16 +2229,20 @@ div.admin-note-editable:empty::before {
   color: #9ca3af;
   pointer-events: none;
 }
-/* view table note: no border box, just subtle */
+/* view table note: white box with subtle border */
 .view-mastery-note {
   font-size: .85rem;
   font-family: var(--font);
   color: var(--text);
+  padding: .3rem .4rem;
   padding: .15rem .3rem;
-  border: 1px solid transparent;
+  border: 1px solid #b0b7c3;
   border-radius: 4px;
+  background: #fff;
+  width: 100%;
+  box-sizing: border-box;
 }
-.view-mastery-note:focus { border-color: var(--border); }
+.view-mastery-note:focus { border-color: var(--primary); outline: none; }
 
 .remark-mastery-opts {
   display: flex;
@@ -2269,18 +2275,21 @@ div.admin-note-editable:empty::before {
   display: flex;
   align-items: center;
   gap: .3rem;
+  width: 100%;
 }
 /* When a note textarea is present, stack starter row + notes vertically */
 .view-starter-wrap-note {
   flex-direction: column;
   align-items: stretch;
   gap: .4rem;
+  padding-bottom: .3rem;
 }
 .view-starter-top-row {
   display: flex;
   align-items: center;
   gap: .3rem;
   flex-wrap: wrap;
+  padding: .3rem .4rem 0;
 }
 .view-starter-prefix {
   font-size: .8rem;
@@ -3322,14 +3331,14 @@ button.wf-pill:hover { filter: brightness(.93); }
   font-weight: 700;
   text-align: center;
   padding: .55rem .7rem;
-  border: 1px solid var(--border);
+  border: 1px solid #b0b7c3;
   border-bottom: 2px solid var(--primary);
   white-space: nowrap;
 }
 
 .view-table td {
   padding: .4rem .6rem;
-  border: 1px solid var(--border);
+  border: 1px solid #b0b7c3;
   vertical-align: middle;
   color: var(--text);
 }
@@ -3376,6 +3385,10 @@ button.wf-pill:hover { filter: brightness(.93); }
    collapse shorter than one real text line, leaving the caret visibly taller
    than the box until text is typed and forces the row to grow. */
 .vcol-rem > .view-remark-edit { min-height: max(1.8rem, 100%); }
+/* Wrapper divs fill the full cell width; padding moves inside children */
+.vcol-rem > .view-starter-wrap,
+.vcol-rem > .view-manual-score-wrap { padding: 0; min-height: max(1.8rem, 100%); }
+.view-manual-score-wrap { display: flex; flex-direction: column; gap: .3rem; padding-bottom: .3rem; }
 .vcol-trials { width: 155px; }
 .vcol-total  { width: 54px; text-align: center; white-space: nowrap; }
 .vcol-score  { width: 82px; text-align: center; font-weight: 600; white-space: nowrap; }
@@ -3504,12 +3517,13 @@ button.wf-pill:hover { filter: brightness(.93); }
 .view-comment-edit {
   flex: 1;
   width: 100%;
-  border: 1px solid var(--border);
+  box-sizing: border-box;
+  border: 1px solid #b0b7c3;
   border-radius: 4px;
   font-family: var(--font);
   font-size: .85rem;
   color: var(--text);
-  background: #fafafa;
+  background: #fff;
   resize: none;
   padding: .3rem .4rem;
   outline: none;
@@ -3519,7 +3533,7 @@ button.wf-pill:hover { filter: brightness(.93); }
   cursor: text;
 }
 .view-remark-edit.rem-edit-active,
-.view-comment-edit:focus { border-color: var(--primary); background: #fff; }
+.view-comment-edit:focus { border-color: var(--primary); }
 
 /* Gray / green row tints for maintained / mastered activities */
 .view-gray-row td  { background: #e5e7eb; }

@@ -174,7 +174,7 @@ function versionLineText() {
   return `Made by Lewis · Version ${APP_VERSION}`;
 }
 
-const APP_VERSION = "1636";
+const APP_VERSION = "1647";
 
 // Debug helpers — call from F12 console
 // 1) List all stored activity names under a target:
@@ -9131,6 +9131,7 @@ function renderRemarkFields(rem, target, inlineOptions = null, sentenceStarter =
             autocomplete="new-password"
             data-rem-id="${rem.id}"
             data-saved-html="${escHtml(rem.masteryNote || "")}">${escHtml(plainTextForEdit(rem.masteryNote || ""))}</textarea>
+          <span class="entry-note-spacer" contenteditable="false" aria-hidden="true"></span>
         </div>`
       : "";
     return `
@@ -9217,7 +9218,7 @@ function renderRemarkFields(rem, target, inlineOptions = null, sentenceStarter =
 
   const optBtns = makeOptPills(rem.id, rem.text)
     || `<textarea class="field-input remark-text-input" rows="1"
-        data-rem-id="${rem.id}" data-saved-html="${escHtml(rem.text || "")}">${escHtml(plainTextForEdit(rem.text))}</textarea>`;
+        data-rem-id="${rem.id}" placeholder="Notes…" data-saved-html="${escHtml(rem.text || "")}">${escHtml(plainTextForEdit(rem.text))}</textarea>`;
 
   // Sketch board button only shown when there's a free-text input (no preset opt pills)
   const sketchBtn = opts.length === 0
@@ -9231,7 +9232,7 @@ function renderRemarkFields(rem, target, inlineOptions = null, sentenceStarter =
       <span class="remark-starter-prefix" contenteditable="false">${escHtml(sentenceStarter)}</span>
       ${makeOptPills(rem.id, rem.text)
         || `<textarea class="field-input remark-text-input" rows="1"
-            data-rem-id="${rem.id}" data-saved-html="${escHtml(rem.text || "")}">${escHtml(plainTextForEdit(rem.text))}</textarea>`
+            data-rem-id="${rem.id}" placeholder="Notes…" data-saved-html="${escHtml(rem.text || "")}">${escHtml(plainTextForEdit(rem.text))}</textarea>`
       }
     </div>`;
   } else {
@@ -9255,6 +9256,7 @@ function renderRemarkFields(rem, target, inlineOptions = null, sentenceStarter =
         <span class="field-label" contenteditable="false">Notes</span>
         <button class="btn-sketch" contenteditable="false" data-rem-id="${rem.id}" aria-label="Open sketch board">✏</button>
         ${noteInput}
+        <span class="entry-note-spacer" contenteditable="false" aria-hidden="true"></span>
       </div>`;
   } else {
     noteField = _existingNote
@@ -10017,7 +10019,7 @@ async function autoFillStructuredRemarks(student, sessionId) {
   const toFill = [];
   for (const target of (student.targets || [])) {
     for (const pa of (target.predefinedActivities || [])) {
-      if (pa.isCompleted || pa.isArchived || pa.isStopped || pa.isMaintain || pa.isMaintainHeading) continue;
+      if (pa.isCompleted || pa.isArchived || pa.isStopped || pa.isMaintain || pa.isMaintainHeading || pa.maintained) continue;
       if (!isAutoOpenRemarkType(pa)) continue;
       const paParent = pa.parentActivity || null;
       const paConfigId = pa.id || null;
@@ -10188,7 +10190,17 @@ async function autoFillMaintainedRemarks(student, sessionId, selectedTargetName 
       let actId = canonical?.[0] || null;
       if (actId) {
         const existingRems = Object.entries(data.remarks || {}).filter(([, r]) => r.activityId === actId);
-        if (existingRems.length > 0) continue;
+        if (existingRems.length > 1) {
+          // Cleanup: remove extra unmodified "Maintain" placeholders (race-created duplicates)
+          const stripE = s => (s || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").replace(/ /g, " ").trim();
+          for (const [dupeId, dupeRem] of existingRems.slice(1)) {
+            if (stripE(dupeRem.text) === "Maintain" && !stripE(dupeRem.masteryNote) && !(dupeRem.trials || []).some(t => t >= 0)) {
+              delete data.remarks[dupeId];
+              deleteRemark(sessionId, dupeId).catch(() => {});
+            }
+          }
+        }
+        if (Object.entries(data.remarks || {}).some(([, r]) => r.activityId === actId)) continue;
       }
       const key = `${sessionId}:${target.name}:${pa.name}:maintained`;
       if (maintainedRemarkAutoFillInFlight.has(key)) continue;
@@ -11521,7 +11533,7 @@ function viewActivityRows(no, actName, actId, data, target, isPredefined = true,
   const inlineOptions   = paEntry ? getActivityInlineOptions(paEntry) : null;
   const sentenceStarter = paEntry?.sentenceStarter || null;
   const multiSelect     = paEntry?.optionsMulti || false;
-  const remarkHasNote   = paEntry?.remarkHasNote || false;
+  const remarkHasNote   = paEntry ? !!(paEntry.remarkHasNote || inlineOptions || paEntry.manualScore) : false;
   const mappedInfo      = paEntry?.isMapped ? resolveViewMappedScoreDisplay(paEntry, data) : null;
   const isGrayAct       = isPredefined && (_maintained || paEntry?.activityColor === "gray" || paEntry?.isMaintainLive);
   const isGreenAct      = isPredefined && paEntry?.activityColor === "green";
@@ -11531,13 +11543,40 @@ function viewActivityRows(no, actName, actId, data, target, isPredefined = true,
     const opts = parseOpts(inlineOptions);
     const showEmpty = opts.length === 0;
     if (showEmpty) {
+      if ((remarkHasNote || multiSelect) && !paEntry?.manualScore) {
+        const _lbl = multiSelect ? "CHECKBOXES" : "MULTIPLE CHOICE";
+        const _noOptsMsg = `<span class="field-label">${_lbl}</span>
+            <span style="color:#9ca3af;font-style:italic;font-size:.88rem">&lt;Please Add Options in Edit Target&gt;</span>`;
+        const _noOptsNote = remarkHasNote
+          ? `<textarea class="view-mastery-note view-mastery-note-empty" rows="1"
+               data-act-id="${escHtml(actId || "")}" data-act-name="${escHtml(actName)}"
+               data-target="${escHtml(target.name)}" data-is-predefined="${isPredefined}"
+               data-parent-activity="${escHtml(paConfig?.parentActivity || "")}"
+               data-config-id="${escHtml(paConfig?.id || "")}"
+               placeholder="Notes…"></textarea>` : "";
+        const _noOptsCell = remarkHasNote
+          ? `<div class="view-starter-wrap view-starter-wrap-note" contenteditable="false">
+               <div class="view-starter-top-row">${_noOptsMsg}</div>
+               ${_noOptsNote}
+             </div>`
+          : `<div style="padding:.4rem .6rem">${_noOptsMsg}</div>`;
+        return `<tr${rowClass ? ` class="${rowClass}"` : ""}>
+          <td class="vcol-no" contenteditable="false">${no}</td>
+          <td class="vcol-act" contenteditable="false">${actCell}</td>
+          <td class="vcol-rem" contenteditable="false">${_noOptsCell}</td>
+          <td class="vcol-trials" contenteditable="false">&nbsp;</td>
+          <td class="vcol-total" contenteditable="false">&nbsp;</td>
+          <td class="vcol-score" contenteditable="false">&nbsp;</td>
+        </tr>`;
+      }
       const emptyCell = `<textarea class="view-remark-edit view-remark-empty" rows="1"
            data-act-id="${escHtml(actId || "")}"
            data-act-name="${escHtml(actName)}"
            data-target="${escHtml(target.name)}"
            data-is-predefined="${isPredefined}"
            data-parent-activity="${escHtml(paConfig?.parentActivity || "")}"
-           data-config-id="${escHtml(paConfig?.id || "")}">${_maintained ? "Maintain" : ""}</textarea>`;
+           data-config-id="${escHtml(paConfig?.id || "")}"
+           placeholder="${_maintained ? "" : "Notes…"}">${_maintained ? "Maintain" : ""}</textarea>`;
       const addTrialBtn = mappedInfo
         ? ""
         : `<button class="view-add-trial-new" data-act-id="${escHtml(actId || "")}"
@@ -11635,7 +11674,7 @@ function viewActivityRows(no, actName, actId, data, target, isPredefined = true,
     ri === 0 ? no : null,
     ri === 0 ? actCell : null,
     rem, target, inlineOptions, sentenceStarter, multiSelect, mappedInfo, remarkHasNote, rowClass,
-    paEntry?.optionScores || null
+    paEntry?.optionScores || null, paEntry?.manualScore || false
   )).join("");
 }
 
@@ -11668,7 +11707,45 @@ function buildTrialCellsHtml(rem, maxPts) {
     `<button class="view-add-trial" data-rem-id="${escHtml(rem.id)}">+</button>`;
 }
 
-function viewRemarkRow(no, actName, rem, target, inlineOptions = null, sentenceStarter = null, multiSelect = false, mappedInfo = null, remarkHasNote = false, rowClass = "", optionScores = null) {
+function viewRemarkRow(no, actName, rem, target, inlineOptions = null, sentenceStarter = null, multiSelect = false, mappedInfo = null, remarkHasNote = false, rowClass = "", optionScores = null, manualScore = false) {
+  const _sv = t => (t || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim();
+  const _remEmpty = !_sv(rem.text) && !_sv(rem.masteryNote) && !(rem.trials || []).some(t => t >= 0) && rem.optionScore === undefined;
+  const delBtn = _remEmpty ? "" : `<button class="view-rem-del" data-rem-id="${escHtml(rem.id)}" title="Delete remark">×</button>`;
+  // Manual score: render score input + = XX% hint; notes below; no trials
+  if (manualScore) {
+    const currentVal = rem.text ? plainTextForEdit(rem.text).trim() : "";
+    const parsed = parseManualScore(currentVal);
+    const parsedPct = parsed !== null ? Math.round(parsed * 10) / 10 : null;
+    const hintHtml = `<span class="view-manual-score-hint" data-rem-id="${escHtml(rem.id)}"
+      style="font-size:.85rem;color:#6b7280;white-space:nowrap${parsedPct === null ? ";display:none" : ""}">${parsedPct !== null ? `= ${parsedPct}%` : ""}</span>`;
+    const scoreInput = `<div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;padding:.3rem .4rem .15rem">
+      <span style="font-size:.7rem;font-weight:700;color:#6b7280;letter-spacing:.05em;white-space:nowrap">MANUAL SCORE</span>
+      <input type="text" class="view-manual-score-input" data-rem-id="${escHtml(rem.id)}"
+        data-saved-html="${escHtml(currentVal)}" value="${escHtml(currentVal)}"
+        placeholder="e.g. 5/20, 25%"
+        style="width:9rem;min-width:0;border:1px solid #b0b7c3;border-radius:4px;padding:.25rem .4rem;font-size:.85rem;font-family:var(--font);background:#fff;outline:none;box-sizing:border-box">
+      ${hintHtml}
+    </div>`;
+    const noteCell = `<textarea class="view-mastery-note" rows="1" data-rem-id="${escHtml(rem.id)}"
+      data-saved-html="${escHtml(rem.masteryNote || "")}"
+      placeholder="Notes…">${escHtml(plainTextForEdit(rem.masteryNote))}</textarea>`;
+    const remarkCell = `<div class="view-manual-score-wrap" contenteditable="false">${scoreInput}${noteCell}</div>`;
+    const scoreColDisplay = parsedPct !== null ? parsedPct + "%" : "";
+    return `<tr${rowClass ? ` class="${rowClass}"` : ""}>
+      <td class="vcol-no" contenteditable="false">${no !== null ? no : ""}</td>
+      <td class="vcol-act" contenteditable="false">${actName !== null ? actName : ""}</td>
+      <td class="vcol-rem" contenteditable="false">${remarkCell}</td>
+      <td class="vcol-trials" contenteditable="false">&nbsp;</td>
+      <td class="vcol-total" contenteditable="false">&nbsp;</td>
+      <td class="vcol-score" contenteditable="false">
+        <div style="display:flex;align-items:center;gap:.3rem;justify-content:flex-end">
+          <span class="view-manual-score-pct" data-rem-id="${escHtml(rem.id)}">${scoreColDisplay}</span>
+          ${delBtn}
+        </div>
+      </td>
+    </tr>`;
+  }
+
   const maxPts = target.maxPoints || 3;
   const { validTrials, total, scorePct } = calcViewTrialSummary(rem.trials, maxPts, rem.optionScore);
   const trialCells = mappedInfo
@@ -11706,9 +11783,32 @@ function viewRemarkRow(no, actName, rem, target, inlineOptions = null, sentenceS
     }).join("")}${removedBadge}</div>`;
   }
 
+  if ((remarkHasNote || multiSelect) && opts.length === 0) {
+    const _lbl2 = multiSelect ? "CHECKBOXES" : "MULTIPLE CHOICE";
+    const _msg2 = `<span class="field-label">${_lbl2}</span>
+      <span style="color:#9ca3af;font-style:italic;font-size:.88rem">&lt;Please Add Options in Edit Target&gt;</span>`;
+    const _note2 = remarkHasNote
+      ? `<textarea class="view-mastery-note" rows="1" data-rem-id="${escHtml(rem.id)}"
+           data-saved-html="${escHtml(rem.masteryNote || "")}"
+           placeholder="Notes…">${escHtml(plainTextForEdit(rem.masteryNote))}</textarea>` : "";
+    const _cell2 = remarkHasNote
+      ? `<div class="view-starter-wrap view-starter-wrap-note" contenteditable="false">
+           <div class="view-starter-top-row">${_msg2}</div>
+           ${_note2}
+         </div>`
+      : `<div style="padding:.4rem .6rem">${_msg2}</div>`;
+    return `<tr${rowClass ? ` class="${rowClass}"` : ""}>
+      <td class="vcol-no" contenteditable="false">${no !== null ? no : ""}</td>
+      <td class="vcol-act" contenteditable="false">${actName !== null ? actName : ""}</td>
+      <td class="vcol-rem" contenteditable="false">${_cell2}</td>
+      <td class="vcol-trials" contenteditable="false">&nbsp;</td>
+      <td class="vcol-total" contenteditable="false">&nbsp;</td>
+      <td class="vcol-score" contenteditable="false">&nbsp;</td>
+    </tr>`;
+  }
   const optSelect = makeViewOpts(rem.id, rem.text)
     || `<textarea class="view-remark-edit" rows="1" data-rem-id="${escHtml(rem.id)}"
-          data-saved-html="${escHtml(rem.text || "")}">${escHtml(plainTextForEdit(rem.text))}</textarea>`;
+          placeholder="Notes…" data-saved-html="${escHtml(rem.text || "")}">${escHtml(plainTextForEdit(rem.text))}</textarea>`;
 
   // Show the note textarea if the current type includes it, OR if the remark
   // already has a masteryNote saved (e.g. type was +Free Text in the past and
@@ -11751,7 +11851,7 @@ function viewRemarkRow(no, actName, rem, target, inlineOptions = null, sentenceS
     <td class="vcol-score" contenteditable="false">
       <div style="display:flex;align-items:center;gap:.3rem;justify-content:flex-end">
         <span>${scoreDisplay}</span>
-        <button class="view-rem-del" data-rem-id="${escHtml(rem.id)}" title="Delete remark">×</button>
+        ${delBtn}
       </div>
     </td>
   </tr>`;
@@ -12092,6 +12192,12 @@ function setupViewRemarkSaving(body, getSessionId, counterKey, onIdle, getData) 
     diffAndSave(".view-remark-edit[data-rem-id]:not(.view-remark-empty)", el => htmlForStorage(el.value),
       (el, html) => updateRemarkText(sid, el.dataset.remId, html));
 
+    diffAndSave(".view-manual-score-input[data-rem-id]", el => {
+      const val = el.value.trim();
+      if (val && validateManualScore(val) !== null) return el.dataset.savedHtml;
+      return val;
+    }, (el, val) => updateRemarkText(sid, el.dataset.remId, val));
+
     diffAndSave(".view-mastery-note[data-rem-id]", el => htmlForStorage(el.value),
       (el, html) => updateRemarkNote(sid, el.dataset.remId, html));
 
@@ -12110,7 +12216,7 @@ function setupViewRemarkSaving(body, getSessionId, counterKey, onIdle, getData) 
       // dataset.creating already reset to "false" by the first call's
       // completion and the same typed text still sitting in the box, and
       // creates a second, duplicate remark with identical text.
-      if (!text || el.dataset.creating === "true" || el.dataset.remId) return;
+      if (!text || text === "Maintain" || el.dataset.creating === "true" || el.dataset.remId) return;
       el.dataset.creating = "true";
       state[counterKey]++;
       const create = async () => {
@@ -12687,6 +12793,40 @@ function attachViewListeners() {
   const body = $("session-view-body");
 
   body.querySelectorAll("textarea.view-remark-edit, textarea.view-mastery-note").forEach(autoResizeTextarea);
+
+  // ── Manual score input: sanitise, live hint update, blur validation ───
+  body.querySelectorAll(".view-manual-score-input").forEach(input => {
+    const msSanitize = raw => {
+      let s = raw.replace(/[^0-9./%]/g, "");
+      const pctIdx = s.indexOf("%"); if (pctIdx !== -1) s = s.slice(0, pctIdx + 1);
+      const slashIdx = s.indexOf("/");
+      if (slashIdx !== -1) s = s.slice(0, slashIdx + 1) + s.slice(slashIdx + 1).replace(/\//g, "");
+      return s.replace(/\.{2,}/g, ".");
+    };
+    const getHint = () => body.querySelector(`.view-manual-score-hint[data-rem-id="${input.dataset.remId}"]`);
+    const getPct  = () => input.closest("tr")?.querySelector(".view-manual-score-pct");
+    input.addEventListener("input", () => {
+      const san = msSanitize(input.value);
+      if (input.value !== san) {
+        const pos = input.selectionStart - (input.value.length - san.length);
+        input.value = san;
+        input.setSelectionRange(Math.max(0, pos), Math.max(0, pos));
+      }
+      const parsed = parseManualScore(san.trim());
+      const pct = parsed !== null ? Math.round(parsed * 10) / 10 : null;
+      const hint = getHint();
+      if (hint) { if (pct !== null) { hint.textContent = `= ${pct}%`; hint.style.display = ""; } else { hint.textContent = ""; hint.style.display = "none"; } }
+      const pctEl = getPct(); if (pctEl) pctEl.textContent = pct !== null ? pct + "%" : "";
+    });
+    let _alerting = false;
+    input.addEventListener("blur", () => {
+      if (_alerting) return;
+      const err = validateManualScore(input.value.trim());
+      if (!err) return;
+      _alerting = true; alert(err); _alerting = false;
+      setTimeout(() => input.focus(), 0);
+    });
+  });
 
   bindViewTrialCellListeners(body);
 
@@ -13492,7 +13632,7 @@ function viewGroupActivityRows(no, actName, actId, data, target, attendees, isPr
   const inlineOptions   = paEntry ? getActivityInlineOptions(paEntry) : null;
   const sentenceStarter = paEntry?.sentenceStarter || null;
   const multiSelect     = paEntry?.optionsMulti || false;
-  const remarkHasNote   = paEntry?.remarkHasNote || false;
+  const remarkHasNote   = paEntry ? !!(paEntry.remarkHasNote || inlineOptions || paEntry.manualScore) : false;
   const opts            = parseOpts(inlineOptions);
   const isGrayAct       = isPredefined && (_maintained || paEntry?.activityColor === "gray" || paEntry?.isMaintainLive);
   const isGreenAct      = isPredefined && paEntry?.activityColor === "green";
@@ -13500,6 +13640,34 @@ function viewGroupActivityRows(no, actName, actId, data, target, attendees, isPr
 
   if (rounds.length === 0) {
     if (opts.length === 0) {
+      if ((remarkHasNote || multiSelect) && !paEntry?.manualScore) {
+        const _lbl = multiSelect ? "CHECKBOXES" : "MULTIPLE CHOICE";
+        const _gMsg = `<span class="field-label">${_lbl}</span>
+            <span style="color:#9ca3af;font-style:italic;font-size:.88rem">&lt;Please Add Options in Edit Target&gt;</span>`;
+        return attendees.map((studentName, idx) => {
+          const _gNote = remarkHasNote
+            ? `<textarea class="view-mastery-note view-mastery-note-empty" rows="1"
+                 data-act-id="${escHtml(actId || "")}" data-act-name="${escHtml(actName)}"
+                 data-target="${escHtml(target.name)}" data-is-predefined="${isPredefined}"
+                 data-student="${escHtml(studentName)}"
+                 placeholder="Notes…"></textarea>` : "";
+          const _gCell = remarkHasNote
+            ? `<div class="view-starter-wrap view-starter-wrap-note" contenteditable="false">
+                 <div class="view-starter-top-row">${_gMsg}</div>
+                 ${_gNote}
+               </div>`
+            : `<div style="padding:.4rem .6rem">${_gMsg}</div>`;
+          return `<tr${rowClass ? ` class="${rowClass}"` : ""}>
+            <td class="vcol-no" contenteditable="false">${idx === 0 ? no : ""}</td>
+            <td class="vcol-act" contenteditable="false">${idx === 0 ? actCellWithToggle : ""}</td>
+            <td class="vcol-student" contenteditable="false">${groupAttendeeLabel(studentName)}</td>
+            <td class="vcol-rem" contenteditable="false">${_gCell}</td>
+            <td class="vcol-trials" contenteditable="false">&nbsp;</td>
+            <td class="vcol-total" contenteditable="false">&nbsp;</td>
+            <td class="vcol-score" contenteditable="false">&nbsp;</td>
+          </tr>`;
+        }).join("");
+      }
       return attendees.map((studentName, idx) => `<tr${rowClass ? ` class="${rowClass}"` : ""}>
         <td class="vcol-no" contenteditable="false">${idx === 0 ? no : ""}</td>
         <td class="vcol-act" contenteditable="false">${idx === 0 ? actCellWithToggle : ""}</td>
@@ -13512,7 +13680,8 @@ function viewGroupActivityRows(no, actName, actId, data, target, attendees, isPr
             data-is-predefined="${isPredefined}"
             data-student="${escHtml(studentName)}"
             data-parent-activity="${escHtml(paConfig?.parentActivity || "")}"
-            data-config-id="${escHtml(paConfig?.id || "")}"></textarea>
+            data-config-id="${escHtml(paConfig?.id || "")}"
+            placeholder="Notes…"></textarea>
         </td>
         <td class="vcol-trials" contenteditable="false">
           <button class="view-group-add-trial-new" data-act-id="${escHtml(actId || "")}"
@@ -13684,7 +13853,7 @@ function viewGroupActivityRows(no, actName, actId, data, target, attendees, isPr
 
       html += viewGroupRemarkRow(
         noVal, actVal, entry.studentName, entry, target,
-        inlineOptions, sentenceStarter, multiSelect, combineOpts, null, remarkHasNote, rowClass, paEntry?.optionScores || null
+        inlineOptions, sentenceStarter, multiSelect, combineOpts, null, remarkHasNote, rowClass, paEntry?.optionScores || null, paEntry?.manualScore || false
       );
       firstRowOverall = false;
     }
@@ -13692,7 +13861,44 @@ function viewGroupActivityRows(no, actName, actId, data, target, attendees, isPr
   return html;
 }
 
-function viewGroupRemarkRow(no, actName, studentName, rem, target, inlineOptions = null, sentenceStarter = null, multiSelect = false, combineOpts = null, mappedInfo = null, remarkHasNote = false, rowClass = "", optionScores = null) {
+function viewGroupRemarkRow(no, actName, studentName, rem, target, inlineOptions = null, sentenceStarter = null, multiSelect = false, combineOpts = null, mappedInfo = null, remarkHasNote = false, rowClass = "", optionScores = null, manualScore = false) {
+  const _sv2 = t => (t || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim();
+  const _remEmpty2 = !_sv2(rem.text) && !_sv2(rem.masteryNote) && !(rem.trials || []).some(t => t >= 0) && rem.optionScore === undefined;
+  const delBtn2 = _remEmpty2 ? "" : `<button class="view-rem-del" data-rem-id="${escHtml(rem.id)}" title="Delete remark">×</button>`;
+  if (manualScore) {
+    const currentVal = rem.text ? plainTextForEdit(rem.text).trim() : "";
+    const parsed = parseManualScore(currentVal);
+    const parsedPct = parsed !== null ? Math.round(parsed * 10) / 10 : null;
+    const hintHtml = `<span class="view-manual-score-hint" data-rem-id="${escHtml(rem.id)}"
+      style="font-size:.85rem;color:#6b7280;white-space:nowrap${parsedPct === null ? ";display:none" : ""}">${parsedPct !== null ? `= ${parsedPct}%` : ""}</span>`;
+    const scoreInput = `<div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;padding:.3rem .4rem .15rem">
+      <span style="font-size:.7rem;font-weight:700;color:#6b7280;letter-spacing:.05em;white-space:nowrap">MANUAL SCORE</span>
+      <input type="text" class="view-manual-score-input" data-rem-id="${escHtml(rem.id)}"
+        data-saved-html="${escHtml(currentVal)}" value="${escHtml(currentVal)}"
+        placeholder="e.g. 5/20, 25%"
+        style="width:9rem;min-width:0;border:1px solid #b0b7c3;border-radius:4px;padding:.25rem .4rem;font-size:.85rem;font-family:var(--font);background:#fff;outline:none;box-sizing:border-box">
+      ${hintHtml}
+    </div>`;
+    const noteCell = `<textarea class="view-mastery-note" rows="1" data-rem-id="${escHtml(rem.id)}"
+      data-saved-html="${escHtml(rem.masteryNote || "")}"
+      placeholder="Notes…">${escHtml(plainTextForEdit(rem.masteryNote))}</textarea>`;
+    const remarkCell = `<div class="view-manual-score-wrap" contenteditable="false">${scoreInput}${noteCell}</div>`;
+    const scoreColDisplay = parsedPct !== null ? parsedPct + "%" : "";
+    return `<tr${rowClass ? ` class="${rowClass}"` : ""}>
+      <td class="vcol-no" contenteditable="false">${no !== null ? no : ""}</td>
+      <td class="vcol-act" contenteditable="false">${actName !== null ? actName : ""}</td>
+      <td class="vcol-student" contenteditable="false">${groupAttendeeLabel(studentName)}</td>
+      <td class="vcol-rem" contenteditable="false">${remarkCell}</td>
+      <td class="vcol-trials" contenteditable="false">&nbsp;</td>
+      <td class="vcol-total" contenteditable="false">&nbsp;</td>
+      <td class="vcol-score" contenteditable="false">
+        <div style="display:flex;align-items:center;gap:.3rem;justify-content:flex-end">
+          <span class="view-manual-score-pct" data-rem-id="${escHtml(rem.id)}">${scoreColDisplay}</span>
+          ${delBtn2}
+        </div>
+      </td>
+    </tr>`;
+  }
   const maxPts = target.maxPoints || 3;
   const { validTrials, total, scorePct } = calcViewTrialSummary(rem.trials, maxPts, rem.optionScore);
   const trialCells = mappedInfo
@@ -13712,11 +13918,28 @@ function viewGroupRemarkRow(no, actName, studentName, rem, target, inlineOptions
       remarkTd = `<td class="vcol-rem" contenteditable="false" rowspan="${combineOpts.rowspan}">
         <textarea class="view-remark-edit group-remark-input-combined" rows="1"
           data-rem-ids="${idList}"
+          placeholder="Notes…"
           data-saved-html="${escHtml(combineOpts.sharedText || "")}">${escHtml(plainTextForEdit(combineOpts.sharedText))}</textarea>
       </td>`;
     } else {
       const opts = parseOpts(inlineOptions);
 
+      if ((remarkHasNote || multiSelect) && opts.length === 0) {
+        const _lbl3 = multiSelect ? "CHECKBOXES" : "MULTIPLE CHOICE";
+        const _msg3 = `<span class="field-label">${_lbl3}</span>
+          <span style="color:#9ca3af;font-style:italic;font-size:.88rem">&lt;Please Add Options in Edit Target&gt;</span>`;
+        const _note3 = remarkHasNote
+          ? `<textarea class="view-mastery-note" rows="1" data-rem-id="${escHtml(rem.id)}"
+               data-saved-html="${escHtml(rem.masteryNote || "")}"
+               placeholder="Notes…">${escHtml(plainTextForEdit(rem.masteryNote))}</textarea>` : "";
+        const _cell3 = remarkHasNote
+          ? `<div class="view-starter-wrap view-starter-wrap-note" contenteditable="false">
+               <div class="view-starter-top-row">${_msg3}</div>
+               ${_note3}
+             </div>`
+          : `<div style="padding:.4rem .6rem">${_msg3}</div>`;
+        remarkTd = `<td class="vcol-rem" contenteditable="false">${_cell3}</td>`;
+      } else {
       const makeViewOpts = (remId, remText) => {
         if (opts.length === 0) return null;
         if (multiSelect) {
@@ -13735,7 +13958,7 @@ function viewGroupRemarkRow(no, actName, studentName, rem, target, inlineOptions
 
       const optSelect = makeViewOpts(rem.id, rem.text)
         || `<textarea class="view-remark-edit" rows="1" data-rem-id="${escHtml(rem.id)}"
-              data-saved-html="${escHtml(rem.text || "")}">${escHtml(plainTextForEdit(rem.text))}</textarea>`;
+              placeholder="Notes…" data-saved-html="${escHtml(rem.text || "")}">${escHtml(plainTextForEdit(rem.text))}</textarea>`;
 
       const showNote = remarkHasNote || !!(rem.masteryNote && rem.masteryNote.trim().length > 0);
       const noteField = showNote
@@ -13766,6 +13989,7 @@ function viewGroupRemarkRow(no, actName, studentName, rem, target, inlineOptions
         remarkCell = optSelect;
       }
       remarkTd = `<td class="vcol-rem" contenteditable="false">${remarkCell}</td>`;
+      } // end else (has opts)
     }
   }
 
@@ -13779,7 +14003,7 @@ function viewGroupRemarkRow(no, actName, studentName, rem, target, inlineOptions
     <td class="vcol-score" contenteditable="false">
       <div style="display:flex;align-items:center;gap:.3rem;justify-content:flex-end">
         <span>${scoreDisplay}</span>
-        <button class="view-rem-del" data-rem-id="${escHtml(rem.id)}" title="Delete remark">×</button>
+        ${delBtn2}
       </div>
     </td>
   </tr>`;
@@ -13885,6 +14109,40 @@ function attachGroupViewListeners() {
   const sid  = () => state.viewGroupSessionId;
 
   body.querySelectorAll("textarea.view-remark-edit, textarea.view-mastery-note").forEach(autoResizeTextarea);
+
+  // ── Manual score input: sanitise, live hint update, blur validation ───
+  body.querySelectorAll(".view-manual-score-input").forEach(input => {
+    const msSanitize = raw => {
+      let s = raw.replace(/[^0-9./%]/g, "");
+      const pctIdx = s.indexOf("%"); if (pctIdx !== -1) s = s.slice(0, pctIdx + 1);
+      const slashIdx = s.indexOf("/");
+      if (slashIdx !== -1) s = s.slice(0, slashIdx + 1) + s.slice(slashIdx + 1).replace(/\//g, "");
+      return s.replace(/\.{2,}/g, ".");
+    };
+    const getHint = () => body.querySelector(`.view-manual-score-hint[data-rem-id="${input.dataset.remId}"]`);
+    const getPct  = () => input.closest("tr")?.querySelector(".view-manual-score-pct");
+    input.addEventListener("input", () => {
+      const san = msSanitize(input.value);
+      if (input.value !== san) {
+        const pos = input.selectionStart - (input.value.length - san.length);
+        input.value = san;
+        input.setSelectionRange(Math.max(0, pos), Math.max(0, pos));
+      }
+      const parsed = parseManualScore(san.trim());
+      const pct = parsed !== null ? Math.round(parsed * 10) / 10 : null;
+      const hint = getHint();
+      if (hint) { if (pct !== null) { hint.textContent = `= ${pct}%`; hint.style.display = ""; } else { hint.textContent = ""; hint.style.display = "none"; } }
+      const pctEl = getPct(); if (pctEl) pctEl.textContent = pct !== null ? pct + "%" : "";
+    });
+    let _alerting = false;
+    input.addEventListener("blur", () => {
+      if (_alerting) return;
+      const err = validateManualScore(input.value.trim());
+      if (!err) return;
+      _alerting = true; alert(err); _alerting = false;
+      setTimeout(() => input.focus(), 0);
+    });
+  });
 
   const wrap = fn => withViewAction("viewGroupActionsInFlight", "viewGroupRenderPending", isGroupViewBusy, renderGroupSessionView, fn);
 
@@ -20965,7 +21223,7 @@ function renderGroupStudentRowCompact(remId, rem, target, mappedInfo = null) {
       <span class="field-label" contenteditable="false">Remark</span>
       <button class="btn-sketch btn-group-sketch" contenteditable="false" data-rem-id="${remId}" aria-label="Open sketch board">✏</button>
       <textarea class="field-input group-remark-input" rows="1"
-        data-rem-id="${remId}" placeholder="Remark…"
+        data-rem-id="${remId}" placeholder="Notes…"
         data-saved-html="${escHtml(rem.text || "")}">${escHtml(plainTextForEdit(rem.text))}</textarea>
       <button class="btn-icon btn-group-del-student-remark" contenteditable="false" data-rem-id="${remId}" title="Delete remark">🗑</button>
     </div>
@@ -21164,7 +21422,7 @@ function renderGroupCombinedRemarkRow(remIds, text, attendeeNames = []) {
       <span class="field-label" contenteditable="false">Notes</span>
       <button class="btn-sketch btn-group-sketch-combined" contenteditable="false" data-rem-ids="${idList}" aria-label="Open sketch board">✏</button>
       <textarea class="field-input group-remark-input-combined" rows="1"
-        data-rem-ids="${idList}" placeholder="Remark…"
+        data-rem-ids="${idList}" placeholder="Notes…"
         data-saved-html="${escHtml(text || "")}">${escHtml(plainTextForEdit(text))}</textarea>
     </div>
   </div>`;
@@ -21248,7 +21506,7 @@ function renderGroupStudentRow(studentName, remId, rem, target, mappedInfo = nul
   }
 
   const freeTextBox = `<textarea class="field-input group-remark-input" rows="1"
-      data-rem-id="${remId}" placeholder="Remark…"
+      data-rem-id="${remId}" placeholder="Notes…"
       data-saved-html="${escHtml(rem.text || "")}">${escHtml(plainTextForEdit(rem.text))}</textarea>`;
 
   const sketchBtn = opts.length === 0
@@ -21280,6 +21538,7 @@ function renderGroupStudentRow(studentName, remId, rem, target, mappedInfo = nul
         <span class="field-label" contenteditable="false">Notes</span>
         <button class="btn-sketch btn-group-sketch" contenteditable="false" data-rem-id="${remId}" aria-label="Open sketch board">✏</button>
         ${grpNoteInput}
+        <span class="entry-note-spacer" contenteditable="false" aria-hidden="true"></span>
       </div>`;
   } else {
     noteField = _grpExistingNote
@@ -21365,7 +21624,7 @@ function renderGroupStudentEmptyRow(studentName, actId, actName, target, isPrede
       <span class="field-label" contenteditable="false">Notes</span>
       <button class="btn-sketch btn-group-sketch" contenteditable="false" data-rem-id="" aria-label="Sketch">✏</button>
       <textarea class="field-input group-remark-input group-remark-input-empty" rows="1"
-        placeholder="Remark…"
+        placeholder="Notes…"
         data-act-id="${escHtml(actId || "")}"
         data-act-name="${escHtml(actName)}"
         data-target="${escHtml(target.name)}"
