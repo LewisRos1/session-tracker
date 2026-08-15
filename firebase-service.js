@@ -766,6 +766,14 @@ export async function updateActivityCombineRemarks(sessionId, actId, combine, re
   await updateDoc(doc(db, "sessions", sessionId), updates);
 }
 
+export async function updateActivityRoundCombine(sessionId, actId, roundIdx, combine, remarkTextUpdates = {}) {
+  const updates = { [`activities.${actId}.combineRounds.${roundIdx}`]: combine };
+  for (const [remId, text] of Object.entries(remarkTextUpdates)) {
+    updates[`remarks.${remId}.text`] = text;
+  }
+  await updateDoc(doc(db, "sessions", sessionId), updates);
+}
+
 export async function deleteRemark(sessionId, remId) {
   await updateDoc(doc(db, "sessions", sessionId), {
     [`remarks.${remId}`]: deleteField()
@@ -1171,12 +1179,16 @@ export async function getOrCreateGroupSessionForDate(groupId, dateStr, targets =
     const existingId      = existingDoc.id;
     const existingNumbers = existingDoc.data().attendeePersonalSessionNumbers || {};
     const idsNeedingNumber = linkedIds.filter(id => existingNumbers[id] == null);
-    const numberPairs = await Promise.all(
-      idsNeedingNumber.map(async id => [id, await assignLifetimeSessionNumber(id, dateStr, null, "group")])
-    );
-    const numbersPatch = {};
-    for (const [id, num] of numberPairs) numbersPatch[`attendeePersonalSessionNumbers.${id}`] = num;
-    await updateDoc(doc(db, "sessions", existingId), { attendees, attendeeIds: linkedIds, ...numbersPatch });
+    // Fire attendee + session-number update in background so the session ID
+    // is returned immediately and listenToSession can start from cache.
+    (async () => {
+      const numberPairs = await Promise.all(
+        idsNeedingNumber.map(async id => [id, await assignLifetimeSessionNumber(id, dateStr, null, "group")])
+      );
+      const numbersPatch = {};
+      for (const [id, num] of numberPairs) numbersPatch[`attendeePersonalSessionNumbers.${id}`] = num;
+      await updateDoc(doc(db, "sessions", existingId), { attendees, attendeeIds: linkedIds, ...numbersPatch });
+    })().catch(console.error);
     return existingId;
   }
 

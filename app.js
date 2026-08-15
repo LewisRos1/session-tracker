@@ -16,6 +16,7 @@ import {
   updateActivityName,
   updateActivityTitle,
   updateActivityCombineRemarks,
+  updateActivityRoundCombine,
   addRemark,
   updateRemarkText,
   updateRemarkNote,
@@ -174,7 +175,7 @@ function versionLineText() {
   return `Made by Lewis · Version ${APP_VERSION}`;
 }
 
-const APP_VERSION = "1647";
+const APP_VERSION = "1653";
 
 // Debug helpers — call from F12 console
 // 1) List all stored activity names under a target:
@@ -13544,8 +13545,9 @@ function buildGroupTargetViewTable(target, data, attendees) {
 }
 
 function viewGroupActivityRows(no, actName, actId, data, target, attendees, isPredefined = true, paConfig = null) {
-  const rounds = actId ? viewGroupGetRounds(data, actId, attendees) : [];
+  const rounds           = actId ? viewGroupGetRounds(data, actId, attendees) : [];
   const combineFlagForAct = !!(actId && data.activities?.[actId]?.combineRemarks);
+  const combineRoundsMap  = (actId && data.activities?.[actId]?.combineRounds) || {};
 
   const grpActConfigId = actId ? data.activities?.[actId]?.configId : null;
   const paEntry = paConfig || (isPredefined
@@ -13622,12 +13624,7 @@ function viewGroupActivityRows(no, actName, actId, data, target, attendees, isPr
     }).join("");
   }
 
-  const combineToggle = actId
-    ? `<button class="btn-combine-toggle${combineFlagForAct ? " active" : ""}" data-act-id="${escHtml(actId)}" onmousedown="event.preventDefault()">
-        ${combineFlagForAct ? "Combined Remarks" : "Separate Remarks"}
-      </button>`
-    : "";
-  const actCellWithToggle = `<div class="view-act-cell-row"><span>${actCell}</span>${combineToggle}</div>`;
+  // Per-round toggles are built inside the round loop below
 
   const inlineOptions   = paEntry ? getActivityInlineOptions(paEntry) : null;
   const sentenceStarter = paEntry?.sentenceStarter || null;
@@ -13659,7 +13656,7 @@ function viewGroupActivityRows(no, actName, actId, data, target, attendees, isPr
             : `<div style="padding:.4rem .6rem">${_gMsg}</div>`;
           return `<tr${rowClass ? ` class="${rowClass}"` : ""}>
             <td class="vcol-no" contenteditable="false">${idx === 0 ? no : ""}</td>
-            <td class="vcol-act" contenteditable="false">${idx === 0 ? actCellWithToggle : ""}</td>
+            <td class="vcol-act" contenteditable="false">${idx === 0 ? actCell : ""}</td>
             <td class="vcol-student" contenteditable="false">${groupAttendeeLabel(studentName)}</td>
             <td class="vcol-rem" contenteditable="false">${_gCell}</td>
             <td class="vcol-trials" contenteditable="false">&nbsp;</td>
@@ -13670,7 +13667,7 @@ function viewGroupActivityRows(no, actName, actId, data, target, attendees, isPr
       }
       return attendees.map((studentName, idx) => `<tr${rowClass ? ` class="${rowClass}"` : ""}>
         <td class="vcol-no" contenteditable="false">${idx === 0 ? no : ""}</td>
-        <td class="vcol-act" contenteditable="false">${idx === 0 ? actCellWithToggle : ""}</td>
+        <td class="vcol-act" contenteditable="false">${idx === 0 ? actCell : ""}</td>
         <td class="vcol-student" contenteditable="false">${groupAttendeeLabel(studentName)}</td>
         <td class="vcol-rem" contenteditable="false">
           <textarea class="view-remark-edit view-remark-empty" rows="1"
@@ -13736,7 +13733,7 @@ function viewGroupActivityRows(no, actName, actId, data, target, attendees, isPr
       }
       return `<tr${rowClass ? ` class="${rowClass}"` : ""}>
         <td class="vcol-no" contenteditable="false">${idx === 0 ? no : ""}</td>
-        <td class="vcol-act" contenteditable="false">${idx === 0 ? actCellWithToggle : ""}</td>
+        <td class="vcol-act" contenteditable="false">${idx === 0 ? actCell : ""}</td>
         <td class="vcol-student" contenteditable="false">${groupAttendeeLabel(studentName)}</td>
         <td class="vcol-rem" contenteditable="false">${gRemCell}</td>
         <td class="vcol-trials" contenteditable="false">
@@ -13752,16 +13749,34 @@ function viewGroupActivityRows(no, actName, actId, data, target, attendees, isPr
 
   let firstRowOverall = true;
   let html = "";
-  for (const round of rounds) {
+  for (let ri = 0; ri < rounds.length; ri++) {
+    const round = rounds[ri];
     const presentEntries  = round.filter(e => !e.pending);
-    const combineThisRound = combineFlagForAct && presentEntries.length > 1;
+    const combineFlag = Object.prototype.hasOwnProperty.call(combineRoundsMap, ri)
+      ? !!combineRoundsMap[ri]
+      : combineFlagForAct;
+    const combineThisRound = combineFlag && presentEntries.length > 1;
     const sharedRemIds     = combineThisRound ? presentEntries.map(e => e.id) : null;
     const sharedText       = combineThisRound ? presentEntries[0].text : null;
     let usedRowspanCell    = false;
 
+    const roundToggle = actId
+      ? `<button class="btn-combine-toggle${combineFlag ? " active" : ""}" data-act-id="${escHtml(actId)}" data-round-idx="${ri}" onmousedown="event.preventDefault()">
+           ${combineFlag ? "Combined Remarks" : "Separate Remarks"}
+         </button>`
+      : "";
+
+    let firstInRound = true;
     for (const entry of round) {
-      const noVal  = firstRowOverall ? no : null;
-      const actVal = firstRowOverall ? actCellWithToggle : null;
+      const noVal = firstRowOverall ? no : null;
+      let actVal;
+      if (firstRowOverall) {
+        actVal = `<div class="view-act-cell-row"><span>${actCell}</span>${roundToggle}</div>`;
+      } else if (firstInRound) {
+        actVal = `<div style="display:flex;justify-content:flex-end">${roundToggle}</div>`;
+      } else {
+        actVal = null;
+      }
 
       if (entry.pending) {
         // Free-text activities (no presets) get a ready-to-type empty box
@@ -13790,6 +13805,7 @@ function viewGroupActivityRows(no, actName, actId, data, target, attendees, isPr
             <td class="vcol-score" contenteditable="false">&nbsp;</td>
           </tr>`;
           firstRowOverall = false;
+          firstInRound = false;
           continue;
         }
         // opts.length > 0 — show inline select/multi UI directly
@@ -13842,6 +13858,7 @@ function viewGroupActivityRows(no, actName, actId, data, target, attendees, isPr
           <td class="vcol-score" contenteditable="false">&nbsp;</td>
         </tr>`;
         firstRowOverall = false;
+        firstInRound = false;
         continue;
       }
 
@@ -13856,6 +13873,7 @@ function viewGroupActivityRows(no, actName, actId, data, target, attendees, isPr
         inlineOptions, sentenceStarter, multiSelect, combineOpts, null, remarkHasNote, rowClass, paEntry?.optionScores || null, paEntry?.manualScore || false
       );
       firstRowOverall = false;
+      firstInRound = false;
     }
   }
   return html;
@@ -14164,16 +14182,22 @@ function attachGroupViewListeners() {
   // the body persists across renders, so attaching per-box listeners here
   // would stack up duplicates.
 
-  // Combine/Separate remarks toggle (mirrors the live group session editor's confirm logic)
+  // Combine/Separate remarks toggle (per round)
   body.querySelectorAll(".btn-combine-toggle").forEach(btn => {
     btn.addEventListener("click", wrap(async () => {
       state.viewGroupRemarkSaver?.flush();
-      const actId = btn.dataset.actId;
-      const data  = state.viewGroupSessionData;
-      const current = !!data?.activities?.[actId]?.combineRemarks;
+      const actId    = btn.dataset.actId;
+      const roundIdx = parseInt(btn.dataset.roundIdx ?? "0");
+      const data     = state.viewGroupSessionData;
+      const combineRoundsMap = data?.activities?.[actId]?.combineRounds || {};
+      const combineFlagAct   = !!(data?.activities?.[actId]?.combineRemarks);
+      const current = Object.prototype.hasOwnProperty.call(combineRoundsMap, roundIdx)
+        ? !!combineRoundsMap[roundIdx]
+        : combineFlagAct;
+      const attendees = data.attendees || (state.viewGroup?.students || []).filter(Boolean);
+      const stripEmpty = s => (s || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").replace(/ /g, " ").trim();
 
-      if (!current) {
-        const attendees = data.attendees || (state.viewGroup?.students || []).filter(Boolean);
+      const buildByStudent = () => {
         const byStudent = {};
         for (const studentName of attendees) {
           byStudent[studentName] = Object.entries(data.remarks || {})
@@ -14181,38 +14205,68 @@ function attachGroupViewListeners() {
             .sort(([, a], [, b]) => (a.order || 0) - (b.order || 0))
             .map(([id, r]) => ({ id, ...r }));
         }
-        const maxRounds = Math.max(...Object.values(byStudent).map(arr => arr.length), 0);
-        const stripEmpty = s => (s || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").replace(/ /g, " ").trim();
+        return byStudent;
+      };
 
-        const remIdsToClear = [];
-        let conflict = null;
-        for (let i = 0; i < maxRounds; i++) {
-          const present = attendees
-            .map(name => ({ name, rem: byStudent[name][i] }))
-            .filter(e => e.rem);
-          if (present.length < 2) continue;
-          const [kept, ...others] = present;
-          const keptHasText = stripEmpty(kept.rem.text).length > 0;
-          for (const other of others) {
-            if (keptHasText && stripEmpty(other.rem.text).length > 0) {
-              if (!conflict) conflict = { keptName: kept.name, clearedName: other.name };
-              remIdsToClear.push(other.rem.id);
+      const remarkTextUpdates = {};
+
+      if (!current) {
+        const byStudent = buildByStudent();
+        let conflictMulti = null;
+        let conflictSingle = null;
+        const present = attendees
+          .map(name => ({ name, rem: byStudent[name]?.[roundIdx] }))
+          .filter(e => e.rem);
+        if (present.length >= 2) {
+          const withText = present.filter(e => stripEmpty(e.rem.text).length > 0);
+          if (withText.length === 1) {
+            conflictSingle = { name: withText[0].name };
+            const srcText = withText[0].rem.text;
+            for (const other of present) {
+              if (other.name === withText[0].name) continue;
+              remarkTextUpdates[other.rem.id] = srcText;
+              if (data.remarks?.[other.rem.id]) data.remarks[other.rem.id].text = srcText;
+            }
+          } else if (withText.length > 1) {
+            const allSame = withText.every(e => stripEmpty(e.rem.text) === stripEmpty(withText[0].rem.text));
+            if (!allSame) {
+              const [kept, ...others] = present;
+              for (const other of others) {
+                if (stripEmpty(other.rem.text).length > 0) {
+                  if (!conflictMulti) conflictMulti = { keptName: kept.name, clearedName: other.name };
+                  remarkTextUpdates[other.rem.id] = "";
+                  if (data.remarks?.[other.rem.id]) data.remarks[other.rem.id].text = "";
+                }
+              }
             }
           }
         }
-
-        if (remIdsToClear.length > 0) {
-          const ok = confirm(
-            `${conflict.clearedName}'s remark will be deleted and ${conflict.keptName}'s remark will be kept after combining. Continue?`
-          );
+        if (conflictMulti) {
+          const ok = confirm(`${conflictMulti.clearedName}'s remark will be deleted. ${conflictMulti.keptName}'s remark will be kept and shared with all students. Continue?`);
           if (!ok) return;
-          btn.disabled = true;
-          for (const remId of remIdsToClear) await updateRemarkText(sid(), remId, "");
+        } else if (conflictSingle) {
+          const ok = confirm(`${attendees.join(" & ")} will share ${conflictSingle.name}'s remark. Continue?`);
+          if (!ok) return;
+        }
+      } else {
+        const byStudent = buildByStudent();
+        const present = attendees
+          .map(name => ({ name, rem: byStudent[name]?.[roundIdx] }))
+          .filter(e => e.rem);
+        if (present.length >= 2) {
+          const sharedText = present[0].rem.text;
+          for (const other of present.slice(1)) {
+            if ((other.rem.text || "") !== sharedText) {
+              remarkTextUpdates[other.rem.id] = sharedText;
+              if (data.remarks?.[other.rem.id]) data.remarks[other.rem.id].text = sharedText;
+            }
+          }
         }
       }
 
-      btn.disabled = true;
-      await updateActivityCombineRemarks(sid(), actId, !current);
+      (data.activities[actId].combineRounds ??= {})[roundIdx] = !current;
+      renderGroupSessionView();
+      updateActivityRoundCombine(sid(), actId, roundIdx, !current, remarkTextUpdates).catch(console.error);
     }));
   });
 
@@ -21286,14 +21340,8 @@ function renderGroupActivityCard(actName, actId, target, data, attendees, actNot
     </div>`;
   }
 
-  const combineRemarks = !!(actId && data.activities?.[actId]?.combineRemarks);
-  const combineToggle = actId
-    ? `<button class="btn-combine-toggle ${combineRemarks ? "active" : ""}" data-act-id="${escHtml(actId)}"
-        title="${combineRemarks ? "Split back into separate remark boxes" : "Share one remark box for everyone in this activity"}"
-        onmousedown="event.preventDefault()">
-        ${combineRemarks ? "Combined Remarks" : "Separate Remarks"}
-      </button>`
-    : "";
+  const combineRemarks   = !!(actId && data.activities?.[actId]?.combineRemarks);
+  const combineRoundsMap = (actId && data.activities?.[actId]?.combineRounds) || {};
 
   // Check if any attendee already has a remark for this activity
   const anyExpanded = actId && Object.values(data.remarks || {})
@@ -21361,8 +21409,19 @@ function renderGroupActivityCard(actName, actId, target, data, attendees, actNot
     }
     const roundRemIds = presentEntries.map(([, remId]) => remId);
 
+    const combineThisRound = Object.prototype.hasOwnProperty.call(combineRoundsMap, i)
+      ? !!combineRoundsMap[i]
+      : combineRemarks;
+    const roundToggle = actId
+      ? `<div class="group-round-header" contenteditable="false">
+           <button class="btn-combine-toggle${combineThisRound ? " active" : ""}" data-act-id="${escHtml(actId)}" data-round-idx="${i}" onmousedown="event.preventDefault()">
+             ${combineThisRound ? "Combined Remarks" : "Separate Remarks"}
+           </button>
+         </div>`
+      : "";
+
     let bodyHtml;
-    if (combineRemarks && presentEntries.length > 0) {
+    if (combineThisRound && presentEntries.length > 0) {
       const sharedText = presentEntries[0][2].text;
       bodyHtml = renderGroupCombinedRemarkRow(roundRemIds, sharedText, attendees)
         + presentEntries.map(([studentName, remId, rem]) =>
@@ -21382,6 +21441,7 @@ function renderGroupActivityCard(actName, actId, target, data, attendees, actNot
     }
 
     roundHtmls.push(`<div class="group-remark-round">
+      ${roundToggle}
       ${bodyHtml}
     </div>`);
   }
@@ -21396,7 +21456,6 @@ function renderGroupActivityCard(actName, actId, target, data, attendees, actNot
       <span class="field-value-fixed">${inactiveReasonBadge(paEntry)}${actNum ? `<span style="color:#6b7280;font-weight:600;margin-right:.2rem">${actNum})</span>` : ""}${formatActivityMarkup(actName)}</span>
       ${(paEntry?.createdOn || paEntry?.activeFrom) ? `<span style="font-size:.75rem;color:#9ca3af;white-space:nowrap;flex-shrink:0;align-self:flex-start">Created: ${fmtPeriodDate(paEntry.createdOn || paEntry.activeFrom)}</span>` : ""}
       ${paEntry?.id ? `<button class="btn-icon btn-grp-edit-pencil" contenteditable="false" data-pa-id="${escHtml(paEntry.id)}" title="Edit in Edit Target" style="font-size:.85rem;opacity:.55;line-height:1">✏️</button>` : ""}
-      ${combineToggle}
     </div>`}
     ${noteRow}
     ${suppressHeader ? "" : `<div class="entry-divider" contenteditable="false"></div>`}
@@ -21861,12 +21920,17 @@ function attachGroupTargetListeners(target) {
     });
   });
 
-  // Combine/Separate remarks toggle (per activity, this session only)
+  // Combine/Separate remarks toggle (per round, this session only)
   c.querySelectorAll(".btn-combine-toggle").forEach(btn => {
     btn.addEventListener("click", async () => {
-      const actId = btn.dataset.actId;
-      const data = state.groupSessionData;
-      const current = !!data?.activities?.[actId]?.combineRemarks;
+      const actId    = btn.dataset.actId;
+      const roundIdx = parseInt(btn.dataset.roundIdx ?? "0");
+      const data     = state.groupSessionData;
+      const combineRoundsMap = data?.activities?.[actId]?.combineRounds || {};
+      const combineRemarks   = !!(data?.activities?.[actId]?.combineRemarks);
+      const current = Object.prototype.hasOwnProperty.call(combineRoundsMap, roundIdx)
+        ? !!combineRoundsMap[roundIdx]
+        : combineRemarks;
       const attendees = state.groupAttendees || [];
       const stripEmpty = s => (s || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").replace(/ /g, " ").trim();
 
@@ -21881,27 +21945,20 @@ function attachGroupTargetListeners(target) {
         return byStudent;
       };
 
-      // remarkTextUpdates accumulates all remark text changes — written atomically
-      // with the combineRemarks flag so only one Firestore snapshot fires (no flash).
       const remarkTextUpdates = {};
 
       if (!current) {
-        // ── Turning ON ──────────────────────────────────────────────────────
+        // ── Turning ON for this round ────────────────────────────────────────
         const byStudent = buildByStudent();
-        const maxRounds = Math.max(...Object.values(byStudent).map(arr => arr.length), 0);
         let conflictMulti  = null;
         let conflictSingle = null;
 
-        for (let i = 0; i < maxRounds; i++) {
-          const present = attendees
-            .map(name => ({ name, rem: byStudent[name][i] }))
-            .filter(e => e.rem);
-          if (present.length < 2) continue;
+        const present = attendees
+          .map(name => ({ name, rem: byStudent[name]?.[roundIdx] }))
+          .filter(e => e.rem);
+        if (present.length >= 2) {
           const withText = present.filter(e => stripEmpty(e.rem.text).length > 0);
-          if (withText.length === 0) continue;
-
           if (withText.length === 1) {
-            // One student has text — propagate to others so combined textarea shows it
             if (!conflictSingle) conflictSingle = { name: withText[0].name };
             const srcText = withText[0].rem.text;
             for (const other of present) {
@@ -21909,10 +21966,9 @@ function attachGroupTargetListeners(target) {
               remarkTextUpdates[other.rem.id] = srcText;
               if (data.remarks?.[other.rem.id]) data.remarks[other.rem.id].text = srcText;
             }
-          } else {
+          } else if (withText.length > 1) {
             const allSame = withText.every(e => stripEmpty(e.rem.text) === stripEmpty(withText[0].rem.text));
             if (!allSame) {
-              // Genuinely different text — keep first attendee's, clear the rest
               const [kept, ...others] = present;
               for (const other of others) {
                 if (stripEmpty(other.rem.text).length > 0) {
@@ -21922,7 +21978,6 @@ function attachGroupTargetListeners(target) {
                 }
               }
             }
-            // All same text → switch directly, no popup needed
           }
         }
 
@@ -21937,18 +21992,13 @@ function attachGroupTargetListeners(target) {
           if (!ok) return;
         }
       } else {
-        // ── Turning OFF ─────────────────────────────────────────────────────
-        // Propagate the shared text (first student's remark = what combined showed)
-        // to all other students so both show the same remark after separating.
+        // ── Turning OFF for this round ───────────────────────────────────────
         const byStudent = buildByStudent();
-        const maxRounds = Math.max(...Object.values(byStudent).map(arr => arr.length), 0);
-
-        for (let i = 0; i < maxRounds; i++) {
-          const present = attendees
-            .map(name => ({ name, rem: byStudent[name][i] }))
-            .filter(e => e.rem);
-          if (present.length < 2) continue;
-          const sharedText = present[0].rem.text; // first student = combined textarea content
+        const present = attendees
+          .map(name => ({ name, rem: byStudent[name]?.[roundIdx] }))
+          .filter(e => e.rem);
+        if (present.length >= 2) {
+          const sharedText = present[0].rem.text;
           for (const other of present.slice(1)) {
             if ((other.rem.text || "") !== sharedText) {
               remarkTextUpdates[other.rem.id] = sharedText;
@@ -21958,9 +22008,9 @@ function attachGroupTargetListeners(target) {
         }
       }
 
-      btn.disabled = true;
-      // Single atomic write: combineRemarks flag + all remark text changes together
-      await updateActivityCombineRemarks(state.groupSessionId, actId, !current, remarkTextUpdates);
+      (data.activities[actId].combineRounds ??= {})[roundIdx] = !current;
+      renderGroupTargetContent();
+      updateActivityRoundCombine(state.groupSessionId, actId, roundIdx, !current, remarkTextUpdates).catch(console.error);
     });
   });
 
