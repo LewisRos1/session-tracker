@@ -15,8 +15,6 @@ import {
   deleteActivity,
   updateActivityName,
   updateActivityTitle,
-  updateActivityCombineRemarks,
-  updateActivityRoundCombine,
   addRemark,
   updateRemarkText,
   updateRemarkNote,
@@ -175,7 +173,7 @@ function versionLineText() {
   return `Made by Lewis · Version ${APP_VERSION}`;
 }
 
-const APP_VERSION = "1654";
+const APP_VERSION = "1656";
 
 // Debug helpers — call from F12 console
 // 1) List all stored activity names under a target:
@@ -12214,12 +12212,6 @@ function setupViewRemarkSaving(body, getSessionId, counterKey, onIdle, getData) 
     diffAndSave(".view-mastery-note[data-rem-id]", el => htmlForStorage(el.value),
       (el, html) => updateRemarkNote(sid, el.dataset.remId, html));
 
-    diffAndSave(".group-remark-input-combined[data-rem-ids]", el => htmlForStorage(el.value),
-      (el, html) => {
-        const remIds = el.dataset.remIds.split(",").filter(Boolean);
-        return Promise.all(remIds.map(id => updateRemarkText(sid, id, html)));
-      });
-
     body.querySelectorAll(".view-remark-empty").forEach(el => {
       const text = el.value.trim();
       // dataset.remId guards against flush() running a second time for this
@@ -12414,12 +12406,6 @@ function setupEntryRemarkSaving(host, getSessionId, onIdle) {
     diffAndSave(".group-remark-input[data-rem-id]:not(.group-remark-input-empty)", el => htmlForStorage(el.value),
       (el, html) => updateRemarkText(sid, el.dataset.remId, html));
 
-    diffAndSave(".group-remark-input-combined[data-rem-ids]", el => htmlForStorage(el.value),
-      (el, html) => {
-        const remIds = el.dataset.remIds.split(",").filter(Boolean);
-        return Promise.all(remIds.map(id => updateRemarkText(sid, id, html)));
-      });
-
     // Ghost predefined-remark inputs don't have a remark (or sometimes even an
     // activity) yet, so they need to be created first — guarded against
     // double-creation if flush() runs again before the first creation lands.
@@ -12547,7 +12533,7 @@ function setupEntryRemarkSaving(host, getSessionId, onIdle) {
 // <textarea>/<input> elements expose selectionStart/selectionEnd directly,
 // so this no longer needs any manual Range/offset math.
 const EDITABLE_BOX_SELECTOR =
-  ".remark-text-input, .mastery-note-input, .activity-name-input, .pending-activity-name-input, .predef-remark-input-live, .group-remark-input, .group-remark-input-combined, " +
+  ".remark-text-input, .mastery-note-input, .activity-name-input, .pending-activity-name-input, .predef-remark-input-live, .group-remark-input, " +
   ".view-remark-edit, .view-mastery-note, .view-act-edit, .view-starter-input";
 
 function captureActiveEditState(host) {
@@ -12798,6 +12784,71 @@ function showViewAddRemarkPicker(targetName) {
         renderViewOrDefer("viewRenderPending", isViewBusy, renderSessionView);
         alert("Couldn't add remark — check your connection and try again.\n\n" + err.message);
       });
+    });
+  });
+}
+
+function showGroupViewAddRemarkPicker(targetName) {
+  const data = state.viewGroupSessionData;
+  const target = getViewGroupEffectiveTargets().find(t => t.name === targetName);
+  const dateStr = data?.date;
+  const attendees = data?.attendees || (state.viewGroup?.students || []).filter(Boolean);
+
+  const choices = [];
+  if (target?.predefinedActivities?.length > 0) {
+    let no = 0;
+    const matchedIds = new Set();
+    for (const pa of target.predefinedActivities) {
+      if (!isActivityActive(pa, dateStr)) continue;
+      if (pa.isHeading || pa.isMaintainHeading || pa.isNote || pa.isExportNote ||
+          pa.isMaintain || pa.isCompleted || pa.isArchived || pa.isStopped) continue;
+      no++;
+      const entry = Object.entries(data?.activities || {})
+        .find(([, a]) => a.targetName === targetName && (a.activityName === pa.name || (pa.title && a.activityName === pa.title)));
+      const rounds = entry ? viewGroupGetRounds(data, entry[0], attendees) : [];
+      if (entry && rounds.length > 0) {
+        matchedIds.add(entry[0]);
+        choices.push({ actId: entry[0], name: pa.name, no });
+      }
+    }
+    Object.entries(data?.activities || {})
+      .filter(([actId, a]) => a.targetName === targetName && !matchedIds.has(actId) && viewGroupGetRounds(data, actId, attendees).length > 0)
+      .sort(([, a], [, b]) => (a.order || 0) - (b.order || 0))
+      .forEach(([actId, a]) => { no++; choices.push({ actId, name: a.activityName, no }); });
+  } else {
+    Object.entries(data?.activities || {})
+      .filter(([actId, a]) => a.targetName === targetName && viewGroupGetRounds(data, actId, attendees).length > 0)
+      .sort(([, a], [, b]) => (a.order || 0) - (b.order || 0))
+      .forEach(([actId, a], i) => choices.push({ actId, name: a.activityName, no: i + 1 }));
+  }
+
+  $("session-picker-title").textContent = "Add Remark & Trials to which Activity?";
+  $("session-picker-list").innerHTML = choices.length
+    ? `<div class="choice-list">` + choices.map(c => `
+        <button class="choice-btn grp-view-add-remark-choice" data-act-id="${escHtml(c.actId)}">
+          <div class="choice-text"><div class="choice-label">${escHtml(c.no + ". " + c.name)}</div></div>
+        </button>`).join("") + `</div>`
+    : `<p class="empty-hint">No activities with a remark yet — use the textarea or + button on an activity row to start one.</p>`;
+  $("session-picker-modal").classList.remove("hidden");
+
+  $("session-picker-list").querySelectorAll(".grp-view-add-remark-choice").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const actId = btn.dataset.actId;
+      closeSessionPicker();
+      const d = state.viewGroupSessionData;
+      d.remarks = d.remarks || {};
+      const order = Date.now();
+      const remIds = attendees.map(() => generateId("r"));
+      attendees.forEach((studentName, i) => {
+        d.remarks[remIds[i]] = { activityId: actId, studentName, text: "", trials: [], order: order + i };
+      });
+      renderViewOrDefer("viewGroupRenderPending", isGroupViewBusy, renderGroupSessionView);
+      addGroupRemarksBatch(state.viewGroupSessionId, attendees.map(studentName => ({ actId, studentName })), remIds)
+        .catch(err => {
+          remIds.forEach(id => delete d.remarks[id]);
+          renderViewOrDefer("viewGroupRenderPending", isGroupViewBusy, renderGroupSessionView);
+          alert("Couldn't add remark — check your connection and try again.\n\n" + err.message);
+        });
     });
   });
 }
@@ -13553,14 +13604,12 @@ function buildGroupTargetViewTable(target, data, attendees) {
         <tbody>${rows}</tbody>
       </table>
     </div>
+    <button class="view-add-remark-target-group" data-target="${escHtml(target.name)}">+ Add Remark &amp; Trials</button>
   </div>`;
 }
 
 function viewGroupActivityRows(no, actName, actId, data, target, attendees, isPredefined = true, paConfig = null) {
   const rounds           = actId ? viewGroupGetRounds(data, actId, attendees) : [];
-  const combineFlagForAct = !!(actId && data.activities?.[actId]?.combineRemarks);
-  const combineRoundsMap  = (actId && data.activities?.[actId]?.combineRounds) || {};
-
   const grpActConfigId = actId ? data.activities?.[actId]?.configId : null;
   const paEntry = paConfig || (isPredefined
     ? (target.predefinedActivities?.find(pa => pa.name === actName) ||
@@ -13763,32 +13812,10 @@ function viewGroupActivityRows(no, actName, actId, data, target, attendees, isPr
   let html = "";
   for (let ri = 0; ri < rounds.length; ri++) {
     const round = rounds[ri];
-    const presentEntries  = round.filter(e => !e.pending);
-    const combineFlag = Object.prototype.hasOwnProperty.call(combineRoundsMap, ri)
-      ? !!combineRoundsMap[ri]
-      : combineFlagForAct;
-    const combineThisRound = combineFlag && presentEntries.length > 1;
-    const sharedRemIds     = combineThisRound ? presentEntries.map(e => e.id) : null;
-    const sharedText       = combineThisRound ? presentEntries[0].text : null;
-    let usedRowspanCell    = false;
 
-    const roundToggle = actId
-      ? `<button class="btn-combine-toggle${combineFlag ? " active" : ""}" data-act-id="${escHtml(actId)}" data-round-idx="${ri}" onmousedown="event.preventDefault()">
-           ${combineFlag ? "Combined Remarks" : "Separate Remarks"}
-         </button>`
-      : "";
-
-    let firstInRound = true;
     for (const entry of round) {
-      const noVal = firstRowOverall ? no : null;
-      let actVal;
-      if (firstRowOverall) {
-        actVal = `<div class="view-act-cell-row"><span>${actCell}</span>${roundToggle}</div>`;
-      } else if (firstInRound) {
-        actVal = `<div style="display:flex;justify-content:flex-end">${roundToggle}</div>`;
-      } else {
-        actVal = null;
-      }
+      const noVal  = firstRowOverall ? no : null;
+      const actVal = firstRowOverall ? actCell : null;
 
       if (entry.pending) {
         // Free-text activities (no presets) get a ready-to-type empty box
@@ -13874,24 +13901,17 @@ function viewGroupActivityRows(no, actName, actId, data, target, attendees, isPr
         continue;
       }
 
-      const combineOpts = !combineThisRound ? null
-        : usedRowspanCell
-          ? { skipRemarkCell: true }
-          : { rowspan: presentEntries.length, combinedRemIds: sharedRemIds, sharedText };
-      if (combineThisRound) usedRowspanCell = true;
-
       html += viewGroupRemarkRow(
         noVal, actVal, entry.studentName, entry, target,
-        inlineOptions, sentenceStarter, multiSelect, combineOpts, null, remarkHasNote, rowClass, paEntry?.optionScores || null, paEntry?.manualScore || false
+        inlineOptions, sentenceStarter, multiSelect, null, remarkHasNote, rowClass, paEntry?.optionScores || null, paEntry?.manualScore || false
       );
       firstRowOverall = false;
-      firstInRound = false;
     }
   }
   return html;
 }
 
-function viewGroupRemarkRow(no, actName, studentName, rem, target, inlineOptions = null, sentenceStarter = null, multiSelect = false, combineOpts = null, mappedInfo = null, remarkHasNote = false, rowClass = "", optionScores = null, manualScore = false) {
+function viewGroupRemarkRow(no, actName, studentName, rem, target, inlineOptions = null, sentenceStarter = null, multiSelect = false, mappedInfo = null, remarkHasNote = false, rowClass = "", optionScores = null, manualScore = false) {
   const _sv2 = t => (t || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim();
   const _remEmpty2 = !_sv2(rem.text) && !_sv2(rem.masteryNote) && !(rem.trials || []).some(t => t >= 0) && rem.optionScore === undefined;
   const delBtn2 = _remEmpty2 ? "" : `<button class="view-rem-del" data-rem-id="${escHtml(rem.id)}" title="Delete remark">×</button>`;
@@ -13940,18 +13960,7 @@ function viewGroupRemarkRow(no, actName, studentName, rem, target, inlineOptions
     : scorePct;
 
   let remarkTd = "";
-  if (!combineOpts?.skipRemarkCell) {
-    if (combineOpts) {
-      // Combined round — one shared plain-text box across remIds (mirrors the live
-      // group session editor's "Combined Remarks" mode, which is free-text only).
-      const idList = combineOpts.combinedRemIds.join(",");
-      remarkTd = `<td class="vcol-rem" contenteditable="false" rowspan="${combineOpts.rowspan}">
-        <textarea class="view-remark-edit group-remark-input-combined" rows="1"
-          data-rem-ids="${idList}"
-          placeholder="Notes…"
-          data-saved-html="${escHtml(combineOpts.sharedText || "")}">${escHtml(plainTextForEdit(combineOpts.sharedText))}</textarea>
-      </td>`;
-    } else {
+  {
       const opts = parseOpts(inlineOptions);
 
       if ((remarkHasNote || multiSelect) && opts.length === 0) {
@@ -14019,8 +14028,7 @@ function viewGroupRemarkRow(no, actName, studentName, rem, target, inlineOptions
         remarkCell = optSelect;
       }
       remarkTd = `<td class="vcol-rem" contenteditable="false">${remarkCell}</td>`;
-      } // end else (has opts)
-    }
+      }
   }
 
   return `<tr${rowClass ? ` class="${rowClass}"` : ""}>
@@ -14138,6 +14146,10 @@ function attachGroupViewListeners() {
   const body = $("group-session-view-body");
   const sid  = () => state.viewGroupSessionId;
 
+  body.querySelectorAll(".view-add-remark-target-group").forEach(btn => {
+    btn.addEventListener("click", () => showGroupViewAddRemarkPicker(btn.dataset.target));
+  });
+
   body.querySelectorAll("textarea.view-remark-edit, textarea.view-mastery-note").forEach(autoResizeTextarea);
 
   // ── Manual score input: sanitise, live hint update, blur validation ───
@@ -14194,97 +14206,9 @@ function attachGroupViewListeners() {
   // the body persists across renders, so attaching per-box listeners here
   // would stack up duplicates.
 
-  // Combine/Separate remarks toggle (per round)
-  body.querySelectorAll(".btn-combine-toggle").forEach(btn => {
-    btn.addEventListener("click", wrap(async () => {
-      state.viewGroupRemarkSaver?.flush();
-      const actId    = btn.dataset.actId;
-      const roundIdx = parseInt(btn.dataset.roundIdx ?? "0");
-      const data     = state.viewGroupSessionData;
-      const combineRoundsMap = data?.activities?.[actId]?.combineRounds || {};
-      const combineFlagAct   = !!(data?.activities?.[actId]?.combineRemarks);
-      const current = Object.prototype.hasOwnProperty.call(combineRoundsMap, roundIdx)
-        ? !!combineRoundsMap[roundIdx]
-        : combineFlagAct;
-      const attendees = data.attendees || (state.viewGroup?.students || []).filter(Boolean);
-      const stripEmpty = s => (s || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").replace(/ /g, " ").trim();
-
-      const buildByStudent = () => {
-        const byStudent = {};
-        for (const studentName of attendees) {
-          byStudent[studentName] = Object.entries(data.remarks || {})
-            .filter(([, r]) => r.activityId === actId && r.studentName === studentName)
-            .sort(([, a], [, b]) => (a.order || 0) - (b.order || 0))
-            .map(([id, r]) => ({ id, ...r }));
-        }
-        return byStudent;
-      };
-
-      const remarkTextUpdates = {};
-
-      if (!current) {
-        const byStudent = buildByStudent();
-        let conflictMulti = null;
-        let conflictSingle = null;
-        const present = attendees
-          .map(name => ({ name, rem: byStudent[name]?.[roundIdx] }))
-          .filter(e => e.rem);
-        if (present.length >= 2) {
-          const withText = present.filter(e => stripEmpty(e.rem.text).length > 0);
-          if (withText.length === 1) {
-            conflictSingle = { name: withText[0].name };
-            const srcText = withText[0].rem.text;
-            for (const other of present) {
-              if (other.name === withText[0].name) continue;
-              remarkTextUpdates[other.rem.id] = srcText;
-              if (data.remarks?.[other.rem.id]) data.remarks[other.rem.id].text = srcText;
-            }
-          } else if (withText.length > 1) {
-            const allSame = withText.every(e => stripEmpty(e.rem.text) === stripEmpty(withText[0].rem.text));
-            if (!allSame) {
-              const [kept, ...others] = present;
-              for (const other of others) {
-                if (stripEmpty(other.rem.text).length > 0) {
-                  if (!conflictMulti) conflictMulti = { keptName: kept.name, clearedName: other.name };
-                  remarkTextUpdates[other.rem.id] = "";
-                  if (data.remarks?.[other.rem.id]) data.remarks[other.rem.id].text = "";
-                }
-              }
-            }
-          }
-        }
-        if (conflictMulti) {
-          const ok = confirm(`${conflictMulti.clearedName}'s remark will be deleted. ${conflictMulti.keptName}'s remark will be kept and shared with all students. Continue?`);
-          if (!ok) return;
-        } else if (conflictSingle) {
-          const ok = confirm(`${attendees.join(" & ")} will share ${conflictSingle.name}'s remark. Continue?`);
-          if (!ok) return;
-        }
-      } else {
-        const byStudent = buildByStudent();
-        const present = attendees
-          .map(name => ({ name, rem: byStudent[name]?.[roundIdx] }))
-          .filter(e => e.rem);
-        if (present.length >= 2) {
-          const sharedText = present[0].rem.text;
-          for (const other of present.slice(1)) {
-            if ((other.rem.text || "") !== sharedText) {
-              remarkTextUpdates[other.rem.id] = sharedText;
-              if (data.remarks?.[other.rem.id]) data.remarks[other.rem.id].text = sharedText;
-            }
-          }
-        }
-      }
-
-      (data.activities[actId].combineRounds ??= {})[roundIdx] = !current;
-      renderGroupSessionView();
-      updateActivityRoundCombine(sid(), actId, roundIdx, !current, remarkTextUpdates).catch(console.error);
-    }));
-  });
-
-  // Saving for .view-remark-edit / .view-remark-empty / .group-remark-input-
-  // combined / .view-mastery-note is handled by the shared host saver
-  // (state.viewGroupRemarkSaver) set up once in openGroupSessionView.
+  // Saving for .view-remark-edit / .view-remark-empty / .view-mastery-note is
+  // handled by the shared host saver (state.viewGroupRemarkSaver) set up once
+  // in openGroupSessionView.
 
   // These three handlers update state.viewGroupSessionData synchronously
   // (not just the DOM/Firestore) before awaiting the write — see the matching
@@ -21352,9 +21276,6 @@ function renderGroupActivityCard(actName, actId, target, data, attendees, actNot
     </div>`;
   }
 
-  const combineRemarks   = !!(actId && data.activities?.[actId]?.combineRemarks);
-  const combineRoundsMap = (actId && data.activities?.[actId]?.combineRounds) || {};
-
   // Check if any attendee already has a remark for this activity
   const anyExpanded = actId && Object.values(data.remarks || {})
     .some(r => r.activityId === actId && attendees.includes(r.studentName));
@@ -21421,39 +21342,17 @@ function renderGroupActivityCard(actName, actId, target, data, attendees, actNot
     }
     const roundRemIds = presentEntries.map(([, remId]) => remId);
 
-    const combineThisRound = Object.prototype.hasOwnProperty.call(combineRoundsMap, i)
-      ? !!combineRoundsMap[i]
-      : combineRemarks;
-    const roundToggle = actId
-      ? `<div class="group-round-header" contenteditable="false">
-           <button class="btn-combine-toggle${combineThisRound ? " active" : ""}" data-act-id="${escHtml(actId)}" data-round-idx="${i}" onmousedown="event.preventDefault()">
-             ${combineThisRound ? "Combined Remarks" : "Separate Remarks"}
-           </button>
-         </div>`
-      : "";
-
-    let bodyHtml;
-    if (combineThisRound && presentEntries.length > 0) {
-      const sharedText = presentEntries[0][2].text;
-      bodyHtml = renderGroupCombinedRemarkRow(roundRemIds, sharedText, attendees)
-        + presentEntries.map(([studentName, remId, rem]) =>
-            renderGroupStudentTrialsOnlyRow(studentName, remId, rem, target)).join("")
-        + pendingNames.map(studentName =>
-            renderGroupStudentPendingTrialsOnlyRow(studentName, actId, actName, target)).join("");
-    } else {
-      bodyHtml = attendees.map(studentName => {
-        const entry = byStudent[studentName]?.[i] || null;
-        if (entry) return renderGroupStudentRow(
-          studentName, entry[0], entry[1], target, null, inlineOptions, sentenceStarter, multiSelect, remarkHasNote, paEntry?.optionScores || null, noteCapableGrp, paEntry?.noteSentenceStarter || null
-        );
-        return isFreeText
-          ? renderGroupStudentEmptyRow(studentName, actId, actName, target, isPredefined)
-          : renderGroupStudentPendingRow(studentName, actId, actName, target);
-      }).join("");
-    }
+    const bodyHtml = attendees.map(studentName => {
+      const entry = byStudent[studentName]?.[i] || null;
+      if (entry) return renderGroupStudentRow(
+        studentName, entry[0], entry[1], target, null, inlineOptions, sentenceStarter, multiSelect, remarkHasNote, paEntry?.optionScores || null, noteCapableGrp, paEntry?.noteSentenceStarter || null
+      );
+      return isFreeText
+        ? renderGroupStudentEmptyRow(studentName, actId, actName, target, isPredefined)
+        : renderGroupStudentPendingRow(studentName, actId, actName, target);
+    }).join("");
 
     roundHtmls.push(`<div class="group-remark-round">
-      ${roundToggle}
       ${bodyHtml}
     </div>`);
   }
@@ -21481,44 +21380,6 @@ function renderGroupActivityCard(actName, actId, target, data, attendees, actNot
   </div>`;
 }
 
-// Shared remark box used by all students in a round when "Combine" is active
-function renderGroupCombinedRemarkRow(remIds, text, attendeeNames = []) {
-  const idList = remIds.join(",");
-  const namesLabel = attendeeNames.map(n => escHtml(n)).join(" &amp; ");
-  return `<div class="group-student-section">
-    <div class="group-student-name-row" contenteditable="false">
-      <span class="group-student-name-label">${namesLabel}</span>
-    </div>
-    <div class="entry-field">
-      <span class="field-label" contenteditable="false">Notes</span>
-      <button class="btn-sketch btn-group-sketch-combined" contenteditable="false" data-rem-ids="${idList}" aria-label="Open sketch board">✏</button>
-      <textarea class="field-input group-remark-input-combined" rows="1"
-        data-rem-ids="${idList}" placeholder="Notes…"
-        data-saved-html="${escHtml(text || "")}">${escHtml(plainTextForEdit(text))}</textarea>
-    </div>
-  </div>`;
-}
-
-// Per-student name + trials only (remark is shared, rendered separately above)
-function renderGroupStudentTrialsOnlyRow(studentName, remId, rem, target) {
-  const trials = rem.trials || [];
-  const badges = trials.map((t, i) =>
-    `<span class="trial-badge">${t === -1 ? "—" : t}<button class="btn-trial-delete btn-group-trial-del" data-rem-id="${remId}" data-idx="${i}">×</button></span>`
-  ).join("");
-  return `<div class="group-student-section" data-rem-id="${remId}" data-student="${escHtml(studentName)}">
-    <div class="group-student-name-row" contenteditable="false">
-      <span class="group-student-name-label">${liveGroupAttendeeLabel(studentName)}</span>
-    </div>
-    <div class="entry-field" contenteditable="false">
-      <span class="field-label">Trials</span>
-      <div class="trials-row">
-        <div class="trials-badges">${badges}</div>
-        <button class="btn-primary-sm btn-add-trial btn-group-add-trial"
-          data-rem-id="${remId}" data-target="${escHtml(target.name)}" onmousedown="event.preventDefault()">+ Trial</button>
-      </div>
-    </div>
-  </div>`;
-}
 
 // Group-entry counterpart of renderRemarkFields — same option-pill/sentence-
 // starter/notes markup (reusing the same generic CSS classes/save-wiring),
@@ -21652,31 +21513,6 @@ function renderGroupStudentPendingRow(studentName, actId, actName, target, mappe
   </div>`;
 }
 
-// Combined-remarks mode: pending student shows a Trials row with +Trial that
-// auto-creates their remark first (instead of showing "+ Add Remark & Trials").
-function renderGroupStudentPendingTrialsOnlyRow(studentName, actId, actName, target) {
-  return `<div class="group-student-section group-student-pending" contenteditable="false"
-    data-student="${escHtml(studentName)}"
-    data-act-id="${escHtml(actId || "")}"
-    data-act-name="${escHtml(actName)}"
-    data-target="${escHtml(target.name)}">
-    <div class="group-student-name-row" contenteditable="false">
-      <span class="group-student-name-label">${liveGroupAttendeeLabel(studentName)}</span>
-    </div>
-    <div class="entry-field" contenteditable="false">
-      <span class="field-label">Trials</span>
-      <div class="trials-row">
-        <div class="trials-badges"></div>
-        <button class="btn-primary-sm btn-group-pending-add-trial"
-          data-student="${escHtml(studentName)}"
-          data-act-id="${escHtml(actId || "")}"
-          data-act-name="${escHtml(actName)}"
-          data-target="${escHtml(target.name)}"
-          onmousedown="event.preventDefault()">+ Trial</button>
-      </div>
-    </div>
-  </div>`;
-}
 
 // Free-text counterpart of renderGroupStudentPendingRow — once the card is
 // already expanded (some other attendee has a remark for this activity),
@@ -21865,12 +21701,6 @@ function attachGroupTargetListeners(target) {
     });
   });
 
-  c.querySelectorAll(".btn-group-sketch-combined").forEach(btn => {
-    btn.addEventListener("click", () => {
-      const field = c.querySelector(`.group-remark-input-combined[data-rem-ids="${btn.dataset.remIds}"]`);
-      if (field) openTextEditorSheet(field);
-    });
-  });
 
   // ── Remark option buttons (single-select) — group entry counterpart of
   // the individual screen's equivalent handler ──────────────
@@ -21929,100 +21759,6 @@ function attachGroupTargetListeners(target) {
         if (rem) rem.text = prevText;
         alert("Couldn't save — check your connection and try again.\n\n" + err.message);
       });
-    });
-  });
-
-  // Combine/Separate remarks toggle (per round, this session only)
-  c.querySelectorAll(".btn-combine-toggle").forEach(btn => {
-    btn.addEventListener("click", async () => {
-      const actId    = btn.dataset.actId;
-      const roundIdx = parseInt(btn.dataset.roundIdx ?? "0");
-      const data     = state.groupSessionData;
-      const combineRoundsMap = data?.activities?.[actId]?.combineRounds || {};
-      const combineRemarks   = !!(data?.activities?.[actId]?.combineRemarks);
-      const current = Object.prototype.hasOwnProperty.call(combineRoundsMap, roundIdx)
-        ? !!combineRoundsMap[roundIdx]
-        : combineRemarks;
-      const attendees = state.groupAttendees || [];
-      const stripEmpty = s => (s || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").replace(/ /g, " ").trim();
-
-      const buildByStudent = () => {
-        const byStudent = {};
-        for (const studentName of attendees) {
-          byStudent[studentName] = Object.entries(data.remarks || {})
-            .filter(([, r]) => r.activityId === actId && r.studentName === studentName)
-            .sort(([, a], [, b]) => (a.order || 0) - (b.order || 0))
-            .map(([id, r]) => ({ id, ...r }));
-        }
-        return byStudent;
-      };
-
-      const remarkTextUpdates = {};
-
-      if (!current) {
-        // ── Turning ON for this round ────────────────────────────────────────
-        const byStudent = buildByStudent();
-        let conflictMulti  = null;
-        let conflictSingle = null;
-
-        const present = attendees
-          .map(name => ({ name, rem: byStudent[name]?.[roundIdx] }))
-          .filter(e => e.rem);
-        if (present.length >= 2) {
-          const withText = present.filter(e => stripEmpty(e.rem.text).length > 0);
-          if (withText.length === 1) {
-            if (!conflictSingle) conflictSingle = { name: withText[0].name };
-            const srcText = withText[0].rem.text;
-            for (const other of present) {
-              if (other.name === withText[0].name) continue;
-              remarkTextUpdates[other.rem.id] = srcText;
-              if (data.remarks?.[other.rem.id]) data.remarks[other.rem.id].text = srcText;
-            }
-          } else if (withText.length > 1) {
-            const allSame = withText.every(e => stripEmpty(e.rem.text) === stripEmpty(withText[0].rem.text));
-            if (!allSame) {
-              const [kept, ...others] = present;
-              for (const other of others) {
-                if (stripEmpty(other.rem.text).length > 0) {
-                  if (!conflictMulti) conflictMulti = { keptName: kept.name, clearedName: other.name };
-                  remarkTextUpdates[other.rem.id] = "";
-                  if (data.remarks?.[other.rem.id]) data.remarks[other.rem.id].text = "";
-                }
-              }
-            }
-          }
-        }
-
-        if (conflictMulti) {
-          const ok = confirm(
-            `${conflictMulti.clearedName}'s remark will be deleted. ${conflictMulti.keptName}'s remark will be kept and shared with all students. Continue?`
-          );
-          if (!ok) return;
-        } else if (conflictSingle) {
-          const names = attendees.join(" & ");
-          const ok = confirm(`${names} will share ${conflictSingle.name}'s remark. Continue?`);
-          if (!ok) return;
-        }
-      } else {
-        // ── Turning OFF for this round ───────────────────────────────────────
-        const byStudent = buildByStudent();
-        const present = attendees
-          .map(name => ({ name, rem: byStudent[name]?.[roundIdx] }))
-          .filter(e => e.rem);
-        if (present.length >= 2) {
-          const sharedText = present[0].rem.text;
-          for (const other of present.slice(1)) {
-            if ((other.rem.text || "") !== sharedText) {
-              remarkTextUpdates[other.rem.id] = sharedText;
-              if (data.remarks?.[other.rem.id]) data.remarks[other.rem.id].text = sharedText;
-            }
-          }
-        }
-      }
-
-      (data.activities[actId].combineRounds ??= {})[roundIdx] = !current;
-      renderGroupTargetContent();
-      updateActivityRoundCombine(state.groupSessionId, actId, roundIdx, !current, remarkTextUpdates).catch(console.error);
     });
   });
 
@@ -22108,21 +21844,7 @@ function attachGroupTargetListeners(target) {
     });
   });
 
-  // + Trial for a pending student in combined-remarks mode — create their remark first, then open score picker
-  c.querySelectorAll(".btn-group-pending-add-trial").forEach(btn => {
-    btn.addEventListener("click", async () => {
-      btn.disabled = true;
-      try {
-        const { remId } = await ensureGroupActivityAndRemark(btn);
-        renderGroupTargetContent();
-        state.scorePicker = { open: true, remId, isGroup: true };
-        openScorePicker(remId, target);
-      } catch (err) {
-        btn.disabled = false;
-        alert("Couldn't add trial — check your connection and try again.\n\n" + err.message);
-      }
-    });
-  });
+
 
   // Delete round — remove all remarks in this set at once
   c.querySelectorAll(".btn-group-del-round").forEach(btn => {
