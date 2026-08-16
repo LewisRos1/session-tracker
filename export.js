@@ -151,8 +151,8 @@ const STYLE_ACT_HEADING = {
 };
 function isActivityActive(pa, dateStr) {
   if (!dateStr) return true;
-  if (pa.masteredOn     && dateStr >= pa.masteredOn)     return false;
-  if (pa.discontinuedOn && dateStr >= pa.discontinuedOn) return false;
+  if (pa.masteredOn     && dateStr > pa.masteredOn)     return false;
+  if (pa.discontinuedOn && dateStr > pa.discontinuedOn) return false;
   if (pa.activeFrom && dateStr < pa.activeFrom) return false;
   if (pa.activeTo   && dateStr > pa.activeTo)   return false;
   return true;
@@ -1836,7 +1836,39 @@ function wordTargetRows(target, session, allTargets) {
       continue;
     }
 
-    if (act.isMasteredSeparator || act.isMastered || act.isStoppedSeparator || act.isStopped) continue;
+    if (act.isMasteredSeparator) {
+      rows.push({ merge: true, text: "— Mastered —", style: "heading", isGreenHeading: true });
+      continue;
+    }
+    if (act.isStoppedSeparator) {
+      rows.push({ merge: true, text: act.activityName || "— Discontinued —", style: "heading", isRedHeading: true });
+      continue;
+    }
+    if (act.isMastered || act.isStopped) {
+      if (act.empty) {
+        rows.push({ cells: [act.activityName, "", ""], actLines: buildActLines(act, act.activityName) });
+        continue;
+      }
+      const _inactRemarks = getRemarksForActivity(session, act.id).filter(hasRemarkContent);
+      if (_inactRemarks.length === 0) {
+        rows.push({ cells: [act.activityName, "", ""], actLines: buildActLines(act, act.activityName) });
+        continue;
+      }
+      let _inactFirst = true;
+      for (const rem of _inactRemarks) {
+        const validTrials = allScores(rem);
+        const remarkAvg = calcRemarkAvg(validTrials, target.maxPoints);
+        const text = stripRemarkHtml(rem.text);
+        const masteryNote = stripRemarkHtml(rem.masteryNote || "");
+        rows.push({
+          cells: [_inactFirst ? act.activityName : "", "", remarkAvg !== null ? pct(remarkAvg) : ""],
+          actLines: _inactFirst ? buildActLines(act, act.activityName) : null,
+          remarkLines: buildRemarkLines(null, text, masteryNote)
+        });
+        _inactFirst = false;
+      }
+      continue;
+    }
     if (act.isExtraSeparator) {
       rows.push({ merge: true, text: "Extra", style: "heading" });
       continue;
@@ -2086,9 +2118,11 @@ function buildSessionDocxBody(entityName, sessionLabel, allTargets, session, sta
         } else {
         const mergeFill = r.isGrayHeading ? "D9D9D9"
           : r.isGreenHeading ? "A9D18E"
+          : r.isRedHeading ? "FECACA"
           : (r.style === "heading" ? TARGET_FILL : (r.style === "note" ? NOTE_FILL : null));
         const mergeColor = r.isGrayHeading ? "000000"
           : r.isGreenHeading ? "111827"
+          : r.isRedHeading ? "7F1D1D"
           : (r.style === "heading" ? TARGET_TEXT_COLOR : (r.style === "note" ? NOTE_TEXT_COLOR : null));
         tableRows.push(new TableRow({
           children: [cell(r.text, {
@@ -2910,11 +2944,11 @@ function getAllActivitiesForTarget(session, target) {
       subLabelCounters[pa.parentActivity] = si + 1;
       const subLabel = String.fromCharCode(97 + si);
       const parentPa = (target.predefinedActivities || []).find(p => !p.parentActivity && (p.title || p.name) === pa.parentActivity);
-      const subStatusPrefix = pa.discontinuedOn ? '(Discontinued) '
-        : pa.masteredOn ? '(Mastered) '
+      const subStatusPrefix = pa.discontinuedOn ? `(Discontinued on ${fmtDate(pa.discontinuedOn)}) `
+        : pa.masteredOn ? `(Mastered on ${fmtDate(pa.masteredOn)}) `
         : pa.maintained ? '(Maintained) '
-        : parentPa?.discontinuedOn ? '(Discontinued) '
-        : parentPa?.masteredOn ? '(Mastered) '
+        : parentPa?.discontinuedOn ? `(Discontinued on ${fmtDate(parentPa.discontinuedOn)}) `
+        : parentPa?.masteredOn ? `(Mastered on ${fmtDate(parentPa.masteredOn)}) `
         : parentPa?.maintained ? '(Maintained) '
         : '';
       const subActName = subStatusPrefix + (pa.title || pa.name);
@@ -2932,7 +2966,7 @@ function getAllActivitiesForTarget(session, target) {
     if (pa.masteredOn) {
       const _sAct = claimAct(pa);
       const _paKey = pa.title || pa.name;
-      const _name = `x) (Mastered) ${_paKey}`;
+      const _name = `x) (Mastered on ${fmtDate(pa.masteredOn)}) ${_paKey}`;
       const _subs = (target.predefinedActivities || []).filter(p => p.parentActivity === _paKey);
       const _subText = _subs.length > 0 ? _subs.map((p, i) => `${String.fromCharCode(97 + i)}. ${p.title || p.name}`).join("\n") : null;
       const _extra = { activityDisplayDetails: _subText || (pa.title ? (pa.name || null) : null), activityTitleBold: !!pa.isBold, activityTitleUnderline: !!pa.isUnderline };
@@ -2943,7 +2977,7 @@ function getAllActivitiesForTarget(session, target) {
     if (pa.discontinuedOn) {
       const _sAct = claimAct(pa);
       const _paKey = pa.title || pa.name;
-      const _name = `x) (Discontinued) ${_paKey}`;
+      const _name = `x) (Discontinued on ${fmtDate(pa.discontinuedOn)}) ${_paKey}`;
       const _subs = (target.predefinedActivities || []).filter(p => p.parentActivity === _paKey);
       const _subText = _subs.length > 0 ? _subs.map((p, i) => `${String.fromCharCode(97 + i)}. ${p.title || p.name}`).join("\n") : null;
       const _extra = { activityDisplayDetails: _subText || (pa.title ? (pa.name || null) : null), activityTitleBold: !!pa.isBold, activityTitleUnderline: !!pa.isUnderline };
