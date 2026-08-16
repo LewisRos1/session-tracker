@@ -544,7 +544,7 @@ html, body {
 }
 .btn-goto-session:hover { background: rgba(255,255,255,.22); color: #fff; }
 .btn-goto-session.hidden { display: none; }
-#view-session-meta { font-size: 1rem; font-weight: 400; opacity: 1; }
+#view-session-meta, #group-view-session-meta { font-size: 1rem; font-weight: 400; opacity: 1; }
 
 .session-list-current {
   border-color: var(--primary);
@@ -1076,28 +1076,6 @@ input.field-input::placeholder {
 
 .btn-add-remark:hover { opacity: .75; }
 
-/* Combine/Separate remarks toggle — sits to the right of "Activity" in a group activity card */
-.btn-combine-toggle {
-  flex-shrink: 0;
-  align-self: flex-start;
-  margin-top: .3rem;
-  padding: .3rem .6rem;
-  border: 1.5px solid var(--border);
-  border-radius: 999px;
-  background: var(--white);
-  font-size: .78rem;
-  font-weight: 600;
-  color: var(--text-muted);
-  cursor: pointer;
-  white-space: nowrap;
-  transition: border-color .12s, background .12s, color .12s;
-}
-.btn-combine-toggle.active {
-  border-color: var(--primary);
-  background: var(--primary-light);
-  color: var(--primary-dark);
-}
-.btn-combine-toggle:hover { opacity: .85; }
 
 /* ─── Remark preset option buttons ──────────────────────── */
 .remark-preset-opts {
