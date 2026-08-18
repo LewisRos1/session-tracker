@@ -175,7 +175,7 @@ function versionLineText() {
   return `Made by Lewis · Version ${APP_VERSION}`;
 }
 
-const APP_VERSION = "1725";
+const APP_VERSION = "1757";
 
 // Debug helpers — call from F12 console
 // 1) List all stored activity names under a target:
@@ -337,7 +337,7 @@ function requirePassword(onSuccess, message = "Enter password to continue") {
 }
 
 const LEGAL_WARNING = `<strong>Client data is confidential</strong> and must only be accessed, used, or shared for authorised purposes. Unauthorised <strong>downloading of client data</strong> without permission for personal use is <strong>strictly prohibited</strong>.<br><br>Any violation of this policy constitutes a serious breach of privacy law. Violators may be <strong>reported to the relevant authorities</strong> and may be subject to civil and criminal liability.`;
-const EXPIRED_MSG = `This session is over 14 days old and has expired for free viewing. A password is required to continue.<br><br>${LEGAL_WARNING}`;
+const EXPIRED_MSG = `This session is over 15 days old and has expired for free viewing. A password is required to continue.<br><br>${LEGAL_WARNING}`;
 const EXPORT_MSG  = `Enter password to continue.<br><br>${LEGAL_WARNING}`;
 
 function isOlderThan7Days(dateStr) {
@@ -345,7 +345,7 @@ function isOlderThan7Days(dateStr) {
   const [y, m, d] = dateStr.split("-").map(Number);
   const sessionDate = new Date(y, m - 1, d);
   const cutoff = new Date();
-  cutoff.setDate(cutoff.getDate() - 14);
+  cutoff.setDate(cutoff.getDate() - 15);
   cutoff.setHours(0, 0, 0, 0);
   return sessionDate < cutoff;
 }
@@ -901,6 +901,11 @@ async function migrateGrayActivitiesToMaintained() {
       if (a.activityColor === "gray" && !a.maintained
           && !a.isHeading && !a.isMaintainHeading && !a.isNote && !a.isExportNote) {
         a.maintained = true;
+        changed = true;
+      }
+      // Backfill maintainedAt for all maintained activities that don't have a date yet.
+      if (a.maintained && !a.maintainedAt && !a.isHeading && !a.isMaintainHeading) {
+        a.maintainedAt = "2026-01-01";
         changed = true;
       }
     }
@@ -6050,14 +6055,18 @@ async function maGetLastDataDate(entity, target, pa, isGroup = false) {
             return checkParent ? (!a.parentActivity || a.parentActivity === checkParent) : !a.parentActivity;
           })
           .map(([id]) => id);
-        return matchIds.some(actId => Object.values(sRems).some(r =>
-          r.activityId === actId && (
-            (r.text || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim().length > 0 ||
-            (r.masteryNote || "").trim().length > 0 ||
-            (r.trials || []).some(t => t !== null && t !== -1) ||
-            (r.optionScore !== undefined && r.optionScore !== null)
-          )
-        ));
+        return matchIds.some(actId => Object.values(sRems).some(r => {
+          if (r.activityId !== actId) return false;
+          const rText = (r.text || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim();
+          const rNote = (r.masteryNote || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim();
+          const rTrials = (r.trials || []).some(t => t !== null && t !== -1);
+          const rOpt = r.optionScore !== undefined && r.optionScore !== null;
+          const rSel = (r.selectedOptions || []).length > 0;
+          // "Maintain" alone (auto-fill or written during a maintained period) is not
+          // real therapy data — never count it for last-data-date purposes.
+          if ((rText === "Maintain" || rNote === "Maintain") && !rTrials && !rOpt && !rSel) return false;
+          return rText.length > 0 || rNote.length > 0 || rTrials || rOpt || rSel;
+        }));
       })
       .map(s => s.date).sort();
     return dates[dates.length - 1] || null;
@@ -6069,7 +6078,7 @@ async function maGetLastDataDate(entity, target, pa, isGroup = false) {
   // date accounts for data recorded against any of its children.
   const paKey = pa._linkKey || pa.title || pa.name;
   const subPas = !pa.parentActivity && paKey
-    ? (target.predefinedActivities || []).filter(a => a.parentActivity === paKey && !a.isHeading && !a.isNote && !a.isExportNote)
+    ? (target.predefinedActivities || []).filter(a => a.parentActivity === paKey && !a.isHeading && !a.isNote && !a.isExportNote && !a.isMaintain && !a.isMaintainHeading)
     : [];
 
   let subDate = null, subName = null;
@@ -6102,9 +6111,9 @@ function maKebabOptions(pa, tName, isParent = false) {
     `<button class="ma-opt-btn" data-action="${action}" data-pa-id="${id}" data-tname="${tn}" style="${s}${extra}">${label}</button>`;
   const status = maGetStatus(pa);
   if (status === 'active') return btn('master','⭐ Activity Mastered') + btn('discontinue','🚩 Discontinue Activity',';color:#dc2626') + (!isParent ? btn('maintain','🆗 Maintain Activity',';color:#0369a1') : '');
-  if (status === 'maintained') return btn('master','⭐ Activity Mastered') + btn('discontinue','🚩 Discontinue Activity',';color:#dc2626') + btn('restore','↩ Restore to Active',';color:#4b5563');
-  if (status === 'mastered') return btn('change-master-date','📅 Change Mastered Date') + btn('change-discontinued','🚩 Change to Discontinued',';color:#dc2626') + (!isParent ? btn('change-maintain','🆗 Change to Maintain',';color:#0369a1') : '') + btn('restore','↩ Restore to Active',';color:#4b5563');
-  return btn('change-disc-date','📅 Change Discontinued Date') + btn('change-mastered','⭐ Change to Mastered') + (!isParent ? btn('change-maintain','🆗 Change to Maintain',';color:#0369a1') : '') + btn('restore','↩ Restore to Active',';color:#4b5563');
+  if (status === 'maintained') return btn('change-maintain-date','📅 Change Maintained Date') + btn('master','⭐ Activity Mastered') + btn('discontinue','🚩 Discontinue Activity',';color:#dc2626') + btn('unmaintain','↩ Un-maintain Activity',';color:#4b5563');
+  if (status === 'mastered') return btn('change-master-date','📅 Change Mastered Date') + btn('change-discontinued','🚩 Change to Discontinued',';color:#dc2626') + btn('restore','↩ Restore to Active',';color:#4b5563');
+  return btn('change-disc-date','📅 Change Discontinued Date') + btn('change-mastered','⭐ Change to Mastered') + btn('restore','↩ Restore to Active',';color:#4b5563');
 }
 
 function openManageActivityScreen(student) {
@@ -6177,7 +6186,8 @@ function renderManageActivityScreen(entity) {
 
     const masteredPas = activityPas.filter(p => maIsMastered(p));
     const discontPas  = activityPas.filter(p => maIsDiscont(p));
-    const maintPas    = activityPas.filter(p => maIsMaintained(p));
+    // maintPas = maintained-only (not also mastered/discontinued — those go to their collapsed sections)
+    const maintPas    = activityPas.filter(p => maIsMaintained(p) && !maIsMastered(p) && !maIsDiscont(p));
     const activePas   = activityPas.filter(p => maIsActive(p));
     const activeTopLevel = activePas.filter(p => !p.parentActivity);
     const activeSubs     = activePas.filter(p => !!p.parentActivity);
@@ -6196,9 +6206,12 @@ function renderManageActivityScreen(entity) {
     const statusBadge = (pa, small = false) => {
       const s = maGetStatus(pa);
       const sz = small ? 'font-size:.71rem' : 'font-size:.73rem';
-      if (s === 'mastered')    return `<span style="${sz};display:inline-block;margin-top:.25rem;background:#d1fae5;color:#059669;font-weight:600;padding:.1rem .5rem;border-radius:.3rem;border:1px solid #6ee7b7">⭐ Mastered${pa.masteredOn ? ` ${fmtPeriodDate(pa.masteredOn)}` : ''}</span>`;
-      if (s === 'discontinued') return `<span style="${sz};display:inline-block;margin-top:.25rem;background:#fee2e2;color:#dc2626;font-weight:600;padding:.1rem .5rem;border-radius:.3rem;border:1px solid #fca5a5">🚩 Discontinued${pa.discontinuedOn ? ` ${fmtPeriodDate(pa.discontinuedOn)}` : ''}</span>`;
-      if (s === 'maintained')  return `<span style="${sz};display:inline-block;margin-top:.25rem;background:#f3f4f6;color:#6b7280;font-weight:600;padding:.1rem .5rem;border-radius:.3rem;border:1px solid #d1d5db">🆗 Maintained</span>`;
+      const maintBadge = pa.maintained
+        ? `<span style="${sz};display:inline-block;margin-top:.25rem;background:#f3f4f6;color:#6b7280;font-weight:600;padding:.1rem .5rem;border-radius:.3rem;border:1px solid #d1d5db">🆗 Maintained${pa.maintainedAt ? ` ${fmtPeriodDate(pa.maintainedAt)}` : ''}</span> `
+        : '';
+      if (s === 'mastered')    return maintBadge + `<span style="${sz};display:inline-block;margin-top:.25rem;background:#d1fae5;color:#059669;font-weight:600;padding:.1rem .5rem;border-radius:.3rem;border:1px solid #6ee7b7">⭐ Mastered${pa.masteredOn ? ` ${fmtPeriodDate(pa.masteredOn)}` : ''}</span>`;
+      if (s === 'discontinued') return maintBadge + `<span style="${sz};display:inline-block;margin-top:.25rem;background:#fee2e2;color:#dc2626;font-weight:600;padding:.1rem .5rem;border-radius:.3rem;border:1px solid #fca5a5">🚩 Discontinued${pa.discontinuedOn ? ` ${fmtPeriodDate(pa.discontinuedOn)}` : ''}</span>`;
+      if (s === 'maintained')  return maintBadge;
       return '';
     };
 
@@ -6209,13 +6222,9 @@ function renderManageActivityScreen(entity) {
       const numTag = num !== null ? `<span style="color:#6b7280;font-weight:600;margin-right:.25rem">${num})</span>` :
                      subIdx !== null ? `<span style="color:#0369a1;font-weight:600;margin-right:.25rem">${String.fromCharCode(97 + subIdx)})</span>` : '';
       const isMaint = forceMaint || maIsMaintained(pa);
-      const borderLeft = indent
-        ? (isMaint ? 'border-left:3px solid #9ca3af' : 'border-left:3px solid #60a5fa')
-        : (isMaint ? 'border-left:3px solid #9ca3af' : 'border-left:3px solid var(--primary)');
-      const bg = indent
-        ? (isMaint ? 'background:#f3f4f6' : 'background:#f0f9ff')
-        : (isMaint ? 'background:#f9fafb' : 'background:#fff');
-      const ml = indent ? 'margin-left:1.4rem;' : '';
+      const borderLeft = isMaint ? 'border-left:3px solid #9ca3af' : 'border-left:3px solid var(--primary)';
+      const bg = isMaint ? 'background:#f3f4f6' : 'background:#fff';
+      const ml = indent ? 'margin-left:2.8rem;' : '';
       return `<div data-pa-id="${escHtml(pa.id||'')}" style="${ml}${bg};border:1px solid #e5e7eb;${borderLeft};border-radius:.5rem;padding:.6rem .75rem .6rem .9rem;display:flex;align-items:flex-start;gap:.5rem;box-shadow:0 1px 3px rgba(0,0,0,.06)">
         <div style="flex:1;min-width:0;line-height:1.5;white-space:pre-wrap">${numTag}${nameHtml}${parentTag}${badge}</div>
         ${kebabWrap(pa)}
@@ -6238,7 +6247,7 @@ function renderManageActivityScreen(entity) {
         continue;
       }
 
-      if (!maIsActive(pa) && !maIsMaintained(pa)) continue;
+      if (!maIsActive(pa) && !(maIsMaintained(pa) && !maIsMastered(pa) && !maIsDiscont(pa))) continue;
 
       actNum++;
       activeHtml += card(pa, false, '', actNum);
@@ -6466,7 +6475,9 @@ function renderManageActivityScreen(entity) {
       };
       if (action === 'master' || action === 'discontinue') {
         const { date: latestDate, subName: latestSubName } = await _maLoadLatest();
-        const minDate = latestDate || todayDateStr();
+        const rawMin = latestDate || todayDateStr();
+        // Can't master/discontinue before the maintained date
+        const minDate = (pa.maintainedAt && pa.maintainedAt > rawMin) ? pa.maintainedAt : rawMin;
         const restrictionText = action === 'master'
           ? 'The earliest you can mark this as mastered is'
           : 'The earliest you can discontinue this activity is';
@@ -6488,23 +6499,33 @@ function renderManageActivityScreen(entity) {
           (target.predefinedActivities || []).filter(a => a.parentActivity === paKey && maIsActive(a)).forEach(fn);
         };
         if (action === 'master') {
-          delete pa.maintained; delete pa.activityColor; delete pa.discontinuedOn; delete pa.isArchived; delete pa.isStopped; delete pa.inactiveReason;
+          // Keep maintained flags so both tags show in the collapsed section
+          const wasMaintained = !!pa.maintained;
+          delete pa.discontinuedOn; delete pa.isArchived; delete pa.isStopped; delete pa.inactiveReason;
+          if (!wasMaintained) { delete pa.maintained; delete pa.activityColor; delete pa.maintainedAt; }
           pa.masteredOn = pickedDate;
           _cascadeToSubs(sub => {
-            delete sub.maintained; delete sub.activityColor; delete sub.discontinuedOn; delete sub.isArchived; delete sub.isStopped; delete sub.inactiveReason;
+            const subWasMaintained = !!sub.maintained;
+            delete sub.discontinuedOn; delete sub.isArchived; delete sub.isStopped; delete sub.inactiveReason;
+            if (!subWasMaintained) { delete sub.maintained; delete sub.activityColor; delete sub.maintainedAt; }
             sub.masteredOn = pickedDate;
           });
         } else {
-          delete pa.maintained; delete pa.activityColor; delete pa.masteredOn; delete pa.isCompleted; delete pa.inactiveReason;
+          const wasMaintained = !!pa.maintained;
+          delete pa.masteredOn; delete pa.isCompleted; delete pa.inactiveReason;
+          if (!wasMaintained) { delete pa.maintained; delete pa.activityColor; delete pa.maintainedAt; }
           pa.discontinuedOn = pickedDate;
           _cascadeToSubs(sub => {
-            delete sub.maintained; delete sub.activityColor; delete sub.masteredOn; delete sub.isCompleted; delete sub.inactiveReason;
+            const subWasMaintained = !!sub.maintained;
+            delete sub.masteredOn; delete sub.isCompleted; delete sub.inactiveReason;
+            if (!subWasMaintained) { delete sub.maintained; delete sub.activityColor; delete sub.maintainedAt; }
             sub.discontinuedOn = pickedDate;
           });
         }
       } else if (action === 'change-master-date') {
         const { date: latestDate, subName: latestSubName } = await _maLoadLatest();
-        const minDate = latestDate || todayDateStr();
+        const rawMin = latestDate || todayDateStr();
+        const minDate = (pa.maintainedAt && pa.maintainedAt > rawMin) ? pa.maintainedAt : rawMin;
         const infoHtml = _buildInfoHtml(latestDate, minDate, latestSubName, 'The earliest you can set the mastered date is');
         const pickedDate = await showDatePickerOverlay({
           heading: '📅 Change Mastered Date',
@@ -6517,7 +6538,8 @@ function renderManageActivityScreen(entity) {
         pa.masteredOn = pickedDate;
       } else if (action === 'change-disc-date') {
         const { date: latestDate, subName: latestSubName } = await _maLoadLatest();
-        const minDate = latestDate || todayDateStr();
+        const rawMin = latestDate || todayDateStr();
+        const minDate = (pa.maintainedAt && pa.maintainedAt > rawMin) ? pa.maintainedAt : rawMin;
         const infoHtml = _buildInfoHtml(latestDate, minDate, latestSubName, 'The earliest you can set the discontinued date is');
         const pickedDate = await showDatePickerOverlay({
           heading: '📅 Change Discontinued Date',
@@ -6529,23 +6551,68 @@ function renderManageActivityScreen(entity) {
         if (!pickedDate) return;
         pa.discontinuedOn = pickedDate;
       } else if (action === 'maintain') {
-        const ok = await showAutoDateConfirm({ message: `This ${actWord} will be labelled 🆗 Maintained. It will still appear in sessions.`, confirmLabel: "Confirm 🆗" });
-        if (!ok) return;
+        const { date: latestDate, subName: latestSubName } = await _maLoadLatest();
+        // Maintained date must be at least the day after the last session (so "Maintain" doesn't overwrite existing notes)
+        const rawMin = latestDate ? addOneDay(latestDate) : todayDateStr();
+        const _maintSource = latestSubName
+          ? `The last recorded session for the sub-activity <strong>"${escHtml(_stripMk(latestSubName))}"</strong> was on <strong>${fmtPeriodDate(latestDate)}</strong>.`
+          : `The last recorded session for <strong>"${paDisplayName}"</strong> was on <strong>${fmtPeriodDate(latestDate)}</strong>.`;
+        const infoHtml = latestDate
+          ? `${_maintSource} The earliest you can maintain this activity is <strong>${fmtPeriodDate(rawMin)}</strong>. From this date onwards, this activity will automatically have a note "Maintain" for every session.`
+          : `No previous session data was found for <strong>"${paDisplayName}"</strong>. From this date onwards, this activity will automatically have a note "Maintain" for every session.`;
+        const pickedDate = await showDatePickerOverlay({
+          heading: '🆗 Maintain Activity',
+          infoHtml,
+          minDate: rawMin,
+          defaultDate: rawMin,
+          confirmLabel: 'Confirm 🆗'
+        });
+        if (!pickedDate) return;
         delete pa.masteredOn; delete pa.isCompleted; delete pa.discontinuedOn; delete pa.isArchived; delete pa.isStopped; delete pa.inactiveReason;
-        pa.maintained = true; pa.activityColor = "gray";
+        pa.maintained = true; pa.activityColor = "gray"; pa.maintainedAt = pickedDate;
+      } else if (action === 'change-maintain-date') {
+        const { date: latestDate, subName: latestSubName } = await _maLoadLatest();
+        const rawMin = latestDate ? addOneDay(latestDate) : todayDateStr();
+        const _chMaintSource = latestSubName
+          ? `The last recorded session for the sub-activity <strong>"${escHtml(_stripMk(latestSubName))}"</strong> was on <strong>${fmtPeriodDate(latestDate)}</strong>.`
+          : `The last recorded session for <strong>"${paDisplayName}"</strong> was on <strong>${fmtPeriodDate(latestDate)}</strong>.`;
+        const infoHtml = latestDate
+          ? `${_chMaintSource} The earliest you can set the maintained date is <strong>${fmtPeriodDate(rawMin)}</strong>.`
+          : `No previous session data was found for <strong>"${paDisplayName}"</strong>.`;
+        const pickedDate = await showDatePickerOverlay({
+          heading: '📅 Change Maintained Date',
+          infoHtml,
+          minDate: rawMin,
+          defaultDate: pa.maintainedAt || rawMin,
+          confirmLabel: 'Save Date'
+        });
+        if (!pickedDate) return;
+        pa.maintainedAt = pickedDate;
+      } else if (action === 'unmaintain') {
+        const ok = await showAutoDateConfirm({ message: `This ${actWord} will be un-maintained and restored to active status.`, confirmLabel: "Un-maintain ↩" });
+        if (!ok) return;
+        delete pa.maintained; delete pa.activityColor; delete pa.maintainedAt;
+        if (!pa.parentActivity) {
+          const paKey = pa._linkKey || pa.title || pa.name;
+          if (paKey) (target.predefinedActivities || []).filter(a => a.parentActivity === paKey && maIsMaintained(a) && !maIsMastered(a) && !maIsDiscont(a)).forEach(sub => {
+            delete sub.maintained; delete sub.activityColor; delete sub.maintainedAt;
+          });
+        }
       } else if (action === 'restore') {
-        const ok = await showAutoDateConfirm({ message: `This ${actWord} will be restored to active status.`, confirmLabel: "Restore ↩" });
+        const isMaintBase = !!pa.maintained;
+        const restoreLabel = isMaintBase ? 'maintained' : 'active';
+        const ok = await showAutoDateConfirm({ message: `This ${actWord} will be restored to ${restoreLabel} status.`, confirmLabel: "Restore ↩" });
         if (!ok) return;
         delete pa.masteredOn; delete pa.isCompleted; delete pa.inactiveReason;
         delete pa.discontinuedOn; delete pa.isArchived; delete pa.isStopped;
-        delete pa.maintained; delete pa.activityColor;
+        if (!isMaintBase) { delete pa.maintained; delete pa.activityColor; delete pa.maintainedAt; }
         // Restore sub-activities when parent is restored
         if (!pa.parentActivity) {
           const paKey = pa._linkKey || pa.title || pa.name;
           if (paKey) (target.predefinedActivities || []).filter(a => a.parentActivity === paKey).forEach(sub => {
             delete sub.masteredOn; delete sub.isCompleted; delete sub.inactiveReason;
             delete sub.discontinuedOn; delete sub.isArchived; delete sub.isStopped;
-            delete sub.maintained; delete sub.activityColor;
+            if (!isMaintBase) { delete sub.maintained; delete sub.activityColor; delete sub.maintainedAt; }
           });
         }
       } else if (action === 'change-discontinued') {
@@ -7546,6 +7613,13 @@ async function openSession(student, existingSessionId = null, dateStr = null, pa
   // only a genuine student switch starts fresh.
   const preservedTargetName = state.currentStudent?.id === student.id ? state.selectedTargetName : null;
 
+  // Capture the outgoing session before wiping state — "Go To Another Session" skips
+  // leaveSession, so we run the same empty-entry cleanup here instead.
+  const _prevSessionId = state.currentSessionId;
+  const _prevData      = state.sessionData;
+  const _prevStudent   = state.currentStudent;
+  if (_prevSessionId && _prevData) await state.entryRemarkSaver?.flush();
+
   // Show the session screen immediately — before any network call — so
   // closing the picker never flashes the home screen while we fetch.
   state.currentStudent     = student;
@@ -7572,6 +7646,13 @@ async function openSession(student, existingSessionId = null, dateStr = null, pa
 
   if (state.fbUnsubscribe) { state.fbUnsubscribe(); state.fbUnsubscribe = null; }
   state.entryRemarkSaver?.cleanup();
+  if (_prevSessionId && _prevData && _prevStudent) {
+    const _allTgtNames = new Set(Object.values(_prevData.activities || {}).map(a => a.targetName));
+    _allTgtNames.forEach(name => {
+      const target = (_prevStudent.targets || []).find(t => t.name === name);
+      cleanupEmptyEntries(_prevSessionId, _prevData, name, target, true).catch(() => {});
+    });
+  }
   state.entryRemarkSaver = setupEntryRemarkSaving($("target-content"), () => state.currentSessionId, () => {
     if (!state.renderPending || state.entryActionsInFlight > 0) return;
     if (document.activeElement === $("target-select")) return;
@@ -7775,34 +7856,55 @@ async function leaveSession() {
 
   if (sessionId && data) {
     const stripEmpty = s => (s || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").replace(/ /g, " ").trim();
-    const currentTargetNames = new Set((student?.targets || []).map(t => t.name));
     const fedcHasData = Object.values(data.fedcComments || {}).some(c => stripEmpty(c).length > 0);
     const remarkHasData = Object.values(data.remarks || {}).some(r => {
       const act = (data.activities || {})[r.activityId];
       if (!act) return false;
-      const rText   = stripEmpty(r.text);
-      const rNote   = stripEmpty(r.masteryNote);
-      const rTrials = (r.trials || []).filter(t => t !== null && t !== -1);
-      // An unmodified auto-filled "Maintain" placeholder is not real user data.
-      // Only count it if the user actually added trials, edited the text, or added a note.
-      if (rText === "Maintain" && rTrials.length === 0 && !rNote) {
+      const rText    = stripEmpty(r.text);
+      const rNote    = stripEmpty(r.masteryNote);
+      const rTrials  = (r.trials || []).filter(t => t !== null && t !== -1);
+      const rOption  = r.optionScore !== undefined && r.optionScore !== null;
+      const rSelected = (r.selectedOptions || []).length > 0;
+      // Auto-fill "Maintain": Notes-Only puts it in text; structured puts it in masteryNote.
+      // Not real data unless the user also added trials/options or changed the text.
+      const isAutoFillMaintain =
+        ((rText === "Maintain" && !rNote) || (rNote === "Maintain" && !rText)) &&
+        rTrials.length === 0 && !rOption && !rSelected;
+      if (isAutoFillMaintain) {
         const pa = (student?.targets || []).flatMap(t => t.predefinedActivities || [])
           .find(p => p.maintained && (p.name === act.activityName || (p.id && p.id === act.configId)));
         if (pa) return false;
       }
-      // Count data under ANY targetName — if a target was renamed and the
-      // propagation didn't finish, activities under the old name still contain
-      // real data that must not make this session look "empty" and get deleted.
-      return rText.length > 0 || rTrials.length > 0 || rNote.length > 0;
+      return rText.length > 0 || rTrials.length > 0 || rNote.length > 0 || rOption || rSelected;
     });
+    // Always clean up empty entries per target.
+    const allTargetNames = new Set(Object.values(data.activities || {}).map(a => a.targetName));
+    allTargetNames.forEach(name => {
+      const target = (student?.targets || []).find(t => t.name === name);
+      cleanupEmptyEntries(sessionId, data, name, target, true).catch(() => {});
+    });
+    // If no real data was entered, strip auto-fill "Maintain" placeholders so the calendar
+    // doesn't show ✓ for a session the user immediately quit. Session itself is kept.
     if (!fedcHasData && !remarkHasData) {
-      deleteEmptyIndividualSession(sessionId, student.id, data.date).catch(() => {});
-    } else {
-      const allTargetNames = new Set(Object.values(data.activities || {}).map(a => a.targetName));
-      allTargetNames.forEach(name => {
-        const target = (student?.targets || []).find(t => t.name === name);
-        cleanupEmptyEntries(sessionId, data, name, target, true).catch(() => {});
-      });
+      const maintainRemIds = Object.entries(data.remarks || {})
+        .filter(([, r]) => {
+          const rText = stripEmpty(r.text);
+          const rNote = stripEmpty(r.masteryNote);
+          if (!(rText === "Maintain" || rNote === "Maintain")) return false;
+          if ((r.trials || []).some(t => t !== null && t !== -1)) return false;
+          if (r.optionScore !== undefined && r.optionScore !== null) return false;
+          if ((r.selectedOptions || []).length) return false;
+          // Only delete auto-fills: activity must be maintained AND session must be on/after
+          // pa.maintainedAt. Sessions before that date had "Maintain" typed by the boss — keep.
+          const act = (data.activities || {})[r.activityId];
+          if (!act) return false;
+          const pa = (student?.targets || []).flatMap(t => t.predefinedActivities || [])
+            .find(p => p.maintained && (p.name === act.activityName || (p.id && p.id === act.configId)));
+          if (!pa) return false;
+          return data.date >= (pa.maintainedAt || "2026-01-01");
+        })
+        .map(([id]) => id);
+      if (maintainRemIds.length > 0) deleteRemarksBatch(sessionId, maintainRemIds).catch(() => {});
     }
   }
 
@@ -8253,7 +8355,7 @@ function renderFedcTarget(target, _filterPaSet = null, _sectionOnly = false) {
           <span class="field-value-fixed">${inactiveReasonBadge(pa)}<span style="color:#6b7280;font-weight:600;margin-right:.2rem">${actNum})</span>${paDisplayHtml(pa)}</span>
         </div>
         <div class="entry-field" contenteditable="false">
-          <span class="field-label">Notes</span>
+          <span class="field-label">Remark</span>
           <span class="field-value-fixed" style="white-space:pre-wrap;color:#111827">${formatActivityMarkup(fixedText)}</span>
         </div>
       </div>`;
@@ -8271,7 +8373,7 @@ function renderFedcTarget(target, _filterPaSet = null, _sectionOnly = false) {
     // Parent activity with sub-activities — render as a connected visual group
     const children = subActsByParent.get(pa.title || pa.name) || [];
     if (children.length > 0) {
-      const isGrayP  = pa.activityColor === "gray" || pa.isMaintainLive;
+      const isGrayP  = pa.activityColor === "gray" || pa.isMaintainLive || pa.maintained;
       const isGreenP = pa.activityColor === "green";
       const pBorder  = isGreenP ? 'border:1px solid #a9d18e;border-left:4px solid #70ad47;background:#e2efda;'
                      : isGrayP  ? 'border:1px solid #e5e7eb;border-left:4px solid #d1d5db;background:#f3f4f6;'
@@ -8418,7 +8520,7 @@ function renderFedcTarget(target, _filterPaSet = null, _sectionOnly = false) {
     const isPending  = state.pendingNewRemark?.pendingKey === pendingKey;
     const mappedInfo = pa.isMapped ? resolveMappedScoreDisplay(pa) : null;
 
-    const isGrayActivity  = pa.activityColor === "gray" || pa.isMaintainLive;
+    const isGrayActivity  = pa.activityColor === "gray" || pa.isMaintainLive || pa.maintained;
     const isGreenActivity = pa.activityColor === "green";
     const activityStyle = isGrayActivity  ? ' style="background:#f3f4f6;border:1px solid #e5e7eb;border-left:4px solid #d1d5db"'
                         : isGreenActivity ? ' style="background:#e2efda;border:1px solid #a9d18e;border-left:4px solid #70ad47"'
@@ -8483,17 +8585,20 @@ function renderFedcTarget(target, _filterPaSet = null, _sectionOnly = false) {
       }
       if (isPending) {
         html += renderPendingRemarkFields(pendingKey, actId, pa.name, idx, target);
-      } else if (pa.maintained && remarks.length === 0) {
-        const addLabel = pa.isMapped ? "Score" : pa.manualScore ? "Remark &amp; Score" : "Remark &amp; Trials";
+      } else if (pa.maintained && remarks.length === 0 && !getActivityInlineOptions(pa) && !pa.optionsMulti && !pa.manualScore) {
+        const addLabel = "Remark &amp; Trials";
+        // Only show "Maintain" default and auto-fill on/after the maintained date
+        const _maintAt = pa.maintainedAt || "2026-01-01";
+        const _showMaintDefault = sessionDateForFilter >= _maintAt;
         html += `<div class="entry-divider" contenteditable="false"></div>
         <div class="entry-field" contenteditable="false">
-          <span class="field-label">Notes</span>
-          <textarea class="field-input maintained-remark-pending" rows="1"
+          <span class="field-label">Remark</span>
+          <textarea class="field-input${_showMaintDefault ? " maintained-remark-pending" : ""}" rows="1"
             data-act-id="${actId || ""}"
             data-pa-name="${escHtml(pa.name || pa.title)}"
             data-pa-order="${idx}"
             data-cfg-id="${escHtml(pa.id || "")}"
-            data-target="${escHtml(target.name)}">Maintain</textarea>
+            data-target="${escHtml(target.name)}">${_showMaintDefault ? "Maintain" : ""}</textarea>
         </div>
         <button class="btn-add-remark" contenteditable="false"
           data-pending-key="${escHtml(pendingKey)}"
@@ -8501,7 +8606,7 @@ function renderFedcTarget(target, _filterPaSet = null, _sectionOnly = false) {
           data-pa-name="${escHtml(pa.name || pa.title)}"
           data-pa-order="${idx}"
           data-is-mapped="${pa.isMapped ? "1" : ""}"
-          data-is-maintained="1"
+          data-is-maintained="${_showMaintDefault ? "1" : ""}"
           data-cfg-id="${escHtml(pa.id || "")}"
           data-target="${escHtml(target.name)}">+ Add ${addLabel}</button>`;
       } else {
@@ -8557,11 +8662,14 @@ function renderFedcTarget(target, _filterPaSet = null, _sectionOnly = false) {
       const fixedText = pa.fixedRemark !== undefined ? pa.fixedRemark : pa.isMaintain ? (pa.maintainRemark ?? "") : null;
       const _masteredDate = pa.masteredOn || (pa.inactiveReason === 'mastered' ? "2026-06-30" : null);
       const _isDiscontinued = pa.discontinuedOn || pa.inactiveReason === 'discontinued';
-      const statusBadge = _masteredDate
+      const _inactMaintBadge = pa.maintained
+        ? `<span style="font-size:.72rem;color:#6b7280;font-weight:600;white-space:nowrap;display:block;margin-bottom:.1rem">🆗 Maintained${pa.maintainedAt ? ` on ${fmtPeriodDate(pa.maintainedAt)}` : ''}</span>`
+        : '';
+      const statusBadge = _inactMaintBadge + (_masteredDate
         ? `<span style="font-size:.72rem;color:#059669;font-weight:600;white-space:nowrap;display:block;margin-bottom:.1rem">⭐ Mastered on ${fmtPeriodDate(_masteredDate)}</span>`
         : _isDiscontinued
         ? `<span style="font-size:.72rem;color:#dc2626;font-weight:600;white-space:nowrap;display:block;margin-bottom:.1rem">🚩 ${pa.discontinuedOn ? `Discontinued on ${fmtPeriodDate(pa.discontinuedOn)}` : 'Discontinued'}</span>`
-        : '';
+        : '');
       const subActs = allPas.filter(p => p.parentActivity === (pa.title || pa.name) && !p.isCompleted && !p.isArchived && !p.isStopped && !p.masteredOn && !p.discontinuedOn);
       const subHtml = subActs.length ? `<div style="display:flex;flex-direction:column;gap:.1rem;padding:.2rem 0 .1rem 1.25rem">
         ${subActs.map((sub, si) => `<div style="display:flex;align-items:center;gap:.4rem;font-size:.82rem;color:#9ca3af"><span style="flex-shrink:0">${String.fromCharCode(97 + si)})</span><span>${escHtml(sub.name || '')}</span></div>`).join('')}
@@ -8572,7 +8680,7 @@ function renderFedcTarget(target, _filterPaSet = null, _sectionOnly = false) {
           <span class="field-value-fixed">${statusBadge}${paDisplayHtml(pa, true)}</span>
         </div>
         ${fixedText !== null ? `<div class="entry-field" contenteditable="false">
-          <span class="field-label">Notes</span>
+          <span class="field-label">Remark</span>
           <span class="field-value-fixed" style="white-space:pre-wrap">${formatActivityMarkup(fixedText)}</span>
         </div>` : ''}
         ${subHtml}
@@ -8592,7 +8700,7 @@ function renderFedcTarget(target, _filterPaSet = null, _sectionOnly = false) {
         <div class="inactive-list" style="display:none;flex-direction:column;gap:.25rem;margin-top:.35rem">${items}</div>
       </div>`;
     };
-    html += `<div style="margin-top:.75rem">
+    html += `<div style="margin-top:.75rem;padding-bottom:1.5rem">
       ${renderSection('Mastered', '#059669', masteredPas)}
       ${renderSection('Discontinued', '#dc2626', discontinuedPas)}
       ${renderSection('Inactive', '#6b7280', otherPas)}
@@ -9133,7 +9241,7 @@ function renderRemarkFields(rem, target, inlineOptions = null, sentenceStarter =
     const parsedHint = `<span class="manual-score-hint" data-rem-id="${rem.id}" style="font-size:.93rem;font-family:inherit;color:#9ca3af;margin-left:.5rem;white-space:nowrap;align-self:center${parsedPct === null ? ";display:none" : ""}">${escHtml(parsedHintText)}</span>`;
     const msNoteField = noteCapable
       ? `<div class="entry-field entry-note-field" data-rem-id="${rem.id}">
-          <span class="field-label" contenteditable="false">Notes</span>
+          <span class="field-label" contenteditable="false">Remark</span>
           <button class="btn-sketch" contenteditable="false" data-rem-id="${rem.id}" aria-label="Open sketch board">✏</button>
           <textarea class="field-input mastery-note-input" rows="1"
             autocomplete="new-password"
@@ -9226,7 +9334,7 @@ function renderRemarkFields(rem, target, inlineOptions = null, sentenceStarter =
 
   const optBtns = makeOptPills(rem.id, rem.text)
     || `<textarea class="field-input remark-text-input" rows="1"
-        data-rem-id="${rem.id}" placeholder="Notes…" data-saved-html="${escHtml(rem.text || "")}">${escHtml(plainTextForEdit(rem.text))}</textarea>`;
+        data-rem-id="${rem.id}" placeholder="Remark…" data-saved-html="${escHtml(rem.text || "")}">${escHtml(plainTextForEdit(rem.text))}</textarea>`;
 
   // Sketch board button only shown when there's a free-text input (no preset opt pills)
   const sketchBtn = opts.length === 0
@@ -9240,7 +9348,7 @@ function renderRemarkFields(rem, target, inlineOptions = null, sentenceStarter =
       <span class="remark-starter-prefix" contenteditable="false">${escHtml(sentenceStarter)}</span>
       ${makeOptPills(rem.id, rem.text)
         || `<textarea class="field-input remark-text-input" rows="1"
-            data-rem-id="${rem.id}" placeholder="Notes…" data-saved-html="${escHtml(rem.text || "")}">${escHtml(plainTextForEdit(rem.text))}</textarea>`
+            data-rem-id="${rem.id}" placeholder="Remark…" data-saved-html="${escHtml(rem.text || "")}">${escHtml(plainTextForEdit(rem.text))}</textarea>`
       }
     </div>`;
   } else {
@@ -9261,7 +9369,7 @@ function renderRemarkFields(rem, target, inlineOptions = null, sentenceStarter =
       ? `<div class="remark-starter-wrap"><span class="remark-starter-prefix" contenteditable="false">${escHtml(noteSentenceStarter)}</span>${noteTextarea}</div>`
       : noteTextarea;
     noteField = `<div class="entry-field entry-note-field" data-rem-id="${rem.id}">
-        <span class="field-label" contenteditable="false">Notes</span>
+        <span class="field-label" contenteditable="false">Remark</span>
         <button class="btn-sketch" contenteditable="false" data-rem-id="${rem.id}" aria-label="Open sketch board">✏</button>
         ${noteInput}
         <span class="entry-note-spacer" contenteditable="false" aria-hidden="true"></span>
@@ -9269,7 +9377,7 @@ function renderRemarkFields(rem, target, inlineOptions = null, sentenceStarter =
   } else {
     noteField = _existingNote
       ? `<div class="entry-field">
-          <span class="field-label" contenteditable="false">Notes</span>
+          <span class="field-label" contenteditable="false">Remark</span>
           <div style="font-size:.78rem;color:#9ca3af;font-style:italic">Old data: ${escHtml(_existingNote)}</div>
         </div>`
       : "";
@@ -10027,7 +10135,8 @@ async function autoFillStructuredRemarks(student, sessionId) {
   const toFill = [];
   for (const target of (student.targets || [])) {
     for (const pa of (target.predefinedActivities || [])) {
-      if (pa.isCompleted || pa.isArchived || pa.isStopped || pa.isMaintain || pa.isMaintainHeading || pa.maintained) continue;
+      const _paIsNotesOnly = !getActivityInlineOptions(pa) && !pa.optionsMulti && !pa.manualScore;
+      if (pa.isCompleted || pa.isArchived || pa.isStopped || pa.isMaintain || pa.isMaintainHeading || (pa.maintained && _paIsNotesOnly)) continue;
       if (!isAutoOpenRemarkType(pa)) continue;
       const paParent = pa.parentActivity || null;
       const paConfigId = pa.id || null;
@@ -10051,7 +10160,21 @@ async function autoFillStructuredRemarks(student, sessionId) {
         })
         .map(([id]) => id);
       const allRemarkActIds = new Set(Object.values(data.remarks || {}).map(r => r.activityId));
-      if (allCandidateIds.some(id => allRemarkActIds.has(id))) continue;
+      const _sMaintAt = pa.maintainedAt || "2026-01-01";
+      const _sOnOrAfterMaint = !data.date || data.date >= _sMaintAt;
+      if (allCandidateIds.some(id => allRemarkActIds.has(id))) {
+        // Remark exists — patch empty masteryNote to "Maintain" for sessions on/after maintained date
+        if (pa.maintained && _sOnOrAfterMaint) {
+          for (const candId of allCandidateIds) {
+            const actRems = Object.entries(data.remarks || {}).filter(([, r]) => r.activityId === candId);
+            if (actRems.length !== 1) continue; // user added extra remarks — don't touch them
+            const [[remId, r]] = actRems;
+            if (!(r.masteryNote || "").replace(/<[^>]*>/g, "").trim())
+              updateRemarkNote(sessionId, remId, "Maintain").catch(() => {});
+          }
+        }
+        continue;
+      }
       const existingAct = allCandidateIds.length > 0
         ? allActs.find(([id]) => id === allCandidateIds[0])
         : null;
@@ -10059,7 +10182,8 @@ async function autoFillStructuredRemarks(student, sessionId) {
       const key = `${sessionId}:${target.name}:${paConfigId || pa.name}:${paParent || ""}`;
       if (structuredRemarkAutoFillInFlight.has(key)) continue;
       structuredRemarkAutoFillInFlight.add(key);
-      toFill.push({ target, pa, actId, key, paParent, paConfigId });
+      const maintNote = pa.maintained && _sOnOrAfterMaint ? "Maintain" : "";
+      toFill.push({ target, pa, actId, key, paParent, paConfigId, maintNote });
     }
   }
   if (toFill.length === 0) return 0;
@@ -10072,9 +10196,9 @@ async function autoFillStructuredRemarks(student, sessionId) {
   await Promise.all(toFill.map(async item => {
     try {
       if (!item.actId) {
-        await addAutoFillActivityAndRemark(sessionId, item.target.name, item.pa.title || item.pa.name, item.pa.order ?? 0, item.paParent, item.paConfigId);
+        await addAutoFillActivityAndRemark(sessionId, item.target.name, item.pa.title || item.pa.name, item.pa.order ?? 0, item.paParent, item.paConfigId, item.maintNote);
       } else {
-        await addRemark(sessionId, item.actId, "");
+        await addRemark(sessionId, item.actId, "", null, undefined, item.maintNote);
       }
     } catch {
       // silent — auto-fill is best-effort; the next session open will retry
@@ -10184,6 +10308,12 @@ async function autoFillMaintainedRemarks(student, sessionId, selectedTargetName 
       ? currentFill : bgFill;
     for (const pa of (target.predefinedActivities || [])) {
       if (!pa.maintained || pa.isHeading || pa.isNote || pa.isExportNote || pa.isMaintainHeading || (!pa.name && !pa.title)) continue;
+      // Non-Notes-Only activities (checkbox/MC/manual score) show their real UI via
+      // autoFillStructuredRemarks; only Notes-Only gets a "Maintain" text remark here.
+      if (getActivityInlineOptions(pa) || pa.optionsMulti || pa.manualScore) continue;
+      // Only auto-fill "Maintain" for sessions on or after the maintained date
+      const _paMaintAt = pa.maintainedAt || "2026-01-01";
+      if (data.date && data.date < _paMaintAt) continue;
       // Match by name OR by configId so a character-level name mismatch never spawns a duplicate.
       const allMatches = Object.entries(data.activities || {})
         .filter(([, a]) => a.targetName === target.name && !a.parentActivity &&
@@ -10237,6 +10367,13 @@ async function cleanupEmptyEntries(sessionId, data, targetName, target = null, i
   // empty one isn't stale data, it's the activity waiting to auto-fill. Treat
   // them as exempt so this cleanup never races that auto-fill and deletes it.
   const mappedNames   = new Set((target?.predefinedActivities || []).filter(pa => pa.isMapped).map(pa => pa.name));
+  // Maintained non-Notes-Only activities always keep their auto-created placeholder
+  // remark so the proper UI (checkboxes/MC/manual score) stays visible on revisit.
+  const maintainedStructuredNames = new Set(
+    (target?.predefinedActivities || [])
+      .filter(pa => pa.maintained && (getActivityInlineOptions(pa) || pa.optionsMulti || pa.manualScore))
+      .map(pa => pa.title || pa.name)
+  );
   // Auto-open activities (Select One / Tickbox / Sentence Starter + select) get
   // an empty placeholder remark on session open so the user can pick immediately.
   // During a target switch (isLeaving = false) keep them — they're waiting for input.
@@ -10246,10 +10383,28 @@ async function cleanupEmptyEntries(sessionId, data, targetName, target = null, i
     ? new Set()
     : new Set((target?.predefinedActivities || []).filter(pa => isAutoOpenRemarkType(pa)).map(pa => pa.title || pa.name));
   const acts = Object.entries(data.activities || {})
-    .filter(([, a]) => a.targetName === targetName && !mappedNames.has(a.activityName) && !autoOpenNames.has(a.activityName));
+    .filter(([, a]) => a.targetName === targetName && !mappedNames.has(a.activityName) &&
+      // Always process maintained-structured activities so extra empty remarks get cleaned up,
+      // even during target-switch when autoOpenNames would normally skip them.
+      (!autoOpenNames.has(a.activityName) || maintainedStructuredNames.has(a.activityName)));
   const stripEmpty = s => (s || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").replace(/ /g, " ").trim();
   for (const [actId, act] of acts) {
     const rems = Object.entries(data.remarks || {}).filter(([, r]) => r.activityId === actId);
+    if (maintainedStructuredNames.has(act.activityName)) {
+      // Keep the auto-fill "Maintain" placeholder; delete only empty extras the user added via "+"
+      if (rems.length <= 1) continue;
+      const sorted = [...rems].sort(([, a], [, b]) => (a.order || 0) - (b.order || 0));
+      for (const [remId, r] of sorted.slice(1)) {
+        const realTrials = (r.trials || []).filter(t => t !== -1);
+        const rText = stripEmpty(r.text);
+        const rNote = stripEmpty(r.masteryNote);
+        const isEmpty = !rText.length && !rNote.length && realTrials.length === 0 && r.optionScore === undefined;
+        // Also catch extras that got "Maintain" patched in before v1752 — those are still throwaways
+        const isMaintainOnly = (rText === "Maintain" || rNote === "Maintain") && realTrials.length === 0 && r.optionScore === undefined;
+        if (isEmpty || isMaintainOnly) await deleteRemark(sessionId, remId);
+      }
+      continue;
+    }
     // Extra (session-only) activities with no name AND no remarks are orphans
     // from abandoned "+Add Activity" presses - clean them up here.
     if (rems.length === 0 && !act.isPredefined && !stripEmpty(act.activityName)) {
@@ -10511,32 +10666,50 @@ async function leaveSessionView() {
 
   if (sessionId && data) {
     const stripEmpty = s => (s || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").replace(/ /g, " ").trim();
-    const currentTargetNames = new Set((student?.targets || []).map(t => t.name));
     const fedcHasData = Object.values(data.fedcComments || {}).some(c => stripEmpty(c).length > 0);
     const remarkHasData = Object.values(data.remarks || {}).some(r => {
       const act = (data.activities || {})[r.activityId];
       if (!act) return false;
-      const rText   = stripEmpty(r.text);
-      const rNote   = stripEmpty(r.masteryNote);
-      const rTrials = (r.trials || []).filter(t => t !== null && t !== -1);
-      if (rText === "Maintain" && rTrials.length === 0 && !rNote) {
+      const rText    = stripEmpty(r.text);
+      const rNote    = stripEmpty(r.masteryNote);
+      const rTrials  = (r.trials || []).filter(t => t !== null && t !== -1);
+      const rOption  = r.optionScore !== undefined && r.optionScore !== null;
+      const rSelected = (r.selectedOptions || []).length > 0;
+      const isAutoFillMaintain =
+        ((rText === "Maintain" && !rNote) || (rNote === "Maintain" && !rText)) &&
+        rTrials.length === 0 && !rOption && !rSelected;
+      if (isAutoFillMaintain) {
         const pa = (student?.targets || []).flatMap(t => t.predefinedActivities || [])
           .find(p => p.maintained && (p.name === act.activityName || (p.id && p.id === act.configId)));
         if (pa) return false;
       }
-      // Count data under ANY targetName — if a target was renamed and the
-      // propagation didn't finish, activities under the old name still contain
-      // real data that must not make this session look "empty" and get deleted.
-      return rText.length > 0 || rTrials.length > 0 || rNote.length > 0;
+      return rText.length > 0 || rTrials.length > 0 || rNote.length > 0 || rOption || rSelected;
+    });
+    const allTargetNames = new Set(Object.values(data.activities || {}).map(a => a.targetName));
+    allTargetNames.forEach(name => {
+      const target = (student?.targets || []).find(t => t.name === name);
+      cleanupEmptyEntries(sessionId, data, name, target, true).catch(() => {});
     });
     if (!fedcHasData && !remarkHasData) {
-      deleteEmptyIndividualSession(sessionId, student.id, data.date).catch(() => {});
-    } else {
-      const allTargetNames = new Set(Object.values(data.activities || {}).map(a => a.targetName));
-      allTargetNames.forEach(name => {
-        const target = (student?.targets || []).find(t => t.name === name);
-        cleanupEmptyEntries(sessionId, data, name, target, true).catch(() => {});
-      });
+      const maintainRemIds = Object.entries(data.remarks || {})
+        .filter(([, r]) => {
+          const rText = stripEmpty(r.text);
+          const rNote = stripEmpty(r.masteryNote);
+          if (!(rText === "Maintain" || rNote === "Maintain")) return false;
+          if ((r.trials || []).some(t => t !== null && t !== -1)) return false;
+          if (r.optionScore !== undefined && r.optionScore !== null) return false;
+          if ((r.selectedOptions || []).length) return false;
+          // Only delete auto-fills: activity must be maintained AND session must be on/after
+          // pa.maintainedAt. Sessions before that date had "Maintain" typed by the boss — keep.
+          const act = (data.activities || {})[r.activityId];
+          if (!act) return false;
+          const pa = (student?.targets || []).flatMap(t => t.predefinedActivities || [])
+            .find(p => p.maintained && (p.name === act.activityName || (p.id && p.id === act.configId)));
+          if (!pa) return false;
+          return data.date >= (pa.maintainedAt || "2026-01-01");
+        })
+        .map(([id]) => id);
+      if (maintainRemIds.length > 0) deleteRemarksBatch(sessionId, maintainRemIds).catch(() => {});
     }
   }
 
@@ -10625,7 +10798,9 @@ function getWorkflowState(data) {
     .sort(([,a],[,b]) => (a.order || 0) - (b.order || 0));
   const commentsFor = id => comments.filter(([, c]) => {
     if (c.forInstructor) return c.forInstructor === id;
-    // Legacy: empty/missing assignedTo = all; specific = named person
+    // Multi-instructor sessions: corrections without forInstructor must not bleed across
+    // instructors. Only use the legacy assignedTo fallback for single-instructor sessions.
+    if (p3Ids.length > 1) return false;
     const a = c.assignedTo;
     return !a || a.length === 0 || a.includes(id);
   });
@@ -10802,7 +10977,7 @@ function renderCheckedByStripHtml(data, confirmRole, isGroup = false) {
     const stale  = ws.p2CheckStale(id);
     const at     = ws.p2CheckAt(id);
     if (confirmRole === role) return mkConfirm(role, done ? `Undo check for ${name}?` : `Check ${name}'s work?`);
-    if (done && !stale) return `<button class="wf-pill wf-pill--done" data-role="${role}">✓ ${escHtml(name)} · ${escHtml(fmtCheckTimestamp(at))}</button>`;
+    if (done && !stale) return `<button class="wf-pill wf-pill--done" data-role="${role}">✓ Ms. Daisy · ${escHtml(fmtCheckTimestamp(at))}</button>`;
     if (stale) return `<button class="wf-pill wf-pill--attention" data-role="${role}">⚠ Ms. Daisy: Re-check ${escHtml(name)} (Phase 1 updated)</button>`;
     return `<button class="wf-pill wf-pill--attention" data-role="${role}">○ Ms. Daisy: Check ${escHtml(name)}'s Work</button>`;
   };
@@ -10862,7 +11037,7 @@ function renderCheckedByStripHtml(data, confirmRole, isGroup = false) {
   const p3Node = `<div class="wf-node wf-node--${p3State}">
     <div class="wf-node-label">Phase 3: Revision</div>
     <div class="wf-node-body">${p3Body}</div>
-    ${_phase3Error ? `<div class="wf-error-msg">⚠ ${escHtml(_phase3Error)}</div>` : ""}
+    ${_phase3Error ? `<div class="wf-error-msg">${escHtml(_phase3Error)}</div>` : ""}
     ${hasRejections ? `<div class="wf-p3-hint">✗ Crosses indicate that Ms. Daisy has reviewed the work and errors are still present.</div>` : ""}
   </div>`;
 
@@ -10871,7 +11046,7 @@ function renderCheckedByStripHtml(data, confirmRole, isGroup = false) {
     const name = instName(id);
     const role = `p4_check_${id}`;
     if (ws.noCorr(id)) {
-      return `<div class="wf-pill wf-pill--done">✓ ${escHtml(name)}: No revisions — Check #2 not required</div>`;
+      return `<div class="wf-pill wf-pill--done">✓ Ms. Daisy: ${escHtml(name)} has no mistakes - Check #2 not required</div>`;
     }
     if (!ws.p3Done(id)) {
       return `<div class="wf-pill wf-pill--locked">🔒 ${escHtml(name)}: Awaiting revision</div>`;
@@ -10879,7 +11054,7 @@ function renderCheckedByStripHtml(data, confirmRole, isGroup = false) {
     const done = ws.p4CheckDone(id);
     const at   = ws.p4CheckRaw(id)?.at;
     if (confirmRole === role) return mkConfirm(role, done ? `Undo check for ${name}?` : `Check ${name}'s corrections?`);
-    if (done) return `<button class="wf-pill wf-pill--done" data-role="${role}">✓ ${escHtml(name)} · ${at ? escHtml(fmtCheckTimestamp(at)) : "Ms. Daisy"}</button>`;
+    if (done) return `<button class="wf-pill wf-pill--done" data-role="${role}">✓ Ms. Daisy · ${at ? escHtml(fmtCheckTimestamp(at)) : ""}</button>`;
     return `<button class="wf-pill wf-pill--attention" data-role="${role}">○ Ms. Daisy: Check ${escHtml(name)}'s Work</button>`;
   };
 
@@ -10935,9 +11110,12 @@ function renderCheckedByStripHtml(data, confirmRole, isGroup = false) {
     ${noteIds.length === 0
       ? `<button class="wf-note-btn" data-action="open-note" data-inst-id="">📝 List of Corrections</button>`
       : noteIds.map(id => {
-          const cnt  = ws.commentsFor(id).length;
+          const idComments = ws.commentsFor(id);
+          const cnt  = idComments.length;
           const name = instName(id);
-          return `<button class="wf-note-btn${cnt > 0 ? " has-note" : ""}" data-action="open-note" data-inst-id="${escHtml(id)}">
+          const allFixed  = cnt === 0 || idComments.every(([, c]) => getCmtStatus(c) === "fixed");
+          const colorCls  = allFixed ? " wf-note-btn--green" : " wf-note-btn--red";
+          return `<button class="wf-note-btn${cnt > 0 ? " has-note" : ""}${colorCls}" data-action="open-note" data-inst-id="${escHtml(id)}">
             📝 List of Corrections – ${escHtml(name)}${cnt > 0 ? ` (${cnt})` : ""}
           </button>`;
         }).join("")}
@@ -11160,14 +11338,9 @@ async function handleCheckedByClick(e, isGroup) {
       const newDone = !ws.p3Done(id);
       if (newDone && !ws.allFixedFor(id)) {
         const notFixed = ws.commentsFor(id).filter(([, c]) => getCmtStatus(c) !== "fixed");
-        const nEmpty    = notFixed.filter(([, c]) => getCmtStatus(c) === null).length;
-        const nRejected = notFixed.filter(([, c]) => getCmtStatus(c) === "rejected").length;
-        const parts = [];
-        if (nEmpty > 0)    parts.push(`${nEmpty} empty (○)`);
-        if (nRejected > 0) parts.push(`${nRejected} crossed by Ms. Daisy (✗)`);
-        _phase3Error = `All corrections must be ticked ✓ to complete. ${parts.join(" and ")} — tick or resolve before marking done.`;
+        const nRemain = notFixed.length;
+        _phase3Error = `⚠ ${nRemain} task${nRemain === 1 ? "" : "s"} remain${nRemain === 1 ? "s" : ""} in the "List of Corrections – ${instName(id)}". Tick ${nRemain === 1 ? "it" : "them"} (✓) to complete this phase.`;
         rerender();
-        setTimeout(() => { _phase3Error = null; rerender(); }, 3500);
         return true;
       }
       _phase3Error = null;
@@ -11644,13 +11817,14 @@ function buildTargetViewTable(target, data) {
           ))
           .forEach(([id]) => matchedIds.add(id));
         const _paMastered = pa.masteredOn || (pa.inactiveReason === 'mastered' ? "2026-06-30" : null);
-        const paBadge = pa.maintained
-          ? `<span style="font-size:.72rem;color:#6b7280;font-weight:600;white-space:nowrap">(🆗 Maintained)</span> `
-          : pa.discontinuedOn
+        const _paMaintBadge = pa.maintained
+          ? `<span style="font-size:.72rem;color:#6b7280;font-weight:600;white-space:nowrap">(🆗 Maintained${pa.maintainedAt ? ` on ${fmtPeriodDate(pa.maintainedAt)}` : ''})</span> `
+          : '';
+        const paBadge = _paMaintBadge + (pa.discontinuedOn
           ? `<span style="font-size:.72rem;color:#dc2626;font-weight:600;white-space:nowrap">(🚩 ${fmtPeriodDate(pa.discontinuedOn)})</span> `
           : _paMastered
           ? `<span style="font-size:.72rem;color:#059669;font-weight:600;white-space:nowrap">(⭐ ${fmtPeriodDate(_paMastered)})</span> `
-          : '';
+          : '');
         rows += `<tr style="background:#f3f4f6">
           <td class="vcol-no" contenteditable="false" style="color:#6b7280">${displayNo}</td>
           <td class="vcol-act" colspan="5" contenteditable="false" style="font-weight:600">${paBadge}${paDisplayHtml(pa)}</td>
@@ -11868,13 +12042,15 @@ function viewActivityRows(no, actName, actId, data, target, isPredefined = true,
     || (parentEntry?.inactiveReason === 'mastered' ? "2026-06-30" : null)
     || null;
   const _maintained     = !!(paEntry?.maintained   || parentEntry?.maintained);
-  const statusBadge = _maintained
-    ? `<span style="font-size:.72rem;color:#6b7280;font-weight:600;white-space:nowrap">(🆗 Maintained)</span> `
-    : _discontinuedOn
+  const _maintainedAt   = paEntry?.maintainedAt || parentEntry?.maintainedAt || null;
+  const _maintBadge = _maintained
+    ? `<span style="font-size:.72rem;color:#6b7280;font-weight:600;white-space:nowrap">(🆗 Maintained${_maintainedAt ? ` on ${fmtPeriodDate(_maintainedAt)}` : ''})</span> `
+    : '';
+  const statusBadge = _maintBadge + (_discontinuedOn
     ? `<span style="font-size:.72rem;color:#dc2626;font-weight:600;white-space:nowrap">(🚩 ${fmtPeriodDate(_discontinuedOn)})</span> `
     : _masteredOn
     ? `<span style="font-size:.72rem;color:#059669;font-weight:600;white-space:nowrap">(⭐ ${fmtPeriodDate(_masteredOn)})</span> `
-    : '';
+    : '');
 
   const actCell = isPredefined
     ? statusBadge + (paEntry ? paDisplayHtml(paEntry) : formatActivityMarkup(actName)) + (paEntry?.actNote?.trim() ? `<div class="view-act-note">${formatActivityMarkup(paEntry.actNote)}</div>` : "")
@@ -11908,7 +12084,7 @@ function viewActivityRows(no, actName, actId, data, target, isPredefined = true,
                data-target="${escHtml(target.name)}" data-is-predefined="${isPredefined}"
                data-parent-activity="${escHtml(paConfig?.parentActivity || "")}"
                data-config-id="${escHtml(paConfig?.id || "")}"
-               placeholder="Notes…"></textarea>` : "";
+               placeholder="Remark…"></textarea>` : "";
         const _noOptsCell = remarkHasNote
           ? `<div class="view-starter-wrap view-starter-wrap-note" contenteditable="false">
                <div class="view-starter-top-row">${_noOptsMsg}</div>
@@ -11931,7 +12107,7 @@ function viewActivityRows(no, actName, actId, data, target, isPredefined = true,
            data-is-predefined="${isPredefined}"
            data-parent-activity="${escHtml(paConfig?.parentActivity || "")}"
            data-config-id="${escHtml(paConfig?.id || "")}"
-           placeholder="${_maintained ? "" : "Notes…"}">${_maintained ? "Maintain" : ""}</textarea>`;
+           placeholder="${_maintained && data.date >= (_maintainedAt || "2026-01-01") ? "" : "Notes…"}">${_maintained && data.date >= (_maintainedAt || "2026-01-01") ? "Maintain" : ""}</textarea>`;
       const addTrialBtn = mappedInfo
         ? ""
         : `<button class="view-add-trial-new" data-act-id="${escHtml(actId || "")}"
@@ -11989,7 +12165,7 @@ function viewActivityRows(no, actName, actId, data, target, isPredefined = true,
            data-target="${escHtml(target.name)}" data-is-predefined="${isPredefined}"
            data-parent-activity="${escHtml(paConfig?.parentActivity || "")}"
            data-config-id="${escHtml(paConfig?.id || "")}"
-           placeholder="Notes…"></textarea>`
+           placeholder="Remark…"></textarea>`
       : "";
     let emptyRemCell;
     if (sentenceStarter && remarkHasNote) {
@@ -12083,7 +12259,7 @@ function viewRemarkRow(no, actName, rem, target, inlineOptions = null, sentenceS
     </div>`;
     const noteCell = `<textarea class="view-mastery-note" rows="1" data-rem-id="${escHtml(rem.id)}"
       data-saved-html="${escHtml(rem.masteryNote || "")}"
-      placeholder="Notes…">${escHtml(plainTextForEdit(rem.masteryNote))}</textarea>`;
+      placeholder="Remark…">${escHtml(plainTextForEdit(rem.masteryNote))}</textarea>`;
     const remarkCell = `<div class="view-manual-score-wrap" contenteditable="false">${scoreInput}${noteCell}</div>`;
     const scoreColDisplay = parsedPct !== null ? parsedPct + "%" : "";
     return `<tr${rowClass ? ` class="${rowClass}"` : ""}>
@@ -12145,7 +12321,7 @@ function viewRemarkRow(no, actName, rem, target, inlineOptions = null, sentenceS
     const _note2 = remarkHasNote
       ? `<textarea class="view-mastery-note" rows="1" data-rem-id="${escHtml(rem.id)}"
            data-saved-html="${escHtml(rem.masteryNote || "")}"
-           placeholder="Notes…">${escHtml(plainTextForEdit(rem.masteryNote))}</textarea>` : "";
+           placeholder="Remark…">${escHtml(plainTextForEdit(rem.masteryNote))}</textarea>` : "";
     const _cell2 = remarkHasNote
       ? `<div class="view-starter-wrap view-starter-wrap-note" contenteditable="false">
            <div class="view-starter-top-row">${_msg2}</div>
@@ -12163,7 +12339,7 @@ function viewRemarkRow(no, actName, rem, target, inlineOptions = null, sentenceS
   }
   const optSelect = makeViewOpts(rem.id, rem.text)
     || `<textarea class="view-remark-edit" rows="1" data-rem-id="${escHtml(rem.id)}"
-          placeholder="Notes…" data-saved-html="${escHtml(rem.text || "")}">${escHtml(plainTextForEdit(rem.text))}</textarea>`;
+          placeholder="Remark…" data-saved-html="${escHtml(rem.text || "")}">${escHtml(plainTextForEdit(rem.text))}</textarea>`;
 
   // Show the note textarea if the current type includes it, OR if the remark
   // already has a masteryNote saved (e.g. type was +Free Text in the past and
@@ -12172,7 +12348,7 @@ function viewRemarkRow(no, actName, rem, target, inlineOptions = null, sentenceS
   const noteField = showNote
     ? `<textarea class="view-mastery-note" rows="1" data-rem-id="${escHtml(rem.id)}"
         data-saved-html="${escHtml(rem.masteryNote || "")}"
-        placeholder="Notes…">${escHtml(plainTextForEdit(rem.masteryNote))}</textarea>`
+        placeholder="Remark…">${escHtml(plainTextForEdit(rem.masteryNote))}</textarea>`
     : "";
 
   let remarkCell;
@@ -12326,6 +12502,11 @@ async function autoFillViewMaintainedRemarks(student, sessionId, data) {
   for (const target of (student.targets || [])) {
     for (const pa of (target.predefinedActivities || [])) {
       if (!pa.maintained || pa.isHeading || pa.isNote || pa.isExportNote || pa.isMaintainHeading || (!pa.name && !pa.title)) continue;
+      // Non-Notes-Only activities handled by autoFillViewStructuredRemarks
+      if (getActivityInlineOptions(pa) || pa.optionsMulti || pa.manualScore) continue;
+      // Only auto-fill "Maintain" for sessions on or after the maintained date
+      const _viewMaintAt = pa.maintainedAt || "2026-01-01";
+      if (data.date && data.date < _viewMaintAt) continue;
       const allMatches = Object.entries(data.activities || {})
         .filter(([, a]) => a.targetName === target.name && !a.parentActivity &&
                            (a.activityName === pa.name || (pa.title && a.activityName === pa.title) || (pa.id && a.configId === pa.id)));
@@ -12368,7 +12549,8 @@ async function autoFillViewStructuredRemarks(student, sessionId, data) {
   for (const target of (student.targets || [])) {
     for (const pa of (target.predefinedActivities || [])) {
       if (!isAutoOpenRemarkType(pa)) continue;
-      if (pa.maintained || pa.isMapped) continue; // handled by other auto-fills
+      const _viewIsNotesOnly = !getActivityInlineOptions(pa) && !pa.optionsMulti && !pa.manualScore;
+      if ((pa.maintained && _viewIsNotesOnly) || pa.isMapped) continue;
       if (!isActivityActive(pa, sessionDate)) continue;
       const paConfigId = pa.id || null;
       const paParent = pa.parentActivity || null;
@@ -12385,16 +12567,30 @@ async function autoFillViewStructuredRemarks(student, sessionId, data) {
         })
         .map(([id]) => id);
       const remarkActIds = new Set(Object.values(data.remarks || {}).map(r => r.activityId));
-      if (candidateIds.some(id => remarkActIds.has(id))) continue;
+      const _vMaintAt = pa.maintainedAt || "2026-01-01";
+      const _vOnOrAfterMaint = !sessionDate || sessionDate >= _vMaintAt;
+      if (candidateIds.some(id => remarkActIds.has(id))) {
+        if (pa.maintained && _vOnOrAfterMaint) {
+          for (const candId of candidateIds) {
+            const actRems = Object.entries(data.remarks || {}).filter(([, r]) => r.activityId === candId);
+            if (actRems.length !== 1) continue; // user added extra remarks — don't touch them
+            const [[remId, r]] = actRems;
+            if (!(r.masteryNote || "").replace(/<[^>]*>/g, "").trim())
+              updateRemarkNote(sessionId, remId, "Maintain").catch(() => {});
+          }
+        }
+        continue;
+      }
       const existingActId = candidateIds[0] || null;
       const key = `${sessionId}:${target.name}:${paConfigId || pa.name}:${paParent || ""}:view`;
       if (structuredRemarkAutoFillInFlight.has(key)) continue;
       structuredRemarkAutoFillInFlight.add(key);
+      const _vMaintNote = pa.maintained && _vOnOrAfterMaint ? "Maintain" : "";
       try {
         if (existingActId) {
-          await addRemark(sessionId, existingActId, "");
+          await addRemark(sessionId, existingActId, "", null, undefined, _vMaintNote);
         } else {
-          await addAutoFillActivityAndRemark(sessionId, target.name, pa.title || pa.name, pa.order ?? 0, paParent, paConfigId);
+          await addAutoFillActivityAndRemark(sessionId, target.name, pa.title || pa.name, pa.order ?? 0, paParent, paConfigId, _vMaintNote);
         }
         count++;
       } catch { /* silent — next snapshot will retry */ }
@@ -12455,6 +12651,54 @@ async function autoFillViewGroupMappedRemarks(group, sessionId, data) {
   return count;
 }
 
+// Group View/Edit Past Sessions counterpart of autoFillViewMaintainedRemarks.
+// Creates "Maintain" remark per attendee for maintained Notes-Only activities
+// on sessions on/after the maintained date, mirroring the individual view logic.
+async function autoFillViewGroupMaintainedRemarks(group, sessionId, data) {
+  const hasRealData = Object.values(data.remarks || {}).some(r =>
+    (r.text && r.text.trim()) || (r.trials || []).some(t => t >= 0) || r.optionScore !== undefined
+  );
+  if (!hasRealData) return 0;
+  const attendees = data.attendees || (group.students || []).filter(Boolean);
+  let count = 0;
+  for (const target of (group.targets || [])) {
+    for (const pa of (target.predefinedActivities || [])) {
+      if (!pa.maintained || pa.isHeading || pa.isNote || pa.isExportNote || pa.isMaintainHeading || (!pa.name && !pa.title)) continue;
+      // Non-Notes-Only activities handled by autoFillViewGroupStructuredRemarks
+      if (getActivityInlineOptions(pa) || pa.optionsMulti || pa.manualScore) continue;
+      const _maintAt = pa.maintainedAt || "2026-01-01";
+      if (data.date && data.date < _maintAt) continue;
+      const allMatches = Object.entries(data.activities || {})
+        .filter(([, a]) => a.targetName === target.name && !a.parentActivity &&
+                           (a.activityName === pa.name || (pa.title && a.activityName === pa.title) || (pa.id && a.configId === pa.id)));
+      const canonical = allMatches.find(([, a]) => pa.id && a.configId === pa.id) || allMatches[0] || null;
+      let actId = canonical?.[0] || null;
+      if (!actId) {
+        const actKey = `viewgrp:${sessionId}:${target.name}:${pa.name}:maintained:act`;
+        if (maintainedRemarkAutoFillInFlight.has(actKey)) continue;
+        maintainedRemarkAutoFillInFlight.add(actKey);
+        try {
+          actId = await addActivity(sessionId, target.name, pa.name, pa.order ?? 0, true);
+        } catch { maintainedRemarkAutoFillInFlight.delete(actKey); continue; }
+        maintainedRemarkAutoFillInFlight.delete(actKey);
+      }
+      for (const studentName of attendees) {
+        const hasRemark = Object.values(data.remarks || {})
+          .some(r => r.activityId === actId && r.studentName === studentName);
+        if (hasRemark) continue;
+        const key = `viewgrp:${sessionId}:${target.name}:${pa.name}:${studentName}:maintained`;
+        if (maintainedRemarkAutoFillInFlight.has(key)) continue;
+        maintainedRemarkAutoFillInFlight.add(key);
+        try {
+          await addGroupRemark(sessionId, actId, studentName, "Maintain");
+          count++;
+        } finally { maintainedRemarkAutoFillInFlight.delete(key); }
+      }
+    }
+  }
+  return count;
+}
+
 // Group View/Edit Past Sessions counterpart of autoFillViewStructuredRemarks.
 // Creates one empty placeholder remark per attendee for each auto-open activity
 // that was cleaned up on session leave, so they show as clickable buttons
@@ -12469,23 +12713,37 @@ async function autoFillViewGroupStructuredRemarks(group, sessionId, data) {
   for (const target of (group.targets || [])) {
     for (const pa of (target.predefinedActivities || [])) {
       if (!isAutoOpenRemarkType(pa)) continue;
-      if (pa.maintained || pa.isMapped) continue;
+      const _vgIsNotesOnly = !getActivityInlineOptions(pa) && !pa.optionsMulti && !pa.manualScore;
+      if ((pa.maintained && _vgIsNotesOnly) || pa.isMapped) continue;
       const existingAct = Object.entries(data.activities || {})
         .find(([, a]) => a.targetName === target.name &&
           (a.activityName === pa.name || (pa.title && a.activityName === pa.title) || (pa.id && a.configId === pa.id)));
       let actId = existingAct?.[0] || null;
+      const _vgMaintAt = pa.maintainedAt || "2026-01-01";
+      const _vgOnOrAfterMaint = !data.date || data.date >= _vgMaintAt;
       for (const studentName of attendees) {
         const hasRemark = actId && Object.values(data.remarks || {})
           .some(r => r.activityId === actId && r.studentName === studentName);
-        if (hasRemark) continue;
+        if (hasRemark) {
+          if (pa.maintained && _vgOnOrAfterMaint) {
+            const studentRems = Object.entries(data.remarks || {}).filter(([, r]) => r.activityId === actId && r.studentName === studentName);
+            if (studentRems.length === 1) {
+              const [[remId, r]] = studentRems;
+              if (!(r.masteryNote || "").replace(/<[^>]*>/g, "").trim())
+                updateRemarkNote(sessionId, remId, "Maintain").catch(() => {});
+            }
+          }
+          continue;
+        }
         const key = `${sessionId}:${target.name}:${pa.id || pa.name}:${studentName}:view`;
         if (structuredRemarkAutoFillInFlight.has(key)) continue;
         structuredRemarkAutoFillInFlight.add(key);
+        const _vgMaintNote = pa.maintained && _vgOnOrAfterMaint ? "Maintain" : "";
         try {
           if (!actId) {
             actId = await addActivity(sessionId, target.name, pa.title || pa.name, pa.order ?? 0, true);
           }
-          await addGroupRemark(sessionId, actId, studentName, "");
+          await addGroupRemark(sessionId, actId, studentName, "", undefined, _vgMaintNote);
           count++;
         } catch { /* silent */ }
         finally { structuredRemarkAutoFillInFlight.delete(key); }
@@ -13563,6 +13821,10 @@ async function openGroupSessionView(group, sessionId) {
         if (filled > 0) return; // the write triggers another snapshot, which renders
       } catch (err) { console.error("autoFillViewGroupMappedRemarks failed:", err); }
       try {
+        const maintainedFilled = await autoFillViewGroupMaintainedRemarks(group, sessionId, data);
+        if (maintainedFilled > 0) return;
+      } catch (err) { console.error("autoFillViewGroupMaintainedRemarks failed:", err); }
+      try {
         const structuredFilled = await autoFillViewGroupStructuredRemarks(group, sessionId, data);
         if (structuredFilled > 0) return;
       } catch (err) { console.error("autoFillViewGroupStructuredRemarks failed:", err); }
@@ -13756,13 +14018,14 @@ function buildGroupTargetViewTable(target, data, attendees) {
           .filter(([, a]) => a.targetName === target.name && (a.activityName === pa.name || (pa.title && a.activityName === pa.title)))
           .forEach(([id]) => matchedIds.add(id));
         const _paGrpMastered = pa.masteredOn || (pa.inactiveReason === 'mastered' ? "2026-06-30" : null);
-        const paBadgeGrp = pa.maintained
-          ? `<span style="font-size:.72rem;color:#6b7280;font-weight:600;white-space:nowrap">(🆗 Maintained)</span> `
-          : pa.discontinuedOn
+        const _paGrpMaintBadge = pa.maintained
+          ? `<span style="font-size:.72rem;color:#6b7280;font-weight:600;white-space:nowrap">(🆗 Maintained${pa.maintainedAt ? ` on ${fmtPeriodDate(pa.maintainedAt)}` : ''})</span> `
+          : '';
+        const paBadgeGrp = _paGrpMaintBadge + (pa.discontinuedOn
           ? `<span style="font-size:.72rem;color:#dc2626;font-weight:600;white-space:nowrap">(🚩 ${fmtPeriodDate(pa.discontinuedOn)})</span> `
           : _paGrpMastered
           ? `<span style="font-size:.72rem;color:#059669;font-weight:600;white-space:nowrap">(⭐ ${fmtPeriodDate(_paGrpMastered)})</span> `
-          : '';
+          : '');
         rows += `<tr style="background:#f3f4f6">
           <td class="vcol-no" contenteditable="false" style="color:#6b7280">${no}</td>
           <td class="vcol-act" colspan="6" contenteditable="false" style="font-weight:600">${paBadgeGrp}${paDisplayHtml(pa)}</td>
@@ -13973,13 +14236,15 @@ function viewGroupActivityRows(no, actName, actId, data, target, attendees, isPr
     || (parentEntry?.inactiveReason === 'mastered' ? "2026-06-30" : null)
     || null;
   const _maintained     = !!(paEntry?.maintained   || parentEntry?.maintained);
-  const statusBadge = _maintained
-    ? `<span style="font-size:.72rem;color:#6b7280;font-weight:600;white-space:nowrap">(🆗 Maintained)</span> `
-    : _discontinuedOn
+  const _maintainedAt   = paEntry?.maintainedAt || parentEntry?.maintainedAt || null;
+  const _maintBadge = _maintained
+    ? `<span style="font-size:.72rem;color:#6b7280;font-weight:600;white-space:nowrap">(🆗 Maintained${_maintainedAt ? ` on ${fmtPeriodDate(_maintainedAt)}` : ''})</span> `
+    : '';
+  const statusBadge = _maintBadge + (_discontinuedOn
     ? `<span style="font-size:.72rem;color:#dc2626;font-weight:600;white-space:nowrap">(🚩 ${fmtPeriodDate(_discontinuedOn)})</span> `
     : _masteredOn
     ? `<span style="font-size:.72rem;color:#059669;font-weight:600;white-space:nowrap">(⭐ ${fmtPeriodDate(_masteredOn)})</span> `
-    : '';
+    : '');
 
   const actCell = isPredefined
     ? statusBadge + (paEntry ? paDisplayHtml(paEntry) : formatActivityMarkup(actName)) + (paEntry?.actNote?.trim() ? `<div class="view-act-note">${formatActivityMarkup(paEntry.actNote)}</div>` : "")
@@ -14056,7 +14321,7 @@ function viewGroupActivityRows(no, actName, actId, data, target, attendees, isPr
                  data-act-id="${escHtml(actId || "")}" data-act-name="${escHtml(actName)}"
                  data-target="${escHtml(target.name)}" data-is-predefined="${isPredefined}"
                  data-student="${escHtml(studentName)}"
-                 placeholder="Notes…"></textarea>` : "";
+                 placeholder="Remark…"></textarea>` : "";
           const _gCell = remarkHasNote
             ? `<div class="view-starter-wrap view-starter-wrap-note" contenteditable="false">
                  <div class="view-starter-top-row">${_gMsg}</div>
@@ -14087,7 +14352,7 @@ function viewGroupActivityRows(no, actName, actId, data, target, attendees, isPr
             data-student="${escHtml(studentName)}"
             data-parent-activity="${escHtml(paConfig?.parentActivity || "")}"
             data-config-id="${escHtml(paConfig?.id || "")}"
-            placeholder="Notes…"></textarea>
+            placeholder="${_maintained && data.date >= (_maintainedAt || "2026-01-01") ? "" : "Notes…"}">${_maintained && data.date >= (_maintainedAt || "2026-01-01") ? "Maintain" : ""}</textarea>
         </td>
         <td class="vcol-trials" contenteditable="false">
           <button class="view-group-add-trial-new" data-act-id="${escHtml(actId || "")}"
@@ -14120,7 +14385,7 @@ function viewGroupActivityRows(no, actName, actId, data, target, attendees, isPr
              data-act-id="${escHtml(actId || "")}" data-act-name="${escHtml(actName)}"
              data-target="${escHtml(target.name)}" data-is-predefined="${isPredefined}"
              data-student="${escHtml(studentName)}"
-             placeholder="Notes…"></textarea>`
+             placeholder="Remark…"></textarea>`
         : "";
       let gRemCell;
       if (sentenceStarter && remarkHasNote) {
@@ -14215,7 +14480,7 @@ function viewGroupActivityRows(no, actName, actId, data, target, attendees, isPr
                data-act-id="${escHtml(actId || "")}" data-act-name="${escHtml(actName)}"
                data-target="${escHtml(target.name)}" data-is-predefined="${isPredefined}"
                data-student="${escHtml(entry.studentName)}"
-               placeholder="Notes…"></textarea>`
+               placeholder="Remark…"></textarea>`
           : "";
         let pRemCell;
         if (sentenceStarter && remarkHasNote) {
@@ -14279,7 +14544,7 @@ function viewGroupRemarkRow(no, actName, studentName, rem, target, inlineOptions
     </div>`;
     const noteCell = `<textarea class="view-mastery-note" rows="1" data-rem-id="${escHtml(rem.id)}"
       data-saved-html="${escHtml(rem.masteryNote || "")}"
-      placeholder="Notes…">${escHtml(plainTextForEdit(rem.masteryNote))}</textarea>`;
+      placeholder="Remark…">${escHtml(plainTextForEdit(rem.masteryNote))}</textarea>`;
     const remarkCell = `<div class="view-manual-score-wrap" contenteditable="false">${scoreInput}${noteCell}</div>`;
     const scoreColDisplay = parsedPct !== null ? parsedPct + "%" : "";
     return `<tr${rowClass ? ` class="${rowClass}"` : ""}>
@@ -14318,7 +14583,7 @@ function viewGroupRemarkRow(no, actName, studentName, rem, target, inlineOptions
         const _note3 = remarkHasNote
           ? `<textarea class="view-mastery-note" rows="1" data-rem-id="${escHtml(rem.id)}"
                data-saved-html="${escHtml(rem.masteryNote || "")}"
-               placeholder="Notes…">${escHtml(plainTextForEdit(rem.masteryNote))}</textarea>` : "";
+               placeholder="Remark…">${escHtml(plainTextForEdit(rem.masteryNote))}</textarea>` : "";
         const _cell3 = remarkHasNote
           ? `<div class="view-starter-wrap view-starter-wrap-note" contenteditable="false">
                <div class="view-starter-top-row">${_msg3}</div>
@@ -14345,13 +14610,13 @@ function viewGroupRemarkRow(no, actName, studentName, rem, target, inlineOptions
 
       const optSelect = makeViewOpts(rem.id, rem.text)
         || `<textarea class="view-remark-edit" rows="1" data-rem-id="${escHtml(rem.id)}"
-              placeholder="Notes…" data-saved-html="${escHtml(rem.text || "")}">${escHtml(plainTextForEdit(rem.text))}</textarea>`;
+              placeholder="Remark…" data-saved-html="${escHtml(rem.text || "")}">${escHtml(plainTextForEdit(rem.text))}</textarea>`;
 
       const showNote = remarkHasNote || !!(rem.masteryNote && rem.masteryNote.trim().length > 0);
       const noteField = showNote
         ? `<textarea class="view-mastery-note" rows="1" data-rem-id="${escHtml(rem.id)}"
             data-saved-html="${escHtml(rem.masteryNote || "")}"
-            placeholder="Notes…">${escHtml(plainTextForEdit(rem.masteryNote))}</textarea>`
+            placeholder="Remark…">${escHtml(plainTextForEdit(rem.masteryNote))}</textarea>`
         : "";
 
       let remarkCell;
@@ -15187,16 +15452,17 @@ function todayDateStr() {
 
 function inactiveReasonBadge(pa) {
   const _badgeBase = "display:inline-flex;align-items:center;border-radius:.35rem;padding:.1rem .5rem;font-size:.93rem;font-weight:700;white-space:nowrap;margin-right:.4rem;vertical-align:middle;line-height:1.2";
+  let badges = '';
+  if (pa?.maintained)
+    badges += `<span style="${_badgeBase};background:#e5e7eb;border:1px solid #9ca3af;color:#374151">🆗 Maintained${pa.maintainedAt ? ` on ${fmtPeriodDate(pa.maintainedAt)}` : ''}</span>`;
   const masteredDate = pa?.masteredOn || (pa?.inactiveReason === 'mastered' ? "2026-06-30" : null);
   if (masteredDate)
-    return `<span style="${_badgeBase};background:#d1fae5;border:1px solid #6ee7b7;color:#059669">⭐ Mastered on ${fmtPeriodDate(masteredDate)}</span>`;
-  if (pa?.discontinuedOn || pa?.inactiveReason === 'discontinued') {
-    const label = pa.discontinuedOn ? `🚩 Discontinued on ${fmtPeriodDate(pa.discontinuedOn)}` : '● Discontinued';
-    return `<span style="${_badgeBase};background:#fee2e2;border:1px solid #fca5a5;color:#dc2626">${label}</span>`;
+    badges += `<span style="${_badgeBase};background:#d1fae5;border:1px solid #6ee7b7;color:#059669">⭐ Mastered on ${fmtPeriodDate(masteredDate)}</span>`;
+  else if (pa?.discontinuedOn || pa?.inactiveReason === 'discontinued') {
+    const label = pa?.discontinuedOn ? `🚩 Discontinued on ${fmtPeriodDate(pa.discontinuedOn)}` : '● Discontinued';
+    badges += `<span style="${_badgeBase};background:#fee2e2;border:1px solid #fca5a5;color:#dc2626">${label}</span>`;
   }
-  if (pa?.maintained)
-    return `<span style="${_badgeBase};background:#e5e7eb;border:1px solid #9ca3af;color:#374151">🆗 Maintained</span>`;
-  return '';
+  return badges;
 }
 
 function showAutoDateConfirm({ message, confirmLabel }) {
@@ -15290,9 +15556,9 @@ function fmtPeriodDate(d) {
 }
 
 function presetLabel(val) {
-  return { "": "Notes Only", fixed_remark: "Fixed Remark", manual_score: "Manual Score",
+  return { "": "Remark Only", fixed_remark: "Fixed Remark", manual_score: "Manual Score",
     starter_fixed: "Multiple Choice", starter_fixed_multi: "Checkboxes",
-    starter_fixed_note: "Multiple Choice" }[val] ?? "Notes Only";
+    starter_fixed_note: "Multiple Choice" }[val] ?? "Remark Only";
 }
 
 function periodSectionHtml(activeFrom, activeTo, idx, withBorder, inactiveReason) {
@@ -16734,13 +17000,13 @@ function buildRemarkTypeControls(a, idx, maxPts = 3) {
   const showStarter = type !== "manual_score";
   return `<div style="flex:1;display:flex;flex-direction:column;gap:.4rem;min-width:0">
     <select class="act-preset-select mn-act-preset" data-idx="${idx}" style="border-color:#b8bcc4">
-      <option value="">Notes Only</option>
+      <option value="">Remark Only</option>
       <option value="manual_score"${type === "manual_score" ? " selected" : ""}>Manual Score</option>
       <option value="starter_fixed_note"${type === "starter_fixed_note" ? " selected" : ""}>Multiple Choice</option>
       <option value="starter_fixed_multi"${type === "starter_fixed_multi" ? " selected" : ""}>Checkboxes</option>
     </select>
     <div class="mn-act-note-starter-wrap" data-idx="${idx}" style="${showStarter ? "display:flex;flex-direction:column;gap:.3rem" : "display:none"}">
-      <span style="font-size:.95rem;color:#374151;font-weight:700">Sentence Starter (for Note)</span>
+      <span style="font-size:.95rem;color:#374151;font-weight:700">Sentence Starter (for Remark)</span>
       <input class="admin-input mn-act-note-starter-text" data-idx="${idx}"
         placeholder="Enter Sentence Starter Here (Optional)"
         style="width:100%;min-width:0;box-sizing:border-box;border-color:#b8bcc4"
@@ -18248,7 +18514,9 @@ function renderTargetManageContent(student, target) {
         }).map(s => s.date).sort();
         latestDate = dates[dates.length - 1] || null;
       } finally { btn.disabled = false; btn.textContent = origText; }
-      const minDate = latestDate || todayDateStr();
+      const rawMin = latestDate || todayDateStr();
+      // Can't set mastered/discontinued date before the maintained date
+      const minDate = (pa.maintainedAt && pa.maintainedAt > rawMin) ? pa.maintainedAt : rawMin;
       const _paName = escHtml(pa.title || pa.name || '');
       const infoHtml = latestDate
         ? `The last recorded session for <strong>"${_paName}"</strong> was on <strong>${fmtPeriodDate(latestDate)}</strong>. The earliest you can set this date is <strong>${fmtPeriodDate(minDate)}</strong>. This activity will stop showing from <strong>${fmtPeriodDate(addOneDay(minDate))}</strong> onwards.`
@@ -20606,8 +20874,20 @@ async function openGroupSession(group, dateStr, attendees, participants = null) 
   // another date for the SAME group should keep the currently-viewed
   // target, not reset to the first one in sort order.
   const preservedGroupTargetName = state.currentGroup?.id === group.id ? state.selectedGroupTargetName : null;
+  // Same as openSession — capture outgoing session for cleanup before teardown.
+  const _prevGrpSessionId = state.groupSessionId;
+  const _prevGrpData      = state.groupSessionData;
+  const _prevGroup        = state.currentGroup;
+  if (_prevGrpSessionId && _prevGrpData) await state.entryGroupRemarkSaver?.flush();
   if (state.fbGroupUnsubscribe) { state.fbGroupUnsubscribe(); state.fbGroupUnsubscribe = null; }
   state.entryGroupRemarkSaver?.cleanup();
+  if (_prevGrpSessionId && _prevGrpData && _prevGroup) {
+    const _allGrpTgtNames = new Set(Object.values(_prevGrpData.activities || {}).map(a => a.targetName));
+    _allGrpTgtNames.forEach(name => {
+      const target = (_prevGroup.targets || []).find(t => t.name === name);
+      cleanupEmptyEntries(_prevGrpSessionId, _prevGrpData, name, target, true).catch(() => {});
+    });
+  }
   state.entryGroupRemarkSaver = setupEntryRemarkSaving($("group-target-content"), () => state.groupSessionId, () => {
     if (!state.groupRenderPending || state.entryGroupActionsInFlight > 0) return;
     if (document.activeElement === $("group-target-select")) return;
@@ -20876,6 +21156,11 @@ async function autoFillGroupMaintainedRemarks(group, sessionId, attendees) {
   for (const target of (group.targets || [])) {
     for (const pa of (target.predefinedActivities || [])) {
       if (!pa.maintained || pa.isHeading || pa.isNote || pa.isExportNote || pa.isMaintainHeading || (!pa.name && !pa.title)) continue;
+      // Non-Notes-Only activities handled by autoFillGroupStructuredRemarks
+      if (getActivityInlineOptions(pa) || pa.optionsMulti || pa.manualScore) continue;
+      // Only auto-fill "Maintain" for sessions on or after the maintained date
+      const _grpMaintAt = pa.maintainedAt || "2026-01-01";
+      if (data.date && data.date < _grpMaintAt) continue;
       const allMatches = Object.entries(data.activities || {})
         .filter(([, a]) => a.targetName === target.name && !a.parentActivity &&
                            (a.activityName === pa.name || (pa.title && a.activityName === pa.title) || (pa.id && a.configId === pa.id)));
@@ -20924,19 +21209,35 @@ async function autoFillGroupStructuredRemarks(group, sessionId, data, targetName
   for (const pa of (target.predefinedActivities || [])) {
     if (pa.isCompleted || pa.isArchived) continue;
     if (!isAutoOpenRemarkType(pa)) continue;
+    const _gsIsNotesOnly = !getActivityInlineOptions(pa) && !pa.optionsMulti && !pa.manualScore;
+    if (pa.maintained && _gsIsNotesOnly) continue; // Notes-Only maintained handled by autoFillGroupMaintainedRemarks
+    if (pa.isMapped) continue;
     const existingAct = Object.entries(data.activities || {})
       .find(([, a]) => a.targetName === targetName && (a.activityName === pa.name || (pa.title && a.activityName === pa.title) || (pa.id && a.configId === pa.id)));
     const actId = existingAct?.[0];
     if (!actId) continue;
+    const _gsMaintAt = pa.maintainedAt || "2026-01-01";
+    const _gsOnOrAfterMaint = !data.date || data.date >= _gsMaintAt;
+    const _gsMaintNote = pa.maintained && _gsOnOrAfterMaint ? "Maintain" : "";
     for (const studentName of attendees) {
       const hasRemark = Object.values(data.remarks || {})
         .some(r => r.activityId === actId && r.studentName === studentName);
-      if (hasRemark) continue;
+      if (hasRemark) {
+        if (pa.maintained && _gsOnOrAfterMaint) {
+          const studentRems = Object.entries(data.remarks || {}).filter(([, r]) => r.activityId === actId && r.studentName === studentName);
+          if (studentRems.length === 1) {
+            const [[remId, r]] = studentRems;
+            if (!(r.masteryNote || "").replace(/<[^>]*>/g, "").trim())
+              updateRemarkNote(sessionId, remId, "Maintain").catch(() => {});
+          }
+        }
+        continue;
+      }
       const key = `${sessionId}:${targetName}:${pa.id || pa.name}:${studentName}`;
       if (structuredRemarkAutoFillInFlight.has(key)) continue;
       structuredRemarkAutoFillInFlight.add(key);
       try {
-        await addGroupRemark(sessionId, actId, studentName, "");
+        await addGroupRemark(sessionId, actId, studentName, "", undefined, _gsMaintNote);
         count++;
       } finally {
         structuredRemarkAutoFillInFlight.delete(key);
@@ -20966,30 +21267,53 @@ async function leaveGroupSession() {
   state.selectedGroupTargetName = null;
 
   if (sessionId && data) {
-    // Delete if no useful data
-    const hasData = Object.values(data.remarks || {}).some(r => {
-      const strip = s => (s || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim();
-      const text = strip(r.text);
-      // "Maintain" placed by autofill doesn't count as real recorded data — mirrors
-      // the same exclusion in leaveSession for individual sessions.
-      if (text === "Maintain" && !(r.trials || []).some(t => t !== -1) && !r.note) {
+    const _gStrip = s => (s || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").replace(/ /g, " ").trim();
+    const remarkHasData = Object.values(data.remarks || {}).some(r => {
+      const rText    = _gStrip(r.text);
+      const rNote    = _gStrip(r.masteryNote);
+      const rTrials  = (r.trials || []).filter(t => t !== null && t !== -1);
+      const rOption  = r.optionScore !== undefined && r.optionScore !== null;
+      const rSelected = (r.selectedOptions || []).length > 0;
+      const isAutoFillMaintain =
+        ((rText === "Maintain" && !rNote) || (rNote === "Maintain" && !rText)) &&
+        rTrials.length === 0 && !rOption && !rSelected;
+      if (isAutoFillMaintain) {
         const act = data.activities?.[r.activityId];
         const tgt = (group?.targets || []).find(t => t.name === act?.targetName);
         const pa = (tgt?.predefinedActivities || []).find(p =>
           p.maintained && (p.name === act?.activityName || (p.id && p.id === act?.configId))
         );
-        if (pa) return false;
+        if (pa && data.date >= (pa.maintainedAt || "2026-01-01")) return false;
       }
-      return text.length > 0 || (r.trials || []).some(t => t !== -1);
+      return rText.length > 0 || rTrials.length > 0 || rNote.length > 0 || rOption || rSelected;
     });
-    if (!hasData) {
-      deleteSession(sessionId).catch(() => {});
-    } else {
-      const allTargetNames = new Set(Object.values(data.activities || {}).map(a => a.targetName));
-      allTargetNames.forEach(name => {
-        const target = (group?.targets || []).find(t => t.name === name);
-        cleanupEmptyEntries(sessionId, data, name, target, true).catch(() => {});
-      });
+    // Always clean up empty entries per target.
+    const allTargetNames = new Set(Object.values(data.activities || {}).map(a => a.targetName));
+    allTargetNames.forEach(name => {
+      const target = (group?.targets || []).find(t => t.name === name);
+      cleanupEmptyEntries(sessionId, data, name, target, true).catch(() => {});
+    });
+    // If no real data, strip auto-fill "Maintain" placeholders. Session is always kept.
+    if (!remarkHasData) {
+      const maintainRemIds = Object.entries(data.remarks || {})
+        .filter(([, r]) => {
+          const rText = _gStrip(r.text);
+          const rNote = _gStrip(r.masteryNote);
+          if (!(rText === "Maintain" || rNote === "Maintain")) return false;
+          if ((r.trials || []).some(t => t !== null && t !== -1)) return false;
+          if (r.optionScore !== undefined && r.optionScore !== null) return false;
+          if ((r.selectedOptions || []).length) return false;
+          const act = data.activities?.[r.activityId];
+          if (!act) return false;
+          const tgt = (group?.targets || []).find(t => t.name === act.targetName);
+          const pa = (tgt?.predefinedActivities || []).find(p =>
+            p.maintained && (p.name === act.activityName || (p.id && p.id === act.configId))
+          );
+          if (!pa) return false;
+          return data.date >= (pa.maintainedAt || "2026-01-01");
+        })
+        .map(([id]) => id);
+      if (maintainRemIds.length > 0) deleteRemarksBatch(sessionId, maintainRemIds).catch(() => {});
     }
   }
   showHome();
@@ -21107,8 +21431,13 @@ function buildGroupItemsByActivity(target, data, attendees, _grpFilterPaSet = nu
     const children = grpSubsByParent.get(pa.title || pa.name) || [];
     if (children.length > 0) {
       grpActNum++;
+      const grpIsGrayP = pa.activityColor === "gray" || pa.isMaintainLive || pa.maintained;
+      const grpIsGreenP = pa.activityColor === "green";
+      const grpPBorder = grpIsGreenP ? 'border:1px solid #a9d18e;border-left:4px solid #70ad47;background:#e2efda;'
+                       : grpIsGrayP  ? 'border:1px solid #e5e7eb;border-left:4px solid #d1d5db;background:#f3f4f6;'
+                       : 'border:1px solid var(--border);border-left:5px solid var(--primary);background:var(--white);';
       let groupHtml = `<div style="display:flex;flex-direction:column;gap:0">`;
-      groupHtml += `<div class="entry-block" style="border:1px solid var(--border);border-left:5px solid var(--primary);background:var(--white);border-radius:var(--radius) var(--radius) 0 0;border-bottom:none;box-shadow:var(--shadow)">
+      groupHtml += `<div class="entry-block" style="${grpPBorder}border-radius:var(--radius) var(--radius) 0 0;border-bottom:none;box-shadow:var(--shadow)">
         <div class="entry-field" contenteditable="false">
           <span class="field-label">Activity</span>
           <span class="field-value-fixed">${inactiveReasonBadge(pa)}<span style="color:#6b7280;font-weight:600;margin-right:.2rem">${grpActNum})</span>${paDisplayHtml(pa, true)}</span>
@@ -21278,7 +21607,7 @@ function buildGroupItemsByActivity(target, data, attendees, _grpFilterPaSet = nu
         <div class="inactive-list" style="display:none;flex-direction:column;gap:.25rem;margin-top:.35rem">${pas.map((pa, i) => renderGrpInactiveItem(pa, i + 1)).filter(Boolean).join('')}</div>
       </div>`;
     };
-    items.push(`<div style="margin-top:.75rem">
+    items.push(`<div style="margin-top:.75rem;padding-bottom:1.5rem">
       ${renderGrpSection('Mastered', '#059669', grpMastered)}
       ${renderGrpSection('Discontinued', '#dc2626', grpDiscontinued)}
       ${renderGrpSection('Inactive', '#6b7280', grpOther)}
@@ -21548,7 +21877,11 @@ function renderGroupStudentActivityCard(studentName, actName, actId, target, dat
     html += renderGroupStudentRowCompact(remId, rem, target, mappedInfo);
   }
 
-  if (remarksForThisStudent.length === 0 && isMaintained) {
+  // Only show "Maintain" default on/after the maintained date, and only for Notes Only activities
+  const _grpMaintAt = pa?.maintainedAt || "2026-01-01";
+  const _grpShowMaintDefault = isMaintained && data.date >= _grpMaintAt;
+  const _grpIsNotesOnly = !getActivityInlineOptions(pa) && !pa?.optionsMulti && !pa?.manualScore;
+  if (remarksForThisStudent.length === 0 && isMaintained && _grpIsNotesOnly) {
     html += `<div class="entry-field">
       <span class="field-label" contenteditable="false">Remark</span>
       <textarea class="field-input group-remark-input group-remark-input-empty" rows="1"
@@ -21556,8 +21889,8 @@ function renderGroupStudentActivityCard(studentName, actName, actId, target, dat
         data-act-name="${escHtml(actName)}"
         data-target="${escHtml(target.name)}"
         data-is-predefined="true"
-        data-is-maintained="true"
-        data-student="${escHtml(studentName)}">Maintain</textarea>
+        data-is-maintained="${_grpShowMaintDefault ? "true" : "false"}"
+        data-student="${escHtml(studentName)}">${_grpShowMaintDefault ? "Maintain" : ""}</textarea>
     </div>`;
   } else {
     html += remarksForThisStudent.length === 0
@@ -21615,7 +21948,7 @@ function renderGroupStudentRowCompact(remId, rem, target, mappedInfo = null) {
       <span class="field-label" contenteditable="false">Remark</span>
       <button class="btn-sketch btn-group-sketch" contenteditable="false" data-rem-id="${remId}" aria-label="Open sketch board">✏</button>
       <textarea class="field-input group-remark-input" rows="1"
-        data-rem-id="${remId}" placeholder="Notes…"
+        data-rem-id="${remId}" placeholder="Remark…"
         data-saved-html="${escHtml(rem.text || "")}">${escHtml(plainTextForEdit(rem.text))}</textarea>
       <button class="btn-icon btn-group-del-student-remark" contenteditable="false" data-rem-id="${remId}" title="Delete remark">🗑</button>
     </div>
@@ -21645,9 +21978,11 @@ function renderGroupActivityCard(actName, actId, target, data, attendees, actNot
 
   // When used as a sub-card (suppressHeader=true), the outer subactivity wrapper already
   // provides the border/shadow/radius — use plain padding-only div to avoid double border.
+  const _grpCardIsGray = !suppressHeader && (paEntry?.activityColor === "gray" || paEntry?.isMaintainLive || paEntry?.maintained);
+  const _grpCardGrayStyle = _grpCardIsGray ? ' style="background:#f3f4f6;border:1px solid #e5e7eb;border-left:4px solid #d1d5db"' : '';
   const _outerOpen = suppressHeader
     ? `<div style="padding:.5rem .85rem" data-act-name="${escHtml(actName)}" data-act-id="${escHtml(actId || "")}">`
-    : `<div class="entry-block entry-block-predefined" data-act-name="${escHtml(actName)}" data-act-id="${escHtml(actId || "")}">`;
+    : `<div class="entry-block entry-block-predefined"${_grpCardGrayStyle} data-act-name="${escHtml(actName)}" data-act-id="${escHtml(actId || "")}">`;
 
   // Mapped-score activities have no trials/combine-remarks concept at all —
   // bypass the rounds/combine machinery below entirely and just list every
@@ -21840,7 +22175,7 @@ function renderGroupStudentRow(studentName, remId, rem, target, mappedInfo = nul
   }
 
   const freeTextBox = `<textarea class="field-input group-remark-input" rows="1"
-      data-rem-id="${remId}" placeholder="Notes…"
+      data-rem-id="${remId}" placeholder="Remark…"
       data-saved-html="${escHtml(rem.text || "")}">${escHtml(plainTextForEdit(rem.text))}</textarea>`;
 
   const sketchBtn = opts.length === 0
@@ -21869,7 +22204,7 @@ function renderGroupStudentRow(studentName, remId, rem, target, mappedInfo = nul
       ? `<div class="remark-starter-wrap"><span class="remark-starter-prefix" contenteditable="false">${escHtml(noteSentenceStarter)}</span>${grpNoteTextarea}</div>`
       : grpNoteTextarea;
     noteField = `<div class="entry-field entry-note-field" data-rem-id="${remId}">
-        <span class="field-label" contenteditable="false">Notes</span>
+        <span class="field-label" contenteditable="false">Remark</span>
         <button class="btn-sketch btn-group-sketch" contenteditable="false" data-rem-id="${remId}" aria-label="Open sketch board">✏</button>
         ${grpNoteInput}
         <span class="entry-note-spacer" contenteditable="false" aria-hidden="true"></span>
@@ -21877,7 +22212,7 @@ function renderGroupStudentRow(studentName, remId, rem, target, mappedInfo = nul
   } else {
     noteField = _grpExistingNote
       ? `<div class="entry-field" contenteditable="false">
-          <span class="field-label">Notes</span>
+          <span class="field-label">Remark</span>
           <div style="font-size:.78rem;color:#9ca3af;font-style:italic">Old data: ${escHtml(_grpExistingNote)}</div>
         </div>`
       : "";
@@ -21930,10 +22265,10 @@ function renderGroupStudentEmptyRow(studentName, actId, actName, target, isPrede
       <span class="group-student-name-label">${liveGroupAttendeeLabel(studentName)}</span>
     </div>
     <div class="entry-field">
-      <span class="field-label" contenteditable="false">Notes</span>
+      <span class="field-label" contenteditable="false">Remark</span>
       <button class="btn-sketch btn-group-sketch" contenteditable="false" data-rem-id="" aria-label="Sketch">✏</button>
       <textarea class="field-input group-remark-input group-remark-input-empty" rows="1"
-        placeholder="Notes…"
+        placeholder="Remark…"
         data-act-id="${escHtml(actId || "")}"
         data-act-name="${escHtml(actName)}"
         data-target="${escHtml(target.name)}"
