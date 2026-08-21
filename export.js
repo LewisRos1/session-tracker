@@ -90,8 +90,10 @@ function buildExcelRemarkCell(html, starter, masteryNote) {
   const richText = [];
 
   if (starter) {
-    if (!hasContent) return "";
-    richText.push({ text: `${starter}: ` });
+    // If no chip/text was selected but notes exist, skip the starter prefix
+    // (the starter introduces the chip text, not the notes).
+    if (!hasContent && !masteryNote) return "";
+    if (hasContent) richText.push({ text: `${starter}: ` });
   }
 
   for (const seg of merged) {
@@ -1719,9 +1721,11 @@ export async function exportGroupMemberData(studentName, groups, includeTrials =
 // after an em dash, so it reads as its own paragraph rather than a caption.
 function buildRemarkLines(starter, text, masteryNote) {
   const lines = [];
-  if (starter || text) {
+  if (text) {
     // Only the first line gets the bold starter prefix — further lines of a
     // multi-line remark continue as plain text, same paragraph.
+    // If there's no chip/text selected, skip the starter header entirely
+    // (the starter labels the chip; without a chip it's meaningless noise).
     (text || "").split("\n").forEach((ln, i) => {
       if (i === 0) {
         const runs = [];
@@ -1735,10 +1739,7 @@ function buildRemarkLines(starter, text, masteryNote) {
   }
   if (masteryNote) {
     if (lines.length > 0) lines.push([{ text: "" }]);
-    masteryNote.split("\n").forEach((ln, i) => {
-      if (i === 0) lines.push([{ text: "Remark: ", bold: true }, { text: ln }]);
-      else lines.push([{ text: ln }]);
-    });
+    masteryNote.split("\n").forEach(ln => lines.push([{ text: ln }]));
   }
   if (lines.length === 0) lines.push([{ text: "" }]);
   return lines;
@@ -2947,10 +2948,10 @@ function getAllActivitiesForTarget(session, target) {
       const parentPa = (target.predefinedActivities || []).find(p => !p.parentActivity && (p.title || p.name) === pa.parentActivity);
       const subStatusPrefix = pa.discontinuedOn ? `(Discontinued on ${fmtDate(pa.discontinuedOn)}) `
         : pa.masteredOn ? `(Mastered on ${fmtDate(pa.masteredOn)}) `
-        : pa.maintained ? '(Maintained) '
+        : pa.maintained ? `(Maintained on ${fmtDate(pa.maintainedAt || "2026-08-21")}) `
         : parentPa?.discontinuedOn ? `(Discontinued on ${fmtDate(parentPa.discontinuedOn)}) `
         : parentPa?.masteredOn ? `(Mastered on ${fmtDate(parentPa.masteredOn)}) `
-        : parentPa?.maintained ? '(Maintained) '
+        : parentPa?.maintained ? `(Maintained on ${fmtDate(parentPa.maintainedAt || "2026-08-21")}) `
         : '';
       const subActName = subStatusPrefix + (pa.title || pa.name);
       const sessionAct = claimAct(pa);
@@ -2989,7 +2990,7 @@ function getAllActivitiesForTarget(session, target) {
 
     // All remaining paths are real activities — assign sequential number
     exportActNum++;
-    const _exportStatusPrefix = pa.maintained ? '(Maintained) ' : '';
+    const _exportStatusPrefix = pa.maintained ? `(Maintained on ${fmtDate(pa.maintainedAt || "2026-08-21")}) ` : '';
     const _paDisplayBase = pa.title || pa.name;
     const numberedName = `${exportActNum}) ${_exportStatusPrefix}${_paDisplayBase}`;
     const paExtraProps = { activityDisplayDetails: pa.title ? (pa.name || null) : null, activityTitleBold: !!pa.isBold, activityTitleUnderline: !!pa.isUnderline };
@@ -3037,15 +3038,16 @@ function getAllActivitiesForTarget(session, target) {
     const colorProps = (pa.activityColor === "gray" || pa.isMaintainLive) ? { isGray: true }
                      : pa.activityColor === "green" ? { isGreen: true } : {};
     const manualScoreProp = pa.manualScore ? { manualScore: true } : {};
+    const _isMaintainedForSession = !!pa.maintained && (session.date >= (pa.maintainedAt || "2026-08-21"));
     if (sessionAct) {
       usedIds.add(sessionAct.id);
       result.push(pa.isMapped
-        ? { ...sessionAct, activityName: numberedName, isMapped: true, mappedTargetId: pa.mappedTargetId || null, ...colorProps, isMaintained: !!pa.maintained, ...paExtraProps }
-        : { ...sessionAct, activityName: numberedName, ...colorProps, ...manualScoreProp, isMaintained: !!pa.maintained, ...paExtraProps });
+        ? { ...sessionAct, activityName: numberedName, isMapped: true, mappedTargetId: pa.mappedTargetId || null, ...colorProps, isMaintained: _isMaintainedForSession, ...paExtraProps }
+        : { ...sessionAct, activityName: numberedName, ...colorProps, ...manualScoreProp, isMaintained: _isMaintainedForSession, ...paExtraProps });
     } else {
       result.push({
         id: null, activityName: numberedName, isPredefined: true, empty: true,
-        isMapped: pa.isMapped || false, mappedTargetId: pa.mappedTargetId || null, ...colorProps, ...manualScoreProp, isMaintained: !!pa.maintained, ...paExtraProps
+        isMapped: pa.isMapped || false, mappedTargetId: pa.mappedTargetId || null, ...colorProps, ...manualScoreProp, isMaintained: _isMaintainedForSession, ...paExtraProps
       });
     }
   }
@@ -3098,7 +3100,8 @@ function getRemarksForActivity(session, actId) {
 function hasRemarkContent(rem) {
   const hasText   = stripRemarkHtml(rem.text || "").trim() !== "";
   const hasTrials = allScores(rem).length > 0;
-  return hasText || hasTrials;
+  const hasNote   = stripRemarkHtml(rem.masteryNote || "").trim() !== "";
+  return hasText || hasTrials || hasNote;
 }
 
 // ─── CALCULATIONS ────────────────────────────────────────────
