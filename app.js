@@ -176,7 +176,7 @@ function versionLineText() {
   return `Made by Lewis · Version ${APP_VERSION}`;
 }
 
-const APP_VERSION = "1814";
+const APP_VERSION = "1848";
 
 // Debug helpers — call from F12 console
 // 1) List all stored activity names under a target:
@@ -219,6 +219,73 @@ window.debugTargetConfig = async function(studentName, targetName) {
     if (a.isStopped)   dateInfo.push("isStopped");
     console.log(`${i + 1}) ${a.title || a.name || "(heading)"}`, dateInfo.length ? dateInfo.join(", ") : "no date flags");
   });
+};
+
+// 2b) READ-ONLY. Compare what the session records contain against what the
+//     target config still lists, and show everything needed to rebuild the
+//     activities that the pre-2026-08-23 reorder bug deleted from the config.
+//     Writes nothing — the full result is also left on window.__recoveryPlan.
+//     debugRecoveryPlan("Hayden Chan", "Math")
+window.debugRecoveryPlan = async function(studentName, targetName) {
+  const students = await loadStudentsConfig();
+  const student = students.find(s => s.name === studentName);
+  if (!student) { console.error("Student not found:", studentName); return; }
+  const target = (student.targets || []).find(t => t.name === targetName);
+  if (!target) { console.error("Target not found:", targetName); return; }
+
+  const acts = target.predefinedActivities || [];
+  const cfgIds   = new Set(acts.map(a => a.id).filter(Boolean));
+  const cfgNames = new Set(acts.flatMap(a => [a.name, a.title]).filter(Boolean));
+
+  const sessions = await getAllSessionsForStudent(student.id);
+  const found = {};   // key -> record we are building up
+
+  for (const s of sessions) {
+    const date = s.date || s.sessionDate || "(no date)";
+    const remarksByAct = {};
+    Object.values(s.remarks || {}).forEach(r => {
+      (remarksByAct[r.activityId] ||= []).push(r);
+    });
+    for (const [actId, a] of Object.entries(s.activities || {})) {
+      if (a.targetName !== targetName) continue;
+      const name = a.activityName || a.activityTitle || "(no name)";
+      const key  = a.configId || name;
+      const rec = found[key] ||= {
+        name, title: a.activityTitle || "", configId: a.configId || "",
+        parentActivity: a.parentActivity || "",
+        sessions: 0, withText: 0, withTrials: 0,
+        firstDate: date, lastDate: date, orders: new Set()
+      };
+      rec.sessions++;
+      if (date < rec.firstDate) rec.firstDate = date;
+      if (date > rec.lastDate)  rec.lastDate  = date;
+      if (typeof a.order === "number") rec.orders.add(a.order);
+      for (const r of (remarksByAct[actId] || [])) {
+        if ((r.text || "").trim()) rec.withText++;
+        if ((r.trials || []).length) rec.withTrials++;
+      }
+    }
+  }
+
+  const rows = Object.values(found).map(r => ({
+    ...r,
+    orders: [...r.orders].sort((a, b) => a - b).join(","),
+    inConfig: (r.configId && cfgIds.has(r.configId)) || cfgNames.has(r.name)
+  })).sort((a, b) => (a.lastDate < b.lastDate ? 1 : a.lastDate > b.lastDate ? -1 : 0));
+
+  const missing = rows.filter(r => !r.inConfig);
+  console.log(`${studentName} / ${targetName}: ${sessions.length} sessions, ` +
+    `${acts.length} config entries, ${rows.length} distinct activities in session data, ` +
+    `${missing.length} MISSING from config.`);
+  console.table(rows.map(r => ({
+    Activity: r.name.length > 60 ? r.name.slice(0, 57) + "..." : r.name,
+    InConfig: r.inConfig ? "yes" : "MISSING",
+    Sessions: r.sessions, Remarks: r.withText, Trials: r.withTrials,
+    First: r.firstDate, Last: r.lastDate, Orders: r.orders, ConfigId: r.configId || "-"
+  })));
+  window.__recoveryPlan = { student: studentName, target: targetName, config: acts, rows, missing };
+  console.log("Full data left on window.__recoveryPlan — run: copy(JSON.stringify(window.__recoveryPlan.missing, null, 2))");
+  return `${missing.length} missing`;
 };
 
 // 3) Clear legacy activeTo/activeFrom from all activities in a target:
@@ -370,7 +437,6 @@ const state = {
   remarkPresets:      [],
   searchExisting:     "",
   searchAssessment:   "",
-  searchTemplate:     "",
   currentStudent:     null,
   currentSessionId:   null,
   sessionData:        null,
@@ -1003,7 +1069,16 @@ async function loadAppData() {
     state.students = CONFIG.INITIAL_STUDENTS;
   }
 
-  if (templatesR.status === "fulfilled") state.templates = templatesR.value;
+  // Templates were removed as a feature in v1844. Nothing creates or reads them
+  // any more (every target is created with templateId:null, and the old
+  // syncTemplateToStudents was never called), so any leftover template docs are
+  // orphans — delete them once. Student/group targets are untouched by this.
+  if (templatesR.status === "fulfilled") {
+    state.templates = [];
+    for (const t of templatesR.value) {
+      deleteTemplate(t.id).catch(() => {});
+    }
+  }
   if (groupsR.status === "fulfilled") state.groups = groupsR.value;
   if (presetsR.status === "fulfilled") state.remarkPresets = presetsR.value;
 }
@@ -1161,14 +1236,13 @@ async function showHome() {
   const verEl = document.getElementById("app-version");
   if (verEl) verEl.textContent = versionLineText();
   // Clear section searches when returning home
-  state.searchExisting = ""; state.searchAssessment = ""; state.searchTemplate = "";
+  state.searchExisting = ""; state.searchAssessment = "";
   state.searchGroup = "";
-  [$("search-existing"), $("search-assessment"), $("search-template"), $("search-group")]
+  [$("search-existing"), $("search-assessment"), $("search-group")]
     .forEach(el => { if (el) el.value = ""; });
   renderExistingStudentButtons();
   renderGroupButtons();
   renderAssessmentStudentButtons();
-  renderTemplateButtons();
   renderExportButtons();
   renderHalfYearReportsSection();
   renderStudentDatabaseButton();
@@ -1453,11 +1527,10 @@ $("btn-logout")?.addEventListener("click", () => {
   signOutUser();
 });
 
-// ── Add student / template from home screen ───────────────────
+// ── Add student / group from home screen ──────────────────────
 
 $("btn-add-existing-student").addEventListener("click", () => showRegisteredStudentPicker("existing"));
 $("btn-add-assessment-student").addEventListener("click", () => showRegisteredStudentPicker("assessment"));
-$("btn-add-template").addEventListener("click", addNewTemplate);
 $("btn-add-group").addEventListener("click", addNewGroup);
 $("search-existing").addEventListener("input", e => {
   state.searchExisting = e.target.value;
@@ -1470,10 +1543,6 @@ $("search-group").addEventListener("input", e => {
 $("search-assessment").addEventListener("input", e => {
   state.searchAssessment = e.target.value;
   renderAssessmentStudentButtons();
-});
-$("search-template").addEventListener("input", e => {
-  state.searchTemplate = e.target.value;
-  renderTemplateButtons();
 });
 
 function renderStudentDatabaseButton() {
@@ -2573,22 +2642,6 @@ async function assignStudentToBucket(student, targetType) {
   else renderAssessmentStudentButtons();
 }
 
-async function addNewTemplate() {
-  const name = prompt("Template name:");
-  if (!name?.trim()) return;
-  const t = {
-    id: cfgId("tmpl"),
-    name: name.trim(),
-    order: state.templates.length,
-    predefinedActivities: [],
-    notes: [],
-    maxPoints: 3
-  };
-  state.templates.push(t);
-  await saveTemplate(t);
-  renderTemplateButtons();
-  openManageModal(null, null, t);
-}
 
 // ── Render helpers ────────────────────────────────────────────
 
@@ -2678,37 +2731,6 @@ function renderAssessmentStudentButtons() {
   renderStudentList($("assessment-student-buttons"), students, state.searchAssessment);
 }
 
-function renderTemplateButtons() {
-  const container = $("template-buttons");
-  if (!container) return;
-  const q = state.searchTemplate.toLowerCase();
-  const filtered = state.templates
-    .filter(t => !q || t.name.toLowerCase().includes(q))
-    .sort((a, b) => a.name.localeCompare(b.name));
-
-  let html = "";
-  if (filtered.length === 0 && !q) {
-    html = `<p class="empty-hint">No templates yet.</p>`;
-  } else if (filtered.length === 0) {
-    html = `<p class="empty-hint">No matches.</p>`;
-  } else {
-    html = `<div class="roster-list">` +
-      filtered.map(t => `
-        <button class="roster-item" data-id="${t.id}">
-          <span class="roster-item-name">${escHtml(t.name)}</span>
-        </button>
-      `).join("") +
-      `</div>`;
-  }
-  container.innerHTML = html;
-
-  container.querySelectorAll(".roster-item").forEach(btn => {
-    btn.addEventListener("click", () => {
-      const tmpl = state.templates.find(t => t.id === btn.dataset.id);
-      if (tmpl) openManageModal(null, null, tmpl);
-    });
-  });
-}
 
 function renderExportButtons() {
   const exportAllContainer = $("export-all-button");
@@ -7522,6 +7544,14 @@ async function openSession(student, existingSessionId = null, dateStr = null, pa
         // they were already auto-filled into session data as maintained activities).
         // Without this, stale session records survive in Firestore forever and
         // autoFillMaintainedRemarks re-fills them on every snapshot.
+        //
+        // ONLY empty records may be deleted here. This sweep used to delete
+        // unconditionally, which turned the pre-2026-08-23 reorder bug into
+        // permanent data loss: that bug dropped mastered activities out of
+        // predefinedActivities, and then merely opening a session deleted those
+        // activities' remarks from Firestore. A deliberate delete purges its own
+        // session records through the confirm-by-typing flow, so a stale record
+        // that still holds data is always accidental — it must be kept and shown.
         const staleActIds = [];
         const staleRemIds = [];
         for (const [actId, act] of Object.entries(data.activities || {})) {
@@ -7534,6 +7564,12 @@ async function openSession(student, existingSessionId = null, dateStr = null, pa
           );
           if (inConfig) continue;
           const remEntries = Object.entries(data.remarks || {}).filter(([, r]) => r.activityId === actId);
+          const hasData = remEntries.some(([, r]) =>
+            (r.text || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim().length > 0 ||
+            (r.trials || []).some(t => t !== null && t !== -1) ||
+            (r.masteryNote || "").replace(/<[^>]*>/g, "").trim().length > 0
+          );
+          if (hasData) continue;   // stranded but real — never delete
           staleActIds.push(actId);
           for (const [remId] of remEntries) staleRemIds.push(remId);
           delete data.activities[actId];
@@ -8453,82 +8489,47 @@ function renderFedcTarget(target, _filterPaSet = null, _sectionOnly = false) {
     const _orphanGroupsFor = sec => [..._orphanSubGroups.entries()]
       .filter(([k]) => k.endsWith(`|${sec}`)).map(([, v]) => v);
 
-    const _inactSubCard = (sub, si, color) => {
-      const subName = paDisplayHtml(sub, true) || `<em style="color:#9ca3af;font-size:.85rem">Untitled</em>`;
-      const subMast = sub.masteredOn ? `<span style="font-size:.71rem;display:inline-block;margin-top:.2rem;background:#d1fae5;color:#059669;font-weight:600;padding:.08rem .45rem;border-radius:.3rem;border:1px solid #6ee7b7">⭐ Mastered ${fmtPeriodDate(sub.masteredOn)}</span> ` : '';
-      const subDisc = sub.discontinuedOn ? `<span style="font-size:.71rem;display:inline-block;margin-top:.2rem;background:#fee2e2;color:#dc2626;font-weight:600;padding:.08rem .45rem;border-radius:.3rem;border:1px solid #fca5a5">🚩 Discontinued ${fmtPeriodDate(sub.discontinuedOn)}</span> ` : '';
-      return `<div style="margin-left:1.4rem;background:var(--white);border:1px solid #e5e7eb;border-left:3px solid ${color};border-radius:.5rem;padding:.45rem .7rem .45rem .8rem;display:flex;align-items:flex-start;gap:.4rem;box-shadow:0 1px 3px rgba(0,0,0,.04);opacity:.6">
-        <span style="font-size:.75rem;font-weight:700;color:${color};flex-shrink:0;min-width:1.2rem;padding-top:.1rem">${String.fromCharCode(97 + si)})</span>
-        <div style="flex:1;min-width:0;line-height:1.5;white-space:pre-wrap">${subMast}${subDisc}${subName}</div>
+    // A plain one-line row: marker, name, and the date it happened. Used for both
+    // top-level activities and sub-activities so these sections read as a simple
+    // list rather than a stack of cards.
+    const _inactDateBadge = pa => {
+      if (pa.masteredOn) return `<span style="font-size:.71rem;white-space:nowrap;flex-shrink:0;background:#d1fae5;color:#059669;font-weight:600;padding:.08rem .45rem;border-radius:.3rem;border:1px solid #6ee7b7">⭐ ${fmtPeriodDate(pa.masteredOn)}</span>`;
+      if (pa.discontinuedOn) return `<span style="font-size:.71rem;white-space:nowrap;flex-shrink:0;background:#fee2e2;color:#dc2626;font-weight:600;padding:.08rem .45rem;border-radius:.3rem;border:1px solid #fca5a5">🚩 ${fmtPeriodDate(pa.discontinuedOn)}</span>`;
+      return '';
+    };
+    const _inactRow = (pa, marker, isSub) => {
+      const name = paDisplayHtml(pa, true) || `<em style="color:#9ca3af;font-size:.85rem">Untitled</em>`;
+      return `<div contenteditable="false" style="display:flex;align-items:flex-start;gap:.5rem;padding:.3rem .5rem;${isSub ? 'margin-left:1.5rem;' : ''}">
+        <span style="font-size:.8rem;font-weight:700;color:${isSub ? '#0369a1' : '#6b7280'};flex-shrink:0;min-width:1.4rem">${marker}</span>
+        <span style="flex:1;min-width:0;font-size:.88rem;line-height:1.45;white-space:pre-wrap">${name}</span>
+        ${_inactDateBadge(pa)}
       </div>`;
     };
 
+    // Activities only — section headings and notes are left out of these
+    // sections entirely. A parent carries no date of its own: mastering or
+    // discontinuing a parent applies the same date to its sub-activities, so
+    // the dates on the sub rows already say it.
     const renderInactiveItem = (pa, num) => {
-      if (pa.isHeading || pa.isMaintainHeading) {
-        const isGrayH  = pa.headingColor === "gray" || pa.isMaintainHeading;
-        const isGreenH = pa.headingColor === "green";
-        return isGrayH
-          ? `<div class="activity-group-heading" contenteditable="false" style="opacity:.3;background:#9ca3af;border-color:#6b7280;color:#ffffff">${escHtml(pa.name || "")}</div>`
-          : isGreenH
-          ? `<div class="activity-group-heading" contenteditable="false" style="opacity:.3;background:#a9d18e;border-color:#70ad47;color:#1a4731">${escHtml(pa.name || "")}</div>`
-          : `<div class="activity-group-heading" contenteditable="false" style="opacity:.3">${escHtml(pa.name || "")}</div>`;
-      }
-      if (pa.isNote || pa.isExportNote) {
-        if (!pa.text) return '';
-        const noteTag = pa.isExportNote
-          ? `<div style="font-size:.82rem;color:#c2410c;margin-bottom:.25rem">📄 Included in Word export</div>`
-          : `<div style="font-size:.82rem;color:#9a3412;margin-bottom:.25rem">🔒 This note is for ZORA's use only. Excluded from Word report</div>`;
-        return `<div class="entry-block" contenteditable="false" style="border-left:4px solid #f59e0b;opacity:.3">
-          <div class="entry-field">
-            <span class="field-label" style="color:#b45309">Note</span>
-            <div style="flex:1;font-size:.93rem;font-weight:600">${noteTag}<div style="white-space:pre-wrap">${noteToHtml(pa.text)}</div></div>
-          </div>
-        </div>`;
-      }
-      const fixedText = pa.fixedRemark !== undefined ? pa.fixedRemark : pa.isMaintain ? (pa.maintainRemark ?? "") : null;
-      const _masteredDate = pa.masteredOn || (pa.inactiveReason === 'mastered' ? todayDateStr() : null);
-      const _isDiscontinued = pa.discontinuedOn || pa.inactiveReason === 'discontinued';
-      const _inactMaintBadge = pa.maintained
-        ? `<span style="font-size:.72rem;color:#6b7280;font-weight:600;white-space:nowrap;display:inline-block;margin-right:.35rem;padding:.05rem .4rem;background:#f3f4f6;border:1px solid #d1d5db;border-radius:.3rem">🆗 Maintained on ${fmtPeriodDate(pa.maintainedAt || "2026-08-21")}</span>`
-        : '';
-      const statusBadge = _inactMaintBadge + (_masteredDate
-        ? `<span style="font-size:.72rem;color:#059669;font-weight:600;white-space:nowrap;display:inline-block;margin-right:.35rem;padding:.05rem .4rem;background:#d1fae5;border:1px solid #6ee7b7;border-radius:.3rem">⭐ Mastered on ${fmtPeriodDate(_masteredDate)}</span>`
-        : _isDiscontinued
-        ? `<span style="font-size:.72rem;color:#dc2626;font-weight:600;white-space:nowrap;display:inline-block;margin-right:.35rem;padding:.05rem .4rem;background:#fee2e2;border:1px solid #fca5a5;border-radius:.3rem">🚩 Discontinued on ${fmtPeriodDate(pa.discontinuedOn || todayDateStr())}</span>`
-        : '');
-      // Gather ALL sub-activities of this parent (active or inactive for this date)
+      if (pa.isHeading || pa.isMaintainHeading || pa.isNote || pa.isExportNote) return '';
       const subActs = allPas.filter(p =>
         p.parentActivity === (pa.title || pa.name) && !p.isCompleted && !p.isArchived && !p.isStopped
       );
-      const _inactColor = _masteredDate ? '#059669' : _isDiscontinued ? '#dc2626' : '#9ca3af';
-      const subHtml = subActs.length
-        ? `<div style="display:flex;flex-direction:column;gap:.3rem;margin-top:.3rem">${subActs.map((sub, si) => _inactSubCard(sub, si, _inactColor)).join('')}</div>`
-        : '';
-      return `<div style="display:flex;flex-direction:column">
-        <div class="entry-block entry-block-predefined" style="opacity:.6;pointer-events:none">
-          <div class="entry-field" contenteditable="false">
-            <span class="field-label">ACTIVITY ${num})</span>
-            <span class="field-value-fixed">${statusBadge}${paDisplayHtml(pa, true)}</span>
-          </div>
-          ${fixedText !== null ? `<div class="entry-field" contenteditable="false">
-            <span class="field-label">Remark</span>
-            <span class="field-value-fixed" style="white-space:pre-wrap">${formatActivityMarkup(fixedText)}</span>
-          </div>` : ''}
-        </div>
-        ${subHtml}
-      </div>`;
+      if (subActs.length === 0) return _inactRow(pa, `${num})`, false);
+      const parentName = paDisplayHtml(pa, true) || `<em style="color:#9ca3af;font-size:.85rem">Untitled</em>`;
+      return `<div contenteditable="false" style="display:flex;align-items:flex-start;gap:.5rem;padding:.3rem .5rem">
+          <span style="font-size:.8rem;font-weight:700;color:#6b7280;flex-shrink:0;min-width:1.4rem">${num})</span>
+          <span style="flex:1;min-width:0;font-size:.88rem;line-height:1.45;white-space:pre-wrap">${parentName}</span>
+        </div>${subActs.map((sub, si) => _inactRow(sub, `${String.fromCharCode(97 + si)})`, true)).join('')}`;
     };
-    const _renderOrphanGroup = ({ parentPa, parentKey, subs }, num, color) => {
+    // Sub-activities whose parent is still active — the parent heads the group
+    // for context but, as above, carries no date of its own.
+    const _renderOrphanGroup = ({ parentPa, parentKey, subs }, num) => {
       const parentName = parentPa ? (paDisplayHtml(parentPa, true) || escHtml(parentKey)) : escHtml(parentKey);
-      return `<div style="display:flex;flex-direction:column">
-        <div class="entry-block entry-block-predefined" style="opacity:.6;pointer-events:none">
-          <div class="entry-field" contenteditable="false">
-            <span class="field-label">ACTIVITY ${num})</span>
-            <span class="field-value-fixed">${parentName}</span>
-          </div>
-        </div>
-        <div style="display:flex;flex-direction:column;gap:.3rem;margin-top:.3rem">${subs.map((sub, si) => _inactSubCard(sub, si, color)).join('')}</div>
-      </div>`;
+      return `<div contenteditable="false" style="display:flex;align-items:flex-start;gap:.5rem;padding:.3rem .5rem">
+          <span style="font-size:.8rem;font-weight:700;color:#6b7280;flex-shrink:0;min-width:1.4rem">${num})</span>
+          <span style="flex:1;min-width:0;font-size:.88rem;line-height:1.45;white-space:pre-wrap">${parentName}</span>
+        </div>${subs.map((sub, si) => _inactRow(sub, `${String.fromCharCode(97 + si)})`, true)).join('')}`;
     };
     const realInactive = inactiveTopLevel.filter(pa => !pa.isNote && !pa.isExportNote && !pa.isHeading && !pa.isMaintainHeading);
     const masteredPas     = realInactive.filter(pa => pa.masteredOn || pa.inactiveReason === 'mastered');
@@ -8542,8 +8543,14 @@ function renderFedcTarget(target, _filterPaSet = null, _sectionOnly = false) {
       const orphanGroups = _orphanGroupsFor(secKey);
       if (pas.length === 0 && orphanGroups.length === 0) return '';
       let itemNum = 0;
-      const topItems = pas.map(pa => { itemNum++; return renderInactiveItem(pa, itemNum); }).filter(Boolean).join('');
-      const orphanItems = orphanGroups.map(g => { itemNum++; return _renderOrphanGroup(g, itemNum, color); }).join('');
+      // Headings/notes render as '' and must not consume a number, so only count
+      // up once a row was actually produced.
+      const topItems = pas.map(pa => {
+        const row = renderInactiveItem(pa, itemNum + 1);
+        if (row) itemNum++;
+        return row;
+      }).filter(Boolean).join('');
+      const orphanItems = orphanGroups.map(g => { itemNum++; return _renderOrphanGroup(g, itemNum); }).join('');
       const totalCount = pas.reduce((acc, pa) => acc + _countPa(pa), 0)
         + orphanGroups.reduce((acc, g) => acc + g.subs.length, 0);
       return `<div style="margin-top:.5rem">
@@ -8553,10 +8560,10 @@ function renderFedcTarget(target, _filterPaSet = null, _sectionOnly = false) {
         <div class="inactive-list" style="display:none;flex-direction:column;gap:.25rem;margin-top:.35rem">${topItems}${orphanItems}</div>
       </div>`;
     };
-    html += `<div style="margin-top:.75rem;padding-bottom:1.5rem">
-      ${renderSection('Mastered', '#059669', masteredPas, 'mastered')}
-      ${renderSection('Discontinued', '#dc2626', discontinuedPas, 'discontinued')}
-      ${renderSection('Inactive', '#6b7280', otherPas, 'other')}
+    html += `<div style="margin-top:.4rem">
+      ${renderSection('Mastered Activities', '#059669', masteredPas, 'mastered')}
+      ${renderSection('Discontinued Activities', '#dc2626', discontinuedPas, 'discontinued')}
+      ${renderSection('Inactive Activities', '#6b7280', otherPas, 'other')}
     </div>`;
   }
   } // end if (!_sectionOnly)
@@ -8628,7 +8635,7 @@ function renderFedcTargetWithSidebar(target, allPas, subActsByParent, sessionDat
           <div style="background:var(--primary);height:100%;width:${pct}%;border-radius:9999px"></div>
         </div>
       </div>
-      <div class="sec-main" style="display:flex;flex-direction:column;gap:.85rem">
+      <div class="sec-main" style="display:flex;flex-direction:column;gap:.85rem;padding-bottom:2.5rem">
         ${allSectionsHtml}
       </div>
     </div>`;
@@ -8667,7 +8674,7 @@ function renderFedcTargetWithSidebar(target, allPas, subActsByParent, sessionDat
       ${sidebarFixedHtml}
       <div style="flex:1;overflow-y:auto">${sidebarNavHtml}</div>
     </div>
-    <div class="sec-main" style="flex:1;min-width:0;min-height:0;padding-left:.75rem;overflow-y:auto;display:flex;flex-direction:column;gap:.85rem">
+    <div class="sec-main" style="flex:1;min-width:0;min-height:0;padding-left:.75rem;padding-bottom:2.5rem;overflow-y:auto;display:flex;flex-direction:column;gap:.85rem">
       ${allSectionsHtml}
     </div>
   </div>`;
@@ -8693,10 +8700,41 @@ let _grpSecScrollListener = null;
 let _triggerSecNavUpdate = null;
 let _triggerGrpSecNavUpdate = null;
 
-// A remark "has content" if its text (stripped of HTML) or note is non-empty.
+// A remark "has content" if its text (stripped of HTML), its mastery note, or a
+// real trial is non-empty.
+//
+// This used to read r.remarkText and r.note — field names that don't exist on a
+// remark. Every caller passes a raw Firestore remark, whose fields are text /
+// masteryNote / trials, so the function always returned falsy: it never once
+// reported that a remark had content. That made the snapshot sweep above delete
+// nameless extra activities even when they held real typed remarks. Read the
+// actual field names, and count trials as content too.
 function remarkHasContent(r) {
-  return ((r.remarkText || "").replace(/<[^>]*>/g, "").replace(/&[a-z]+;/gi, " ").trim()) ||
-    ((r.note || "").trim());
+  if (!r) return false;
+  const strip = s => (s || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").replace(/&[a-z]+;/gi, " ").trim();
+  return strip(r.text).length > 0
+      || strip(r.masteryNote).length > 0
+      || (r.trials || []).some(t => t !== null && t !== -1)
+      || r.optionScore !== undefined;
+}
+
+// Builds a test for "predefined session record whose config entry has gone
+// missing, and which still holds real data". Used by the group entry screens;
+// see renderExtraActivitiesSection for why these must keep rendering.
+function makeStrandedPredefinedTest(target, data) {
+  const pas      = target.predefinedActivities || [];
+  const cfgIds   = new Set(pas.map(p => p.id).filter(Boolean));
+  const cfgNames = new Set(pas.flatMap(p => [p.name, p.title]).filter(Boolean));
+  const hasData  = actId => Object.values(data.remarks || {}).some(r =>
+    r.activityId === actId && (
+      (r.text || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim().length > 0 ||
+      (r.trials || []).some(t => t !== null && t !== -1) ||
+      (r.masteryNote || "").replace(/<[^>]*>/g, "").trim().length > 0
+    ));
+  return (actId, a) => a.isPredefined && !a.parentActivity
+    && !((a.configId && cfgIds.has(a.configId))
+         || cfgNames.has(a.activityName) || cfgNames.has(a.activityTitle))
+    && hasData(actId);
 }
 
 // An extra (session-only) activity is an orphan if it has no name and none of
@@ -8712,10 +8750,24 @@ function isOrphanExtraActivity(a) {
 // Used by both renderFedcTarget (appended after predefined activities) and
 // renderRegularTarget (which has nothing else to render).
 function renderExtraActivitiesSection(target) {
+  // A predefined record whose config entry no longer exists is stranded: nothing
+  // above renders it, so its remarks would be invisible in this session. Deleting
+  // an activity on purpose purges its session records (the confirm-by-typing
+  // flow), so a stranded record that still holds data is always accidental
+  // damage — show it here rather than let real work disappear.
+  const _pas      = target.predefinedActivities || [];
+  const _cfgIds   = new Set(_pas.map(p => p.id).filter(Boolean));
+  const _cfgNames = new Set(_pas.flatMap(p => [p.name, p.title]).filter(Boolean));
+  const isStranded = a => a.isPredefined && !a.parentActivity
+    && !((a.configId && _cfgIds.has(a.configId))
+         || _cfgNames.has(a.activityName) || _cfgNames.has(a.activityTitle))
+    && getRemarksForActivity(a.id).some(remarkHasContent);
+
   const seen = new Set();
   const extraActs = getActivitiesForTarget(target.name)
     .filter(a => {
-      if (a.isPredefined || a.parentActivity) return false;
+      if (a.parentActivity) return false;
+      if (a.isPredefined && !isStranded(a)) return false;
       // Hide any orphan activities (empty name + no substantive remarks) that
       // slipped through from old sessions — the snapshot stripping should have
       // removed them already, but this is a belt-and-suspenders guard.
@@ -8815,9 +8867,10 @@ function renderExtraActivitiesSection(target) {
         data-target="${escHtml(target.name)}">+ Add Remark &amp; Trials</button>
     </div>`;
   } else {
-    // margin-bottom keeps the dashed button clear of the bottom of the scroll
-    // area — without it the border sits flush against the window edge.
-    html += `<button class="btn-add-session-activity" style="display:block;margin-top:.6rem;margin-bottom:2.5rem;padding:.55rem .9rem;background:transparent;border:1.5px dashed #a5b4fc;border-radius:.5rem;cursor:pointer;font-size:.85rem;color:#6366f1;margin-left:auto;margin-right:auto" contenteditable="false">+ Add Activity (only for this session, not saved to the target permanently)</button>`;
+    // Small bottom margin only — .target-content now carries the padding that
+    // keeps the last element clear of the window edge, so a big margin here just
+    // opened a gap between this button and the Mastered/Discontinued sections.
+    html += `<button class="btn-add-session-activity" style="display:block;margin-top:.6rem;margin-bottom:.6rem;padding:.55rem .9rem;background:transparent;border:1.5px dashed #a5b4fc;border-radius:.5rem;cursor:pointer;font-size:.85rem;color:#6366f1;margin-left:auto;margin-right:auto" contenteditable="false">+ Add Activity (only for this session, not saved to the target permanently)</button>`;
   }
   return html;
 }
@@ -11929,8 +11982,15 @@ function buildTargetViewTable(target, data) {
       }
     }
     // Manually-added (session-only) extra activities — rendered under an "Extra" heading.
+    // Predefined records are included too, not just session-only ones: if an
+    // activity is deleted from the target config on purpose, the confirm-by-typing
+    // flow purges its session records, so a predefined record that still has data
+    // but matches no config entry is always accidental damage (the pre-2026-08-23
+    // reorder bug wiped mastered activities out of predefinedActivities). Without
+    // this they match nothing and render nowhere, silently hiding real work.
+    // Anything data-less was already deleted by the sweep above.
     const extraViewActs = Object.entries(data.activities || {})
-      .filter(([actId, a]) => a.targetName === target.name && !matchedIds.has(actId) && !a.isPredefined && !a.parentActivity && a.activityName?.trim())
+      .filter(([actId, a]) => a.targetName === target.name && !matchedIds.has(actId) && !a.parentActivity && a.activityName?.trim())
       .sort(([, a], [, b]) => (a.order || 0) - (b.order || 0));
     if (extraViewActs.length > 0) {
       rows += `<tr class="view-heading-row"><td colspan="6" contenteditable="false">Extra</td></tr>`;
@@ -14185,11 +14245,15 @@ function buildGroupTargetViewTable(target, data, attendees) {
         deleteActivity(state.viewGroupSessionId, actId, remIds).catch(() => {});
       }
     }
-    // Manually-added (non-predefined) activities not matched above.
-    // Skip isPredefined records and sub-activities (parentActivity set) — those belonged to a
-    // config activity that has since been removed. Sub-activities are never manually entered.
+    // Activities not matched above — both manually-added ones and predefined
+    // records whose config entry has gone missing. See the matching comment in
+    // buildTargetViewTable: a deliberate delete purges its session records, so a
+    // predefined record that still has data but matches no config entry is
+    // accidental damage and must still render rather than vanish. Sub-activities
+    // (parentActivity set) stay excluded — they can't stand on their own.
+    // Anything data-less was already deleted by the sweep above.
     Object.entries(data.activities || {})
-      .filter(([actId, a]) => a.targetName === target.name && !matchedIds.has(actId) && !a.isPredefined && !a.parentActivity)
+      .filter(([actId, a]) => a.targetName === target.name && !matchedIds.has(actId) && !a.parentActivity)
       .sort(([, a], [, b]) => (a.order || 0) - (b.order || 0))
       .forEach(([actId, act]) => {
         no++;
@@ -15498,6 +15562,29 @@ function inactiveReasonBadge(pa) {
   return badges;
 }
 
+// Single-button acknowledgement popup, for a rule the user has to actively
+// dismiss. An inline red line inside a sheet is easy to miss — this can't be.
+// z-index sits above showDatePickerOverlay so it works from inside those sheets.
+function showAlertOverlay({ title = "⚠️ Not allowed", message, okLabel = "OK" }) {
+  return new Promise(resolve => {
+    const overlay = document.createElement("div");
+    overlay.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10001;display:flex;align-items:center;justify-content:center;padding:1rem";
+    overlay.innerHTML =
+      `<div style="background:#fff;border-radius:.75rem;padding:1.35rem 1.5rem;max-width:390px;width:100%;box-shadow:0 8px 32px rgba(0,0,0,.25)">` +
+      `<div style="font-size:1rem;font-weight:700;color:#b91c1c;margin-bottom:.55rem">${title}</div>` +
+      `<div style="font-size:.92rem;color:#374151;margin-bottom:1.25rem;line-height:1.65">${message}</div>` +
+      `<div style="display:flex;justify-content:flex-end">` +
+      `<button class="dp-ok" style="padding:.55rem 1.6rem;border:none;border-radius:.4rem;background:var(--primary);color:#fff;cursor:pointer;font-size:.9rem;font-weight:600">${okLabel}</button>` +
+      `</div></div>`;
+    document.body.appendChild(overlay);
+    const finish = () => { overlay.remove(); document.removeEventListener("keydown", onKey); resolve(); };
+    const onKey = e => { if (e.key === "Escape" || e.key === "Enter") { e.preventDefault(); finish(); } };
+    overlay.querySelector(".dp-ok").addEventListener("click", finish);
+    document.addEventListener("keydown", onKey);
+    overlay.querySelector(".dp-ok").focus();
+  });
+}
+
 function showAutoDateConfirm({ message, confirmLabel }) {
   return new Promise(resolve => {
     const overlay = document.createElement("div");
@@ -15569,6 +15656,17 @@ function isActivityActive(pa, dateStr) {
   if (pa.activeFrom && dateStr < pa.activeFrom) return false;
   if (pa.activeTo   && dateStr > pa.activeTo)   return false;
   return true;
+}
+
+// Earliest date an activity may be marked mastered/discontinued. With recorded
+// session data that's the last session with data — the activity has to stay
+// visible up to and including the day it was last used. With no data at all
+// there's nothing to preserve, so it falls back to the day the activity was
+// created (its Start Date) rather than today: an activity that was never used
+// should stop appearing from where it began, not from whenever it happens to be
+// cleaned up. Older records with no creation date recorded fall back to today.
+function statusChangeFloorDate(pa, latestDate) {
+  return latestDate || pa.activeFrom || pa.createdOn || todayDateStr();
 }
 // View/Edit uses > (strict) instead of >= so sessions on the exact
 // discontinuation/mastery date still show — the user may have entered data
@@ -15713,11 +15811,13 @@ async function handleActStartPickerChange() {
     if (hasData && (!oldestDate || session.date < oldestDate)) oldestDate = session.date;
   }
   if (oldestDate && value > oldestDate) {
-    if (errDiv) {
-      errDiv.textContent = `The oldest recorded data for this activity is ${fmtPeriodDate(oldestDate)}, so the earliest start date you can set is ${fmtPeriodDate(oldestDate)}.`;
-      errDiv.style.display = 'block';
-    }
     if (inp) inp.value = act.activeFrom || '';
+    await showAlertOverlay({
+      title: "⚠️ Start date is too late",
+      message: `This activity already has recorded data as far back as <strong>${fmtPeriodDate(oldestDate)}</strong>. ` +
+               `Setting the start date later than that would hide sessions that already have data in them, ` +
+               `so the earliest start date you can choose is <strong>${fmtPeriodDate(oldestDate)}</strong>.`
+    });
     return;
   }
   closeActStartDatePicker();
@@ -15727,6 +15827,7 @@ async function handleActStartPickerChange() {
 // ── Open / close ──────────────────────────────────────────────
 
 function openManageModal(student, targetOrNull, templateOrNull = null, remarkPresetOrNull = null, scrollToPaId = null) {
+  _mnCollapsedView = false;   // always opens expanded — see the declaration
   $("manage-modal").classList.remove("hidden");
   if (remarkPresetOrNull) {
     renderRemarkPresetManageContent(remarkPresetOrNull);
@@ -15826,7 +15927,6 @@ function showGroupAddTargetPicker(group) {
   const hasDup       = group.targets.length > 0;
   const otherGroups  = state.groups.filter(g => g.id !== group.id && g.targets?.length > 0);
   const hasOther     = otherGroups.length > 0;
-  const hasTemplates = state.templates.length > 0;
 
   $("manage-modal-body").innerHTML = `
     <div style="display:flex;flex-direction:column;gap:.6rem">
@@ -15841,10 +15941,6 @@ function showGroupAddTargetPicker(group) {
       ${hasOther ? `<button class="btn-target-type" id="btn-gadd-dup-other">
         <span class="btn-target-label">Duplicate Target from Another Group</span>
         <span class="btn-target-desc">Duplicate a target from a different group</span>
-      </button>` : ""}
-      ${hasTemplates ? `<button class="btn-target-type" id="btn-gadd-dup-tmpl">
-        <span class="btn-target-label">Duplicate from Template</span>
-        <span class="btn-target-desc">Duplicate a template as an individual target</span>
       </button>` : ""}
     </div>`;
   $("manage-modal-body").scrollTop = 0;
@@ -15873,7 +15969,6 @@ function showGroupAddTargetPicker(group) {
 
   $("btn-gadd-dup-current")?.addEventListener("click", () => showGroupDupFromCurrent(group));
   $("btn-gadd-dup-other")?.addEventListener("click", () => showGroupDupFromOther(group, otherGroups));
-  $("btn-gadd-dup-tmpl")?.addEventListener("click", () => showGroupDupFromTemplate(group));
 }
 
 function showGroupDupFromCurrent(group) {
@@ -15977,48 +16072,6 @@ function showGroupDupFromOtherPickTarget(group, sourceGroup) {
   });
 }
 
-function showGroupDupFromTemplate(group) {
-  const sortedTmpls = [...state.templates].sort((a, b) => a.name.localeCompare(b.name));
-  $("manage-modal-body").innerHTML = `
-    <div class="admin-section-title" style="margin-bottom:.5rem">Choose templates to duplicate</div>
-    <div class="admin-list">
-      ${sortedTmpls.map(t => `
-        <label class="admin-list-item" style="cursor:pointer;gap:.75rem">
-          <input type="checkbox" class="gtmpl-cb" data-tmpl-id="${escHtml(t.id)}"
-            style="width:20px;height:20px;flex-shrink:0;cursor:pointer" />
-          <span class="admin-item-name">${escHtml(t.name)}</span>
-        </label>`).join("")}
-    </div>
-    <button class="btn-primary-sm" id="btn-gtmpl-dup" style="width:100%;margin-top:.75rem;padding:.75rem">Duplicate Selected</button>
-    <button class="btn-adm-secondary" id="btn-gdup-back" style="width:100%;margin-top:.5rem;padding:.65rem">← Back</button>`;
-
-  $("btn-gdup-back").addEventListener("click", () => showGroupAddTargetPicker(group));
-  $("btn-gtmpl-dup").addEventListener("click", async () => {
-    const checked = [...$("manage-modal-body").querySelectorAll(".gtmpl-cb:checked")];
-    if (!checked.length) { alert("Select at least one template."); return; }
-    $("manage-modal").classList.add("hidden");
-    let lastAdded = null;
-    for (const cb of checked) {
-      const tmpl = state.templates.find(t => t.id === cb.dataset.tmplId);
-      if (!tmpl) continue;
-      const copy = {
-        id: cfgId("gt"), name: uniqueTargetName(group.targets, tmpl.name), maxPoints: tmpl.maxPoints || 3,
-        hasComment: false, fullName: "", order: group.targets.length, groupLayout: "byActivity",
-        predefinedActivities: JSON.parse(JSON.stringify(tmpl.predefinedActivities || [])),
-        notes: JSON.parse(JSON.stringify(tmpl.notes || [])), isStructured: true
-      };
-      group.targets.push(copy); lastAdded = copy;
-    }
-    const gi = state.groups.findIndex(g => g.id === group.id);
-    if (gi >= 0) state.groups[gi] = group;
-    await state.entryGroupRemarkSaver?.flush();
-    await saveGroup(group);
-    if (lastAdded) state.selectedGroupTargetName = lastAdded.name;
-    populateGroupTargetDropdown(group.targets);
-    try { renderGroupTargetContent(); } catch(e) { console.error("renderGroupTargetContent after template dup:", e); }
-    if (lastAdded && checked.length === 1) openGroupManageModal(group, lastAdded);
-  });
-}
 
 async function closeManageModal() {
   $("manage-modal").classList.add("hidden");
@@ -16182,7 +16235,6 @@ async function closeManageModal() {
   // Always refresh all home screen sections
   renderExistingStudentButtons();
   renderAssessmentStudentButtons();
-  renderTemplateButtons();
   renderExportButtons();
   renderHalfYearReportsSection();
   renderGroupButtons();
@@ -16378,7 +16430,6 @@ function showAddTargetPicker(student) {
   const hasDuplicatable  = student.targets.length > 0;
   const otherStudents    = state.students.filter(s => s.id !== student.id);
   const hasOtherStudents = otherStudents.length > 0;
-  const hasTemplates     = state.templates.length > 0;
 
   const html = `
     <div style="display:flex;flex-direction:column;gap:.6rem">
@@ -16393,10 +16444,6 @@ function showAddTargetPicker(student) {
       ${hasOtherStudents ? `<button class="btn-target-type" id="btn-duplicate-from-other">
         <span class="btn-target-label">Duplicate Target from Another Student</span>
         <span class="btn-target-desc">Duplicate a target from a different student</span>
-      </button>` : ""}
-      ${hasTemplates ? `<button class="btn-target-type" id="btn-duplicate-from-template">
-        <span class="btn-target-label">Duplicate from Template</span>
-        <span class="btn-target-desc">Duplicate a template as an individual target</span>
       </button>` : ""}
     </div>`;
 
@@ -16442,9 +16489,6 @@ function showAddTargetPicker(student) {
     showDupFromOtherStudent_pickStudent(student, otherStudents);
   });
 
-  $("btn-duplicate-from-template")?.addEventListener("click", () => {
-    showDupFromTemplate(student);
-  });
 }
 
 function showDupFromCurrentStudent(student) {
@@ -16592,56 +16636,6 @@ function showDupFromOtherStudent_pickTarget(student, sourceStudent) {
   });
 }
 
-function showDupFromTemplate(student) {
-  const sortedTmpls = [...state.templates].sort((a, b) => a.name.localeCompare(b.name));
-  $("manage-modal-body").innerHTML = `
-    <div class="admin-section-title" style="margin-bottom:.5rem">Choose templates to duplicate</div>
-    <div class="admin-list">
-      ${sortedTmpls.map(t => `
-        <label class="admin-list-item" style="cursor:pointer;gap:.75rem">
-          <input type="checkbox" class="tmpl-source-cb" data-tmpl-id="${escHtml(t.id)}"
-            style="width:20px;height:20px;flex-shrink:0;cursor:pointer" />
-          <span class="admin-item-name">${escHtml(t.name)}</span>
-        </label>`).join("")}
-    </div>
-    <button class="btn-primary-sm" id="btn-confirm-tmpl-dup"
-      style="width:100%;margin-top:.75rem;padding:.75rem">Duplicate Selected</button>
-    <button class="btn-adm-secondary" id="btn-dup-back"
-      style="width:100%;margin-top:.5rem;padding:.65rem">← Back</button>`;
-
-  $("btn-dup-back").addEventListener("click", () => showAddTargetPicker(student));
-
-  $("btn-confirm-tmpl-dup").addEventListener("click", async () => {
-    const checked = [...$("manage-modal-body").querySelectorAll(".tmpl-source-cb:checked")];
-    if (checked.length === 0) { alert("Select at least one template to duplicate."); return; }
-
-    $("manage-modal").classList.add("hidden");
-    let lastAdded = null;
-    for (const cb of checked) {
-      const tmpl = state.templates.find(t => t.id === cb.dataset.tmplId);
-      if (!tmpl) continue;
-      const copy = {
-        id: cfgId("t"), name: uniqueTargetName(student.targets, tmpl.name),
-        maxPoints: tmpl.maxPoints || 3,
-        hasComment: false, fullName: "",
-        order: student.targets.length,
-        predefinedActivities: JSON.parse(JSON.stringify(tmpl.predefinedActivities || [])),
-        notes: JSON.parse(JSON.stringify(tmpl.notes || [])),
-        templateId: null, isStructured: true
-      };
-      student.targets.push(copy);
-      lastAdded = copy;
-    }
-    const si = state.students.findIndex(s => s.id === student.id);
-    if (si >= 0) state.students[si] = student;
-    await state.entryRemarkSaver?.flush();
-    await saveStudent(student);
-    if (lastAdded) state.selectedTargetName = lastAdded.name;
-    populateTargetDropdown(student.targets);
-    renderTargetContent();
-    if (lastAdded && checked.length === 1) openManageModal(student, lastAdded);
-  });
-}
 
 // ── Remark preset management content ─────────────────────────
 
@@ -16848,12 +16842,24 @@ function initDragSort(listEl, onReorder) {
     e.preventDefault();
     e.stopPropagation();
 
-    // Instantly collapse all cards to compact rows; measure AFTER so placeholder matches
+    // Collapsing every card to a compact row shrinks the list dramatically, so
+    // without help the grabbed block ends up nowhere near the pointer. Scroll so
+    // the collapsed row sits centred on the cursor: the handle is grabbed in the
+    // middle of a tall card, so preserving the card's top edge instead would
+    // leave the row hanging far above the finger.
+    const cursorY = e.clientY;
     listEl.classList.add('is-reordering');
+    if (scrollEl) {
+      const r = item.getBoundingClientRect();
+      const shift = r.top - (cursorY - r.height / 2);
+      if (shift) scrollEl.scrollTop += shift;
+    }
     const rect = item.getBoundingClientRect();
-    // Pin cursor to the card's center (where ⠿ sits due to align-items:center)
-    offsetY = rect.height / 2;
-    lastY   = e.clientY;
+    // Clamped so the row always touches the pointer even when the scroll above
+    // ran out of room — near either end of the list there is nothing left to
+    // scroll, and an unclamped offset would leave a visible gap.
+    offsetY = Math.min(Math.max(cursorY - rect.top, 0), rect.height);
+    lastY   = cursorY;
 
     placeholder = document.createElement('div');
     placeholder.className = 'drag-placeholder';
@@ -16865,7 +16871,7 @@ function initDragSort(listEl, onReorder) {
     dragEl.style.cssText =
       (dragEl._savedStyle ? dragEl._savedStyle + ';' : '') +
       `position:fixed;left:${rect.left}px;width:${rect.width}px;` +
-      `top:${rect.top}px;z-index:9999;opacity:.85;` +
+      `top:${cursorY - offsetY}px;z-index:9999;opacity:.85;` +
       `box-shadow:0 4px 16px rgba(0,0,0,.2);pointer-events:none;`;
 
     listEl.setPointerCapture(e.pointerId);
@@ -16877,11 +16883,33 @@ function initDragSort(listEl, onReorder) {
     lastY = e.clientY;
     dragEl.style.top = (e.clientY - offsetY) + 'px';
 
+    // Probe with the dragged card's own midpoint rather than the raw pointer
+    // position. The two can differ once the pickup scroll compensation is
+    // clamped, and using the pointer then drops the row wherever the cursor
+    // happens to sit — which is how a drag could jump into another section
+    // before it had really begun. The card is what the user sees, so the
+    // placeholder follows the card.
+    const dragRect = dragEl.getBoundingClientRect();
+    const probeY = dragRect.top + dragRect.height / 2;
+
     const items = [...listEl.children].filter(el => el !== dragEl && el !== placeholder);
     let inserted = false;
-    for (const item of items) {
-      const { top, height } = item.getBoundingClientRect();
-      if (e.clientY < top + height / 2) {
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      // A section heading and the Mastered/Discontinued groups directly beneath
+      // it are one unit: dropping between them would put a row above a heading's
+      // own groups, which reads as belonging to the heading above. Measure the
+      // pair as a single block, so the drop lands either above the heading or
+      // below the groups — never in between.
+      let lastEl = item;
+      const next = items[i + 1];
+      if (item.classList.contains("mn-heading-item") && next && next.classList.contains("mn-seg-groups")) {
+        lastEl = next;
+        i++;
+      }
+      const top    = item.getBoundingClientRect().top;
+      const bottom = lastEl.getBoundingClientRect().bottom;
+      if (probeY < top + (bottom - top) / 2) {
         listEl.insertBefore(placeholder, item);
         inserted = true;
         break;
@@ -16893,24 +16921,39 @@ function initDragSort(listEl, onReorder) {
   const endDrag = () => {
     if (!dragEl) return;
     if (scrollRaf) { cancelAnimationFrame(scrollRaf); scrollRaf = null; }
-    listEl.classList.remove('is-reordering');
+    // Put the row back into normal flow at the drop position while the list is
+    // still compact, note where it sits, then expand and scroll by the
+    // difference — the same compensation used when the drag started. Without
+    // this the cards re-expanding underneath shove the drop point off-screen.
     dragEl.style.cssText = dragEl._savedStyle || '';
     delete dragEl._savedStyle;
     if (placeholder?.parentNode) placeholder.parentNode.insertBefore(dragEl, placeholder);
     placeholder?.remove();
+    const topWhileCompact = dragEl.getBoundingClientRect().top;
+    listEl.classList.remove('is-reordering');
+    if (scrollEl) {
+      const shift = dragEl.getBoundingClientRect().top - topWhileCompact;
+      if (shift) scrollEl.scrollTop += shift;
+    }
+    // Where the dropped row now sits on screen. The caller re-renders and then
+    // restores this exact position, so the view never jumps.
+    const anchorTop = dragEl.getBoundingClientRect().top;
+    // Elements without a data-idx (e.g. Edit Target's per-section holders for the
+    // collapsed mastered/discontinued groups) sit in this list but aren't rows —
+    // skip them so they don't land in newOrder as NaN.
     const newOrder = [...listEl.children]
-      .filter(el => el !== placeholder)
-      .map(el => Number(el.dataset.idx));
-    // Scroll the dropped item into view immediately after compact→expanded transition
-    // so the viewport stays on the drop position instead of jerking back to item 1.
-    dragEl.scrollIntoView({ block: "nearest" });
+      .filter(el => el !== placeholder && el.dataset.idx !== undefined)
+      .map(el => Number(el.dataset.idx))
+      .filter(Number.isFinite);
+    // Which row was dropped, so the caller can find it again after re-rendering.
+    const movedIdx = Number(dragEl.dataset.idx);
     dragEl = null;
     placeholder = null;
     // Suppress the synthetic click that the browser fires at the drop position —
     // otherwise buttons (e.g. "Add Sub-activity") under the release point get clicked.
     document.addEventListener('click', e => { e.stopPropagation(); e.preventDefault(); },
       { capture: true, once: true });
-    onReorder(newOrder);
+    onReorder(newOrder, Number.isFinite(movedIdx) ? movedIdx : null, anchorTop);
   };
 
   listEl.addEventListener('pointerup',     endDrag);
@@ -17126,11 +17169,207 @@ function mnStatusKebabHtml(a, idx, isParent = false) {
          (!isParent ? btn('maintain','🆗 Maintain Activity',';color:#0369a1') : '');
 }
 
-// Heading ids the boss has manually pulled back out of the "no activities"
-// collapsed section (see renderTargetManageContent) so she can drag a new
-// activity under them again. Ids are globally unique (cfgId), so this can
-// safely persist for the app session without being scoped to one target.
-const _mnForceShowHeadingIds = new Set();
+// Collapsed view in Edit Target — title-only rows, no detail fields and no
+// mastered/discontinued groups, while drag handles and ⋮ menus stay live.
+// Deliberately NOT persisted: it resets to off every time the editor is opened
+// (see openManageModal / openGroupManageModal), so nobody is surprised by a
+// half-empty-looking screen they don't remember switching on.
+let _mnCollapsedView = false;
+
+// ─── EDIT TARGET: SECTION SEGMENTS ───────────────────────────
+// Every activity belongs to the section heading that precedes it in the array;
+// anything before the first heading belongs to the leading segment, keyed -1.
+// Drives both where each heading's collapsed mastered/discontinued groups go
+// and what a heading drag has to carry with it.
+function mnSegmentOf(acts) {
+  const segOf = new Map();
+  let seg = -1;
+  (acts || []).forEach((a, i) => {
+    if (a.isHeading || a.isMaintainHeading) { seg = i; segOf.set(i, i); return; }
+    segOf.set(i, seg);
+  });
+  return segOf;
+}
+
+// Reorders one parent's sub-activities among themselves. A sub can only move
+// within its own parent, so the slots those subs occupy in the array stay put
+// and only their contents are permuted — nothing else in the target shifts, and
+// a sub can never silently change parent. Bails out unchanged if the counts
+// don't line up, rather than risk writing a mangled list.
+function mnReorderSubs(acts, parentKey, newOrder) {
+  // Only the slots the dragged subs already occupied get permuted. Taking the
+  // positions from newOrder rather than from "every sub of this parent" matters:
+  // the visible list leaves out mastered/discontinued subs, so those two sets
+  // differ whenever a parent has any, and anything else would misalign them.
+  const reordered = newOrder.map(i => acts[i]);
+  if (reordered.some(a => !a || a.parentActivity !== parentKey)) return null;
+  const positions = newOrder.slice().sort((x, y) => x - y);
+  const result = acts.slice();
+  positions.forEach((pos, k) => { result[pos] = reordered[k]; });
+  result.forEach((a, i) => { a.order = i; });
+  return result;
+}
+
+// After a drag re-renders the list, scrolls the row that was moved back into
+// view and blinks it, so the drop lands somewhere predictable. Called instead of
+// restoring the pre-drag scrollTop, which pointed at the wrong place once the
+// collapsed drag rows expanded back to full height.
+function mnScrollToMovedRow(newIdx, anchorTop) {
+  if (newIdx == null || newIdx < 0) return;
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    const body = $("manage-modal-body");
+    const el = body?.querySelector(`#mn-act-list > [data-idx="${newIdx}"]`);
+    if (!el) return;
+    // Put the row back at the exact screen position it was released at. Anything
+    // else — centring it, or restoring the old scrollTop — moves the page under
+    // the user and reads as the list jerking away after the drop.
+    if (body && anchorTop != null) {
+      const delta = el.getBoundingClientRect().top - anchorTop;
+      if (delta) body.scrollTop += delta;
+    }
+    el.classList.add("activity-cfg-blink");
+    el.addEventListener("animationend", () => el.classList.remove("activity-cfg-blink"), { once: true });
+  }));
+}
+
+// Rebuilds the activities array after a drag in Edit Target.
+//
+// newOrder holds only the indices of rows that are actually draggable: headings,
+// notes and active top-level activities. Everything else has to be carried along
+// rather than left behind — sub-activities ride with their parent, and a
+// heading's mastered/discontinued activities ride with the heading, so dragging a
+// section moves the whole block. Anything somehow unaccounted for is appended at
+// the end rather than dropped, so a reorder can never lose an activity.
+function mnReorderActs(acts, newOrder) {
+  const isHeading = i => !!(acts[i] && (acts[i].isHeading || acts[i].isMaintainHeading));
+  const isInactive = a => !!(a && (a.isCompleted || a.isArchived || a.isStopped || a.masteredOn || a.discontinuedOn));
+
+  // Which indices each heading owns (everything up to the next heading), and the
+  // leading run that precedes the first heading.
+  const owned = new Map();
+  const leading = [];
+  let cur = null;
+  acts.forEach((a, i) => {
+    if (a.isHeading || a.isMaintainHeading) { cur = i; owned.set(i, []); return; }
+    if (cur === null) leading.push(i); else owned.get(cur).push(i);
+  });
+
+  const used = new Set();
+  const result = [];
+  const emit = i => {
+    if (used.has(i) || !acts[i]) return;
+    used.add(i);
+    result.push(acts[i]);
+    const key = acts[i].title || acts[i].name;
+    if (!key) return;
+    acts.forEach((a2, j) => {
+      if (!used.has(j) && a2.parentActivity === key) { used.add(j); result.push(a2); }
+    });
+  };
+
+  // Inactive items ahead of the first heading have no heading to travel with, so
+  // they stay pinned at the top.
+  leading.filter(i => isInactive(acts[i]) && !acts[i].parentActivity).forEach(emit);
+
+  for (const i of newOrder) {
+    emit(i);
+    if (isHeading(i)) {
+      (owned.get(i) || [])
+        .filter(j => !acts[j].parentActivity && isInactive(acts[j]))
+        .forEach(emit);
+    }
+  }
+
+  acts.forEach((_, i) => emit(i));   // safety net: nothing is ever dropped
+  result.forEach((a, i) => { a.order = i; });
+  return result;
+}
+
+// Moves every card built into the hidden #mn-inactive-source into a collapsed
+// group under the heading it belongs to, then removes the staging container.
+// Runs after innerHTML but before listeners are attached, so the handlers bound
+// afterwards find the cards wherever they ended up.
+function mnRegroupInactiveCards(bodyEl, acts) {
+  const src = bodyEl.querySelector("#mn-inactive-source");
+  if (!src) return;
+  const segOf = mnSegmentOf(acts);
+  const meta = {
+    mastered:     { label: "Mastered Activities",     emoji: "⭐", color: "#059669" },
+    discontinued: { label: "Discontinued Activities", emoji: "🚩", color: "#dc2626" }
+  };
+  for (const kind of ["mastered", "discontinued"]) {
+    const panel = src.querySelector(`#mn-${kind}-section`);
+    if (!panel) continue;
+    for (const card of [...panel.querySelectorAll(":scope > .mn-inact-card")]) {
+      const gi = Number(card.dataset.globalIdx);
+      const key = Number.isFinite(gi) && segOf.has(gi) ? segOf.get(gi) : -1;
+      const holder = bodyEl.querySelector(`.mn-seg-groups[data-seg="${key}"]`);
+      if (!holder) continue;
+      let group = holder.querySelector(`.mn-inact-group[data-kind="${kind}"]`);
+      if (!group) {
+        const m = meta[kind];
+        group = document.createElement("div");
+        group.className = "mn-inact-group";
+        group.dataset.kind = kind;
+        group.style.cssText = "margin:.35rem 0 .15rem";
+        group.innerHTML =
+          `<button class="mn-inact-toggle" style="display:flex;align-items:center;gap:.45rem;background:none;border:none;cursor:pointer;width:100%;padding:.25rem 0;font-size:.83rem;font-weight:700;color:${m.color};text-align:left">` +
+            // Label and count share one span: the button is a flex row with a gap,
+            // so leaving them as loose text nodes rendered as "Mastered ( 3 )".
+            `<span class="mn-inact-arrow" style="font-size:.7rem">▶</span>` +
+            `<span>${m.emoji} ${m.label} (<span class="mn-inact-count">0</span>)</span>` +
+          `</button>` +
+          // Two bodies, one shown at a time by CSS: the full editable cards in
+          // normal view, and title-only rows in collapsed view. Building the
+          // compact rows here avoids touching the card markup at all.
+          `<div class="mn-inact-panel" style="display:none">` +
+            `<div class="mn-inact-body"></div>` +
+            `<div class="mn-inact-compact-body"></div>` +
+          `</div>`;
+        holder.appendChild(group);
+      }
+      group.querySelector(".mn-inact-body").appendChild(card);
+
+      // Matching compact row: number top-level entries, letter their subs.
+      const pa = acts[gi];
+      if (pa) {
+        const compact = group.querySelector(".mn-inact-compact-body");
+        const isSub = !!pa.parentActivity;
+        if (isSub) {
+          group.dataset.subSeq = String(Number(group.dataset.subSeq || 0) + 1);
+        } else {
+          group.dataset.topSeq = String(Number(group.dataset.topSeq || 0) + 1);
+          group.dataset.subSeq = "0";
+        }
+        const marker = isSub
+          ? `${String.fromCharCode(96 + Number(group.dataset.subSeq))})`
+          : `${group.dataset.topSeq})`;
+        const row = document.createElement("div");
+        row.className = "mn-inact-compact-row";
+        row.style.cssText = `display:flex;align-items:center;gap:.4rem;padding:.12rem 0;${isSub ? "padding-left:1.5rem;" : ""}font-size:.84rem`;
+        row.innerHTML =
+          `<span style="font-weight:700;color:${isSub ? "#0369a1" : "#6b7280"};flex-shrink:0;min-width:1.3rem">${marker}</span>` +
+          `<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${formatActivityMarkup(pa.title || pa.name || "")}</span>`;
+        compact.appendChild(row);
+      }
+
+      group.querySelector(".mn-inact-count").textContent =
+        String(group.querySelectorAll(".mn-inact-body > .mn-inact-card").length);
+    }
+  }
+  src.remove();
+  bodyEl.querySelectorAll(".mn-inact-toggle").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const panel = btn.nextElementSibling;
+      const arrow = btn.querySelector(".mn-inact-arrow");
+      if (!panel) return;
+      const open = panel.style.display !== "none";
+      panel.style.display = open ? "none" : "block";
+      if (arrow) arrow.textContent = open ? "▶" : "▼";
+      if (!open) panel.querySelectorAll(".mn-act-details-input,.mn-inactive-name-input").forEach(autoResizeTextarea);
+    });
+  });
+}
 
 function renderTargetManageContent(student, target) {
   $("manage-modal-title").textContent = target.name;
@@ -17225,6 +17464,13 @@ function renderTargetManageContent(student, target) {
         <button class="admin-pts-btn ${target.maxPoints === 4 ? "active" : ""}" data-pts="4">4</button>
       </div>
     </div>
+    <div class="admin-section admin-row">
+      <label class="admin-label">Collapsed View</label>
+      <div class="admin-pts-group">
+        <button class="admin-pts-btn mn-collapse-toggle-btn ${_mnCollapsedView ? "" : "active"}" data-collapsed="0">Off</button>
+        <button class="admin-pts-btn mn-collapse-toggle-btn ${_mnCollapsedView ? "active" : ""}" data-collapsed="1">On</button>
+      </div>
+    </div>
     ${_groupForTargetEdit ? `
     <div class="admin-section">
       <div class="admin-label-row">
@@ -17249,32 +17495,23 @@ function renderTargetManageContent(student, target) {
     <div class="admin-section-title">Activities & Notes</div>
     <div class="admin-list" id="mn-act-list">`;
 
-  // A heading is "empty" once every real activity under it (before the next
-  // heading) has been mastered/discontinued — notes don't count as content.
-  // Purely a display-time classification: doesn't touch array order or the
-  // heading objects, so historical section grouping (exports, AI reports,
-  // groupPasBySections) is unaffected. Empty headings render in the collapsed
-  // "no activities" section below instead of floating inline with nothing
-  // under them.
-  const emptyHeadingIdxs = new Set();
-  acts.forEach((a, idx) => {
-    if (!a.isHeading && !a.isMaintainHeading) return;
-    let hasContent = false;
-    for (let j = idx + 1; j < acts.length; j++) {
-      const b = acts[j];
-      if (b.isHeading || b.isMaintainHeading) break;
-      if (b.isNote || b.isExportNote) continue;
-      if (b.isCompleted || b.isArchived || b.isStopped || b.masteredOn || b.discontinuedOn) continue;
-      hasContent = true;
-      break;
-    }
-    if (!hasContent) emptyHeadingIdxs.add(idx);
-  });
+  // One empty holder per segment, emitted where that segment ends. The collapsed
+  // mastered/discontinued groups get moved into these by mnRegroupInactiveCards.
+  // One empty holder per section, sitting directly beneath its heading (and one
+  // at the very top for anything before the first heading). mnRegroupInactiveCards
+  // moves that section's collapsed Mastered/Discontinued groups into it, so they
+  // read as part of the heading rather than trailing the section's activities.
+  const _segHolder = seg => `<div class="mn-seg-groups" data-seg="${seg}"></div>`;
+  html += _segHolder(-1);
 
   let manageActNo = 0;
   acts.forEach((a, idx) => {
     if (a.isCompleted || a.isArchived || a.isStopped || a.masteredOn || a.discontinuedOn) return;
-    if ((a.isHeading || a.isMaintainHeading) && emptyHeadingIdxs.has(idx) && !_mnForceShowHeadingIds.has(a.id)) return;
+    // Headings always render in place. Hiding "empty" ones (v1803) fought the two
+    // commonest actions: a brand-new heading is empty by definition so it vanished
+    // the instant it was created, and "+ Add Activity" appends to the end of the
+    // list, which made whichever heading happened to be last reappear with the new
+    // activity under it.
     if (a.isHeading || a.isMaintainHeading) {
       const isGray = a.headingColor === "gray" || a.isMaintainHeading;
       const isGreen = a.headingColor === "green";
@@ -17297,6 +17534,7 @@ function renderTargetManageContent(student, target) {
           </div>
         </div>
       </div>`;
+      html += _segHolder(idx);
     } else if (a.isNote || a.isExportNote) {
       const _editRef3    = state.sessionData?.date || todayDateStr();
       const noteInactive = !isActivityActive(a, _editRef3);
@@ -17376,7 +17614,8 @@ function renderTargetManageContent(student, target) {
               </div>`
             : "";
           const subCreatedLabel = sub.activeFrom ? fmtPeriodDate(sub.activeFrom) : '';
-          return `<div style="margin-left:1.25rem;display:flex;gap:.4rem;align-items:flex-start;padding:.5rem .6rem;background:#f0f9ff;border:1px solid #bae6fd;border-left:3px solid #60a5fa;border-radius:.35rem">
+          return `<div class="mn-sub-item" data-idx="${subIdx}" style="margin-left:1.25rem;display:flex;gap:.4rem;align-items:flex-start;padding:.5rem .6rem;background:#f0f9ff;border:1px solid #bae6fd;border-left:3px solid #60a5fa;border-radius:.35rem">
+            <span class="drag-handle" style="flex-shrink:0;padding-top:.15rem">⠿</span>
             <span style="font-size:.75rem;font-weight:700;color:#0369a1;flex-shrink:0;min-width:1.4rem;padding-top:.2rem">${String.fromCharCode(97 + si)})</span>
             <div style="flex:1;display:flex;flex-direction:column;gap:.55rem">
               <div>
@@ -17443,6 +17682,9 @@ function renderTargetManageContent(student, target) {
             <span style="font-size:.8rem;font-weight:700;color:#6b7280;flex-shrink:0;min-width:1.6rem;padding-top:.2rem">${manageActNo})</span>
             <div style="flex:1;min-width:0">
               <div class="mn-act-compact-title">${paDisplayHtml(a, true)}</div>
+              ${subActs.length ? `<div class="mn-sub-compact-list" data-parent-key="${escHtml(_paKey || "")}">${subActs.map((sub, si) =>
+                `<div class="mn-sub-compact" data-idx="${acts.indexOf(sub)}"><span class="drag-handle" style="font-size:.95rem">⠿</span>${String.fromCharCode(97 + si)}) ${formatActivityMarkup(sub.title || sub.name || "")}</div>`
+              ).join("")}</div>` : ""}
               <div class="mn-act-body" style="display:flex;flex-direction:column;gap:.55rem">
               <div style="display:flex;gap:.6rem;align-items:flex-start">
                 <div style="flex-shrink:0">
@@ -17461,7 +17703,7 @@ function renderTargetManageContent(student, target) {
                   </div>
                 </div>
               </div>
-              ${subActsHtml}
+              <div class="mn-sub-list" data-parent-key="${escHtml(_paKey || "")}">${subActsHtml}</div>
               ${maintainedRowSub}
               <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">
                 <button class="mn-add-sub-act-btn" data-parent-idx="${idx}" style="font-size:.82rem;padding:.3rem .7rem;background:#f9fafb;border:1px solid #d1d5db;border-radius:.35rem;color:#374151;cursor:pointer">+ Add Sub-activity</button>
@@ -17547,6 +17789,14 @@ function renderTargetManageContent(student, target) {
 
   html += `</div>`;
 
+  // The two blocks below still build the mastered/discontinued cards exactly as
+  // they always have, but into a hidden staging container. Right after the HTML
+  // is inserted, mnRegroupInactiveCards() moves each card into a collapsed group
+  // under the section heading it belongs to and removes this container. Building
+  // them here and relocating the DOM afterwards keeps ~300 lines of card markup —
+  // and every handler that targets it — completely untouched.
+  html += `<div id="mn-inactive-source" style="display:none">`;
+
   if (masteredActs.length > 0) {
     const _mastTopLevel = masteredActs.filter(a => !a.parentActivity);
     const _mastSubs     = masteredActs.filter(a => !!a.parentActivity);
@@ -17566,7 +17816,7 @@ function renderTargetManageContent(student, target) {
       const _mnMaintBadge = a.maintained ? `<span style="font-size:.71rem;display:inline-block;background:#f3f4f6;color:#6b7280;font-weight:600;padding:.1rem .5rem;border-radius:.3rem;border:1px solid #d1d5db">🆗 Maintained${a.maintainedAt ? ` ${fmtPeriodDate(a.maintainedAt)}` : ''}</span>` : '';
       const _mnCreatedLabel = a.activeFrom ? `Created ${fmtPeriodDate(a.activeFrom)}` : 'Created';
       const myMastSubs = _mastSubs.filter(s => s.parentActivity === (a.title || a.name));
-      html += `<div style="display:flex;align-items:flex-start;gap:.5rem;padding:.45rem .5rem;background:#d1fae5;border:1px solid #6ee7b7;border-radius:.4rem;margin-bottom:${myMastSubs.length ? '.1rem' : '.35rem'}">
+      html += `<div class="mn-inact-card" data-global-idx="${globalIdx}" style="display:flex;align-items:flex-start;gap:.5rem;padding:.45rem .5rem;background:#d1fae5;border:1px solid #6ee7b7;border-radius:.4rem;margin-bottom:${myMastSubs.length ? '.1rem' : '.35rem'}">
         <div style="flex:1;display:flex;flex-direction:column;gap:.4rem">
           <div>
             <div style="font-size:.85rem;font-weight:700;color:#374151;margin-bottom:.2rem">Activity Title</div>
@@ -17612,7 +17862,7 @@ function renderTargetManageContent(student, target) {
         const subGlobalIdx = acts.indexOf(sub);
         const subMastBadge = sub.masteredOn ? `<span style="font-size:.71rem;display:inline-block;background:#d1fae5;color:#059669;font-weight:600;padding:.08rem .45rem;border-radius:.3rem;border:1px solid #6ee7b7">⭐ Mastered ${fmtPeriodDate(sub.masteredOn)}</span>` : '';
         const subMaintBadge = sub.maintained ? `<span style="font-size:.71rem;display:inline-block;background:#f3f4f6;color:#6b7280;font-weight:600;padding:.08rem .4rem;border-radius:.3rem;border:1px solid #d1d5db">🆗</span>` : '';
-        html += `<div style="display:flex;align-items:flex-start;gap:.4rem;background:#ecfdf5;border:1px solid #a7f3d0;border-left:3px solid #059669;border-radius:.35rem;margin-bottom:.1rem;margin-left:3rem;padding:.35rem .5rem .35rem 0">
+        html += `<div class="mn-inact-card" data-global-idx="${subGlobalIdx}" style="display:flex;align-items:flex-start;gap:.4rem;background:#ecfdf5;border:1px solid #a7f3d0;border-left:3px solid #059669;border-radius:.35rem;margin-bottom:.1rem;margin-left:3rem;padding:.35rem .5rem .35rem 0">
           <span style="font-size:.8rem;color:#059669;font-weight:700;flex-shrink:0;padding:.5rem .3rem 0 .55rem">${String.fromCharCode(97 + si)})</span>
           <div style="flex:1;display:flex;flex-direction:column;gap:.3rem;min-width:0">
             <div>
@@ -17665,7 +17915,7 @@ function renderTargetManageContent(student, target) {
           const subCi = masteredActs.indexOf(sub);
           const subGlobalIdx = acts.indexOf(sub);
           const subMastBadge = sub.masteredOn ? `<span style="font-size:.71rem;display:inline-block;background:#d1fae5;color:#059669;font-weight:600;padding:.08rem .45rem;border-radius:.3rem;border:1px solid #6ee7b7">⭐ Mastered ${fmtPeriodDate(sub.masteredOn)}</span>` : '';
-          html += `<div style="display:flex;align-items:flex-start;gap:.4rem;background:#ecfdf5;border:1px solid #a7f3d0;border-left:3px solid #059669;border-radius:.35rem;margin-bottom:.1rem;margin-left:3rem;padding:.35rem .5rem .35rem 0">
+          html += `<div class="mn-inact-card" data-global-idx="${subGlobalIdx}" style="display:flex;align-items:flex-start;gap:.4rem;background:#ecfdf5;border:1px solid #a7f3d0;border-left:3px solid #059669;border-radius:.35rem;margin-bottom:.1rem;margin-left:3rem;padding:.35rem .5rem .35rem 0">
             <span style="font-size:.8rem;color:#059669;font-weight:700;flex-shrink:0;padding:.5rem .3rem 0 .55rem">${String.fromCharCode(97 + si)})</span>
             <div style="flex:1;display:flex;flex-direction:column;gap:.3rem;min-width:0">
               <div>
@@ -17728,7 +17978,7 @@ function renderTargetManageContent(student, target) {
       const _mnMaintBadge2 = a.maintained ? `<span style="font-size:.71rem;display:inline-block;background:#f3f4f6;color:#6b7280;font-weight:600;padding:.1rem .5rem;border-radius:.3rem;border:1px solid #d1d5db">🆗 Maintained${a.maintainedAt ? ` ${fmtPeriodDate(a.maintainedAt)}` : ''}</span>` : '';
       const _mnCreatedLabel2 = a.activeFrom ? `Created ${fmtPeriodDate(a.activeFrom)}` : 'Created';
       const myDiscSubs = _discSubs.filter(s => s.parentActivity === (a.title || a.name));
-      html += `<div style="display:flex;align-items:flex-start;gap:.5rem;padding:.45rem .5rem;background:#fafafa;border:1px solid #e5e7eb;border-radius:.4rem;margin-bottom:${myDiscSubs.length ? '.1rem' : '.35rem'}">
+      html += `<div class="mn-inact-card" data-global-idx="${globalIdx}" style="display:flex;align-items:flex-start;gap:.5rem;padding:.45rem .5rem;background:#fafafa;border:1px solid #e5e7eb;border-radius:.4rem;margin-bottom:${myDiscSubs.length ? '.1rem' : '.35rem'}">
         <div style="flex:1;display:flex;flex-direction:column;gap:.4rem">
           <div>
             <div style="font-size:.85rem;font-weight:700;color:#374151;margin-bottom:.2rem">Activity Title</div>
@@ -17827,7 +18077,7 @@ function renderTargetManageContent(student, target) {
           const subCi = discontinuedActs.indexOf(sub);
           const subGlobalIdx = acts.indexOf(sub);
           const subDiscBadge = sub.discontinuedOn ? `<span style="font-size:.71rem;display:inline-block;background:#fee2e2;color:#dc2626;font-weight:600;padding:.08rem .45rem;border-radius:.3rem;border:1px solid #fca5a5">🚩 Discontinued ${fmtPeriodDate(sub.discontinuedOn)}</span>` : '';
-          html += `<div style="display:flex;align-items:flex-start;gap:.4rem;background:#fff5f5;border:1px solid #fca5a5;border-left:3px solid #dc2626;border-radius:.35rem;margin-bottom:.1rem;margin-left:3rem;padding:.35rem .5rem .35rem 0">
+          html += `<div class="mn-inact-card" data-global-idx="${subGlobalIdx}" style="display:flex;align-items:flex-start;gap:.4rem;background:#fff5f5;border:1px solid #fca5a5;border-left:3px solid #dc2626;border-radius:.35rem;margin-bottom:.1rem;margin-left:3rem;padding:.35rem .5rem .35rem 0">
             <span style="font-size:.8rem;color:#dc2626;font-weight:700;flex-shrink:0;padding:.5rem .3rem 0 .55rem">${String.fromCharCode(97 + si)})</span>
             <div style="flex:1;display:flex;flex-direction:column;gap:.3rem;min-width:0">
               <div>
@@ -17871,28 +18121,7 @@ function renderTargetManageContent(student, target) {
     html += `</div></div>`;
   }
 
-  const _emptyHeadingRows = acts
-    .map((a, idx) => ({ a, idx }))
-    .filter(({ a, idx }) => (a.isHeading || a.isMaintainHeading) && emptyHeadingIdxs.has(idx) && !_mnForceShowHeadingIds.has(a.id));
-  if (_emptyHeadingRows.length > 0) {
-    html += `<div style="margin-top:.5rem">
-      <button class="mn-collapsed-toggle" data-section="emptyheadings" style="display:flex;align-items:center;gap:.5rem;background:none;border:none;cursor:pointer;width:100%;padding:.25rem 0;font-size:.85rem;font-weight:700;color:#374151">
-        <span class="mn-toggle-arrow" style="font-size:.75rem">▶</span>
-        Section Headings with No Activities (${_emptyHeadingRows.length})
-      </button>
-      <div id="mn-emptyheadings-section" style="display:none">`;
-    _emptyHeadingRows.forEach(({ a, idx }) => {
-      html += `<div style="display:flex;align-items:center;gap:.5rem;padding:.45rem .5rem;background:#f9fafb;border:1px dashed #d1d5db;border-radius:.4rem;margin-bottom:.35rem">
-        <textarea class="admin-input mn-empty-heading-input" data-idx="${idx}" rows="1"
-          placeholder="Enter Section Heading"
-          style="flex:1;min-width:0;font-size:.85rem;font-weight:600;resize:none;overflow-y:hidden">${escHtml(a.name || "")}</textarea>
-        <span style="font-size:.71rem;color:#9ca3af;white-space:nowrap">All activities mastered/discontinued</span>
-        <button class="btn-mn-restore-empty-heading" data-idx="${idx}" style="font-size:.78rem;padding:.3rem .6rem;color:#1d4ed8;background:#eff6ff;border:1px solid #bfdbfe;border-radius:.35rem;cursor:pointer;white-space:nowrap">↑ Restore to active list</button>
-        <button class="btn-mn-del-empty-heading" data-idx="${idx}" style="font-size:.78rem;padding:.3rem .6rem;color:#dc2626;background:none;border:1px solid #fca5a5;border-radius:.35rem;cursor:pointer">🗑️ Delete</button>
-      </div>`;
-    });
-    html += `</div></div>`;
-  }
+  html += `</div>`; // close #mn-inactive-source
 
   html += `
     <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.25rem">
@@ -17906,13 +18135,11 @@ function renderTargetManageContent(student, target) {
       ${_groupForTargetEdit ? `<button class="btn-adm-danger" id="btn-mn-del-target">Delete This Target</button>` : ''}
     </div>`;
 
-  const _discOpen = $("mn-discontinued-section")?.style.display === "block";
-  const _mastOpen = $("mn-mastered-section")?.style.display === "block";
-  const _emptyHOpen = $("mn-emptyheadings-section")?.style.display === "block";
   $("manage-modal-body").innerHTML = html;
-  if (_discOpen) { const s = $("mn-discontinued-section"); if (s) { s.style.display = "block"; const a = s.previousElementSibling?.querySelector(".mn-toggle-arrow"); if (a) a.textContent = "▼"; s.querySelectorAll(".mn-act-details-input").forEach(autoResizeTextarea); } }
-  if (_mastOpen) { const s = $("mn-mastered-section"); if (s) { s.style.display = "block"; const a = s.previousElementSibling?.querySelector(".mn-toggle-arrow"); if (a) a.textContent = "▼"; s.querySelectorAll(".mn-act-details-input").forEach(autoResizeTextarea); } }
-  if (_emptyHOpen) { const s = $("mn-emptyheadings-section"); if (s) { s.style.display = "block"; const a = s.previousElementSibling?.querySelector(".mn-toggle-arrow"); if (a) a.textContent = "▼"; } }
+  // Relocate the mastered/discontinued cards under their headings before any
+  // listener is bound, so every handler below finds them in their final home.
+  mnRegroupInactiveCards($("manage-modal-body"), acts);
+  $("mn-act-list")?.classList.toggle("mn-collapsed-view", _mnCollapsedView);
   $("manage-modal-body").querySelectorAll(".admin-list-item textarea").forEach(autoResizeTextarea);
 
   _pendingActsCleanup = { acts, save: saveTarget };
@@ -17922,35 +18149,32 @@ function renderTargetManageContent(student, target) {
     saveTarget().catch(() => {});
   }
 
-  initDragSort($("mn-act-list"), async newOrder => {
-    // newOrder only contains indices of top-level drag rows (sub-activities are rendered
-    // inline inside their parent and don't have their own drag rows). Re-attach each
-    // parent's sub-activities immediately after it so they're not dropped from the array.
-    // Mastered/Discontinued activities and empty headings in the collapsed sections below
-    // are ALSO top-level items not present in newOrder (they're not rendered as drag rows) —
-    // walk the full original array and keep any such item exactly where it already was,
-    // instead of only keeping what happened to be visible in the dragged list. Without this,
-    // reordering two ordinary activities would silently wipe every archived one.
-    const topLevel = newOrder.map(oldIdx => acts[oldIdx]);
-    const visibleIdxSet = new Set(newOrder);
-    let vi = 0;
-    const result = [];
-    const appendWithSubs = a => {
-      result.push(a);
-      const key = a.title || a.name;
-      if (key) result.push(...acts.filter(a2 => a2.parentActivity === key));
-    };
-    acts.forEach((a, origIdx) => {
-      if (a.parentActivity) return; // subs are appended right after their parent above, never independently
-      appendWithSubs(visibleIdxSet.has(origIdx) ? topLevel[vi++] : a);
-    });
-    result.forEach((a, i) => a.order = i);
+  initDragSort($("mn-act-list"), async (newOrder, movedIdx, anchorTop) => {
+    const moved = movedIdx != null ? acts[movedIdx] : null;
+    const result = mnReorderActs(acts, newOrder);
     target.predefinedActivities = result;
     await saveTarget();
-    const scrollPos = $("manage-modal-body").scrollTop;
     renderTargetManageContent(student, target);
-    // Restore scroll after re-render via rAF so layout is settled before assignment.
-    requestAnimationFrame(() => { $("manage-modal-body").scrollTop = scrollPos; });
+    mnScrollToMovedRow(moved ? result.indexOf(moved) : -1, anchorTop);
+  });
+
+  // Sub-activities reorder within their own parent, in both the expanded blocks
+  // and the collapsed compact rows.
+  $("manage-modal-body").querySelectorAll(".mn-sub-list, .mn-sub-compact-list").forEach(list => {
+    initDragSort(list, async (newOrder, movedIdx, anchorTop) => {
+      const moved = movedIdx != null ? acts[movedIdx] : null;
+      const result = mnReorderSubs(acts, list.dataset.parentKey || "", newOrder);
+      if (!result) { renderTargetManageContent(student, target); return; }
+      target.predefinedActivities = result;
+      await saveTarget();
+      renderTargetManageContent(student, target);
+      // A sub lives inside its parent's row, so anchor on the parent to hold the
+      // view still — the sub itself isn't a direct child of #mn-act-list.
+      const parentIdx = moved
+        ? result.findIndex(a => !a.parentActivity && (a._linkKey || a.title || a.name) === moved.parentActivity)
+        : -1;
+      mnScrollToMovedRow(parentIdx, anchorTop);
+    });
   });
 
   $("mn-t-name").addEventListener("blur", async () => {
@@ -17974,15 +18198,29 @@ function renderTargetManageContent(student, target) {
     if (e.key === "Enter") { e.preventDefault(); $("mn-t-name").blur(); }
   });
 
-  $("manage-modal-body").querySelectorAll(".admin-pts-btn").forEach(btn => {
+  // [data-pts] scopes this to the real Max Points buttons — the Collapsed View
+  // toggle reuses .admin-pts-btn for its styling and would otherwise be caught
+  // here, setting maxPoints to NaN.
+  $("manage-modal-body").querySelectorAll(".admin-pts-btn[data-pts]").forEach(btn => {
     btn.addEventListener("click", async () => {
       const newPts = Number(btn.dataset.pts);
       if (newPts === target.maxPoints) return;
       if (!confirm(`Change max points to ${newPts}? This will affect how scores are calculated for this target.`)) return;
       target.maxPoints = newPts;
-      $("manage-modal-body").querySelectorAll(".admin-pts-btn").forEach(b =>
+      $("manage-modal-body").querySelectorAll(".admin-pts-btn[data-pts]").forEach(b =>
         b.classList.toggle("active", b.dataset.pts === btn.dataset.pts));
       await saveTarget();
+    });
+  });
+
+  $("manage-modal-body").querySelectorAll(".mn-collapse-toggle-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const on = btn.dataset.collapsed === "1";
+      if (on === _mnCollapsedView) return;
+      _mnCollapsedView = on;
+      $("manage-modal-body").querySelectorAll(".mn-collapse-toggle-btn").forEach(b =>
+        b.classList.toggle("active", (b.dataset.collapsed === "1") === on));
+      $("mn-act-list")?.classList.toggle("mn-collapsed-view", on);
     });
   });
 
@@ -18332,14 +18570,17 @@ function renderTargetManageContent(student, target) {
       };
       if (action === 'master' || action === 'discontinue') {
         const { date: latestDate } = await _loadLatestSub();
-        const rawMin = latestDate || todayDateStr();
+        const rawMin = statusChangeFloorDate(sub, latestDate);
         const minDate = (sub.maintainedAt && sub.maintainedAt > rawMin) ? sub.maintainedAt : rawMin;
         const restrictionText = action === 'master'
           ? 'The earliest you can mark this as mastered is'
           : 'The earliest you can discontinue this sub-activity is';
+        const _subCreated = sub.activeFrom || sub.createdOn;
         const infoHtml = latestDate
           ? `The last recorded session for <strong>"${subDisplayName}"</strong> was on <strong>${fmtPeriodDate(latestDate)}</strong>. ${restrictionText} <strong>${fmtPeriodDate(minDate)}</strong>. This sub-activity will stop showing from <strong>${fmtPeriodDate(addOneDay(minDate))}</strong> onwards.`
-          : `No previous session data was found for <strong>"${subDisplayName}"</strong>.`;
+          : (_subCreated && minDate === _subCreated
+            ? `No previous session data was found for <strong>"${subDisplayName}"</strong>. Defaulting to <strong>${fmtPeriodDate(_subCreated)}</strong>, the date this sub-activity was created.`
+            : `No previous session data was found for <strong>"${subDisplayName}"</strong>.`);
         const pickedDate = await showDatePickerOverlay({
           heading: action === 'master' ? '⭐ Mark Sub-activity as Mastered' : '🚩 Discontinue Sub-activity',
           infoHtml, minDate, defaultDate: minDate,
@@ -18754,57 +18995,6 @@ function renderTargetManageContent(student, target) {
     });
   });
 
-  // Empty-heading dropdown actions — see emptyHeadingIdxs above. Restore is a
-  // local, non-persisted override (no save needed): it just lets this heading
-  // render inline again so a new activity can be dragged under it. Delete
-  // mirrors the regular heading delete in .mn-hkm-opt above.
-  // Empty headings stay renameable in place. A heading lives only in the target
-  // setup (it is never copied into a session), so renaming one updates it
-  // everywhere it is drawn, past sessions and past exports included. Deliberately
-  // does NOT call propagateActivityRename — a heading is not an activity, and
-  // pushing its name through that path is what let heading renames hijack
-  // same-named activities in v606.
-  $("manage-modal-body").querySelectorAll(".mn-empty-heading-input").forEach(inp => {
-    autoResizeTextarea(inp);
-    inp.addEventListener("input", () => autoResizeTextarea(inp));
-    inp.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); inp.blur(); } });
-    inp.addEventListener("blur", async () => {
-      const idx = Number(inp.dataset.idx);
-      const pa = acts[idx];
-      if (!pa) return;
-      const v = inp.value.trim();
-      if (v === (pa.name || "")) return;
-      pa.name = v;
-      target.predefinedActivities = acts;
-      await saveTarget();
-      flashSaved(inp);
-    });
-  });
-
-  $("manage-modal-body").querySelectorAll(".btn-mn-restore-empty-heading").forEach(btn => {
-    btn.addEventListener("click", () => {
-      const idx = Number(btn.dataset.idx);
-      const pa = acts[idx];
-      if (!pa) return;
-      _mnForceShowHeadingIds.add(pa.id);
-      renderTargetManageContent(student, target);
-    });
-  });
-
-  $("manage-modal-body").querySelectorAll(".btn-mn-del-empty-heading").forEach(btn => {
-    btn.addEventListener("click", async () => {
-      const idx = Number(btn.dataset.idx);
-      const pa = acts[idx];
-      if (!pa) return;
-      if (!confirm(`Delete section heading "${pa.name}"?`)) return;
-      const actIdx = acts.indexOf(pa);
-      if (actIdx >= 0) { acts.splice(actIdx, 1); acts.forEach((a, i) => a.order = i); }
-      target.predefinedActivities = acts;
-      await saveTarget();
-      renderTargetManageContent(student, target);
-    });
-  });
-
   $("manage-modal-body").querySelectorAll(".mn-make-standalone").forEach(btn => {
     btn.addEventListener("click", async () => {
       const idx = Number(btn.dataset.idx);
@@ -18848,7 +19038,14 @@ function renderTargetManageContent(student, target) {
         return result;
       };
       const _buildInfo = (latestDate, minDate, latestSubName, restrictionText) => {
-        if (!latestDate) return `No previous session data was found for <strong>"${paDisplayName}"</strong>.`;
+        if (!latestDate) {
+          const created = pa.activeFrom || pa.createdOn;
+          // Only claim it's the creation date when that's genuinely what the
+          // default landed on — a maintained date can push the floor later.
+          return created && minDate === created
+            ? `No previous session data was found for <strong>"${paDisplayName}"</strong>. Defaulting to <strong>${fmtPeriodDate(created)}</strong>, the date this activity was created.`
+            : `No previous session data was found for <strong>"${paDisplayName}"</strong>.`;
+        }
         const src = latestSubName
           ? `The last recorded session for the sub-activity <strong>"${escHtml(_stripMk(latestSubName))}"</strong> was on <strong>${fmtPeriodDate(latestDate)}</strong>.`
           : `The last recorded session for <strong>"${paDisplayName}"</strong> was on <strong>${fmtPeriodDate(latestDate)}</strong>.`;
@@ -18868,12 +19065,12 @@ function renderTargetManageContent(student, target) {
           const activeSubs = paKey ? (target.predefinedActivities || []).filter(a => a.parentActivity === paKey && _isSubActive(a)) : [];
           if (activeSubs.length > 0) {
             const verb = action === 'master' ? 'mastered' : 'discontinued';
-            const ok = await showAutoDateConfirm({ message: `This parent activity has ${activeSubs.length} active sub-activit${activeSubs.length === 1 ? 'y' : 'ies'}. If you ${action === 'master' ? 'master' : 'discontinue'} this activity, all its active sub-activities will also be ${verb} on the same date. Do you want to proceed?`, confirmLabel: "Yes, proceed" });
+            const ok = await showAutoDateConfirm({ message: `This parent activity has ${activeSubs.length} active sub-activit${activeSubs.length === 1 ? 'y' : 'ies'}. If you ${action === 'master' ? 'master' : 'discontinue'} this activity, all its active sub-activities will also be ${verb} on the same date. Do you want to proceed to choose the date of mastery/discontinuation?`, confirmLabel: "Yes, proceed" });
             if (!ok) return;
           }
         }
         const { date: latestDate, subName: latestSubName } = await _loadLatest();
-        const rawMin = latestDate || todayDateStr();
+        const rawMin = statusChangeFloorDate(pa, latestDate);
         const minDate = (pa.maintainedAt && pa.maintainedAt > rawMin) ? pa.maintainedAt : rawMin;
         const restrictionText = action === 'master'
           ? 'The earliest you can mark this as mastered is'
@@ -19007,7 +19204,10 @@ function renderTargetManageContent(student, target) {
         }).map(s => s.date).sort();
         latestDate = dates[dates.length - 1] || null;
       } finally { btn.disabled = false; btn.textContent = origText; }
-      const rawMin = latestDate || todayDateStr();
+      // Same floor as marking it in the first place — otherwise an activity
+      // mastered on its creation date could not have that date re-picked here,
+      // and the picker would open on a date below its own minimum.
+      const rawMin = statusChangeFloorDate(pa, latestDate);
       // Can't set mastered/discontinued date before the maintained date
       const minDate = (pa.maintainedAt && pa.maintainedAt > rawMin) ? pa.maintainedAt : rawMin;
       const _paName = escHtml(pa.title || pa.name || '');
@@ -19857,11 +20057,15 @@ function renderTargetManageContent(student, target) {
     });
   });
 
-  // Parent activity start date — locked, shows alert when clicked
+  // Parent activity start date — locked; explain what to change instead.
   $("manage-modal-body").querySelectorAll(".mn-parent-start-date-btn").forEach(btn => {
     btn.addEventListener("click", e => {
       e.stopPropagation();
-      alert("This date is set automatically based on the earliest sub-activity start date. You cannot change it manually.");
+      showAlertOverlay({
+        title: "⚠️ Start date is set automatically",
+        message: "You cannot change the parent activity's start date. Instead, you need to change the start date of the sub-activities. " +
+                 "The parent activity will naturally just take the earliest start date of the sub-activities.<br><br>If unsure, ask Lewis."
+      });
     });
   });
 
@@ -20199,9 +20403,24 @@ function renderTemplateManageContent(template) {
         <button class="admin-pts-btn ${(template.maxPoints || 3) === 4 ? "active" : ""}" data-pts="4">4</button>
       </div>
     </div>
+    <div class="admin-section admin-row">
+      <label class="admin-label">Collapsed View</label>
+      <div class="admin-pts-group">
+        <button class="admin-pts-btn mn-collapse-toggle-btn ${_mnCollapsedView ? "" : "active"}" data-collapsed="0">Off</button>
+        <button class="admin-pts-btn mn-collapse-toggle-btn ${_mnCollapsedView ? "active" : ""}" data-collapsed="1">On</button>
+      </div>
+    </div>
 
     <div class="admin-section-title">Activities & Notes</div>
     <div class="admin-list" id="mn-act-list">`;
+
+  // See renderTargetManageContent for what these holders are.
+  // One empty holder per section, sitting directly beneath its heading (and one
+  // at the very top for anything before the first heading). mnRegroupInactiveCards
+  // moves that section's collapsed Mastered/Discontinued groups into it, so they
+  // read as part of the heading rather than trailing the section's activities.
+  const _segHolder = seg => `<div class="mn-seg-groups" data-seg="${seg}"></div>`;
+  html += _segHolder(-1);
 
   acts.forEach((a, idx) => {
     if (a.masteredOn || a.discontinuedOn || a.isCompleted || a.isArchived || a.isStopped) return;
@@ -20227,6 +20446,7 @@ function renderTemplateManageContent(template) {
           </div>
         </div>
       </div>`;
+      html += _segHolder(idx);
     } else if (a.isNote || a.isExportNote) {
       const _editRef3    = state.sessionData?.date || todayDateStr();
       const noteInactive = !isActivityActive(a, _editRef3);
@@ -20289,7 +20509,9 @@ function renderTemplateManageContent(template) {
       const actItemStyle = actBaseBg ? ` style="${actBaseBg}"` : '';
       html += `<div class="admin-list-item" data-idx="${idx}"${actItemStyle}>
         <span class="drag-handle">⠿</span>
-        <div style="flex:1;display:flex;flex-direction:column;gap:.3rem">
+        <div style="flex:1;min-width:0">
+          <div class="mn-act-compact-title">${paDisplayHtml(a, true)}</div>
+          <div class="mn-act-body" style="display:flex;flex-direction:column;gap:.3rem">
           <div style="display:flex;align-items:center;gap:.4rem">
             <span style="font-size:.8rem;font-weight:700;color:#6b7280;white-space:nowrap">Start Date:</span>
             <button class="mn-act-start-btn" data-idx="${idx}" style="padding:.2rem .5rem;border:1.5px solid #d1d5db;border-radius:.35rem;background:#f0f9ff;cursor:pointer;font-size:.95rem;color:#374151;white-space:nowrap">📅 ${a.activeFrom ? fmtPeriodDate(a.activeFrom) : 'Set date'}</button>
@@ -20315,6 +20537,7 @@ function renderTemplateManageContent(template) {
             <span style="font-size:.93rem;color:#374151;white-space:nowrap;font-weight:700;padding-top:.3rem">Activity Type:</span>
             ${remarkTypeSelect}
           </div>
+          </div>
         </div>
         <div style="position:relative;align-self:flex-start">
           <button class="btn-adm-del mn-kebab-btn" data-idx="${idx}" title="Activity options" style="font-size:1.35rem;font-weight:900;min-width:36px;min-height:36px">⋮</button>
@@ -20329,6 +20552,14 @@ function renderTemplateManageContent(template) {
   });
 
   html += `</div>`;
+
+  // The two blocks below still build the mastered/discontinued cards exactly as
+  // they always have, but into a hidden staging container. Right after the HTML
+  // is inserted, mnRegroupInactiveCards() moves each card into a collapsed group
+  // under the section heading it belongs to and removes this container. Building
+  // them here and relocating the DOM afterwards keeps ~300 lines of card markup —
+  // and every handler that targets it — completely untouched.
+  html += `<div id="mn-inactive-source" style="display:none">`;
 
   if (masteredActs.length > 0) {
     const _mastTopLevel = masteredActs.filter(a => !a.parentActivity);
@@ -20349,7 +20580,7 @@ function renderTemplateManageContent(template) {
       const _mnMaintBadge = a.maintained ? `<span style="font-size:.71rem;display:inline-block;background:#f3f4f6;color:#6b7280;font-weight:600;padding:.1rem .5rem;border-radius:.3rem;border:1px solid #d1d5db">🆗 Maintained${a.maintainedAt ? ` ${fmtPeriodDate(a.maintainedAt)}` : ''}</span>` : '';
       const _mnCreatedLabel = a.activeFrom ? `Created ${fmtPeriodDate(a.activeFrom)}` : 'Created';
       const myMastSubs = _mastSubs.filter(s => s.parentActivity === (a.title || a.name));
-      html += `<div style="display:flex;align-items:flex-start;gap:.5rem;padding:.45rem .5rem;background:#d1fae5;border:1px solid #6ee7b7;border-radius:.4rem;margin-bottom:${myMastSubs.length ? '.1rem' : '.35rem'}">
+      html += `<div class="mn-inact-card" data-global-idx="${globalIdx}" style="display:flex;align-items:flex-start;gap:.5rem;padding:.45rem .5rem;background:#d1fae5;border:1px solid #6ee7b7;border-radius:.4rem;margin-bottom:${myMastSubs.length ? '.1rem' : '.35rem'}">
         <div style="flex:1;display:flex;flex-direction:column;gap:.4rem">
           <div>
             <div style="font-size:.85rem;font-weight:700;color:#374151;margin-bottom:.2rem">Activity Title</div>
@@ -20395,7 +20626,7 @@ function renderTemplateManageContent(template) {
         const subGlobalIdx = acts.indexOf(sub);
         const subMastBadge = sub.masteredOn ? `<span style="font-size:.71rem;display:inline-block;background:#d1fae5;color:#059669;font-weight:600;padding:.08rem .45rem;border-radius:.3rem;border:1px solid #6ee7b7">⭐ Mastered ${fmtPeriodDate(sub.masteredOn)}</span>` : '';
         const subMaintBadge = sub.maintained ? `<span style="font-size:.71rem;display:inline-block;background:#f3f4f6;color:#6b7280;font-weight:600;padding:.08rem .4rem;border-radius:.3rem;border:1px solid #d1d5db">🆗</span>` : '';
-        html += `<div style="display:flex;align-items:flex-start;gap:.4rem;background:#ecfdf5;border:1px solid #a7f3d0;border-left:3px solid #059669;border-radius:.35rem;margin-bottom:.1rem;margin-left:3rem;padding:.35rem .5rem .35rem 0">
+        html += `<div class="mn-inact-card" data-global-idx="${subGlobalIdx}" style="display:flex;align-items:flex-start;gap:.4rem;background:#ecfdf5;border:1px solid #a7f3d0;border-left:3px solid #059669;border-radius:.35rem;margin-bottom:.1rem;margin-left:3rem;padding:.35rem .5rem .35rem 0">
           <span style="font-size:.8rem;color:#059669;font-weight:700;flex-shrink:0;padding:.5rem .3rem 0 .55rem">${String.fromCharCode(97 + si)})</span>
           <div style="flex:1;display:flex;flex-direction:column;gap:.3rem;min-width:0">
             <div>
@@ -20448,7 +20679,7 @@ function renderTemplateManageContent(template) {
           const subCi = masteredActs.indexOf(sub);
           const subGlobalIdx = acts.indexOf(sub);
           const subMastBadge = sub.masteredOn ? `<span style="font-size:.71rem;display:inline-block;background:#d1fae5;color:#059669;font-weight:600;padding:.08rem .45rem;border-radius:.3rem;border:1px solid #6ee7b7">⭐ Mastered ${fmtPeriodDate(sub.masteredOn)}</span>` : '';
-          html += `<div style="display:flex;align-items:flex-start;gap:.4rem;background:#ecfdf5;border:1px solid #a7f3d0;border-left:3px solid #059669;border-radius:.35rem;margin-bottom:.1rem;margin-left:3rem;padding:.35rem .5rem .35rem 0">
+          html += `<div class="mn-inact-card" data-global-idx="${subGlobalIdx}" style="display:flex;align-items:flex-start;gap:.4rem;background:#ecfdf5;border:1px solid #a7f3d0;border-left:3px solid #059669;border-radius:.35rem;margin-bottom:.1rem;margin-left:3rem;padding:.35rem .5rem .35rem 0">
             <span style="font-size:.8rem;color:#059669;font-weight:700;flex-shrink:0;padding:.5rem .3rem 0 .55rem">${String.fromCharCode(97 + si)})</span>
             <div style="flex:1;display:flex;flex-direction:column;gap:.3rem;min-width:0">
               <div>
@@ -20511,7 +20742,7 @@ function renderTemplateManageContent(template) {
       const _mnMaintBadge2 = a.maintained ? `<span style="font-size:.71rem;display:inline-block;background:#f3f4f6;color:#6b7280;font-weight:600;padding:.1rem .5rem;border-radius:.3rem;border:1px solid #d1d5db">🆗 Maintained${a.maintainedAt ? ` ${fmtPeriodDate(a.maintainedAt)}` : ''}</span>` : '';
       const _mnCreatedLabel2 = a.activeFrom ? `Created ${fmtPeriodDate(a.activeFrom)}` : 'Created';
       const myDiscSubs = _discSubs.filter(s => s.parentActivity === (a.title || a.name));
-      html += `<div style="display:flex;align-items:flex-start;gap:.5rem;padding:.45rem .5rem;background:#fafafa;border:1px solid #e5e7eb;border-radius:.4rem;margin-bottom:${myDiscSubs.length ? '.1rem' : '.35rem'}">
+      html += `<div class="mn-inact-card" data-global-idx="${globalIdx}" style="display:flex;align-items:flex-start;gap:.5rem;padding:.45rem .5rem;background:#fafafa;border:1px solid #e5e7eb;border-radius:.4rem;margin-bottom:${myDiscSubs.length ? '.1rem' : '.35rem'}">
         <div style="flex:1;display:flex;flex-direction:column;gap:.4rem">
           <div>
             <div style="font-size:.85rem;font-weight:700;color:#374151;margin-bottom:.2rem">Activity Title</div>
@@ -20610,7 +20841,7 @@ function renderTemplateManageContent(template) {
           const subCi = discontinuedActs.indexOf(sub);
           const subGlobalIdx = acts.indexOf(sub);
           const subDiscBadge = sub.discontinuedOn ? `<span style="font-size:.71rem;display:inline-block;background:#fee2e2;color:#dc2626;font-weight:600;padding:.08rem .45rem;border-radius:.3rem;border:1px solid #fca5a5">🚩 Discontinued ${fmtPeriodDate(sub.discontinuedOn)}</span>` : '';
-          html += `<div style="display:flex;align-items:flex-start;gap:.4rem;background:#fff5f5;border:1px solid #fca5a5;border-left:3px solid #dc2626;border-radius:.35rem;margin-bottom:.1rem;margin-left:3rem;padding:.35rem .5rem .35rem 0">
+          html += `<div class="mn-inact-card" data-global-idx="${subGlobalIdx}" style="display:flex;align-items:flex-start;gap:.4rem;background:#fff5f5;border:1px solid #fca5a5;border-left:3px solid #dc2626;border-radius:.35rem;margin-bottom:.1rem;margin-left:3rem;padding:.35rem .5rem .35rem 0">
             <span style="font-size:.8rem;color:#dc2626;font-weight:700;flex-shrink:0;padding:.5rem .3rem 0 .55rem">${String.fromCharCode(97 + si)})</span>
             <div style="flex:1;display:flex;flex-direction:column;gap:.3rem;min-width:0">
               <div>
@@ -20654,6 +20885,8 @@ function renderTemplateManageContent(template) {
     html += `</div></div>`;
   }
 
+  html += `</div>`; // close #mn-inactive-source
+
   html += `
     <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.25rem">
       <button class="btn-admin-add" id="btn-mn-add-act" style="flex:0 0 auto;width:auto">+ Add Activity</button>
@@ -20666,11 +20899,10 @@ function renderTemplateManageContent(template) {
       <button class="btn-adm-danger" id="btn-mn-del-template">Delete Template</button>
     </div>`;
 
-  const _tDiscOpen = $("mn-discontinued-section")?.style.display === "block";
-  const _tMastOpen = $("mn-mastered-section")?.style.display === "block";
   $("manage-modal-body").innerHTML = html;
-  if (_tDiscOpen) { const s = $("mn-discontinued-section"); if (s) { s.style.display = "block"; const a = s.previousElementSibling?.querySelector(".mn-toggle-arrow"); if (a) a.textContent = "▼"; } }
-  if (_tMastOpen) { const s = $("mn-mastered-section"); if (s) { s.style.display = "block"; const a = s.previousElementSibling?.querySelector(".mn-toggle-arrow"); if (a) a.textContent = "▼"; } }
+  // See renderTargetManageContent — relocate before listeners are bound.
+  mnRegroupInactiveCards($("manage-modal-body"), acts);
+  $("mn-act-list")?.classList.toggle("mn-collapsed-view", _mnCollapsedView);
   $("manage-modal-body").querySelectorAll(".admin-list-item textarea").forEach(autoResizeTextarea);
 
   const saveTemplateFn = async () => {
@@ -20687,20 +20919,16 @@ function renderTemplateManageContent(template) {
     saveTemplateFn().catch(() => {});
   }
 
-  initDragSort($("mn-act-list"), async newOrder => {
-    const topLevel = newOrder.map(oldIdx => acts[oldIdx]);
-    const result = [];
-    for (const a of topLevel) {
-      result.push(a);
-      const key = a.title || a.name;
-      if (key) result.push(...acts.filter(a2 => a2.parentActivity === key));
-    }
-    result.forEach((a, i) => a.order = i);
+  initDragSort($("mn-act-list"), async (newOrder, movedIdx, anchorTop) => {
+    // Was rebuilding from newOrder alone, which silently dropped every mastered
+    // or discontinued activity (they aren't draggable rows) — same bug the target
+    // editor had. mnReorderActs carries them along with their heading.
+    const moved = movedIdx != null ? acts[movedIdx] : null;
+    const result = mnReorderActs(acts, newOrder);
     template.predefinedActivities = result;
     await saveTemplateFn();
-    const scrollPos = $("manage-modal-body").scrollTop;
     renderTemplateManageContent(template);
-    $("manage-modal-body").scrollTop = scrollPos;
+    mnScrollToMovedRow(moved ? result.indexOf(moved) : -1, anchorTop);
   });
 
   $("mn-t-name").addEventListener("blur", async () => {
@@ -20715,14 +20943,28 @@ function renderTemplateManageContent(template) {
     if (e.key === "Enter") { e.preventDefault(); $("mn-t-name").blur(); }
   });
 
-  $("manage-modal-body").querySelectorAll(".admin-pts-btn").forEach(btn => {
+  // [data-pts] scopes this to the real Max Points buttons — the Collapsed View
+  // toggle reuses .admin-pts-btn for its styling and would otherwise be caught
+  // here, setting maxPoints to NaN.
+  $("manage-modal-body").querySelectorAll(".admin-pts-btn[data-pts]").forEach(btn => {
     btn.addEventListener("click", async () => {
       const newPts = Number(btn.dataset.pts);
       if (newPts === (template.maxPoints || 3)) return;
       template.maxPoints = newPts;
-      $("manage-modal-body").querySelectorAll(".admin-pts-btn").forEach(b =>
+      $("manage-modal-body").querySelectorAll(".admin-pts-btn[data-pts]").forEach(b =>
         b.classList.toggle("active", b.dataset.pts === btn.dataset.pts));
       await saveTemplateFn();
+    });
+  });
+
+  $("manage-modal-body").querySelectorAll(".mn-collapse-toggle-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const on = btn.dataset.collapsed === "1";
+      if (on === _mnCollapsedView) return;
+      _mnCollapsedView = on;
+      $("manage-modal-body").querySelectorAll(".mn-collapse-toggle-btn").forEach(b =>
+        b.classList.toggle("active", (b.dataset.collapsed === "1") === on));
+      $("mn-act-list")?.classList.toggle("mn-collapsed-view", on);
     });
   });
 
@@ -21647,6 +21889,7 @@ function showGroupChoice(group) {
     closeSessionPicker();
     showGroupManageActivityContent(group);
   });
+
 }
 
 // ── Open group session ───────────────────────────────────────
@@ -22333,9 +22576,11 @@ function buildGroupItemsByActivity(target, data, attendees, _grpFilterPaSet = nu
 
   if (_grpFilterPaSet && !_footerOnly) return items; // sidebar mode: manual/inactive sections handled by sidebar wrapper
 
-  // Manually added (non-predefined) activities
+  // Manually added (non-predefined) activities, plus any stranded predefined
+  // records whose config entry has gone missing but which still hold data.
+  const _grpStranded = makeStrandedPredefinedTest(target, data);
   Object.entries(data.activities || {})
-    .filter(([, a]) => a.targetName === target.name && !a.isPredefined)
+    .filter(([actId, a]) => a.targetName === target.name && (!a.isPredefined || _grpStranded(actId, a)))
     .sort(([, a], [, b]) => (a.order || 0) - (b.order || 0))
     .forEach(([actId, act]) => {
       items.push(renderGroupActivityCard(act.activityName, actId, target, data, attendees, null, null, null, false, null, null, _grpFilterPaSet));
@@ -22671,8 +22916,11 @@ function renderGroupStudentBlock(studentName, target, data, grpStudentDate = nul
     activityEntries.push({ actId, actName: pa.title || pa.name, actNote: pa.actNote, pa, actNum: pa.parentActivity ? 0 : byStudentActNum });
   }
   if (!_filterPaSet) {
+    // Stranded predefined records (config entry gone, data still present) are
+    // included alongside the manually-added ones — see makeStrandedPredefinedTest.
+    const _stranded = makeStrandedPredefinedTest(target, data);
     Object.entries(data.activities || {})
-      .filter(([, a]) => a.targetName === target.name && !a.isPredefined)
+      .filter(([actId, a]) => a.targetName === target.name && (!a.isPredefined || _stranded(actId, a)))
       .sort(([, a], [, b]) => (a.order || 0) - (b.order || 0))
       .forEach(([actId, act]) => activityEntries.push({ actId, actName: act.activityName }));
   }
@@ -23763,6 +24011,7 @@ function renderGroupSessionsForMonth(group, month, monthSessions, byMonth, sessi
 
 // ── Group manage modal ───────────────────────────────────────
 function openGroupManageModal(group, target = null, scrollToPaId = null) {
+  _mnCollapsedView = false;   // always opens expanded — see the declaration
   $("manage-modal").classList.remove("hidden");
   if (target) {
     _groupForTargetEdit = group;

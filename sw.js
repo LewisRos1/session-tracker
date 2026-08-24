@@ -1,9 +1,9 @@
-// ============================================================
+﻿// ============================================================
 // SW.JS — Service Worker (PWA offline shell caching)
 // Firebase SDK handles Firestore data offline independently.
 // ============================================================
 
-const CACHE_NAME = "therapy-tracker-v1814";
+const CACHE_NAME = "therapy-tracker-v1848";
 
 // App shell files to pre-cache
 const SHELL_URLS = [
