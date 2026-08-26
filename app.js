@@ -178,7 +178,7 @@ function versionLineText() {
   return `Made by Lewis · Version ${APP_VERSION}`;
 }
 
-const APP_VERSION = "1902";
+const APP_VERSION = "1906";
 
 // Debug helpers — call from F12 console
 // 1) List all stored activity names under a target:
@@ -1972,6 +1972,42 @@ function openStudentRegistryScreen(opts = {}) {
 // (state.students) — the per-student session-number lookups are genuinely
 // slow (2 Firestore queries each), so those fill in afterwards per-cell
 // instead of blocking the whole screen behind a "Loading…" spinner.
+// The note is stored WITHOUT brackets and bracketed at display time, so the
+// brackets can never go missing because someone forgot to type them. Older
+// notes were typed with brackets already, so strip any wrapping pair first
+// rather than migrating the data or ending up with "((EIP))".
+function noteBare(note) {
+  return (note || "").trim().replace(/^\(([\s\S]*)\)$/, "$1").trim();
+}
+function noteLabel(note) {
+  const t = noteBare(note);
+  return t ? `(${t})` : "";
+}
+/** "Caden Tan (School Readiness)", or just the name when there is no note. */
+function studentLabel(s) {
+  const l = noteLabel(s.note);
+  return l ? `${s.name} ${l}` : s.name;
+}
+
+// Gender drives the pronouns in the AI reports, so it is a fixed set rather
+// than free text: a typo would silently put the wrong pronouns in a document
+// that goes to a parent. Clicking cycles male → female → unset.
+const GENDER_CYCLE = { "": "male", male: "female", female: "" };
+const GENDER_STYLE = {
+  male:   { label: "Male",   bg: "#dbeafe", fg: "#1d4ed8", bd: "#93c5fd" },
+  female: { label: "Female", bg: "#fce7f3", fg: "#be185d", bd: "#f9a8d4" },
+  // Unset says what to do rather than showing a dash: a report cannot be
+  // generated until this is filled in, so it should not look optional.
+  "":     { label: "Click to set gender", bg: "#fef3c7", fg: "#b45309", bd: "#fcd34d" }
+};
+
+function genderPillHtml(s) {
+  const g = GENDER_STYLE[s.gender] ? s.gender : "";
+  const st = GENDER_STYLE[g];
+  return `<button class="db-gender-pill" data-id="${escHtml(s.id)}" title="Click to change"
+    style="padding:.28rem .7rem;border-radius:999px;border:1px solid ${st.bd};background:${st.bg};color:${st.fg};font-size:.78rem;font-weight:600;cursor:pointer;white-space:nowrap;min-width:64px">${st.label}</button>`;
+}
+
 async function renderStudentRegistryBody({ highlightAdd = false } = {}) {
   const body = $("student-registry-body");
   if (!body) return;
@@ -1989,6 +2025,7 @@ async function renderStudentRegistryBody({ highlightAdd = false } = {}) {
           <colgroup>
             <col style="width:42px">
             <col style="width:15%">
+            <col style="width:170px">
             <col style="width:10%">
             <col style="width:190px">
             <col style="width:120px">
@@ -1998,6 +2035,7 @@ async function renderStudentRegistryBody({ highlightAdd = false } = {}) {
             <tr>
               <th>No.</th>
               <th>Full Name</th>
+              <th>Gender</th>
               <th style="white-space:normal">Short Name (Used in AI Reports)</th>
               <th>Note</th>
               <th style="white-space:normal">Report Type</th>
@@ -2014,13 +2052,17 @@ async function renderStudentRegistryBody({ highlightAdd = false } = {}) {
                     style="width:100%;text-align:center" />
                 </td>
                 <td style="text-align:center" onclick="event.stopPropagation()">
+                  ${genderPillHtml(s)}
+                </td>
+                <td style="text-align:center" onclick="event.stopPropagation()">
                   <input class="admin-input db-shortname-input" data-id="${escHtml(s.id)}"
                     value="${escHtml(s.preferredName || '')}" placeholder="—" autocomplete="off"
                     style="width:100%;text-align:center" />
                 </td>
                 <td style="text-align:center" onclick="event.stopPropagation()">
                   <input class="admin-input db-note-input" data-id="${escHtml(s.id)}"
-                    value="${escHtml(s.note || '')}" placeholder="—" autocomplete="off"
+                    value="${escHtml(noteBare(s.note))}" placeholder="e.g. EIP" autocomplete="off"
+                    title="No brackets needed — they are added automatically in the sessions list and the reports."
                     style="width:100%;text-align:center" />
                 </td>
                 <td style="text-align:center" onclick="event.stopPropagation()">
@@ -2076,11 +2118,29 @@ async function renderStudentRegistryBody({ highlightAdd = false } = {}) {
       const id = input.dataset.id;
       const s = state.students.find(x => x.id === id);
       if (!s) return;
-      const note = input.value.trim();
+      // Stored without brackets; every display site adds them. Typing them
+      // anyway is harmless, they are just stripped back off here.
+      const note = noteBare(input.value);
+      input.value = note;
       if (note === (s.note || "")) return;
       s.note = note;
       await setStudentNote(id, note);
       renderExistingStudentButtons();
+    });
+  });
+
+  $("student-registry-body").querySelectorAll(".db-gender-pill").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const s = state.students.find(x => x.id === btn.dataset.id);
+      if (!s) return;
+      const next = GENDER_CYCLE[GENDER_STYLE[s.gender] ? s.gender : ""];
+      s.gender = next;
+      const st = GENDER_STYLE[next];
+      btn.textContent      = st.label;
+      btn.style.background = st.bg;
+      btn.style.color      = st.fg;
+      btn.style.borderColor = st.bd;
+      await saveStudent(s);
     });
   });
 
@@ -2663,7 +2723,7 @@ function renderStudentList(container, students, query = "") {
   container.innerHTML = `<div class="roster-list">` +
     filtered.map(s => `
       <button class="roster-item" data-id="${s.id}">
-        <span class="roster-item-name">${escHtml(s.name)}${s.note ? ` <span style="opacity:.6">${escHtml(s.note)}</span>` : ""}</span>
+        <span class="roster-item-name">${escHtml(s.name)}${noteLabel(s.note) ? ` <span style="opacity:.6">${escHtml(noteLabel(s.note))}</span>` : ""}</span>
       </button>
     `).join("") +
     `</div>`;
@@ -2978,7 +3038,7 @@ function renderHalfYearReportsSection() {
         <span style="${labelStyle}">Student</span>
         <select id="hyr-student-select" class="admin-input" style="flex:1;min-width:0;background:#fff;font-family:inherit;font-size:1rem">
           <option value="">— Select —</option>
-          ${students.map(s => `<option value="${escHtml(s.id)}">${escHtml(s.name) + (s.note ? ' ' + escHtml(s.note) : '')}</option>`).join("")}
+          ${students.map(s => `<option value="${escHtml(s.id)}">${escHtml(studentLabel(s))}</option>`).join("")}
         </select>
         <span id="hyr-period-loading" style="font-size:.85rem;color:var(--text-muted);white-space:nowrap;display:none">Checking…</span>
       </div>
@@ -3259,6 +3319,15 @@ async function hyrGenerate() {
     if (text === "Done!") btn.textContent = text;
   };
 
+  // The report's pronouns come from the student's gender, so it cannot be
+  // written correctly without one. Stopping here beats sending a parent a
+  // document that calls their child by the wrong pronoun.
+  if (!student.gender || !GENDER_STYLE[student.gender]) {
+    alert(`${student.name} has no gender set, so the report cannot pick the right pronouns.\n\n`
+      + `Open Student Database, click the Gender pill next to ${student.name}, then generate the report again.`);
+    return;
+  }
+
   // Drop the previous report's cost as soon as a new one starts, or it reads as
   // the cost of the report currently running. The running total stays.
   renderAiCostLine();
@@ -3278,6 +3347,10 @@ async function hyrGenerate() {
     // Build prompt synchronously — then start fetch immediately so it runs in parallel with fake phases
     const periodLabel = period === "H1" ? `January–June ${year}` : `July–December ${year}`;
     const firstName   = student.preferredName || student.name.split(" ")[0];
+    // Gender is required before generating, so the pronouns are always known.
+    const PRON = student.gender === "female"
+      ? { subj: "she", obj: "her", poss: "her" }
+      : { subj: "he", obj: "him", poss: "his" };
     // Actual data start month (may differ from term start if student enrolled mid-term)
     const _hyrMonthAbbrs = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
     const _hyrMonthFull  = ["January","February","March","April","May","June","July","August","September","October","November","December"];
@@ -3313,7 +3386,8 @@ async function hyrGenerate() {
     const aiPrompt = `${HYR_DEFAULT_PROMPT}
 ${excludedList ? `\nEXCLUDED ACTIVITIES — ABSOLUTE RULE: The following activities have been deliberately excluded from this report by the author. They are NOT present in the session data below. Do NOT mention, reference, discuss, or draw any conclusions about them anywhere in the report — not in the executive summary, not in key insights, not in any target or observation section. Treat them as if they do not exist:\n${excludedList}\n` : ""}
 Student: ${student.name}
-${student.note ? `Student Program Note: ${student.note}\n` : ""}Reporting Period: ${aiReportingPeriod}
+${noteBare(student.note) ? `Student Program Note: ${noteBare(student.note)}\n` : ""}PRONOUNS: Refer to ${firstName} as "${PRON.subj}", "${PRON.obj}" and "${PRON.poss}" throughout. Never use the opposite pronouns, and never write "he or she", "him or her", "his or her", "they" or "their" about the student.
+Reporting Period: ${aiReportingPeriod}
 
 SESSION DATA:
 ${dataText}
@@ -3329,7 +3403,7 @@ Write EXACTLY 7 points, no more and no fewer. Each is one specific thing ${first
 
 Write each point as a short LABEL, then TWO sentences. The first sentence states what was observed, starting with the subject. The second says what it means for ${firstName} in ordinary life, outside the session room. Never join them with a dash and never write "this matters because".
 
-The second sentence is the one that gives the point its value. Say what the achievement lets him or her DO, or what it says about them as a person growing up. "This reflects his growing confidence in initiating friendly interactions with other children" is right, because a parent learns something about their child. "His number formation is now solid enough to support longer maths tasks" is weaker, because it only describes the mechanics of the task.
+The second sentence is the one that gives the point its value. Say what the achievement lets ${PRON.obj} DO, or what it says about them as a person growing up. "This reflects his growing confidence in initiating friendly interactions with other children" is right, because a parent learns something about their child. "His number formation is now solid enough to support longer maths tasks" is weaker, because it only describes the mechanics of the task.
 
 VARY how the second sentence opens. Do NOT cycle through "This shows", "This reflects", "This demonstrates", "This highlights" as a set - across seven points AT MOST TWO may begin with "This". Other ways in: "indicating that...", "suggesting that...", "a sign that...", "supporting his ability to...", or state the significance directly with no label at all.
 
@@ -3359,17 +3433,16 @@ ROW: Key Improvement | [2-4 word label]: [What he did. What it means for him in 
 ===END===
 
 ${targetsWithData.map(r => `===OBSERVATION: ${r.name}===
-What the graph shows: [One or two sentences explaining the SHAPE of this target's line over the term. The parent can already see the line; tell them what is behind it. Say where it started, what changed, and why, using the monthly averages and the session remarks below. If it rose and then levelled off, say what drove the rise and what changed afterwards. If it wobbled, say what the good months had in common. If it held steady, say so plainly rather than inventing movement.]
-Strength: [Two sentences. The first names one specific thing ${firstName} does well in this target, as actually observed in sessions rather than a general compliment. The second says what that lets him or her do in ordinary life, outside the session room, the same way the Highlights section does.]
+Strength: [Two sentences. The first names one specific thing ${firstName} does well in this target, as actually observed in sessions rather than a general compliment. The second says what that lets ${PRON.obj} do in ordinary life, outside the session room, the same way the Highlights section does.]
 Weakness: [One or two sentences naming a genuine difficulty in this target, and what tends to bring it on - the situation, the time of day, the kind of task. ONLY write one if the session data directly shows it: a struggling remark, a behaviour that caused problems, or consistently low performance. If the data shows no clear weakness, write exactly: No notable areas of difficulty observed this term. NEVER invent or guess.]
 ===END===`).join("\n\n")}
 
-FORMAT FOR EVERY OBSERVATION BLOCK: exactly three lines, starting "What the graph shows:", "Strength:" and "Weakness:", in that order. No bullet points, no asterisks, no extra lines, no "Note:" line.
+FORMAT FOR EVERY OBSERVATION BLOCK: exactly two lines, starting "Strength:" and "Weakness:", in that order. No bullet points, no asterisks, no extra lines, no "Note:" line, and NEVER a line describing the graph or the shape of the line.
 
 RULES FOR EVERY OBSERVATION BLOCK:
-- Each line answers a DIFFERENT question and must not repeat the others. "What the graph shows" is about movement over the term, "Strength" is about a specific ability and what it is worth, "Weakness" is about a difficulty and when it appears.
+- Each line answers a DIFFERENT question and must not repeat the other. "Strength" is about a specific ability and what it is worth, "Weakness" is about a difficulty and when it appears.
 - One or two sentences per line, whichever it genuinely needs, except Strength which is always two: the observation and what it means. One clear sentence beats the same point stretched across two. Never pad, and never list everything - pick what matters most.
-- NEVER quote numbers or percentages, including in "What the graph shows". Describe the movement in words: "climbed through the first three months, then settled", not "rose from 56% to 80%".
+- NEVER quote numbers or percentages anywhere in these blocks.
 - NO numbers, percentages, or month references. Parents see those in the graph.
 - Plain English, Grade 6-8 reading level. No clinical jargon.
 - Do NOT say things like "modalities", "regulatory capacity", "situational influences", "low-demand contexts". Use real words instead: "free play", "good days and bad days", "room noise".
@@ -3383,12 +3456,12 @@ Strength: [Two sentences. The first names something positive noticed in this ski
 Weakness: [One or two sentences about something still developing or difficult, and what tends to bring it on, explained kindly with a specific example if the data provides one.]
 ===END===`).join("\n\n")}
 
-The OBSERVED blocks follow the same rules as the OBSERVATION blocks above, except that they have NO graph and therefore only two lines: "Strength:" and "Weakness:".
+The OBSERVED blocks follow the same rules and the same two-line format as the OBSERVATION blocks above. They simply have no graph beside them.
 
 ===ACTION_PLAN===
 Review the full session picture for ${firstName} across all targets and all remarks this term. Identify the most important areas to work on and the most helpful strategies.
 
-ORDER BOTH LISTS BY IMPORTANCE, most important first. The first point in each list must be the single thing that matters most for ${firstName} right now, judged by how often it appears in the data, how much it affects the rest of his or her learning, and how far it is from where it should be. Do not order them by target, alphabetically, or by the order the targets appear in the data. If something is only a minor issue, leave it out rather than padding the list to reach five.
+ORDER BOTH LISTS BY IMPORTANCE, most important first. The first point in each list must be the single thing that matters most for ${firstName} right now, judged by how often it appears in the data, how much it affects the rest of ${PRON.poss} learning, and how far it is from where it should be. Do not order them by target, alphabetically, or by the order the targets appear in the data. If something is only a minor issue, leave it out rather than padding the list to reach five.
 
 Write EXACTLY 5 to 7 FOCUS AREAS — you MUST write at least 5, no fewer. Each uses this format: [2-4 word label]: [one concise sentence naming the specific difficulty or gap observed.] Do not group by target name — write each point as a standalone observation.
 
@@ -4741,6 +4814,7 @@ function hyrBuildPreviewHtml(student, period, year, trendRows, categorized, pars
     if (!t) return "";
     t = t.replace(/^•\s*/, "").replace(/\*\*/g, "").trim();
     if (/^Note:/i.test(t)) return "";
+    if (/^What the graph shows:/i.test(t)) return "";
     const ci = t.indexOf(":");
     const html = ci > 0
       ? `<strong>${esc(t.slice(0, ci + 1))}</strong> ${esc(t.slice(ci + 1).trim())}`
@@ -5012,6 +5086,9 @@ async function hyrDownloadWord(student, period, year, trendRows, categorized, pa
       if (!t) return;
       t = t.replace(/^•\s*/, "").replace(/\*\*/g, "").trim();
       if (/^Note:/i.test(t)) return;
+      // The graph line was dropped from the prompt; drop it on the way out too,
+      // so a stray one never reaches the report.
+      if (/^What the graph shows:/i.test(t)) return;
       const ci = t.indexOf(":");
       const runs = ci > 0
         ? [new TextRun({ text: t.slice(0, ci + 1), bold: true, size: 22 }),
@@ -5097,7 +5174,8 @@ async function hyrDownloadWord(student, period, year, trendRows, categorized, pa
   });
 
   paragraphs.push(mkCoverLabelPara("Student Name:"));
-  paragraphs.push(mkCoverShaded(student.name));
+  // Note (e.g. "(EIP)") sits beside the name, as it does everywhere else.
+  paragraphs.push(mkCoverShaded(studentLabel(student)));
   paragraphs.push(mkCoverSpacer());
   paragraphs.push(mkCoverLabelPara("Program:"));
   paragraphs.push(mkCoverShaded("", 32));
@@ -5466,6 +5544,15 @@ async function monthlyGenerate() {
     if (text === "Done!") btn.textContent = text;
   };
 
+  // The report's pronouns come from the student's gender, so it cannot be
+  // written correctly without one. Stopping here beats sending a parent a
+  // document that calls their child by the wrong pronoun.
+  if (!student.gender || !GENDER_STYLE[student.gender]) {
+    alert(`${student.name} has no gender set, so the report cannot pick the right pronouns.\n\n`
+      + `Open Student Database, click the Gender pill next to ${student.name}, then generate the report again.`);
+    return;
+  }
+
   // Drop the previous report's cost as soon as a new one starts, or it reads as
   // the cost of the report currently running. The running total stays.
   renderAiCostLine();
@@ -5486,6 +5573,9 @@ async function monthlyGenerate() {
     const FULL_MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
     const monthName = FULL_MONTHS[month - 1];
     const firstName = student.preferredName || student.name.split(" ")[0];
+    const PRON = student.gender === "female"
+      ? { subj: "she", obj: "her", poss: "her" }
+      : { subj: "he", obj: "him", poss: "his" };
     const _mGrpTargets = sessionType === "group" ? getGroupEffectiveTargets(studentId) : null;
     const effectiveStudent = _mGrpTargets ? { ...student, targets: _mGrpTargets } : student;
     const collected = monthlyCollectData(effectiveStudent, year, month, allSessions, excludedActivities, sessionType);
@@ -5544,7 +5634,8 @@ async function monthlyGenerate() {
     const aiPrompt = `${HYR_DEFAULT_PROMPT}
 ${excludedList ? `\nEXCLUDED ACTIVITIES — ABSOLUTE RULE: The following activities have been deliberately excluded from this report. Do NOT mention, reference, or draw conclusions about them anywhere:\n${excludedList}\n` : ""}
 Student: ${student.name}
-${student.note ? `Student Program Note: ${student.note}\n` : ""}Reporting Month: ${monthName} ${year}
+${noteBare(student.note) ? `Student Program Note: ${noteBare(student.note)}\n` : ""}PRONOUNS: Refer to ${firstName} as "${PRON.subj}", "${PRON.obj}" and "${PRON.poss}" throughout. Never use the opposite pronouns, and never write "he or she", "him or her", "his or her", "they" or "their" about the student.
+Reporting Month: ${monthName} ${year}
 Number of sessions this month: ${sessionCount}
 
 You are writing a monthly progress report for this student's parents. Follow the GLOBAL RULES above on every sentence, including the writing style and sentence structure rules. No percentages or numbers anywhere in the text. Warm but honest.
@@ -5554,12 +5645,18 @@ Provide ONLY the following sections using EXACTLY these markers. No extra text o
 ===HIGHLIGHTS===
 [Write EXACTLY 5 points, no more and no fewer. Each is one specific thing ${firstName} actually did this month, taken from the session remarks, a real moment rather than a general description.
 
-Write each point as TWO sentences. The first states what was observed, starting with the subject. The second states what it shows, starting with a phrase such as "This shows", "This reflects", "This demonstrates" or "This highlights". Never join them with a dash and never write "this matters because".
+Write each point as TWO sentences. The first states what was observed. The second states what it shows, starting with a phrase such as "This shows", "This reflects", "This demonstrates" or "This highlights". Never join them with a dash and never write "this matters because".
+
+VARY HOW THE POINTS OPEN. Five points in a row all beginning with the same name is dull to read and makes the section feel like a list of records rather than a description of a child.
+  • AT MOST 2 of the 5 points may begin with ${firstName}'s name. This is a hard limit, not a preference.
+  • Open the others another way. Make the skill or the task the subject, as in "Putting on ${PRON.poss} shoes took no physical prompting at all." Or set the scene first, as in "Asked to label pictures of animals, ${PRON.subj} named tigers and cows correctly." Or simply start with the pronoun "${PRON.subj}".
+  • Never use the same opening pattern twice in a row.
+  • This does NOT relax the rule below. Whatever the opening, it must never be a date, a frequency, or any other time reference.
 
 ABSOLUTE: NEVER say WHEN or HOW OFTEN anything happened.
   • No dates: not "On 9 July", not "on the 24th", not any day or date.
   • No frequency: not "During one session this month", not "in most sessions", not "twice this month", not "on two occasions". Nothing of that kind.
-  • Every point begins with the subject and goes straight into what happened. The dates in the session data are there so you can find the right moments, not to be reported back.
+  • Every point goes straight into what happened. The dates in the session data are there so you can find the right moments, not to be reported back.
 
 Right: "Hayden apologised to a peer after accidentally stepping on his foot, with minimal prompting. This reflects his use of polite language to repair social situations and maintain positive relationships with classmates."
 Wrong, opens with a date: "On 20 July, Hayden apologised to a peer after accidentally stepping on his foot."
@@ -5596,15 +5693,18 @@ NO numbers and NO percentages anywhere - describe the change in words. One idea 
 ===END===
 
 ===STILL_WORKING===
-[Write 2 to 3 points naming what ${firstName} still finds difficult, based only on genuine difficulties visible in the session data.
+[Write EXACTLY 2 or 3 points naming what ${firstName} still finds difficult, based only on genuine difficulties visible in the session data. Two is the minimum and is REQUIRED. Never write only one.
 
 Each point names the difficulty AND what tends to bring it on, in one or two sentences. "Sudden changes to his routine remain difficult for him. When a plan is altered without warning he may raise his voice or refuse an instruction before he is able to settle." Say what happens and when, and stop there.
 
 Do NOT suggest strategies, next steps, or what anyone will do about it. This section describes, it does not plan. No "we will", no "support will be provided", no recommendations of any kind.
 
-Vary how each point opens rather than starting them all the same way. Never invent a difficulty to fill a slot - if the data shows only one, write only one.]
+Vary how each point opens rather than starting them all the same way.
+
+If the most obvious difficulty is the only large one, do NOT invent a second. Search the rest of the session data for a smaller but real one instead: a skill that needed more prompting than the others, a task type that took longer to settle into, a situation that came up more than once. A milder genuine difficulty is always the right answer; a fabricated one never is.]
 - [difficulty and what brings it on]
 - [difficulty and what brings it on]
+- [difficulty and what brings it on, only if a third genuine one exists]
 ===END===
 
 ACTIVITIES MASTERED THIS MONTH (already listed in the report as fact - do not repeat these in HIGHLIGHTS):
@@ -6321,7 +6421,10 @@ async function monthlyDownloadWord(student, year, month, monthName, sessionCount
     }));
   }
   summaryParas.push(new Paragraph({
-    children: [new TextRun({ text: student.name, bold: true, size: 36, font: TNR })],
+    // Note (e.g. "(EIP)") sits beside the name, matching how the student is
+    // labelled everywhere else in the app. Omitted entirely when there is none.
+    children: [new TextRun({ text: studentLabel(student),
+      bold: true, size: 36, font: TNR })],
     alignment: AlignmentType.CENTER, spacing: { before: 0, after: 40, ...LS }
   }));
   summaryParas.push(new Paragraph({
@@ -6829,7 +6932,7 @@ function openManageActivityScreen(student) {
   _maIsGroup = false;
   _maSelectedTargetIdx = 0;
   const sub = $("manage-activity-subtitle");
-  if (sub) sub.textContent = student.name + (student.note ? ' ' + student.note : '');
+  if (sub) sub.textContent = studentLabel(student);
   showScreen("screen-manage-activity");
   $("btn-manage-activity-back").onclick = showHome;
   // Hide the old header button — the button is now inline next to the dropdown
@@ -6989,7 +7092,7 @@ function showStudentChoice(student) {
   // Pre-fetch sessions as soon as the picker opens so the tick marks are
   // ready by the time the user navigates to "Pick A Date".
   const sessionsFetch = getRecentSessionsForStudent(student.id);
-  $("session-picker-title").textContent = student.name + (student.note ? ' ' + student.note : '');
+  $("session-picker-title").textContent = studentLabel(student);
   $("session-picker-list").innerHTML = `
     <div class="choice-list">
       <button class="choice-btn choice-today">
@@ -7051,7 +7154,7 @@ function showStudentChoice(student) {
 
 
     const renderDateStep = () => {
-      $("session-picker-title").textContent = student.name + (student.note ? ' ' + student.note : '');
+      $("session-picker-title").textContent = studentLabel(student);
       $("session-picker-list").innerHTML = `
         <div class="session-date-step">
           <p class="session-date-prompt">What date is this session for?</p>
@@ -7150,7 +7253,7 @@ function showStudentChoice(student) {
 
 // Page 1: month grid
 async function showSessionPicker(student) {
-  $("session-picker-title").textContent = student.name + (student.note ? ' ' + student.note : '');
+  $("session-picker-title").textContent = studentLabel(student);
   $("session-picker-list").innerHTML =
     `<div class="session-picker-loading">Loading sessions…</div>`;
   $("session-picker-modal").classList.remove("hidden");
@@ -7194,7 +7297,7 @@ async function showSessionPicker(student) {
 }
 
 function renderMonthGrid(student, byMonth, today, sessions) {
-  $("session-picker-title").textContent = student.name + (student.note ? ' ' + student.note : '');
+  $("session-picker-title").textContent = studentLabel(student);
 
   let html = `<div class="month-grid">
     <button class="month-grid-btn month-grid-btn-pickdate" data-action="pick-date">
@@ -7494,7 +7597,7 @@ function showGroupExportStudentPicker(group, mode) {
 // ─── GO TO ANOTHER SESSION ───────────────────────────────────
 // Opens session-picker starting at the current session's month.
 async function showGoToAnotherSession(student) {
-  $("session-picker-title").textContent = student.name + (student.note ? ' ' + student.note : '');
+  $("session-picker-title").textContent = studentLabel(student);
   $("session-picker-list").innerHTML = `<div class="session-picker-loading">Loading sessions…</div>`;
   $("session-picker-modal").classList.remove("hidden");
 
@@ -7542,7 +7645,7 @@ async function showGoToAnotherSession(student) {
 }
 
 function renderGoToMonthGrid(student, byMonth, today) {
-  $("session-picker-title").textContent = student.name + (student.note ? ' ' + student.note : '');
+  $("session-picker-title").textContent = studentLabel(student);
   let html = `<div class="month-grid">`;
   for (const month of byMonth.keys()) {
     const [name, year] = month.split(" ");
@@ -7590,7 +7693,7 @@ function renderGoToSessionsForMonth(student, month, monthSessions, byMonth, toda
 // jumps into live entry instead of View/Edit (openSession instead of
 // openSessionView) when a session is picked.
 async function showGoToAnotherSessionForEntry(student) {
-  $("session-picker-title").textContent = student.name + (student.note ? ' ' + student.note : '');
+  $("session-picker-title").textContent = studentLabel(student);
   $("session-picker-list").innerHTML = `<div class="session-picker-loading">Loading sessions…</div>`;
   $("session-picker-modal").classList.remove("hidden");
 
@@ -7637,7 +7740,7 @@ async function showGoToAnotherSessionForEntry(student) {
 }
 
 function renderGoToMonthGridEntry(student, byMonth, today, sessions) {
-  $("session-picker-title").textContent = student.name + (student.note ? ' ' + student.note : '');
+  $("session-picker-title").textContent = studentLabel(student);
   let html = `<div class="month-grid">
     <button class="month-grid-btn month-grid-btn-pickdate" data-action="pick-date">
       <span class="mgb-pickdate-label">Pick A Date</span>
@@ -7947,7 +8050,7 @@ async function openSession(student, existingSessionId = null, dateStr = null, pa
   _selectedSectionIdx      = 0;
 
   showScreen("screen-session");
-  $("session-student-name").textContent = student.name + (student.note ? ' ' + student.note : '');
+  $("session-student-name").textContent = studentLabel(student);
   $("session-meta").textContent = "";
   $("target-content").innerHTML = `<div class="loading">Loading…</div>`;
   $("target-select").innerHTML  = `<option value="">— loading —</option>`;
@@ -11124,7 +11227,7 @@ async function openSessionView(student, sessionId) {
   state.viewActionsInFlight = 0;
 
   showScreen("screen-session-view");
-  $("view-student-name").textContent = student.name + (student.note ? ' ' + student.note : '');
+  $("view-student-name").textContent = studentLabel(student);
   $("view-session-meta").textContent = "";
   $("session-view-body").innerHTML = `<div class="loading">Loading…</div>`;
   _viewChkConfirmRole = null; clearTimeout(_viewChkConfirmTimer);
@@ -17247,7 +17350,7 @@ function wireStudentNameSection(student) {
 
 function renderStudentManageContent(student) {
   _pendingActsCleanup = null;
-  $("manage-modal-title").textContent = student.name + (student.note ? ' ' + student.note : '');
+  $("manage-modal-title").textContent = studentLabel(student);
   const isAssessment = student.type === "assessment";
 
   const html = `
