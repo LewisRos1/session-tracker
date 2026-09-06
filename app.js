@@ -181,7 +181,7 @@ function versionLineText() {
   return `Made by Lewis · Version ${APP_VERSION}`;
 }
 
-const APP_VERSION = "1974";
+const APP_VERSION = "1976";
 
 // Debug helpers — call from F12 console
 // 1) List all stored activity names under a target:
@@ -11695,6 +11695,15 @@ function paDisplayName(pa) {
 
 // Returns the HTML to display a predefined activity's title (with checkbox-style
 // bold/underline from pa.isBold/pa.isUnderline) and optional details below.
+// Edit Target's card header shows the activity name as plain text. The *bold*
+// and _underline_ markers are formatting meant for the session screens and the
+// Word report; rendered here they made the header compete with the fields under
+// it, and the raw markers are visible in the title box anyway.
+function paPlainTitle(pa) {
+  const t = (pa?.title || "").trim();
+  return escHtml(t.replace(/\*(.+?)\*/g, "$1").replace(/_(.+?)_/g, "$1"));
+}
+
 function paDisplayHtml(pa, showPlaceholder = false, titleOnly = false) {
   // pa.title → first line only (empty = nothing shown on line 1, or placeholder on session screen).
   // pa.name  → always the details/second line when non-empty.
@@ -20016,7 +20025,9 @@ function mnInitActivityCollapse(bodyEl, acts) {
     col.style.cssText = "flex:1;min-width:0;display:flex;flex-direction:column;gap:.3rem";
     const title = document.createElement("div");
     title.className = "mn-act-compact-title";
-    title.innerHTML = a ? paDisplayHtml(a, false, true) : "";
+    // The mastered / discontinued / maintained tag now leads the title, the way
+    // the Start Session screen shows it, instead of sitting off on the right.
+    title.innerHTML = a ? inactiveReasonBadge(a) + `<span class="mn-act-title-text">${paPlainTitle(a)}</span>` : `<span class="mn-act-title-text"></span>`;
     body.parentElement.insertBefore(col, body);
     col.appendChild(title);
     col.appendChild(body);
@@ -20028,28 +20039,49 @@ function mnInitActivityCollapse(bodyEl, acts) {
     ...list.querySelectorAll(":scope > .admin-list-item"),
     ...bodyEl.querySelectorAll(".mn-inact-card")
   ].filter(c => c.querySelector(".mn-act-compact-title") && c.querySelector(".mn-act-body"));
-
   cards.forEach(card => {
-    // The kebab is the only fixed landmark both card types share. Its wrapper
-    // becomes a flex row so the collapse button can sit beside it.
-    const kebab = card.querySelector(".mn-kebab-btn, .btn-mn-inactive-kebab");
-    if (kebab && !card.querySelector(".mn-collapse-btn")) {
-      const wrap = kebab.parentElement;
-      wrap.style.display = "flex";
-      wrap.style.alignItems = "flex-start";
-      wrap.style.gap = ".25rem";
-      const btn = document.createElement("button");
-      btn.type = "button";
-      btn.className = "mn-collapse-btn";
-      btn.title = "Collapse this activity";
-      btn.textContent = "▲";
-      wrap.insertBefore(btn, kebab);
-    }
-
     const gi = Number(card.dataset.globalIdx ?? card.dataset.idx);
     const key = mnActExpandKey(Number.isFinite(gi) ? acts[gi] : null, gi);
     card.dataset.expandKey = key;
     card.classList.toggle("is-expanded", _mnExpandedActs.has(key));
+
+    const titleEl = card.querySelector(".mn-act-compact-title");
+    // An activity with no title yet would collapse to an empty strip with
+    // nothing to click, so it keeps a placeholder to grab hold of. The check is
+    // on the title text alone: a mastered or maintained tag sits in the same
+    // element and would otherwise make an untitled activity look named.
+    const titleTextEl = titleEl.querySelector(".mn-act-title-text") || titleEl;
+    if (!titleTextEl.textContent.trim()) {
+      titleTextEl.innerHTML = `<span style="color:#9ca3af;font-style:italic;font-weight:500">(Untitled activity)</span>`;
+    }
+
+    // Lift the title onto a header row of its own, spanning the whole card, so
+    // the divider under it runs edge to edge instead of starting after the drag
+    // handle. Done here rather than in the markup for the same reason
+    // mnRegroupInactiveCards relocates its cards: it leaves several hundred
+    // lines of card HTML, and every handler bound to it, completely untouched.
+    if (card.classList.contains("admin-list-item") && !card.querySelector(":scope > .mn-act-head")) {
+      const body       = card.querySelector(":scope .mn-act-body");
+      const column     = titleEl.parentElement;                 // holds title + body
+      const numSpan    = column.previousElementSibling;         // the "1)" marker
+      const outerRow   = column.parentElement;                  // number + column
+      const handle     = card.querySelector(":scope > .drag-handle");
+      const kebabWrap  = card.querySelector(":scope > div .mn-kebab-btn")?.parentElement;
+      const subCompact = card.querySelector(":scope .mn-sub-compact-list");
+      if (body && outerRow && outerRow.parentElement === card) {
+        const head = document.createElement("div");
+        head.className = "mn-act-head";
+        if (handle) head.appendChild(handle);
+        if (numSpan) head.appendChild(numSpan);
+        head.appendChild(titleEl);
+        if (kebabWrap) head.appendChild(kebabWrap);
+        card.insertBefore(head, card.firstChild);
+        if (subCompact) card.appendChild(subCompact);
+        card.appendChild(body);
+        outerRow.remove();
+        card.classList.add("mn-act-card");
+      }
+    }
 
     const setOpen = on => {
       card.classList.toggle("is-expanded", on);
@@ -20058,18 +20090,8 @@ function mnInitActivityCollapse(bodyEl, acts) {
       if (on) card.querySelectorAll("textarea").forEach(autoResizeTextarea);
     };
 
-    // An activity with no title yet would collapse to an empty strip with
-    // nothing to click, so it keeps a placeholder to grab hold of.
-    const titleEl = card.querySelector(".mn-act-compact-title");
-    if (!titleEl.textContent.trim()) {
-      titleEl.innerHTML = `<span style="color:#9ca3af;font-style:italic;font-weight:500">(Untitled activity)</span>`;
-    }
     titleEl.addEventListener("click", () =>
       setOpen(!card.classList.contains("is-expanded")));
-    card.querySelector(".mn-collapse-btn")?.addEventListener("click", e => {
-      e.stopPropagation();
-      setOpen(false);
-    });
   });
 }
 // Moves every card built into the hidden #mn-inactive-source into a collapsed
@@ -20081,8 +20103,8 @@ function mnRegroupInactiveCards(bodyEl, acts) {
   if (!src) return;
   const segOf = mnSegmentOf(acts);
   const meta = {
-    mastered:     { label: "Mastered Activities",     emoji: "⭐", color: "#059669" },
-    discontinued: { label: "Discontinued Activities", emoji: "🚩", color: "#dc2626" }
+    mastered:     { label: "List of Mastered Activities",     emoji: "⭐", color: "#059669" },
+    discontinued: { label: "List of Discontinued Activities", emoji: "🚩", color: "#dc2626" }
   };
   for (const kind of ["mastered", "discontinued"]) {
     const panel = src.querySelector(`#mn-${kind}-section`);
@@ -20431,7 +20453,7 @@ function renderTargetManageContent(student, target) {
           <div style="flex:1;min-width:0;display:flex;gap:.5rem;align-items:flex-start">
             <span style="font-size:.8rem;font-weight:700;color:#6b7280;flex-shrink:0;min-width:1.6rem;padding-top:.2rem">${manageActNo})</span>
             <div style="flex:1;min-width:0">
-              <div class="mn-act-compact-title">${paDisplayHtml(a, false, true)}</div>
+              <div class="mn-act-compact-title">${inactiveReasonBadge(a)}<span class="mn-act-title-text">${paPlainTitle(a)}</span></div>
               ${subActs.length ? `<div class="mn-sub-compact-list" data-parent-key="${escHtml(_paKey || "")}">${subActs.map((sub, si) =>
                 `<div class="mn-sub-compact" data-idx="${acts.indexOf(sub)}"><span class="drag-handle" style="font-size:.95rem">⠿</span>${String.fromCharCode(97 + si)}) ${formatActivityMarkup(sub.title || sub.name || "")}</div>`
               ).join("")}</div>` : ""}
@@ -20481,7 +20503,7 @@ function renderTargetManageContent(student, target) {
           <div style="flex:1;min-width:0;display:flex;gap:.5rem;align-items:flex-start">
             <span style="font-size:.8rem;font-weight:700;color:#6b7280;flex-shrink:0;min-width:1.6rem;padding-top:.2rem">${manageActNo})</span>
             <div style="flex:1;min-width:0">
-              <div class="mn-act-compact-title">${paDisplayHtml(a, false, true)}</div>
+              <div class="mn-act-compact-title">${inactiveReasonBadge(a)}<span class="mn-act-title-text">${paPlainTitle(a)}</span></div>
               <div class="mn-act-body" style="display:flex;flex-direction:column;gap:.55rem">
               <div style="display:flex;gap:.6rem;align-items:flex-start">
                 <div style="flex-shrink:0">
@@ -20562,8 +20584,6 @@ function renderTargetManageContent(student, target) {
     _mastTopLevel.forEach(a => {
       const ci = masteredActs.indexOf(a);
       const globalIdx = acts.indexOf(a);
-      const _mnMastBadge = a.masteredOn ? `<span style="font-size:.71rem;display:inline-block;background:#d1fae5;color:#059669;font-weight:600;padding:.1rem .5rem;border-radius:.3rem;border:1px solid #6ee7b7">⭐ Mastered ${fmtPeriodDate(a.masteredOn)}</span>` : '';
-      const _mnMaintBadge = a.maintained ? `<span style="font-size:.71rem;display:inline-block;background:#f3f4f6;color:#6b7280;font-weight:600;padding:.1rem .5rem;border-radius:.3rem;border:1px solid #d1d5db">🆗 Maintained${a.maintainedAt ? ` ${fmtPeriodDate(a.maintainedAt)}` : ''}</span>` : '';
       const _mnCreatedLabel = a.activeFrom ? `Created ${fmtPeriodDate(a.activeFrom)}` : 'Created';
       const myMastSubs = _mastSubs.filter(s => s.parentActivity === (a.title || a.name));
       html += `<div class="mn-inact-card" data-global-idx="${globalIdx}" style="display:flex;align-items:flex-start;gap:.5rem;padding:.45rem .5rem;background:#d1fae5;border:1px solid #6ee7b7;border-radius:.4rem;margin-bottom:${myMastSubs.length ? '.1rem' : '.35rem'}">
@@ -20592,8 +20612,6 @@ function renderTargetManageContent(student, target) {
         </div>
         <div style="display:flex;flex-direction:column;align-items:flex-end;gap:.3rem;flex-shrink:0">
           <div style="display:flex;flex-direction:column;align-items:flex-end;gap:.2rem">
-            ${_mnMaintBadge}
-            ${_mnMastBadge}
             <span style="font-size:.72rem;color:#9ca3af;white-space:nowrap">${_mnCreatedLabel}</span>
           </div>
           <div style="position:relative">
@@ -20610,8 +20628,6 @@ function renderTargetManageContent(student, target) {
       myMastSubs.forEach((sub, si) => {
         const subCi = masteredActs.indexOf(sub);
         const subGlobalIdx = acts.indexOf(sub);
-        const subMastBadge = sub.masteredOn ? `<span style="font-size:.71rem;display:inline-block;background:#d1fae5;color:#059669;font-weight:600;padding:.08rem .45rem;border-radius:.3rem;border:1px solid #6ee7b7">⭐ Mastered ${fmtPeriodDate(sub.masteredOn)}</span>` : '';
-        const subMaintBadge = sub.maintained ? `<span style="font-size:.71rem;display:inline-block;background:#f3f4f6;color:#6b7280;font-weight:600;padding:.08rem .4rem;border-radius:.3rem;border:1px solid #d1d5db">🆗</span>` : '';
         html += `<div class="mn-inact-card" data-global-idx="${subGlobalIdx}" style="display:flex;align-items:flex-start;gap:.4rem;background:#ecfdf5;border:1px solid #a7f3d0;border-left:3px solid #059669;border-radius:.35rem;margin-bottom:.1rem;margin-left:3rem;padding:.35rem .5rem .35rem 0">
           <span style="font-size:.8rem;color:#059669;font-weight:700;flex-shrink:0;padding:.5rem .3rem 0 .55rem">${String.fromCharCode(97 + si)})</span>
           <div style="flex:1;display:flex;flex-direction:column;gap:.3rem;min-width:0">
@@ -20638,7 +20654,6 @@ function renderTargetManageContent(student, target) {
             </div>
           </div>
           <div style="display:flex;flex-direction:column;align-items:flex-end;gap:.25rem;flex-shrink:0;padding-top:.3rem">
-            <div style="display:flex;flex-direction:column;align-items:flex-end;gap:.15rem">${subMaintBadge}${subMastBadge}</div>
             <div style="position:relative">
               <button class="btn-mn-inactive-kebab" data-completed-idx="${subCi}" data-inactive-type="mastered" style="font-size:1rem;font-weight:900;min-width:22px;height:22px;border:none;background:#a7f3d0;cursor:pointer;padding:0 4px;border-radius:.25rem;line-height:1;color:#059669">⋮</button>
               <div class="mn-inactive-km" style="display:none;position:absolute;right:0;top:100%;z-index:200;background:white;border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:210px;overflow:hidden">
@@ -20664,7 +20679,6 @@ function renderTargetManageContent(student, target) {
         subs.forEach((sub, si) => {
           const subCi = masteredActs.indexOf(sub);
           const subGlobalIdx = acts.indexOf(sub);
-          const subMastBadge = sub.masteredOn ? `<span style="font-size:.71rem;display:inline-block;background:#d1fae5;color:#059669;font-weight:600;padding:.08rem .45rem;border-radius:.3rem;border:1px solid #6ee7b7">⭐ Mastered ${fmtPeriodDate(sub.masteredOn)}</span>` : '';
           html += `<div class="mn-inact-card" data-global-idx="${subGlobalIdx}" style="display:flex;align-items:flex-start;gap:.4rem;background:#ecfdf5;border:1px solid #a7f3d0;border-left:3px solid #059669;border-radius:.35rem;margin-bottom:.1rem;margin-left:3rem;padding:.35rem .5rem .35rem 0">
             <span style="font-size:.8rem;color:#059669;font-weight:700;flex-shrink:0;padding:.5rem .3rem 0 .55rem">${String.fromCharCode(97 + si)})</span>
             <div style="flex:1;display:flex;flex-direction:column;gap:.3rem;min-width:0">
@@ -20691,7 +20705,6 @@ function renderTargetManageContent(student, target) {
               </div>
             </div>
             <div style="display:flex;flex-direction:column;align-items:flex-end;gap:.25rem;flex-shrink:0;padding-top:.3rem">
-              <div style="flex-shrink:0">${subMastBadge}</div>
               <div style="position:relative">
                 <button class="btn-mn-inactive-kebab" data-completed-idx="${subCi}" data-inactive-type="mastered" style="font-size:1rem;font-weight:900;min-width:22px;height:22px;border:none;background:#a7f3d0;cursor:pointer;padding:0 4px;border-radius:.25rem;line-height:1;color:#059669">⋮</button>
                 <div class="mn-inactive-km" style="display:none;position:absolute;right:0;top:100%;z-index:200;background:white;border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:210px;overflow:hidden">
@@ -20724,8 +20737,6 @@ function renderTargetManageContent(student, target) {
     _discTopLevel.forEach(a => {
       const ci = discontinuedActs.indexOf(a);
       const globalIdx = acts.indexOf(a);
-      const _mnDiscBadge = a.discontinuedOn ? `<span style="font-size:.71rem;display:inline-block;background:#fee2e2;color:#dc2626;font-weight:600;padding:.1rem .5rem;border-radius:.3rem;border:1px solid #fca5a5">🚩 Discontinued ${fmtPeriodDate(a.discontinuedOn)}</span>` : '';
-      const _mnMaintBadge2 = a.maintained ? `<span style="font-size:.71rem;display:inline-block;background:#f3f4f6;color:#6b7280;font-weight:600;padding:.1rem .5rem;border-radius:.3rem;border:1px solid #d1d5db">🆗 Maintained${a.maintainedAt ? ` ${fmtPeriodDate(a.maintainedAt)}` : ''}</span>` : '';
       const _mnCreatedLabel2 = a.activeFrom ? `Created ${fmtPeriodDate(a.activeFrom)}` : 'Created';
       const myDiscSubs = _discSubs.filter(s => s.parentActivity === (a.title || a.name));
       html += `<div class="mn-inact-card" data-global-idx="${globalIdx}" style="display:flex;align-items:flex-start;gap:.5rem;padding:.45rem .5rem;background:#fafafa;border:1px solid #e5e7eb;border-radius:.4rem;margin-bottom:${myDiscSubs.length ? '.1rem' : '.35rem'}">
@@ -20754,8 +20765,6 @@ function renderTargetManageContent(student, target) {
         </div>
         <div style="display:flex;flex-direction:column;align-items:flex-end;gap:.3rem;flex-shrink:0">
           <div style="display:flex;flex-direction:column;align-items:flex-end;gap:.2rem">
-            ${_mnMaintBadge2}
-            ${_mnDiscBadge}
             <span style="font-size:.72rem;color:#9ca3af;white-space:nowrap">${_mnCreatedLabel2}</span>
           </div>
           <div style="position:relative">
@@ -20772,8 +20781,6 @@ function renderTargetManageContent(student, target) {
       myDiscSubs.forEach((sub, si) => {
         const subCi = discontinuedActs.indexOf(sub);
         const subGlobalIdx = acts.indexOf(sub);
-        const subDiscBadge = sub.discontinuedOn ? `<span style="font-size:.71rem;display:inline-block;background:#fee2e2;color:#dc2626;font-weight:600;padding:.08rem .45rem;border-radius:.3rem;border:1px solid #fca5a5">🚩 Discontinued ${fmtPeriodDate(sub.discontinuedOn)}</span>` : '';
-        const subMaintBadge2 = sub.maintained ? `<span style="font-size:.71rem;display:inline-block;background:#f3f4f6;color:#6b7280;font-weight:600;padding:.08rem .4rem;border-radius:.3rem;border:1px solid #d1d5db">🆗</span>` : '';
         html += `<div style="display:flex;align-items:flex-start;gap:.4rem;background:#fff5f5;border:1px solid #fca5a5;border-left:3px solid #dc2626;border-radius:.35rem;margin-bottom:.1rem;margin-left:3rem;padding:.35rem .5rem .35rem 0">
           <span style="font-size:.8rem;color:#dc2626;font-weight:700;flex-shrink:0;padding:.5rem .3rem 0 .55rem">${String.fromCharCode(97 + si)})</span>
           <div style="flex:1;display:flex;flex-direction:column;gap:.3rem;min-width:0">
@@ -20800,7 +20807,6 @@ function renderTargetManageContent(student, target) {
             </div>
           </div>
           <div style="display:flex;flex-direction:column;align-items:flex-end;gap:.25rem;flex-shrink:0;padding-top:.3rem">
-            <div style="display:flex;flex-direction:column;align-items:flex-end;gap:.15rem">${subMaintBadge2}${subDiscBadge}</div>
             <div style="position:relative">
               <button class="btn-mn-inactive-kebab" data-completed-idx="${subCi}" data-inactive-type="discontinued" style="font-size:1rem;font-weight:900;min-width:22px;height:22px;border:none;background:#fca5a5;cursor:pointer;padding:0 4px;border-radius:.25rem;line-height:1;color:#dc2626">⋮</button>
               <div class="mn-inactive-km" style="display:none;position:absolute;right:0;top:100%;z-index:200;background:white;border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:210px;overflow:hidden">
@@ -20826,7 +20832,6 @@ function renderTargetManageContent(student, target) {
         subs.forEach((sub, si) => {
           const subCi = discontinuedActs.indexOf(sub);
           const subGlobalIdx = acts.indexOf(sub);
-          const subDiscBadge = sub.discontinuedOn ? `<span style="font-size:.71rem;display:inline-block;background:#fee2e2;color:#dc2626;font-weight:600;padding:.08rem .45rem;border-radius:.3rem;border:1px solid #fca5a5">🚩 Discontinued ${fmtPeriodDate(sub.discontinuedOn)}</span>` : '';
           html += `<div class="mn-inact-card" data-global-idx="${subGlobalIdx}" style="display:flex;align-items:flex-start;gap:.4rem;background:#fff5f5;border:1px solid #fca5a5;border-left:3px solid #dc2626;border-radius:.35rem;margin-bottom:.1rem;margin-left:3rem;padding:.35rem .5rem .35rem 0">
             <span style="font-size:.8rem;color:#dc2626;font-weight:700;flex-shrink:0;padding:.5rem .3rem 0 .55rem">${String.fromCharCode(97 + si)})</span>
             <div style="flex:1;display:flex;flex-direction:column;gap:.3rem;min-width:0">
@@ -20853,7 +20858,6 @@ function renderTargetManageContent(student, target) {
               </div>
             </div>
             <div style="display:flex;flex-direction:column;align-items:flex-end;gap:.25rem;flex-shrink:0;padding-top:.3rem">
-              <div style="flex-shrink:0">${subDiscBadge}</div>
               <div style="position:relative">
                 <button class="btn-mn-inactive-kebab" data-completed-idx="${subCi}" data-inactive-type="discontinued" style="font-size:1rem;font-weight:900;min-width:22px;height:22px;border:none;background:#fca5a5;cursor:pointer;padding:0 4px;border-radius:.25rem;line-height:1;color:#dc2626">⋮</button>
                 <div class="mn-inactive-km" style="display:none;position:absolute;right:0;top:100%;z-index:200;background:white;border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:210px;overflow:hidden">
@@ -23274,7 +23278,7 @@ function renderTemplateManageContent(template) {
       html += `<div class="admin-list-item" data-idx="${idx}"${actItemStyle}>
         <span class="drag-handle">⠿</span>
         <div style="flex:1;min-width:0">
-          <div class="mn-act-compact-title">${paDisplayHtml(a, false, true)}</div>
+          <div class="mn-act-compact-title">${inactiveReasonBadge(a)}<span class="mn-act-title-text">${paPlainTitle(a)}</span></div>
           <div class="mn-act-body" style="display:flex;flex-direction:column;gap:.3rem">
           <div style="display:flex;align-items:center;gap:.4rem">
             <span style="font-size:.8rem;font-weight:700;color:#6b7280;white-space:nowrap">Start Date:</span>
@@ -23340,8 +23344,6 @@ function renderTemplateManageContent(template) {
     _mastTopLevel.forEach(a => {
       const ci = masteredActs.indexOf(a);
       const globalIdx = acts.indexOf(a);
-      const _mnMastBadge = a.masteredOn ? `<span style="font-size:.71rem;display:inline-block;background:#d1fae5;color:#059669;font-weight:600;padding:.1rem .5rem;border-radius:.3rem;border:1px solid #6ee7b7">⭐ Mastered ${fmtPeriodDate(a.masteredOn)}</span>` : '';
-      const _mnMaintBadge = a.maintained ? `<span style="font-size:.71rem;display:inline-block;background:#f3f4f6;color:#6b7280;font-weight:600;padding:.1rem .5rem;border-radius:.3rem;border:1px solid #d1d5db">🆗 Maintained${a.maintainedAt ? ` ${fmtPeriodDate(a.maintainedAt)}` : ''}</span>` : '';
       const _mnCreatedLabel = a.activeFrom ? `Created ${fmtPeriodDate(a.activeFrom)}` : 'Created';
       const myMastSubs = _mastSubs.filter(s => s.parentActivity === (a.title || a.name));
       html += `<div class="mn-inact-card" data-global-idx="${globalIdx}" style="display:flex;align-items:flex-start;gap:.5rem;padding:.45rem .5rem;background:#d1fae5;border:1px solid #6ee7b7;border-radius:.4rem;margin-bottom:${myMastSubs.length ? '.1rem' : '.35rem'}">
@@ -23370,8 +23372,6 @@ function renderTemplateManageContent(template) {
         </div>
         <div style="display:flex;flex-direction:column;align-items:flex-end;gap:.3rem;flex-shrink:0">
           <div style="display:flex;flex-direction:column;align-items:flex-end;gap:.2rem">
-            ${_mnMaintBadge}
-            ${_mnMastBadge}
             <span style="font-size:.72rem;color:#9ca3af;white-space:nowrap">${_mnCreatedLabel}</span>
           </div>
           <div style="position:relative">
@@ -23388,8 +23388,6 @@ function renderTemplateManageContent(template) {
       myMastSubs.forEach((sub, si) => {
         const subCi = masteredActs.indexOf(sub);
         const subGlobalIdx = acts.indexOf(sub);
-        const subMastBadge = sub.masteredOn ? `<span style="font-size:.71rem;display:inline-block;background:#d1fae5;color:#059669;font-weight:600;padding:.08rem .45rem;border-radius:.3rem;border:1px solid #6ee7b7">⭐ Mastered ${fmtPeriodDate(sub.masteredOn)}</span>` : '';
-        const subMaintBadge = sub.maintained ? `<span style="font-size:.71rem;display:inline-block;background:#f3f4f6;color:#6b7280;font-weight:600;padding:.08rem .4rem;border-radius:.3rem;border:1px solid #d1d5db">🆗</span>` : '';
         html += `<div class="mn-inact-card" data-global-idx="${subGlobalIdx}" style="display:flex;align-items:flex-start;gap:.4rem;background:#ecfdf5;border:1px solid #a7f3d0;border-left:3px solid #059669;border-radius:.35rem;margin-bottom:.1rem;margin-left:3rem;padding:.35rem .5rem .35rem 0">
           <span style="font-size:.8rem;color:#059669;font-weight:700;flex-shrink:0;padding:.5rem .3rem 0 .55rem">${String.fromCharCode(97 + si)})</span>
           <div style="flex:1;display:flex;flex-direction:column;gap:.3rem;min-width:0">
@@ -23416,7 +23414,6 @@ function renderTemplateManageContent(template) {
             </div>
           </div>
           <div style="display:flex;flex-direction:column;align-items:flex-end;gap:.25rem;flex-shrink:0;padding-top:.3rem">
-            <div style="display:flex;flex-direction:column;align-items:flex-end;gap:.15rem">${subMaintBadge}${subMastBadge}</div>
             <div style="position:relative">
               <button class="btn-mn-inactive-kebab" data-completed-idx="${subCi}" data-inactive-type="mastered" style="font-size:1rem;font-weight:900;min-width:22px;height:22px;border:none;background:#a7f3d0;cursor:pointer;padding:0 4px;border-radius:.25rem;line-height:1;color:#059669">⋮</button>
               <div class="mn-inactive-km" style="display:none;position:absolute;right:0;top:100%;z-index:200;background:white;border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:210px;overflow:hidden">
@@ -23442,7 +23439,6 @@ function renderTemplateManageContent(template) {
         subs.forEach((sub, si) => {
           const subCi = masteredActs.indexOf(sub);
           const subGlobalIdx = acts.indexOf(sub);
-          const subMastBadge = sub.masteredOn ? `<span style="font-size:.71rem;display:inline-block;background:#d1fae5;color:#059669;font-weight:600;padding:.08rem .45rem;border-radius:.3rem;border:1px solid #6ee7b7">⭐ Mastered ${fmtPeriodDate(sub.masteredOn)}</span>` : '';
           html += `<div class="mn-inact-card" data-global-idx="${subGlobalIdx}" style="display:flex;align-items:flex-start;gap:.4rem;background:#ecfdf5;border:1px solid #a7f3d0;border-left:3px solid #059669;border-radius:.35rem;margin-bottom:.1rem;margin-left:3rem;padding:.35rem .5rem .35rem 0">
             <span style="font-size:.8rem;color:#059669;font-weight:700;flex-shrink:0;padding:.5rem .3rem 0 .55rem">${String.fromCharCode(97 + si)})</span>
             <div style="flex:1;display:flex;flex-direction:column;gap:.3rem;min-width:0">
@@ -23469,7 +23465,6 @@ function renderTemplateManageContent(template) {
               </div>
             </div>
             <div style="display:flex;flex-direction:column;align-items:flex-end;gap:.25rem;flex-shrink:0;padding-top:.3rem">
-              <div style="flex-shrink:0">${subMastBadge}</div>
               <div style="position:relative">
                 <button class="btn-mn-inactive-kebab" data-completed-idx="${subCi}" data-inactive-type="mastered" style="font-size:1rem;font-weight:900;min-width:22px;height:22px;border:none;background:#a7f3d0;cursor:pointer;padding:0 4px;border-radius:.25rem;line-height:1;color:#059669">⋮</button>
                 <div class="mn-inactive-km" style="display:none;position:absolute;right:0;top:100%;z-index:200;background:white;border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:210px;overflow:hidden">
@@ -23502,8 +23497,6 @@ function renderTemplateManageContent(template) {
     _discTopLevel.forEach(a => {
       const ci = discontinuedActs.indexOf(a);
       const globalIdx = acts.indexOf(a);
-      const _mnDiscBadge = a.discontinuedOn ? `<span style="font-size:.71rem;display:inline-block;background:#fee2e2;color:#dc2626;font-weight:600;padding:.1rem .5rem;border-radius:.3rem;border:1px solid #fca5a5">🚩 Discontinued ${fmtPeriodDate(a.discontinuedOn)}</span>` : '';
-      const _mnMaintBadge2 = a.maintained ? `<span style="font-size:.71rem;display:inline-block;background:#f3f4f6;color:#6b7280;font-weight:600;padding:.1rem .5rem;border-radius:.3rem;border:1px solid #d1d5db">🆗 Maintained${a.maintainedAt ? ` ${fmtPeriodDate(a.maintainedAt)}` : ''}</span>` : '';
       const _mnCreatedLabel2 = a.activeFrom ? `Created ${fmtPeriodDate(a.activeFrom)}` : 'Created';
       const myDiscSubs = _discSubs.filter(s => s.parentActivity === (a.title || a.name));
       html += `<div class="mn-inact-card" data-global-idx="${globalIdx}" style="display:flex;align-items:flex-start;gap:.5rem;padding:.45rem .5rem;background:#fafafa;border:1px solid #e5e7eb;border-radius:.4rem;margin-bottom:${myDiscSubs.length ? '.1rem' : '.35rem'}">
@@ -23532,8 +23525,6 @@ function renderTemplateManageContent(template) {
         </div>
         <div style="display:flex;flex-direction:column;align-items:flex-end;gap:.3rem;flex-shrink:0">
           <div style="display:flex;flex-direction:column;align-items:flex-end;gap:.2rem">
-            ${_mnMaintBadge2}
-            ${_mnDiscBadge}
             <span style="font-size:.72rem;color:#9ca3af;white-space:nowrap">${_mnCreatedLabel2}</span>
           </div>
           <div style="position:relative">
@@ -23550,8 +23541,6 @@ function renderTemplateManageContent(template) {
       myDiscSubs.forEach((sub, si) => {
         const subCi = discontinuedActs.indexOf(sub);
         const subGlobalIdx = acts.indexOf(sub);
-        const subDiscBadge = sub.discontinuedOn ? `<span style="font-size:.71rem;display:inline-block;background:#fee2e2;color:#dc2626;font-weight:600;padding:.08rem .45rem;border-radius:.3rem;border:1px solid #fca5a5">🚩 Discontinued ${fmtPeriodDate(sub.discontinuedOn)}</span>` : '';
-        const subMaintBadge2 = sub.maintained ? `<span style="font-size:.71rem;display:inline-block;background:#f3f4f6;color:#6b7280;font-weight:600;padding:.08rem .4rem;border-radius:.3rem;border:1px solid #d1d5db">🆗</span>` : '';
         html += `<div style="display:flex;align-items:flex-start;gap:.4rem;background:#fff5f5;border:1px solid #fca5a5;border-left:3px solid #dc2626;border-radius:.35rem;margin-bottom:.1rem;margin-left:3rem;padding:.35rem .5rem .35rem 0">
           <span style="font-size:.8rem;color:#dc2626;font-weight:700;flex-shrink:0;padding:.5rem .3rem 0 .55rem">${String.fromCharCode(97 + si)})</span>
           <div style="flex:1;display:flex;flex-direction:column;gap:.3rem;min-width:0">
@@ -23578,7 +23567,6 @@ function renderTemplateManageContent(template) {
             </div>
           </div>
           <div style="display:flex;flex-direction:column;align-items:flex-end;gap:.25rem;flex-shrink:0;padding-top:.3rem">
-            <div style="display:flex;flex-direction:column;align-items:flex-end;gap:.15rem">${subMaintBadge2}${subDiscBadge}</div>
             <div style="position:relative">
               <button class="btn-mn-inactive-kebab" data-completed-idx="${subCi}" data-inactive-type="discontinued" style="font-size:1rem;font-weight:900;min-width:22px;height:22px;border:none;background:#fca5a5;cursor:pointer;padding:0 4px;border-radius:.25rem;line-height:1;color:#dc2626">⋮</button>
               <div class="mn-inactive-km" style="display:none;position:absolute;right:0;top:100%;z-index:200;background:white;border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:210px;overflow:hidden">
@@ -23604,7 +23592,6 @@ function renderTemplateManageContent(template) {
         subs.forEach((sub, si) => {
           const subCi = discontinuedActs.indexOf(sub);
           const subGlobalIdx = acts.indexOf(sub);
-          const subDiscBadge = sub.discontinuedOn ? `<span style="font-size:.71rem;display:inline-block;background:#fee2e2;color:#dc2626;font-weight:600;padding:.08rem .45rem;border-radius:.3rem;border:1px solid #fca5a5">🚩 Discontinued ${fmtPeriodDate(sub.discontinuedOn)}</span>` : '';
           html += `<div class="mn-inact-card" data-global-idx="${subGlobalIdx}" style="display:flex;align-items:flex-start;gap:.4rem;background:#fff5f5;border:1px solid #fca5a5;border-left:3px solid #dc2626;border-radius:.35rem;margin-bottom:.1rem;margin-left:3rem;padding:.35rem .5rem .35rem 0">
             <span style="font-size:.8rem;color:#dc2626;font-weight:700;flex-shrink:0;padding:.5rem .3rem 0 .55rem">${String.fromCharCode(97 + si)})</span>
             <div style="flex:1;display:flex;flex-direction:column;gap:.3rem;min-width:0">
@@ -23631,7 +23618,6 @@ function renderTemplateManageContent(template) {
               </div>
             </div>
             <div style="display:flex;flex-direction:column;align-items:flex-end;gap:.25rem;flex-shrink:0;padding-top:.3rem">
-              <div style="flex-shrink:0">${subDiscBadge}</div>
               <div style="position:relative">
                 <button class="btn-mn-inactive-kebab" data-completed-idx="${subCi}" data-inactive-type="discontinued" style="font-size:1rem;font-weight:900;min-width:22px;height:22px;border:none;background:#fca5a5;cursor:pointer;padding:0 4px;border-radius:.25rem;line-height:1;color:#dc2626">⋮</button>
                 <div class="mn-inactive-km" style="display:none;position:absolute;right:0;top:100%;z-index:200;background:white;border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:210px;overflow:hidden">
