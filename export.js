@@ -2164,7 +2164,11 @@ function buildSessionDocxBody(entityName, sessionLabel, allTargets, session, sta
             return parseInlineMarkupLine(cleanLine);
           });
           if (noteLines.length === 0) noteLines.push([{ text: "" }]);
-          const allNoteLines = [[{ text: "Remark:", bold: true }], ...noteLines];
+          // Labelled "Note:" to match what the Start Session screen calls this
+          // box. It is the yellow NOTE marked "Included in Word export", not a
+          // remark on an activity, and calling it a remark in the document made
+          // it read like one.
+          const allNoteLines = [[{ text: "Note:", bold: true }], ...noteLines];
           tableRows.push(new TableRow({
             children: [richCell(allNoteLines, { fill: "FEF3C7", colSpan: 3, width: WORD_COL_TOTAL, align: AlignmentType.LEFT })]
           }));
@@ -2741,6 +2745,9 @@ function appendSessionRows(rows, sessionDateBlocks, activityHeadingRows, mastere
         continue;
       }
 
+      // Both of these are the note boxes from the Start Session screen, so they
+      // carry that screen's own label, "Note:". An actNote attached to a single
+      // activity is a different thing and still prints as "Remark:".
       if (act.isNote) {
         noteRows.add(rows.length);
         const noteText = stripActivityMarkup((act.activityName || "")
@@ -2750,7 +2757,7 @@ function appendSessionRows(rows, sessionDateBlocks, activityHeadingRows, mastere
           .replace(/<[^>]*>/g, "")
           .replace(/\n{3,}/g, "\n\n")
           .trim());
-        const r = blankRow(); r[1] = `Remark: ${noteText}`; rows.push(r);
+        const r = blankRow(); r[1] = `Note: ${noteText}`; rows.push(r);
         continue;
       }
 
@@ -2763,7 +2770,7 @@ function appendSessionRows(rows, sessionDateBlocks, activityHeadingRows, mastere
           .replace(/<[^>]*>/g, "")
           .replace(/\n{3,}/g, "\n\n")
           .trim());
-        const r = blankRow(); r[1] = `Remark: ${noteText}`; rows.push(r);
+        const r = blankRow(); r[1] = `Note: ${noteText}`; rows.push(r);
         continue;
       }
 
