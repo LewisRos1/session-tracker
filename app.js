@@ -202,9 +202,72 @@ function versionLineText() {
   return `Made by Lewis · Version ${APP_VERSION}`;
 }
 
-const APP_VERSION = "2050";
+const APP_VERSION = "2065";
 
 // Debug helpers — call from F12 console
+// 0) Find who has an activity, when you remember the name but not the student:
+//    debugFindActivity("Is Toilet Trained")
+//
+//    Matches any part of the name, ignoring case and the *bold* / _underline_
+//    markers a title may carry. Searches every student and every group, their
+//    targets, and activities, parent activities, sub-activities and notes.
+//    Reads only. Full rows are left on window.__findHits.
+window.debugFindActivity = async function(text) {
+  const needle = String(text || "").trim().toLowerCase();
+  if (!needle) { console.warn('Give me something to look for, e.g. debugFindActivity("Is Toilet Trained")'); return; }
+  const plain = t => String(t || "").replace(/\*(.+?)\*/g, "$1").replace(/_(.+?)_/g, "$1").trim();
+
+  const [students, groups] = await Promise.all([loadStudentsConfig(), loadGroups()]);
+  const hits = [];
+
+  const scan = (ownerKind, ownerName, targets) => {
+    for (const t of (targets || [])) {
+      for (const pa of (t.predefinedActivities || [])) {
+        const title = plain(pa.title);
+        const detail = plain(pa.name);
+        const noteText = plain(pa.noteTitle || pa.text);
+        const hay = [title, detail, noteText].filter(Boolean).join(" \u2502 ").toLowerCase();
+        if (!hay.includes(needle)) continue;
+
+        const kind = (pa.isHeading || pa.isMaintainHeading) ? "Section heading"
+                   : (pa.isNote || pa.isExportNote) ? "Note"
+                   : pa.parentActivity ? "Sub-activity"
+                   : (t.predefinedActivities || []).some(p => p.parentActivity === (pa.title || pa.name)) ? "Parent activity"
+                   : "Activity";
+        const status = pa.masteredOn ? `Mastered ${pa.masteredOn}`
+                     : pa.discontinuedOn ? `Discontinued ${pa.discontinuedOn}`
+                     : pa.isCompleted ? "Mastered (no date)"
+                     : (pa.isArchived || pa.isStopped) ? "Discontinued (no date)"
+                     : pa.maintained ? `Maintained ${pa.maintainedAt || ""}`.trim()
+                     : "Active";
+        hits.push({
+          Who: `${ownerName}${ownerKind === "group" ? " (group)" : ""}`,
+          Target: t.name,
+          Kind: kind,
+          Name: title || detail || noteText,
+          Under: pa.parentActivity || "",
+          Status: status,
+          Since: pa.activeFrom || "",
+          _pa: pa
+        });
+      }
+    }
+  };
+
+  for (const st of students) scan("student", st.name + (st.note ? ` (${st.note})` : ""), st.targets);
+  for (const g of groups)    scan("group", g.name, g.targets);
+
+  window.__findHits = hits;
+  if (hits.length === 0) {
+    console.log(`No activity matching "${text}" on this site. Check the spelling, or try a shorter piece of it.`);
+    return hits;
+  }
+  console.log(`${hits.length} match${hits.length === 1 ? "" : "es"} for "${text}":`);
+  console.table(hits.map(({ _pa, ...row }) => row));
+  console.log("Full records on window.__findHits");
+  return hits;
+};
+
 // 1) List all stored activity names under a target:
 //    debugScanTarget("Hayden Chan", "Math")
 window.debugScanTarget = async function(studentName, targetName) {
@@ -1694,6 +1757,45 @@ function initHomeSidenav() {
   }, { passive: true });
 }
 
+/**
+ * Remembers that a <select> menu is open, so nothing re-renders underneath it.
+ *
+ * An open native menu is an operating system window. It fires no events while
+ * it is up, and the page can lose focus the moment it opens, so
+ * document.activeElement is not a dependable test for "the menu is showing".
+ * Any re-render while it is open destroys the menu, which is what made picking
+ * a target take two goes: the list appeared, a Firestore snapshot landed a
+ * moment later, the screen redrew and the list vanished.
+ *
+ * The flag used to clear itself after 800ms, which is shorter than it takes to
+ * read a list and move the mouse down it, so the guard was gone before the user
+ * had chosen. It is now cleared only when the menu is genuinely finished with:
+ * a choice was made, a key dismissed it, or the next click landed somewhere
+ * else on the page. The timeout that remains is a backstop against a flag that
+ * somehow never clears, not a guess at how long someone takes to decide.
+ *
+ * blur is deliberately NOT used to clear it. On some platforms opening the menu
+ * blurs the select, which would clear the flag at the exact moment it is needed.
+ */
+function trackSelectOpen(sel, flag) {
+  if (!sel) return;
+  const timerKey = flag + "Timer";
+  const close = () => { state[flag] = false; clearTimeout(state[timerKey]); };
+  const open = () => {
+    state[flag] = true;
+    clearTimeout(state[timerKey]);
+    state[timerKey] = setTimeout(() => { state[flag] = false; }, 30000);
+  };
+  // touchstart as well as pointerdown: on iOS pointerdown may not fire for a
+  // <select>, and touchstart reliably beats focusout there.
+  ["pointerdown", "touchstart"].forEach(ev => sel.addEventListener(ev, open, { passive: true }));
+  sel.addEventListener("change", close);
+  sel.addEventListener("keydown", e => {
+    if (e.key === "Escape" || e.key === "Enter" || e.key === "Tab") close();
+  });
+  document.addEventListener("pointerdown", e => { if (e.target !== sel) close(); }, { passive: true, capture: true });
+}
+
 document.addEventListener("DOMContentLoaded", async () => {
 
   // Register SW immediately — don't wait for Firebase so updates are never blocked.
@@ -1715,15 +1817,8 @@ document.addEventListener("DOMContentLoaded", async () => {
     }, 5000);
   }
 
-  // On iOS, relatedTarget is always null and pointerdown may not fire for <select>.
-  // Use both pointerdown and touchstart (touchstart fires reliably before focusout on iOS).
-  ["pointerdown", "touchstart"].forEach(evtName => {
-    $("target-select").addEventListener(evtName, () => {
-      state._targetSelDown = true;
-      clearTimeout(state._targetSelTimer);
-      state._targetSelTimer = setTimeout(() => { state._targetSelDown = false; }, 800);
-    }, { passive: true });
-  });
+  trackSelectOpen($("target-select"), "_targetSelDown");
+  trackSelectOpen($("group-target-select"), "_grpTargetSelDown");
 
   document.addEventListener("focusout", (e) => {
     if (e.relatedTarget === $("target-select") || state._targetSelDown) return;
@@ -2414,6 +2509,15 @@ $("btn-logout")?.addEventListener("click", () => {
 
 $("btn-add-existing-student").addEventListener("click", () => showRegisteredStudentPicker("existing"));
 $("btn-add-group").addEventListener("click", addNewGroup);
+$("btn-archived-existing")?.addEventListener("click", () => {
+  state.showArchivedExisting = !state.showArchivedExisting;
+  renderExistingStudentButtons();
+});
+$("btn-archived-group")?.addEventListener("click", () => {
+  state.showArchivedGroup = !state.showArchivedGroup;
+  renderGroupButtons();
+});
+
 $("search-existing").addEventListener("input", e => {
   state.searchExisting = e.target.value;
   renderExistingStudentButtons();
@@ -3638,23 +3742,40 @@ async function assignStudentToBucket(student, targetType) {
 
 // ── Render helpers ────────────────────────────────────────────
 
-function renderStudentList(container, students, query = "") {
+/**
+ * `showArchived` swaps the list over to the archived entries instead of the
+ * active ones.
+ *
+ * Archiving only takes someone off this list. Everything else about them is
+ * untouched: reports, exports, backups, the Student Database and group rosters
+ * all still have them, and opening them from here works exactly as before.
+ *
+ * A search reaches archived entries either way, tagged so it is obvious why
+ * they were not in the list. Typing a name you know exists and being told "No
+ * matches" reads as though the person had been deleted.
+ */
+function renderStudentList(container, students, query = "", showArchived = false) {
   if (!container) return;
   const q = query.toLowerCase();
-  const filtered = students
-    .filter(s => !q || s.name.toLowerCase().includes(q))
-    .sort((a, b) => a.name.localeCompare(b.name));
+  const matches = s => !q || s.name.toLowerCase().includes(q);
+  const pool = showArchived
+    ? students.filter(s => s.archived)
+    : students.filter(s => !s.archived || q);
+  const filtered = pool.filter(matches).sort((a, b) => a.name.localeCompare(b.name));
 
   if (filtered.length === 0) {
     container.innerHTML = q
       ? `<p class="empty-hint">No matches.</p>`
-      : `<p class="empty-hint">None yet.</p>`;
+      : showArchived
+        ? `<p class="empty-hint">Nothing archived.</p>`
+        : `<p class="empty-hint">None yet.</p>`;
     return;
   }
   container.innerHTML = `<div class="roster-list">` +
     filtered.map(s => `
       <button class="roster-item" data-id="${s.id}">
         <span class="roster-item-name">${escHtml(s.name)}${noteLabel(s.note) ? ` <span style="opacity:.6">${escHtml(noteLabel(s.note))}</span>` : ""}</span>
+        ${s.archived && !showArchived ? `<span class="roster-archived-tag">Archived</span>` : ""}
       </button>
     `).join("") +
     `</div>`;
@@ -3679,7 +3800,33 @@ function renderExistingStudentButtons() {
   const students = state.students.filter(s =>
     s.type !== "assessment" && s.type !== "unassigned" && !groupNames.has(s.name)
   );
-  renderStudentList($("existing-student-buttons"), students, state.searchExisting);
+  renderStudentList($("existing-student-buttons"), students, state.searchExisting, !!state.showArchivedExisting);
+  syncArchivedToggle("existing", students.filter(s => s.archived).length);
+}
+
+/**
+ * Paints a section's Archived button: the count, and whether it is switched on.
+ *
+ * Painting only. It used to also notice an empty archive, flip the view back to
+ * the active list and re-render from in here, which broke the button it was
+ * meant to be keeping in step. The group list calls this halfway through
+ * building itself, so that inner render was immediately overwritten by the
+ * outer one still finishing with the archived (empty) list, leaving the screen
+ * saying "Nothing archived" while the state said otherwise, and the switched-on
+ * class cleared before it was ever applied. Clicking again just repeated it.
+ *
+ * There is no automatic fallback now. The button is always on screen, so
+ * clicking it again is the way back, which is what anyone would expect from a
+ * control that stays put.
+ */
+function syncArchivedToggle(which, count) {
+  const btn = $(`btn-archived-${which}`);
+  const num = $(`archived-count-${which}`);
+  if (!btn || !num) return;
+  const on = which === "existing" ? !!state.showArchivedExisting : !!state.showArchivedGroup;
+  num.textContent = String(count);
+  btn.classList.toggle("is-on", on);
+  btn.setAttribute("aria-pressed", on ? "true" : "false");
 }
 
 function addNewGroup() {
@@ -3699,17 +3846,23 @@ function renderGroupButtons() {
   const container = $("group-buttons");
   if (!container) return;
   const q = state.searchGroup.toLowerCase();
-  const filtered = state.groups
-    .filter(g => !q || g.name.toLowerCase().includes(q))
-    .sort((a, b) => a.name.localeCompare(b.name));
+  const showArchived = !!state.showArchivedGroup;
+  const matches = g => !q || g.name.toLowerCase().includes(q);
+  const pool = showArchived
+    ? state.groups.filter(g => g.archived)
+    : state.groups.filter(g => !g.archived || q);
+  const filtered = pool.filter(matches).sort((a, b) => a.name.localeCompare(b.name));
+  syncArchivedToggle("group", state.groups.filter(g => g.archived).length);
   if (filtered.length === 0) {
     container.innerHTML = q
       ? `<p class="empty-hint">No matches.</p>`
-      : `<p class="empty-hint">None yet.</p>`;
+      : showArchived
+        ? `<p class="empty-hint">Nothing archived.</p>`
+        : `<p class="empty-hint">None yet.</p>`;
     return;
   }
   container.innerHTML = `<div class="roster-list">` +
-    filtered.map(g => `<button class="roster-item" data-id="${g.id}"><span class="roster-item-name">${escHtml(g.name)}</span></button>`).join("") +
+    filtered.map(g => `<button class="roster-item" data-id="${g.id}"><span class="roster-item-name">${escHtml(g.name)}</span>${g.archived && !showArchived ? `<span class="roster-archived-tag">Archived</span>` : ""}</button>`).join("") +
     `</div>`;
   container.querySelectorAll(".roster-item").forEach(btn => {
     btn.addEventListener("click", () => {
@@ -9508,8 +9661,25 @@ function showStudentChoice(student) {
           <div class="choice-label">Export to Word (Daily Session Note)</div>
         </div>
       </button>
+      <button class="choice-btn choice-archive">
+        <span class="choice-icon">${student.archived ? "📤" : "📥"}</span>
+        <div class="choice-text">
+          <div class="choice-label">${student.archived ? "Unarchive" : "Archive"}</div>
+        </div>
+      </button>
     </div>`;
   $("session-picker-modal").classList.remove("hidden");
+
+  // Archiving only takes someone off the home list. Their sessions, targets,
+  // reports, exports and backups are all untouched, which is why this needs no
+  // warning: it is a tidying-up, not a deletion.
+  $("session-picker-list").querySelector(".choice-archive").addEventListener("click", async () => {
+    student.archived = !student.archived;
+    if (!student.archived) delete student.archived;
+    closeSessionPicker();
+    await saveStudent(student).catch(() => {});
+    renderExistingStudentButtons();
+  });
 
   $("session-picker-list").querySelector(".choice-export-excel").addEventListener("click", () => {
     requirePassword(() => showExportTrialsChoice(student.name, includeTrials => exportStudentData(student, includeTrials)), EXPORT_MSG);
@@ -10442,7 +10612,7 @@ async function openSession(student, existingSessionId = null, dateStr = null, pa
   }
   state.entryRemarkSaver = setupEntryRemarkSaving($("target-content"), () => state.currentSessionId, () => {
     if (!state.renderPending || state.entryActionsInFlight > 0) return;
-    if (document.activeElement === $("target-select")) return;
+    if (document.activeElement === $("target-select") || state._targetSelDown) return;
     const _tc = $("target-content"), _ae = document.activeElement;
     if (_tc?.contains(_ae) && (_ae?.tagName === "TEXTAREA" || _ae?.tagName === "INPUT")) return;
     state.renderPending = false;
@@ -10600,7 +10770,7 @@ async function openSession(student, existingSessionId = null, dateStr = null, pa
       // wasn't registering when clicked soon after typing elsewhere).
       const isEntryBusy = () => {
         const ae = document.activeElement;
-        if (ae === $("target-select")) return true;
+        if (ae === $("target-select") || state._targetSelDown) return true;
         if (state.entryActionsInFlight > 0) return true;
         if (ae?.classList.contains("pending-activity-name-input")) return true;
         // Any text field inside target-content means the user is actively typing.
@@ -10740,14 +10910,19 @@ function sortTargetsByOrder(targets) {
 function populateTargetDropdown(targets) {
   const sel = $("target-select");
   const sorted = sortTargetsByOrder(targets).filter(t => !t.discontinuedOn);
-  const placeholder = sorted.length === 0
-    ? `<option value="" disabled selected>— no targets yet —</option>` : "";
-  sel.innerHTML = placeholder +
-    sorted.map(t =>
-      `<option value="${escHtml(t.name)}">${escHtml(t.name)}</option>`
-    ).join("") + `<option value="__add_target__">+ Add Target…</option>`;
+  // Rewriting the options closes an open menu, so the list is left alone while
+  // the user is reading it. Everything below still runs: skipping the whole
+  // function here would leave the Edit Instructors button unwired.
+  if (!state._targetSelDown) {
+    const placeholder = sorted.length === 0
+      ? `<option value="" disabled selected>— no targets yet —</option>` : "";
+    sel.innerHTML = placeholder +
+      sorted.map(t =>
+        `<option value="${escHtml(t.name)}">${escHtml(t.name)}</option>`
+      ).join("") + `<option value="__add_target__">+ Add Target…</option>`;
 
-  sel.value = state.selectedTargetName || sorted[0]?.name || "";
+    sel.value = state.selectedTargetName || sorted[0]?.name || "";
+  }
 
   const editInstBtn2 = $("btn-entry-edit-instructors");
   if (editInstBtn2) {
@@ -11129,9 +11304,12 @@ function renderFedcTarget(target, _filterPaSet = null, _sectionOnly = false) {
     }
 
     if (pa.isCompleted || pa.isArchived || pa.isStopped) return;
-    if (_filterPaSet && !_filterPaSet.has(pa)) return;
 
+    // Numbered before the section filter, not after it. Numbering runs straight
+    // through a target, and this screen draws one section at a time from the
+    // full list: counting only what it draws restarted every section at 1.
     actNum++;
+    if (_filterPaSet && !_filterPaSet.has(pa)) return;
     const writtenDot = _filterPaSet
       ? (paIsWritten(pa, target)
         ? `<span style="display:inline-flex;align-items:center;justify-content:center;width:17px;height:17px;border-radius:50%;background:#22c55e;color:#fff;font-size:.6rem;font-weight:900;margin-right:.3rem;flex-shrink:0;align-self:flex-start;margin-top:.35rem">✓</span>`
@@ -11172,7 +11350,24 @@ function renderFedcTarget(target, _filterPaSet = null, _sectionOnly = false) {
 
     // Parent activity with sub-activities — render as a connected visual group
     const children = subActsByParent.get(pa.title || pa.name) || [];
-    { const _pk2 = pa.title || pa.name; if (_pk2 && children.length === 0 && allPas.some(p => p.parentActivity === _pk2 && !p.isCompleted && !p.isArchived && !p.isStopped)) { actNum--; return; } } // parent with all subs now inactive
+    // A parent whose sub-activities have all been mastered or discontinued. It
+    // keeps its number and its place, with nothing to fill in and a line saying
+    // why, so this screen and Edit Target agree about what exists. It used to
+    // vanish from here while still showing there.
+    if (children.length === 0) {
+      const _ep = emptyParentInfo(pa, allPas);
+      if (_ep) {
+        html += `<div class="entry-block" contenteditable="false" style="border:1px solid var(--border);border-left:5px solid var(--primary);background:var(--white);box-shadow:var(--shadow)">
+          <div class="entry-field" contenteditable="false">
+            <span class="field-label">Activity</span>
+            <span class="field-value-fixed"><span style="color:#6b7280;font-weight:600;margin-right:.2rem">${actNum})</span>${paDisplayHtml(pa, true)}</span>
+            ${pa.activeFrom ? `<span style="font-size:.75rem;color:#9ca3af;white-space:nowrap;flex-shrink:0;align-self:flex-start">Created: ${fmtPeriodDate(pa.activeFrom)}</span>` : ""}
+          </div>
+          <div class="empty-parent-note" contenteditable="false">${escHtml(EMPTY_PARENT_NOTE)}</div>
+        </div>`;
+        return;
+      }
+    }
     if (children.length > 0) {
       const isGrayP  = pa.activityColor === "gray" || pa.isMaintainLive || pa.maintained;
       const isGreenP = pa.activityColor === "green";
@@ -11700,9 +11895,11 @@ function renderInactiveStatusSection({ label, color, pas, orphanGroups, allPas, 
   };
   const nameOf = pa => paDisplayHtml(pa, true) || `<em style="color:#9ca3af;font-size:.85rem">Untitled</em>`;
 
+  // A sub-activity's name is indented so the table shows at a glance which rows
+  // belong to the parent above them, the way the lettering already implies.
   const row = (pa, marker, isSub) => `<tr>
       <td style="${isSub ? _subNumCell : _numCell}">${marker}</td>
-      <td style="${_nameCell}">${nameOf(pa)}</td>
+      <td style="${_nameCell}${isSub ? ';padding-left:1.9rem' : ''}">${nameOf(pa)}</td>
       <td style="${_dateCell}">${dateText(pa)}</td>
     </tr>`;
 
@@ -12082,6 +12279,41 @@ function truncateWords(text, limit = 10) {
   const words = t.split(/\s+/);
   return words.length <= limit ? t : words.slice(0, limit).join(" ") + "…";
 }
+
+/**
+ * A parent activity that has run out of sub-activities, or null.
+ *
+ * A parent is a name that groups sub-activities. It holds no score and no
+ * remark of its own, so once every sub under it has been mastered or
+ * discontinued there is nothing left to record against it. That does not make
+ * the parent itself finished: more sub-activities can be added to it, which is
+ * why it is not retired automatically.
+ *
+ * Both screens show it, labelled, rather than one showing it and the other
+ * hiding it. The session screen used to drop it silently, so an activity that
+ * was plainly there in Edit Target simply did not exist when you went to fill
+ * the session in.
+ *
+ * `lastDate` is the day the last sub left, which is what "hide" uses so nobody
+ * has to invent a date for a bag that is already empty.
+ */
+function emptyParentInfo(a, acts) {
+  if (!a || a.parentActivity || a.isHeading || a.isMaintainHeading || a.isNote || a.isExportNote || a.isMaintain) return null;
+  if (a.masteredOn || a.discontinuedOn || a.isCompleted || a.isArchived || a.isStopped) return null;
+  const key = a._linkKey || a.title || a.name;
+  if (!key) return null;
+  const mine = (acts || []).filter(p => p.parentActivity === key);
+  if (mine.length === 0) return null;
+  const retired = p => p.isCompleted || p.isArchived || p.isStopped || p.masteredOn || p.discontinuedOn;
+  if (mine.some(p => !retired(p))) return null;
+  const dates = mine.map(p => p.masteredOn || p.discontinuedOn).filter(Boolean).sort();
+  return { lastDate: dates.length ? dates[dates.length - 1] : null, count: mine.length };
+}
+
+const EMPTY_PARENT_NOTE =
+  "All sub-activities under this parent activity have been mastered or discontinued. " +
+  "You can hide this parent activity if you don't wish to see it here, " +
+  "or add more sub-activities to it under \u201cEdit Target\u201d.";
 
 function paPlainTitle(pa) {
   const t = (pa?.title || "").trim();
@@ -20377,7 +20609,7 @@ document.addEventListener("keydown", e => {
 function mnRowChip(kind) {
   const el = document.createElement("span");
   el.className = "mn-row-chip mn-row-chip--" + kind;
-  el.textContent = { section: "Section Heading", activity: "Activity", sub: "Sub-activity", note: "Note" }[kind] || kind;
+  el.textContent = { section: "Section Heading", activity: "Activity", parent: "Parent Activity", sub: "Sub-activity", note: "Note" }[kind] || kind;
   return el;
 }
 
@@ -20499,8 +20731,15 @@ function mnInitActivityCollapse(bodyEl, acts) {
       }
     }
 
+    // A row that owns sub-activities says so. It behaves differently from an
+    // ordinary activity — no score, no remark, only the subs beneath it — and
+    // that stays true once the last sub has been retired, which is exactly when
+    // it would otherwise be mistaken for a plain activity sitting on its own.
+    const _chipKey = act && !act.parentActivity ? (act._linkKey || act.title || act.name) : null;
+    const _isParentRow = !!_chipKey && acts.some(p => p.parentActivity === _chipKey);
     const kind = act && (act.isHeading || act.isMaintainHeading) ? "section"
-               : act && (act.isNote || act.isExportNote) ? "note" : "activity";
+               : act && (act.isNote || act.isExportNote) ? "note"
+               : _isParentRow ? "parent" : "activity";
     const head = card.querySelector(":scope > .mn-act-head");
     if (!card.querySelector(".mn-row-chip")) {
       if (head) head.insertBefore(mnRowChip(kind), titleEl);
@@ -20526,8 +20765,22 @@ function mnInitActivityCollapse(bodyEl, acts) {
       const handle = row.querySelector(".drag-handle");
       row.insertBefore(mnRowChip("sub"), handle ? handle.nextSibling : row.firstChild);
     }
+    // The ⋮ belongs on the row, level with the parent activity's own ⋮ above
+    // it, rather than inside the card you have to open first. The element is
+    // MOVED, not copied: a second menu would need its own handlers and would
+    // have to be kept in step with this one forever. Its offsets were set to
+    // line it up with the Activity Title field inside the card, so they are
+    // cleared here and it is pushed to the far right of the row instead.
+    const subKebab = item.querySelector(".mn-sub-kebab-wrap");
+    if (subKebab && !row.contains(subKebab)) {
+      subKebab.style.marginTop = "0";
+      subKebab.style.alignSelf = "center";
+      subKebab.style.marginLeft = "auto";
+      row.appendChild(subKebab);
+    }
     row.addEventListener("click", e => {
       if (e.target.closest(".drag-handle")) return;   // grabbing to reorder
+      if (e.target.closest(".mn-sub-kebab-wrap")) return;   // using the menu, not opening the card
       const shown = escHtml(nameOf(sub)) ||
         `<span style="color:#9ca3af;font-style:italic;font-weight:500">(Untitled sub-activity)</span>`;
       mnOpenActPanel(item, subBody, `<span class="mn-act-title-text">${shown}</span>`, keyOf(sub));
@@ -20574,16 +20827,21 @@ function mnRegroupInactiveCards(bodyEl, acts) {
   const src = bodyEl.querySelector("#mn-inactive-source");
   if (!src) return;
   const segOf = mnSegmentOf(acts);
+  // No colour here: the group's colours are in styles.css, keyed off data-kind,
+  // so the collapsed row, the card border and its title bar cannot drift apart.
   const meta = {
-    mastered:     { label: "List of Mastered Activities",     emoji: "⭐", color: "#059669" },
-    discontinued: { label: "List of Discontinued Activities", emoji: "🚩", color: "#dc2626" }
+    mastered:     { label: "List of Mastered Activities",     emoji: "⭐" },
+    discontinued: { label: "List of Discontinued Activities", emoji: "🚩" }
   };
   for (const kind of ["mastered", "discontinued"]) {
     const panel = src.querySelector(`#mn-${kind}-section`);
     if (!panel) continue;
-    for (const card of [...panel.querySelectorAll(":scope > .mn-inact-card")]) {
+    // Headers come along too, in the order they were written, so the subs of a
+    // still-active parent keep the heading that says whose they are. They are
+    // not cards, so they never count towards the group total below.
+    for (const card of [...panel.querySelectorAll(":scope > .mn-inact-card, :scope > .mn-inact-hdr")]) {
       const gi = Number(card.dataset.globalIdx);
-      const key = Number.isFinite(gi) && segOf.has(gi) ? segOf.get(gi) : -1;
+      const key = Number.isFinite(gi) && gi >= 0 && segOf.has(gi) ? segOf.get(gi) : -1;
       const holder = bodyEl.querySelector(`.mn-seg-groups[data-seg="${key}"]`);
       if (!holder) continue;
       let group = holder.querySelector(`.mn-inact-group[data-kind="${kind}"]`);
@@ -20592,9 +20850,11 @@ function mnRegroupInactiveCards(bodyEl, acts) {
         group = document.createElement("div");
         group.className = "mn-inact-group";
         group.dataset.kind = kind;
-        group.style.cssText = "margin:.35rem 0 .15rem";
+        // The look lives in styles.css. It used to be set inline here, which
+        // no rule could override, so the expanded card could not restyle its
+        // own heading.
         group.innerHTML =
-          `<button class="mn-inact-toggle" style="display:flex;align-items:center;gap:.45rem;background:none;border:none;cursor:pointer;width:100%;padding:.25rem 0;font-size:.83rem;font-weight:700;color:${m.color};text-align:left">` +
+          `<button class="mn-inact-toggle">` +
             // Label and count share one span: the button is a flex row with a gap,
             // so leaving them as loose text nodes rendered as "Mastered ( 3 )".
             `<span class="mn-inact-arrow" style="font-size:.7rem">▶</span>` +
@@ -20623,6 +20883,9 @@ function mnRegroupInactiveCards(bodyEl, acts) {
       if (!panel) return;
       const open = panel.style.display !== "none";
       panel.style.display = open ? "none" : "block";
+      // Expanded, the group becomes a bordered card so its rows cannot be read
+      // as a continuation of the active list above it.
+      btn.parentElement?.classList.toggle("mn-inact-open", !open);
       if (arrow) arrow.textContent = open ? "▶" : "▼";
       if (!open) panel.querySelectorAll(".mn-act-details-input,.mn-inactive-name-input").forEach(autoResizeTextarea);
     });
@@ -20855,6 +21118,7 @@ function renderTargetManageContent(student, target) {
       const _paKey = a._linkKey || a.title || a.name;
       const subActs = _paKey ? acts.filter(a2 => a2.parentActivity === _paKey && !a2.isCompleted && !a2.isArchived && !a2.isStopped && !a2.masteredOn && !a2.discontinuedOn) : [];
       const hasSubActs = subActs.length > 0;
+      const _emptyParent = hasSubActs ? null : emptyParentInfo(a, acts);
       const isGray = a.activityColor === "gray" || a.isMaintainLive;
       const isGreen = a.activityColor === "green";
       const actBaseBg   = isGray ? 'background:#f3f4f6;border:1px solid #d1d5db' : isGreen ? 'background:#e2efda;border:1px solid #a9d18e' : null;
@@ -20889,7 +21153,7 @@ function renderTargetManageContent(student, target) {
                         placeholder="Enter Activity Title Here" value="${escHtml(sub.title || '')}" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block" />
                     </div>
                   </div>
-                  <div style="position:relative;align-self:flex-start;flex-shrink:0;margin-top:1.6rem">
+                  <div class="mn-sub-kebab-wrap" style="position:relative;align-self:flex-start;flex-shrink:0;margin-top:1.6rem">
                     <button class="btn-adm-del mn-sub-kebab-btn" data-idx="${subIdx}" title="Subactivity options" style="font-size:1.35rem;font-weight:900;min-width:36px;min-height:36px">⋮</button>
                     <div class="mn-sub-kebab-menu" style="display:none;position:absolute;right:0;top:100%;z-index:100;background:white;border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:240px;overflow:hidden">
                       ${mnSubStatusKebabHtml(sub, subIdx)}
@@ -20966,6 +21230,7 @@ function renderTargetManageContent(student, target) {
             <button class="btn-adm-del mn-kebab-btn" data-idx="${idx}" title="Activity options" style="font-size:1.35rem;font-weight:900;min-width:36px;min-height:36px">⋮</button>
             <div class="mn-kebab-menu" id="mn-km-${idx}" style="display:none;position:absolute;right:0;top:100%;z-index:100;background:white;border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:310px;overflow:hidden">
               ${mnStatusKebabHtml(a, idx, true)}
+              <button class="mn-km-add-sub" data-idx="${idx}" style="width:100%;padding:.55rem .9rem;text-align:left;background:none;border:none;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:.84rem;color:#374151">➕ Add sub-activity</button>
               <div style="display:flex;align-items:stretch">
                 <button class="mn-km-opt" data-idx="${idx}" data-action="delete" style="flex:1;padding:.55rem .9rem;text-align:left;background:none;border:none;cursor:pointer;font-size:.84rem;color:#dc2626">🗑️ Delete Activity</button>
                 <span title="Deletes this activity and all its sub-activities." style="padding:.55rem .5rem;cursor:default;color:#9ca3af;font-size:.8rem;display:flex;align-items:center">ⓘ</span>
@@ -20982,6 +21247,9 @@ function renderTargetManageContent(student, target) {
             <span style="font-size:.8rem;font-weight:700;color:#6b7280;flex-shrink:0;min-width:1.6rem;padding-top:.2rem">${manageActNo})</span>
             <div style="flex:1;min-width:0">
               <div class="mn-act-compact-title">${inactiveReasonBadge(a)}<span class="mn-act-title-text">${paPlainTitle(a)}</span></div>
+              ${_emptyParent ? `<div class="mn-empty-parent-note">${escHtml(EMPTY_PARENT_NOTE)}
+                <button class="mn-hide-empty-parent" data-idx="${idx}" type="button">Hide this parent activity</button>
+              </div>` : ""}
               <div class="mn-act-body" style="display:flex;flex-direction:column;gap:.55rem">
               <div style="display:flex;gap:.6rem;align-items:flex-start">
                 <div style="flex-shrink:0">
@@ -21019,8 +21287,15 @@ function renderTargetManageContent(student, target) {
           <div style="position:relative;align-self:flex-start">
             <button class="btn-adm-del mn-kebab-btn" data-idx="${idx}" title="Activity options" style="font-size:1.35rem;font-weight:900;min-width:36px;min-height:36px">⋮</button>
             <div class="mn-kebab-menu" id="mn-km-${idx}" style="display:none;position:absolute;right:0;top:100%;z-index:100;background:white;border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:310px;overflow:hidden">
-              ${mnStatusKebabHtml(a, idx, false)}
-              <button class="mn-km-move-to-parent" data-idx="${idx}" style="width:100%;padding:.55rem .9rem;text-align:left;background:none;border:none;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:.84rem;color:#374151;white-space:nowrap">↪️ Make this activity into a Sub-activity</button>
+              ${_emptyParent
+                // An emptied parent cannot be mastered, discontinued or
+                // maintained: those describe work, and it holds none of its own.
+                // Nor can it become a sub-activity, since it still owns the subs
+                // that were retired under it. What is left is to put it away, to
+                // refill it, or to remove it.
+                ? `<button class="mn-hide-empty-parent" data-idx="${idx}" type="button" style="width:100%;padding:.55rem .9rem;text-align:left;background:none;border:none;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:.84rem;color:#9a3412">🙈 Hide Parent Activity</button>`
+                : `${mnStatusKebabHtml(a, idx, false)}
+              <button class="mn-km-move-to-parent" data-idx="${idx}" style="width:100%;padding:.55rem .9rem;text-align:left;background:none;border:none;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:.84rem;color:#374151;white-space:nowrap">↪️ Make this activity into a Sub-activity</button>`}
               <button class="mn-km-add-sub" data-idx="${idx}" style="width:100%;padding:.55rem .9rem;text-align:left;background:none;border:none;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:.84rem;color:#374151">➕ Add sub-activity</button>
               <div style="display:flex;align-items:stretch">
                 <button class="mn-km-opt" data-idx="${idx}" data-action="delete" style="flex:1;padding:.55rem .9rem;text-align:left;background:none;border:none;cursor:pointer;font-size:.84rem;color:#dc2626">🗑️ Delete Activity</button>
@@ -21141,7 +21416,7 @@ function renderTargetManageContent(student, target) {
         const _omParent = acts.find(a => (a.title || a.name) === pk && !a.parentActivity);
         const _omParentTitle = _omParent ? (paDisplayHtml(_omParent, true) || escHtml(pk)) : escHtml(pk);
         const _omParentCreated = _omParent?.activeFrom ? `<span style="font-size:.71rem;color:#9ca3af;margin-left:.4rem">Created ${fmtPeriodDate(_omParent.activeFrom)}</span>` : '';
-        html += `<div style="display:flex;align-items:center;gap:.5rem;background:#f0f9ff;border:1px solid #bae6fd;border-left:3px solid #60a5fa;border-radius:.35rem;margin-bottom:.35rem;padding:.45rem .75rem"><span style="font-size:.85rem;font-weight:700;color:#1e40af;flex:1;min-width:0">${_omParentTitle}</span><span style="font-size:.71rem;background:#dbeafe;color:#1d4ed8;font-weight:600;padding:.05rem .4rem;border-radius:.3rem;border:1px solid #93c5fd;white-space:nowrap;flex-shrink:0">Still Active</span>${_omParentCreated}</div>`;
+        html += `<div class="mn-inact-hdr" data-global-idx="${_omParent ? acts.indexOf(_omParent) : -1}" style="display:flex;align-items:center;gap:.5rem;background:#f0f9ff;border:1px solid #bae6fd;border-left:3px solid #60a5fa;border-radius:.35rem;margin-bottom:.35rem;padding:.45rem .75rem"><span style="font-size:.85rem;font-weight:700;color:#1e40af;flex:1;min-width:0">${_omParentTitle}</span><span style="font-size:.71rem;background:#dbeafe;color:#1d4ed8;font-weight:600;padding:.05rem .4rem;border-radius:.3rem;border:1px solid #93c5fd;white-space:nowrap;flex-shrink:0">Still Active</span>${_omParentCreated}</div>`;
         subs.forEach((sub, si) => {
           const subCi = masteredActs.indexOf(sub);
           const subGlobalIdx = acts.indexOf(sub);
@@ -21282,7 +21557,7 @@ function renderTargetManageContent(student, target) {
         const _odParent = acts.find(a => (a.title || a.name) === pk && !a.parentActivity);
         const _odParentTitle = _odParent ? (paDisplayHtml(_odParent, true) || escHtml(pk)) : escHtml(pk);
         const _odParentCreated = _odParent?.activeFrom ? `<span style="font-size:.71rem;color:#9ca3af;margin-left:.4rem">Created ${fmtPeriodDate(_odParent.activeFrom)}</span>` : '';
-        html += `<div style="display:flex;align-items:center;gap:.5rem;background:#f0f9ff;border:1px solid #bae6fd;border-left:3px solid #60a5fa;border-radius:.35rem;margin-bottom:.35rem;padding:.45rem .75rem"><span style="font-size:.85rem;font-weight:700;color:#1e40af;flex:1;min-width:0">${_odParentTitle}</span><span style="font-size:.71rem;background:#dbeafe;color:#1d4ed8;font-weight:600;padding:.05rem .4rem;border-radius:.3rem;border:1px solid #93c5fd;white-space:nowrap;flex-shrink:0">Still Active</span>${_odParentCreated}</div>`;
+        html += `<div class="mn-inact-hdr" data-global-idx="${_odParent ? acts.indexOf(_odParent) : -1}" style="display:flex;align-items:center;gap:.5rem;background:#f0f9ff;border:1px solid #bae6fd;border-left:3px solid #60a5fa;border-radius:.35rem;margin-bottom:.35rem;padding:.45rem .75rem"><span style="font-size:.85rem;font-weight:700;color:#1e40af;flex:1;min-width:0">${_odParentTitle}</span><span style="font-size:.71rem;background:#dbeafe;color:#1d4ed8;font-weight:600;padding:.05rem .4rem;border-radius:.3rem;border:1px solid #93c5fd;white-space:nowrap;flex-shrink:0">Still Active</span>${_odParentCreated}</div>`;
         subs.forEach((sub, si) => {
           const subCi = discontinuedActs.indexOf(sub);
           const subGlobalIdx = acts.indexOf(sub);
@@ -22015,8 +22290,21 @@ function renderTargetManageContent(student, target) {
       act.noRemark = true;
       const subId = cfgId("a");
       const paKey = act._linkKey || act.title || act.name;
-      const newSub = { id: subId, title: "", name: "", parentActivity: paKey, order: 0, activeFrom: act.activeFrom || null, createdOn: todayDateStr() };
-      acts.splice(idx + 1, 0, newSub);
+      // Starts the day it is created, like every other new activity, not on the
+      // parent's start date. A parent shows the earliest of its sub-activities'
+      // dates, so inheriting it dated a brand-new sub back to whenever the first
+      // one began: it then appeared, unfilled, in every session since.
+      // The session's own date rather than today, so a sub added while writing up
+      // an earlier session belongs to that session.
+      const _newSubDate = _groupForTargetEdit
+        ? (state.groupSessionData?.date || todayDateStr())
+        : (state.sessionData?.date || todayDateStr());
+      const newSub = { id: subId, title: "", name: "", parentActivity: paKey, order: 0, activeFrom: _newSubDate, createdOn: todayDateStr() };
+      // After the last sub it already has, not straight under the parent. This
+      // menu can now be used on an activity that is already a parent, and
+      // dropping the new one in front would relabel every existing sub.
+      const _sibIdxs = acts.map((a2, i) => a2.parentActivity === paKey ? i : -1).filter(i => i >= 0);
+      acts.splice((_sibIdxs.length ? Math.max(..._sibIdxs) : idx) + 1, 0, newSub);
       acts.forEach((a2, i) => a2.order = i);
       target.predefinedActivities = acts;
       const sp = $("manage-modal-body").scrollTop;
@@ -22407,26 +22695,34 @@ function renderTargetManageContent(student, target) {
     });
   });
 
+  // Hiding an empty parent marks it mastered on the day its last sub-activity
+  // left, so nobody has to pick a date for a bag that is already empty. It is
+  // an ordinary mastered activity underneath, which is why the Mastered list,
+  // the exports and the reports need to know nothing about any of this.
+  $("manage-modal-body").querySelectorAll(".mn-hide-empty-parent").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const idx = Number(btn.dataset.idx);
+      const a = acts[idx];
+      if (!a) return;
+      const info = emptyParentInfo(a, acts);
+      a.masteredOn = info?.lastDate || todayDateStr();
+      delete a.isCompleted; delete a.isArchived; delete a.isStopped;
+      await saveTarget();
+      renderTargetManageContent(student, target);
+    });
+  });
+
   $("manage-modal-body").querySelectorAll(".btn-mn-restore").forEach(btn => {
     btn.addEventListener("click", async () => {
       const ci = Number(btn.dataset.completedIdx);
       const type = btn.dataset.inactiveType;
       const pa = type === "mastered" ? masteredActs[ci] : discontinuedActs[ci];
       if (!pa) return;
-      if (!pa.parentActivity) {
-        const paKey = pa._linkKey || pa.title || pa.name;
-        if (paKey) {
-          const affectedSubs = acts.filter(a => a.parentActivity === paKey && (type === "mastered" ? !!a.masteredOn : !!a.discontinuedOn));
-          if (affectedSubs.length > 0) {
-            const ok = await showAutoDateConfirm({ message: `Restoring this activity to active will also restore all its sub-activities. To restore only a specific sub-activity, use the sub-activity's kebab menu in the Mastered/Discontinued section.`, confirmLabel: "Restore All ↩" });
-            if (!ok) return;
-            affectedSubs.forEach(sub => {
-              if (type === "mastered") { delete sub.masteredOn; delete sub.isCompleted; }
-              else { delete sub.discontinuedOn; delete sub.isArchived; delete sub.isStopped; }
-            });
-          }
-        }
-      }
+      // A parent comes back on its own. Its sub-activities were mastered or
+      // discontinued one at a time and each was a decision; undoing all of them
+      // because the parent returned would throw those away in a single click.
+      // The parent reappears as an empty parent, which says so on its card, and
+      // any sub is restored from its own menu.
       if (type === "mastered") { delete pa.masteredOn; delete pa.isCompleted; }
       else { delete pa.discontinuedOn; delete pa.isArchived; delete pa.isStopped; }
       await saveTarget();
@@ -23871,7 +24167,7 @@ function renderTemplateManageContent(template) {
         const _omParent = acts.find(a => (a.title || a.name) === pk && !a.parentActivity);
         const _omParentTitle = _omParent ? (paDisplayHtml(_omParent, true) || escHtml(pk)) : escHtml(pk);
         const _omParentCreated = _omParent?.activeFrom ? `<span style="font-size:.71rem;color:#9ca3af;margin-left:.4rem">Created ${fmtPeriodDate(_omParent.activeFrom)}</span>` : '';
-        html += `<div style="display:flex;align-items:center;gap:.5rem;background:#f0f9ff;border:1px solid #bae6fd;border-left:3px solid #60a5fa;border-radius:.35rem;margin-bottom:.35rem;padding:.45rem .75rem"><span style="font-size:.85rem;font-weight:700;color:#1e40af;flex:1;min-width:0">${_omParentTitle}</span><span style="font-size:.71rem;background:#dbeafe;color:#1d4ed8;font-weight:600;padding:.05rem .4rem;border-radius:.3rem;border:1px solid #93c5fd;white-space:nowrap;flex-shrink:0">Still Active</span>${_omParentCreated}</div>`;
+        html += `<div class="mn-inact-hdr" data-global-idx="${_omParent ? acts.indexOf(_omParent) : -1}" style="display:flex;align-items:center;gap:.5rem;background:#f0f9ff;border:1px solid #bae6fd;border-left:3px solid #60a5fa;border-radius:.35rem;margin-bottom:.35rem;padding:.45rem .75rem"><span style="font-size:.85rem;font-weight:700;color:#1e40af;flex:1;min-width:0">${_omParentTitle}</span><span style="font-size:.71rem;background:#dbeafe;color:#1d4ed8;font-weight:600;padding:.05rem .4rem;border-radius:.3rem;border:1px solid #93c5fd;white-space:nowrap;flex-shrink:0">Still Active</span>${_omParentCreated}</div>`;
         subs.forEach((sub, si) => {
           const subCi = masteredActs.indexOf(sub);
           const subGlobalIdx = acts.indexOf(sub);
@@ -24012,7 +24308,7 @@ function renderTemplateManageContent(template) {
         const _odParent = acts.find(a => (a.title || a.name) === pk && !a.parentActivity);
         const _odParentTitle = _odParent ? (paDisplayHtml(_odParent, true) || escHtml(pk)) : escHtml(pk);
         const _odParentCreated = _odParent?.activeFrom ? `<span style="font-size:.71rem;color:#9ca3af;margin-left:.4rem">Created ${fmtPeriodDate(_odParent.activeFrom)}</span>` : '';
-        html += `<div style="display:flex;align-items:center;gap:.5rem;background:#f0f9ff;border:1px solid #bae6fd;border-left:3px solid #60a5fa;border-radius:.35rem;margin-bottom:.35rem;padding:.45rem .75rem"><span style="font-size:.85rem;font-weight:700;color:#1e40af;flex:1;min-width:0">${_odParentTitle}</span><span style="font-size:.71rem;background:#dbeafe;color:#1d4ed8;font-weight:600;padding:.05rem .4rem;border-radius:.3rem;border:1px solid #93c5fd;white-space:nowrap;flex-shrink:0">Still Active</span>${_odParentCreated}</div>`;
+        html += `<div class="mn-inact-hdr" data-global-idx="${_odParent ? acts.indexOf(_odParent) : -1}" style="display:flex;align-items:center;gap:.5rem;background:#f0f9ff;border:1px solid #bae6fd;border-left:3px solid #60a5fa;border-radius:.35rem;margin-bottom:.35rem;padding:.45rem .75rem"><span style="font-size:.85rem;font-weight:700;color:#1e40af;flex:1;min-width:0">${_odParentTitle}</span><span style="font-size:.71rem;background:#dbeafe;color:#1d4ed8;font-weight:600;padding:.05rem .4rem;border-radius:.3rem;border:1px solid #93c5fd;white-space:nowrap;flex-shrink:0">Still Active</span>${_odParentCreated}</div>`;
         subs.forEach((sub, si) => {
           const subCi = discontinuedActs.indexOf(sub);
           const subGlobalIdx = acts.indexOf(sub);
@@ -24935,8 +25231,22 @@ function showGroupChoice(group) {
         <span class="choice-icon">📝</span>
         <div class="choice-text"><div class="choice-label">Export to Word (Daily Session Note)</div></div>
       </button>
+      <button class="choice-btn choice-archive">
+        <span class="choice-icon">${group.archived ? "📤" : "📥"}</span>
+        <div class="choice-text"><div class="choice-label">${group.archived ? "Unarchive" : "Archive"}</div></div>
+      </button>
     </div>`;
   $("session-picker-modal").classList.remove("hidden");
+
+  // See the note on the individual version: this hides the group from the home
+  // list and changes nothing else about it.
+  $("session-picker-list").querySelector(".choice-archive").addEventListener("click", async () => {
+    group.archived = !group.archived;
+    if (!group.archived) delete group.archived;
+    closeSessionPicker();
+    await saveGroup(group).catch(() => {});
+    renderGroupButtons();
+  });
 
   $("session-picker-list").querySelector(".choice-export-excel").addEventListener("click", () => {
     showGroupExportStudentPicker(group, "excel");
@@ -25073,7 +25383,7 @@ async function openGroupSession(group, dateStr, attendees, participants = null) 
   }
   state.entryGroupRemarkSaver = setupEntryRemarkSaving($("group-target-content"), () => state.groupSessionId, () => {
     if (!state.groupRenderPending || state.entryGroupActionsInFlight > 0) return;
-    if (document.activeElement === $("group-target-select")) return;
+    if (document.activeElement === $("group-target-select") || state._grpTargetSelDown) return;
     state.groupRenderPending = false;
     renderGroupTargetContent();
   });
@@ -25143,7 +25453,7 @@ async function openGroupSession(group, dateStr, attendees, participants = null) 
       // a focused box never needs to defer a render here.
       const isGroupEntryBusy = () => {
         const ae = document.activeElement;
-        if (ae === $("group-target-select")) return true;
+        if (ae === $("group-target-select") || state._grpTargetSelDown) return true;
         if (state.entryGroupActionsInFlight > 0) return true;
         const gc = $("group-target-content");
         if (gc?.contains(ae) && (ae?.tagName === "TEXTAREA" || ae?.tagName === "INPUT")) return true;
@@ -25177,13 +25487,18 @@ function populateGroupTargetDropdown(targets) {
   const sel = $("group-target-select");
   if (!sel) return;
   const sorted = sortTargetsByOrder(targets).filter(t => !t.discontinuedOn);
-  const placeholder = sorted.length === 0
-    ? `<option value="" disabled selected>— no targets yet —</option>` : "";
-  sel.innerHTML = placeholder +
-    sorted.map(t =>
-      `<option value="${escHtml(t.name)}"${t.name === state.selectedGroupTargetName ? " selected" : ""}>${escHtml(t.name)}</option>`
-    ).join("") +
-    `<option value="__add_target__">+ Add Target…</option>`;
+  // Rewriting the options closes an open menu, so the list is left alone while
+  // the user is reading it. Everything below still runs: skipping the whole
+  // function here would leave the Edit Target button unwired.
+  if (!state._grpTargetSelDown) {
+    const placeholder = sorted.length === 0
+      ? `<option value="" disabled selected>— no targets yet —</option>` : "";
+    sel.innerHTML = placeholder +
+      sorted.map(t =>
+        `<option value="${escHtml(t.name)}"${t.name === state.selectedGroupTargetName ? " selected" : ""}>${escHtml(t.name)}</option>`
+      ).join("") +
+      `<option value="__add_target__">+ Add Target…</option>`;
+  }
 
   const manageBtn = $("btn-group-manage-targets");
   if (manageBtn) {
@@ -25539,6 +25854,33 @@ function buildGroupItemsByActivity(target, data, attendees, _grpFilterPaSet = nu
     }
   }
 
+  /**
+   * The number each activity carries, worked out over the whole target.
+   *
+   * This screen draws one section at a time out of the full list, so a counter
+   * that only advanced on the rows it drew started again at 1 in every section
+   * and the same number turned up several times down one target. The number is
+   * a property of where an activity sits in its target, so it is settled here,
+   * once, and the section filter below only decides what gets drawn.
+   *
+   * Mirrors the skips in the loop: sub-activities are lettered under their
+   * parent, headings and notes are not activities, retired ones are gone, and a
+   * parent whose sub-activities have all been retired is not drawn at all.
+   */
+  const grpNumOf = new Map();
+  {
+    let n = 0;
+    for (const pa of allPas) {
+      if (pa.parentActivity) continue;
+      if (pa.isNote || pa.isExportNote || pa.isHeading) continue;
+      if (pa.isCompleted || pa.isArchived || pa.isStopped || pa.isMaintain || pa.isMaintainHeading) continue;
+      const k = pa.title || pa.name;
+      const hasAnySubs = k && allPas.some(p => p.parentActivity === k && !p.isCompleted && !p.isArchived && !p.isStopped);
+      if (hasAnySubs && (grpSubsByParent.get(k) || []).length === 0) continue;
+      grpNumOf.set(pa, ++n);
+    }
+  }
+
   let grpActNum = 0;
   for (const pa of allPas) {
     if (_footerOnly) continue; // predefined activities rendered in sections already; skip in footer
@@ -25575,7 +25917,7 @@ function buildGroupItemsByActivity(target, data, attendees, _grpFilterPaSet = nu
     const _grpHasAnySubs = _grpPaKey && allPas.some(p => p.parentActivity === _grpPaKey && !p.isCompleted && !p.isArchived && !p.isStopped);
     if (_grpHasAnySubs && children.length === 0) continue; // parent with all subs now inactive
     if (children.length > 0) {
-      grpActNum++;
+      grpActNum = grpNumOf.get(pa) || 0;
       const grpIsGrayP = pa.activityColor === "gray" || pa.isMaintainLive || pa.maintained;
       const grpIsGreenP = pa.activityColor === "green";
       const grpPBorder = grpIsGreenP ? 'border:1px solid #a9d18e;border-left:4px solid #70ad47;background:#e2efda;'
@@ -25687,7 +26029,7 @@ function buildGroupItemsByActivity(target, data, attendees, _grpFilterPaSet = nu
       || grpAllActs.find(([, a]) => a.targetName === target.name && a.activityName === (pa.title || pa.name) && !a.parentActivity && !a.configId)?.[0]
       || null;
     if (actId && pa.id && !data.activities[actId]?.configId) data.activities[actId].configId = pa.id;
-    grpActNum++;
+    grpActNum = grpNumOf.get(pa) || 0;
     items.push(renderGroupActivityCard(pa.title || pa.name, actId, target, data, attendees, pa.actNote, pa, true, null, pa.id, _grpFilterPaSet, grpActNum));
   }
 
@@ -25958,8 +26300,12 @@ function renderGroupStudentBlock(studentName, target, data, grpStudentDate = nul
   let byStudentActNum = 0;
   for (const pa of (target.predefinedActivities || [])) {
     // Group sessions: don't filter by activeFrom date — activities apply to all sessions
-    if (_filterPaSet && !_filterPaSet.has(pa)) continue;
     if (pa.isNote || pa.isExportNote || pa.isHeading || pa.isMaintainHeading || pa.isCompleted || pa.isArchived || pa.isStopped || pa.isMaintain || (!pa.name && !pa.title)) continue;
+    // Numbered before the section filter: this screen draws one section at a
+    // time from the full list, so counting only what it draws restarted the
+    // numbering in every section.
+    if (!pa.parentActivity) byStudentActNum++;
+    if (_filterPaSet && !_filterPaSet.has(pa)) continue;
     const actId = Object.entries(data.activities || {})
       .find(([, a]) => {
         if (a.targetName !== target.name) return false;
@@ -25968,7 +26314,6 @@ function renderGroupStudentBlock(studentName, target, data, grpStudentDate = nul
         if (pa.name && a.activityName === pa.name) return true;
         return false;
       })?.[0] || null;
-    if (!pa.parentActivity) byStudentActNum++;
     activityEntries.push({ actId, actName: pa.title || pa.name, actNote: pa.actNote, pa, actNum: pa.parentActivity ? 0 : byStudentActNum });
   }
   if (!_filterPaSet) {

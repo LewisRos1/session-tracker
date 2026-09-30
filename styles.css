@@ -1736,6 +1736,47 @@ input.field-input::placeholder {
   word-break: break-word;
 }
 .mn-act-compact-title:hover { color: #4338ca; }
+
+/* A parent activity with no sub-activities left under it. Amber rather than
+   grey on purpose: grey already means "maintained" on the session screen, and
+   an emptied parent is a different thing entirely. The same note appears on
+   both screens so neither can look like it is missing an activity the other
+   one has. */
+.mn-empty-parent-note,
+.empty-parent-note {
+  margin-top: .35rem;
+  padding: .45rem .6rem;
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  border-radius: .4rem;
+  font-size: .82rem;
+  font-weight: 500;
+  line-height: 1.45;
+  color: #9a3412;
+}
+.mn-empty-parent-note {
+  display: flex;
+  align-items: center;
+  gap: .6rem;
+  flex-wrap: wrap;
+}
+/* Scoped to the note. The same button also sits in the activity's kebab menu,
+   where it has to read like every other item in that menu rather than like a
+   pill: the menu supplies its own padding and background inline, but the bold
+   from here leaked through and made it the only heavy row in the list. */
+.mn-empty-parent-note .mn-hide-empty-parent {
+  flex-shrink: 0;
+  padding: .3rem .7rem;
+  border: 1px solid #fdba74;
+  border-radius: .35rem;
+  background: #ffedd5;
+  color: #9a3412;
+  font-size: .8rem;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.mn-empty-parent-note .mn-hide-empty-parent:hover { background: #fed7aa; }
 /* The second line of a collapsed note row: the opening of its details, so two
    notes under the same heading are still tellable apart at a glance. Lighter
    and italic so it reads as a preview of the note rather than part of its
@@ -4200,6 +4241,109 @@ button.wf-pill:hover { filter: brightness(.93); }
 }
 .mn-row-chip--section  { background: #4338ca; color: #fff; }
 .mn-row-chip--activity { background: #eef2ff; color: #4338ca; border: 1px solid #c7d2fe; }
+.mn-row-chip--parent   { background: #ede9fe; color: #6d28d9; border: 1px solid #c4b5fd; }
+
+/* ── Archived students and groups ───────────────────────────────
+   Archiving takes someone off the home list and does nothing else to them, so
+   the way back has to be obvious. The button sits beside its section's search
+   box and is only drawn once something has been archived. Pressed, it fills in,
+   because the list underneath is showing something other than the usual. */
+.btn-archived-toggle {
+  flex-shrink: 0;
+  /* The search box carries margin-left:auto to push the right-hand controls
+     over. This button sits in front of it, so it takes that job on and the
+     search drops its own, otherwise the free space would be split between the
+     two and leave a gap between them. */
+  margin-left: auto;
+  margin-right: .5rem;
+  padding: .4rem .8rem;
+  border: 1px solid #c7d2fe;
+  border-radius: 999px;
+  background: #eef2ff;
+  color: #4338ca;
+  font-size: .85rem;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.btn-archived-toggle:hover { background: #e0e7ff; }
+.btn-archived-toggle + .section-search { margin-left: 0; }
+.btn-archived-toggle.is-on {
+  background: #4338ca;
+  border-color: #4338ca;
+  color: #fff;
+}
+
+/* On a name found by searching outside the archive, saying why it was not in
+   the list to begin with. */
+.roster-archived-tag {
+  margin-left: .5rem;
+  padding: .1rem .4rem;
+  border: 1px solid #c7d2fe;
+  border-radius: .3rem;
+  background: #eef2ff;
+  color: #4338ca;
+  font-size: .68rem;
+  font-weight: 800;
+  letter-spacing: .03em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* ── Mastered / Discontinued groups in Edit Target ──────────────
+   These lists sit INSIDE the active list, under the section heading their
+   activities belong to. Expanded, their cards ran straight on from the active
+   rows above with nothing in between, so seven mastered activities read as
+   seven more things still to do.
+
+   Collapsed it stays a plain toggle row: one line of text needs no frame.
+   Expanded it becomes a bordered card in its own status colour, with the
+   heading as a filled title bar, so a row's status is never in question. */
+/* Always a card, open or shut. Collapsed it used to be a bare arrow and a line
+   of text, which floated between the section heading above it and the activity
+   below with nothing tying it to either. As a card it reads as a thing sitting
+   under that heading, and opening it just fills the card in. */
+.mn-inact-group {
+  margin: .45rem 0 .5rem;
+  border-radius: .5rem;
+  overflow: hidden;
+}
+.mn-inact-group[data-kind="mastered"]     { border: 2px solid #6ee7b7; background: #f0fdf9; }
+.mn-inact-group[data-kind="discontinued"] { border: 2px solid #fca5a5; background: #fff5f5; }
+
+/* The heading is the card's title bar. */
+.mn-inact-toggle {
+  display: flex;
+  align-items: center;
+  gap: .45rem;
+  width: 100%;
+  padding: .5rem .7rem;
+  border: none;
+  cursor: pointer;
+  font-size: .83rem;
+  font-weight: 700;
+  text-align: left;
+}
+.mn-inact-group[data-kind="mastered"] > .mn-inact-toggle {
+  color: #059669;
+  background: #d1fae5;
+}
+.mn-inact-group[data-kind="discontinued"] > .mn-inact-toggle {
+  color: #dc2626;
+  background: #fee2e2;
+}
+
+/* Open, the bar keeps its place while a long list scrolls past it, so the
+   status is still on screen at the bottom of seven mastered activities. */
+.mn-inact-group.mn-inact-open > .mn-inact-toggle {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  border-bottom: 1px solid;
+}
+.mn-inact-group.mn-inact-open[data-kind="mastered"]     > .mn-inact-toggle { border-bottom-color: #6ee7b7; }
+.mn-inact-group.mn-inact-open[data-kind="discontinued"] > .mn-inact-toggle { border-bottom-color: #fca5a5; }
+.mn-inact-group.mn-inact-open > .mn-inact-panel { padding: .5rem .55rem .15rem; }
 .mn-row-chip--sub      { background: #dbeafe; color: #1d4ed8; border: 1px solid #93c5fd; }
 .mn-row-chip--note     { background: #fef3c7; color: #92400e; border: 1px solid #fcd34d; }
 
