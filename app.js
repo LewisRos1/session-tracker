@@ -202,7 +202,7 @@ function versionLineText() {
   return `Made by Lewis · Version ${APP_VERSION}`;
 }
 
-const APP_VERSION = "2075";
+const APP_VERSION = "2082";
 
 // Debug helpers — call from F12 console
 // -1) Recover multiple-choice options wiped by the v2072-and-earlier panel bug:
@@ -225,12 +225,27 @@ window.debugRecoverOptions = async function(studentName = null, targetName = nul
   // the target it was first noticed in.
   if (!studentName) {
     const all = [];
+    const skipped = [];
     for (const st of students) {
       for (const t of (st.targets || [])) {
-        const found = await window.debugRecoverOptions(
-          st.note ? `${st.name} (${st.note})` : st.name, t.name, apply, true);
-        for (const r of (found || [])) all.push({ Student: st.name, Target: t.name, ...r });
+        // By id, not by name. Passing a name back into this function made it
+        // look the student up again, and a name matches every record that
+        // shares it — so four sets of same-named students reported themselves
+        // as ambiguous and were skipped entirely. The sweep then announced that
+        // nothing anywhere had lost its options, having never looked at them.
+        let found;
+        try {
+          found = await window.debugRecoverOptions(st, t.name, apply, true);
+        } catch (err) {
+          skipped.push(`${studentLabel(st)} / ${t.name}: ${err?.message || err}`);
+          continue;
+        }
+        for (const r of (found || [])) all.push({ Student: studentLabel(st), Target: t.name, ...r });
       }
+    }
+    if (skipped.length) {
+      console.warn(`${skipped.length} target${skipped.length === 1 ? "" : "s"} could not be checked:`);
+      skipped.forEach(x => console.warn("  " + x));
     }
     window.__optRecovery = all;
     if (all.length === 0) { console.log("No activity anywhere has lost its options."); return all; }
@@ -242,14 +257,22 @@ window.debugRecoverOptions = async function(studentName = null, targetName = nul
     return all;
   }
 
-  const matches = students.filter(st => st.name === studentName
-    || `${st.name} (${st.note || ""})` === studentName);
-  if (matches.length === 0) { console.warn(`No student called "${studentName}".`); return; }
-  if (matches.length > 1) {
-    console.warn(`"${studentName}" is ambiguous. Use one of:`, matches.map(m => m.note ? `${m.name} (${m.note})` : m.name));
-    return;
+  // The sweep hands the record straight over; a person typing a name gets it
+  // looked up, and has to say which one when a name is shared.
+  let student;
+  if (studentName && typeof studentName === "object") {
+    student = studentName;
+  } else {
+    const matches = students.filter(st => st.name === studentName
+      || studentLabel(st) === studentName
+      || `${st.name} (${st.note || ""})` === studentName);
+    if (matches.length === 0) { console.warn(`No student called "${studentName}".`); return; }
+    if (matches.length > 1) {
+      console.warn(`"${studentName}" is ambiguous. Use one of:`, matches.map(m => studentLabel(m)));
+      return;
+    }
+    student = matches[0];
   }
-  const student = matches[0];
   const target = (student.targets || []).find(t => t.name === targetName);
   if (!target) {
     console.warn(`No target called "${targetName}". This student has:`, (student.targets || []).map(t => t.name));
@@ -278,14 +301,30 @@ window.debugRecoverOptions = async function(studentName = null, targetName = nul
 
   const rows = [];
   for (const pa of (target.predefinedActivities || [])) {
-    const usesOpts = !!(pa.optionsMulti || pa.remarkHasNote);
-    if (!usesOpts) continue;
-    const current = pa.inlineOptions ? String(pa.inlineOptions).split("\x1F").filter(Boolean) : [];
-    if (current.length > 0) continue;              // nothing lost here
+    // parseOpts, not a plain split: older data separates options with "/" and
+    // only newer data uses \x1F, so splitting one way would report an activity
+    // as empty when it is fine.
+    const current = parseOpts(pa.inlineOptions);
+    if (current.length > 0) continue;              // still has its options
 
     const name = pa.title || pa.name;
     const fromScores = Object.keys(pa.optionScores || {});
     const archived = (pa.archivedOptions || []).map(ao => ao.text).filter(Boolean);
+
+    // An activity counts as damaged if it is still SET to use options, or if it
+    // is not but has left-over scores or archived options, which only an
+    // activity that once had options can have.
+    //
+    // The second half matters: switching the type away from Multiple Choice
+    // deletes optionScores outright, so an activity that was wiped and then had
+    // its type changed keeps neither its options nor the usual evidence. Those
+    // are still worth listing, because past sessions may remember what was
+    // picked even when the config no longer does.
+    const usesOpts = !!(pa.optionsMulti || pa.remarkHasNote);
+    const hadOpts  = fromScores.length > 0 || archived.length > 0;
+    const isActivity = !pa.isHeading && !pa.isNote && !pa.isExportNote
+      && !pa.isMaintainHeading && (pa.title || pa.name);
+    if (!isActivity || (!usesOpts && !hadOpts)) continue;
     const fromSessions = [...(seen.get(name) || seen.get(pa.name) || new Set())];
     // Scores first, because their key order is the order the options were added.
     // Anything only ever seen in a session is appended after. Options that were
@@ -295,6 +334,7 @@ window.debugRecoverOptions = async function(studentName = null, targetName = nul
 
     rows.push({
       Activity: name,
+      Type: usesOpts ? (pa.optionsMulti ? "Checkboxes" : "Multiple Choice") : "changed away",
       "From scores": fromScores.join(" | ") || "—",
       "From sessions": fromSessions.join(" | ") || "—",
       Archived: archived.join(" | ") || "—",
@@ -2627,7 +2667,9 @@ $("btn-logout")?.addEventListener("click", () => {
 
 // ── Add student / group from home screen ──────────────────────
 
-$("btn-add-existing-student").addEventListener("click", () => showRegisteredStudentPicker("existing"));
+// Individual Sessions has no Add button: registering a student in the Student
+// Database is what puts them there. Two steps meant a student could exist and
+// still be missing from the list, with nothing on screen explaining the gap.
 $("btn-add-group").addEventListener("click", addNewGroup);
 $("btn-archived-existing")?.addEventListener("click", () => {
   state.showArchivedExisting = !state.showArchivedExisting;
@@ -3089,6 +3131,26 @@ function noteLabel(note) {
   return t ? `(${t})` : "";
 }
 /** "Caden Tan (School Readiness)", or just the name when there is no note. */
+/**
+ * Another student already registered under this exact name and note, or null.
+ *
+ * The note is what tells two records with the same name apart, on screen and in
+ * the exported file names, so two records sharing both cannot be told apart at
+ * all: whichever is reached first wins, and in the Excel backup one silently
+ * overwrites the other. `exceptId` is the record being edited, which must not
+ * count as a clash with itself.
+ */
+function findDuplicateStudent(name, note, exceptId = null) {
+  const n = String(name || "").trim().toLowerCase().replace(/\s+/g, " ");
+  const t = noteBare(note).trim().toLowerCase();
+  if (!n) return null;
+  return (state.students || []).find(s =>
+    s.id !== exceptId &&
+    String(s.name || "").trim().toLowerCase().replace(/\s+/g, " ") === n &&
+    noteBare(s.note).trim().toLowerCase() === t
+  ) || null;
+}
+
 function studentLabel(s) {
   const l = noteLabel(s.note);
   return l ? `${s.name} ${l}` : s.name;
@@ -3209,6 +3271,15 @@ async function renderStudentRegistryBody({ highlightAdd = false } = {}) {
       if (!s) return;
       const newName = input.value.trim();
       if (!newName || newName === s.name) return;
+      const clash = findDuplicateStudent(newName, s.note, s.id);
+      if (clash) {
+        alert(`There is already a student called "${studentLabel(clash)}".\n\n`
+          + `Two records with the same full name AND the same note cannot be told apart, `
+          + `in the app or in the exported files. Give one of them a note that says which is which.`);
+        input.value = s.name;
+        input.focus();
+        return;
+      }
       const parts = newName.split(/\s+/);
       const oldName = s.name;
       s.firstName = parts[0];
@@ -3241,6 +3312,15 @@ async function renderStudentRegistryBody({ highlightAdd = false } = {}) {
       const note = noteBare(input.value);
       input.value = note;
       if (note === (s.note || "")) return;
+      const clash = findDuplicateStudent(s.name, note, s.id);
+      if (clash) {
+        alert(`There is already a student called "${studentLabel(clash)}".\n\n`
+          + `Two records with the same full name AND the same note cannot be told apart, `
+          + `in the app or in the exported files. Pick a different note.`);
+        input.value = s.note || "";
+        input.focus();
+        return;
+      }
       s.note = note;
       await setStudentNote(id, note);
       renderExistingStudentButtons();
@@ -3377,6 +3457,14 @@ function startAddStudentRow() {
       (!fullName ? nameInput : !shortName ? shortInput : genderBtn).focus();
       return;
     }
+    const clash = findDuplicateStudent(fullName, noteInput.value, null);
+    if (clash) {
+      alert(`There is already a student called "${studentLabel(clash)}".\n\n`
+        + `Two records with the same full name AND the same note cannot be told apart, `
+        + `in the app or in the exported files. Add a note that says which is which.`);
+      noteInput.focus();
+      return;
+    }
     // firstName/lastName are kept because older records carry them; the first
     // word is the given name and whatever follows is the rest.
     const parts = fullName.split(" ");
@@ -3389,7 +3477,7 @@ function startAddStudentRow() {
       preferredName: shortName,
       gender: newGender,
       note: noteBare(noteInput.value),
-      type: "unassigned",
+      type: "existing",
       order: state.students.length,
       targets: []
     };
@@ -3791,74 +3879,10 @@ function renderDataIntegrityReport() {
   });
 }
 
-// Choosing a student here adds them to Individual Sessions or Assessments.
-// One flat list, no separate "transfer" entry — an Assessment student
-// shows up right alongside everyone else in the Individual Sessions
-// picker, and clicking them just asks a one-line confirm tailored to what's
-// actually happening ("Move X from Assessment...?") instead of a special
-// menu item or a guard error sending the boss elsewhere. Doesn't create a
-// new person directly — "Register a New Student" sends the boss to the
-// Student Database page instead, which is the one place new students get
-// created (see openStudentRegistryScreen).
-function showRegisteredStudentPicker(targetType) {
-  $("session-picker-title").textContent =
-    targetType === "assessment" ? "Add to Assessments" : "Add to Individual Sessions";
-
-  const renderList = () => {
-    // Leave out students already in this exact bucket, and — since
-    // Individual Sessions and Assessment are mutually exclusive — also
-    // leave Individual Sessions students out of the Assessment picker.
-    const candidates = state.students
-      .filter(s => s.type !== targetType)
-      .filter(s => !(targetType === "assessment" && s.type === "existing"))
-      .sort((a, b) => a.name.localeCompare(b.name));
-
-    $("session-picker-list").innerHTML = `
-      <div class="choice-list">
-        <button class="choice-btn choice-register-new">
-          <span class="choice-icon">➕</span>
-          <div class="choice-text"><div class="choice-label">Register a New Student</div></div>
-        </button>
-        ${candidates.map(s => `
-          <button class="choice-btn reg-student-pick" data-id="${escHtml(s.id)}">
-            <div class="choice-text"><div class="choice-label">${escHtml(s.name)}</div></div>
-          </button>`).join("")}
-      </div>
-      ${candidates.length === 0 ? `<p class="empty-hint" style="padding:1rem">All registered students have already been added.</p>` : ""}`;
-
-    $("session-picker-list").querySelector(".choice-register-new").addEventListener("click", () => {
-      closeSessionPicker();
-      openStudentRegistryScreen({ highlightAdd: true });
-    });
-    $("session-picker-list").querySelectorAll(".reg-student-pick").forEach(btn => {
-      btn.addEventListener("click", async () => {
-        const s = state.students.find(x => x.id === btn.dataset.id);
-        if (s) await assignStudentToBucket(s, targetType);
-      });
-    });
-  };
-
-  renderList();
-  $("session-picker-modal").classList.remove("hidden");
-}
-
-async function assignStudentToBucket(student, targetType) {
-  if (student.type === targetType) {
-    alert(`"${student.name}" is already in ${targetType === "existing" ? "Individual Sessions" : "Assessments"}.`);
-    return;
-  }
-  if (student.type === "assessment" && targetType === "existing") {
-    if (!confirm(`Move "${student.name}" from Assessment to Individual Sessions?`)) return;
-  } else if (student.type === "existing" && targetType === "assessment") {
-    alert(`"${student.name}" is already in Individual Sessions.`);
-    return;
-  }
-  student.type = targetType;
-  await saveStudent(student);
-  closeSessionPicker();
-  renderExistingStudentButtons();
-}
-
+// The "add a registered student to Individual Sessions" picker and the
+// bucket it assigned to were removed with the + Add button above that list.
+// Registering a student in the Student Database is what puts them there now,
+// so there is no second step to offer and no bucket to move them between.
 
 // ── Render helpers ────────────────────────────────────────────
 
@@ -3908,18 +3932,19 @@ function renderStudentList(container, students, query = "", showArchived = false
 }
 
 function renderExistingStudentButtons() {
-  // Pre-registry records have no type field at all (undefined) and should
-  // keep defaulting to "existing" for backward compatibility — only the new
-  // explicit "unassigned" (set when a student is registered via the Student
-  // Database page or a group roster picker) opts out of that default, so a
-  // freshly-registered student doesn't show here until she actually +Adds
-  // them via showRegisteredStudentPicker.
-  // Also exclude any student whose name matches a group name — safeguard
-  // against accidentally created student records with group names.
-  const groupNames = new Set((state.groups || []).map(g => g.name));
-  const students = state.students.filter(s =>
-    s.type !== "assessment" && s.type !== "unassigned" && !groupNames.has(s.name)
-  );
+  // Everyone in the Student Database, with nothing filtered out.
+  //
+  // There used to be three exclusions, and together they meant the database and
+  // this list could disagree with no way to tell why. "unassigned" marked a
+  // student registered but never added here, which is now impossible since
+  // registering IS adding. "assessment" is a dead bucket from when assessments
+  // had their own section; they sit here with an "(Assessment)" note instead.
+  // The third hid any student whose name matched a group's, which happens when
+  // a group has a single member, since a group is named after its members
+  // joined by " & ". Hiding a record is worse than showing two things with the
+  // same name: the record is still in the database either way, and only one of
+  // those states can be acted on.
+  const students = state.students.slice();
   renderStudentList($("existing-student-buttons"), students, state.searchExisting, !!state.showArchivedExisting);
   syncArchivedToggle("existing", students.filter(s => s.archived).length);
 }
@@ -23325,7 +23350,12 @@ function renderTargetManageContent(student, target) {
         : pa.fixedRemark !== undefined ? "fixed_remark"
         : "";
 
-      const body = $("manage-modal-body");
+      // document, not #manage-modal-body: opening an activity moves its fields
+      // into the floating panel, which hangs off <body>. Scoped to the modal these
+      // all came back null, the first style assignment threw, and the handler died
+      // half way, so picking Multiple Choice changed the dropdown and never
+      // revealed the options editor underneath it.
+      const body = document;
       const starterWrap      = body.querySelector(`.mn-act-starter-wrap[data-idx="${idx}"]`);
       const starterLabel     = body.querySelector(`.mn-act-starter-wrap[data-idx="${idx}"] .mn-act-starter-label`);
       const starterInput     = body.querySelector(`.mn-act-starter-text[data-idx="${idx}"]`);
@@ -23339,6 +23369,7 @@ function renderTargetManageContent(student, target) {
         // keeps counting toward the target average or exports.
         if (type === "no_trials") {
           const actName2  = acts[idx].name;
+          const actTitle2 = acts[idx].title || "";
           const actCfgId2 = acts[idx].id;
           acts[idx].noTrials = true;
           delete acts[idx].manualScore; delete acts[idx].fixedRemark;
@@ -23350,7 +23381,9 @@ function renderTargetManageContent(student, target) {
           getSessionsCached().then(async sessions => {
             for (const sess of sessions) {
               const matchActIds = Object.entries(sess.activities || {})
-                .filter(([, a]) => (actCfgId2 && a.configId === actCfgId2) || a.activityName === actName2)
+                .filter(([, a]) => (actCfgId2 && a.configId === actCfgId2)
+                  || (!a.configId && ((actName2 && a.activityName === actName2)
+                                   || (actTitle2 && a.activityName === actTitle2))))
                 .map(([id]) => id);
               const changes = {};
               for (const [remId, rem] of Object.entries(sess.remarks || {})) {
@@ -23438,6 +23471,7 @@ function renderTargetManageContent(student, target) {
         // Switching away from Manual Score
         if (acts[idx].manualScore) {
           const actName2  = acts[idx].name;
+          const actTitle2 = acts[idx].title || "";
           const actCfgId2 = acts[idx].id;
           delete acts[idx].manualScore;
           acts[idx].sentenceStarter = null; acts[idx].noteSentenceStarter = null; acts[idx].remarkPresetId = null;
@@ -23448,7 +23482,9 @@ function renderTargetManageContent(student, target) {
           getAllSessionsForStudent(student.id).then(async sessions => {
             for (const sess of sessions) {
               const matchActIds = Object.entries(sess.activities || {})
-                .filter(([, a]) => a.configId === actCfgId2 || a.activityName === actName2)
+                .filter(([, a]) => (actCfgId2 && a.configId === actCfgId2)
+                  || (!a.configId && ((actName2 && a.activityName === actName2)
+                                   || (actTitle2 && a.activityName === actTitle2))))
                 .map(([id]) => id);
               const changes = {};
               for (const [remId, rem] of Object.entries(sess.remarks || {})) {
@@ -23519,11 +23555,14 @@ function renderTargetManageContent(student, target) {
         // Reverse migration: switching back TO Notes Only — move masteryNote back into text
         if (type === "" && !usesOpts) {
           const actName2  = acts[idx].name;
+          const actTitle2 = acts[idx].title || "";
           const actCfgId2 = acts[idx].id;
           getAllSessionsForStudent(student.id).then(async sessions => {
             for (const sess of sessions) {
               const matchActIds = Object.entries(sess.activities || {})
-                .filter(([, a]) => a.configId === actCfgId2 || a.activityName === actName2)
+                .filter(([, a]) => (actCfgId2 && a.configId === actCfgId2)
+                  || (!a.configId && ((actName2 && a.activityName === actName2)
+                                   || (actTitle2 && a.activityName === actTitle2))))
                 .map(([id]) => id);
               const changes = {};
               for (const [remId, rem] of Object.entries(sess.remarks || {})) {
@@ -23539,7 +23578,17 @@ function renderTargetManageContent(student, target) {
 
       // Check past session data before allowing the type change
       const actCfgId = pa.id || null;
-      const actName  = pa.name || pa.title || "";
+      // Both halves of the identity, and the name fallback only applies to
+      // records carrying no configId of their own.
+      //
+      // pa.name is the DETAILS field and pa.title is the title, so the old
+      // `pa.name || pa.title` matched past sessions against the detail text. An
+      // activity created minutes earlier, with "asdf" typed into its details,
+      // matched a real activity called "asdf" and was declared to have months
+      // of history behind it. Claiming a record that already belongs to another
+      // activity is the same mistake claimAct is written to avoid.
+      const actTitle = pa.title || "";
+      const actName  = pa.name  || "";
       let sessionsWithData = [];
       // Tracked separately from sessionsWithData: the red "this will be deleted"
       // warning must only appear when there is actually scoring data to delete,
@@ -23549,7 +23598,9 @@ function renderTargetManageContent(student, target) {
         const allSess = await getSessionsCached();
         for (const sess of allSess) {
           const matchActIds = Object.entries(sess.activities || {})
-            .filter(([, a]) => (actCfgId && a.configId === actCfgId) || (actName && a.activityName === actName))
+            .filter(([, a]) => (actCfgId && a.configId === actCfgId)
+              || (!a.configId && ((actName && a.activityName === actName)
+                               || (actTitle && a.activityName === actTitle))))
             .map(([id]) => id);
           const matchRems = matchActIds.length === 0 ? [] : Object.values(sess.remarks || {})
             .filter(rem => matchActIds.includes(rem.activityId));
@@ -23573,8 +23624,16 @@ function renderTargetManageContent(student, target) {
         return;
       }
 
-      // Has past data — show password overlay
-      $("manage-modal").querySelectorAll("[data-type-change-overlay]").forEach(el => el.remove());
+      // Has past data — show password overlay.
+      //
+      // Put the dropdown back to the type the activity actually still has while
+      // the gate is up. Leaving it on the new choice said the change had gone
+      // through when it had not, and anyone who closed the gate without the
+      // password was left looking at a type the activity was never given. The
+      // chosen type is held in `type`, captured before any of this, so the
+      // dropdown is only a display here and doChange applies the real value.
+      sel.value = oldType;
+      document.querySelectorAll("[data-type-change-overlay]").forEach(el => el.remove());
       const overlay = document.createElement("div");
       overlay.dataset.typeChangeOverlay = "1";
       overlay.style.cssText = "position:absolute;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:flex-start;justify-content:center;padding-top:1.25rem;z-index:200;border-radius:.75rem;overflow-y:auto";
@@ -23597,9 +23656,21 @@ function renderTargetManageContent(student, target) {
           <button id="act-type-pw-ok" style="flex:1;padding:.45rem;border:none;border-radius:.4rem;background:var(--primary);color:#fff;cursor:pointer;font-size:.85rem">Confirm</button>
         </div>
       </div>`;
-      const modalSheet = $("manage-modal").querySelector(".modal-sheet");
-      modalSheet.style.position = "relative";
-      modalSheet.appendChild(overlay);
+      // Mounted on whatever is actually in front.
+      //
+      // The Edit Target modal sits at z-index 1000 and the floating activity
+      // panel at 1200, so an overlay put inside the modal while the panel was
+      // open was painted behind it. The gate fired the moment the dropdown
+      // changed, exactly as intended, and there was no way to see it: it only
+      // appeared once Save and Close took the panel away, which read as the
+      // warning arriving far too late.
+      const panelEl = document.getElementById("mn-act-panel-overlay");
+      const mount = (panelEl && panelEl.style.display !== "none")
+        ? panelEl
+        : $("manage-modal").querySelector(".modal-sheet");
+      // The panel is already position:fixed; only the modal sheet needs one.
+      if (mount !== panelEl) mount.style.position = "relative";
+      mount.appendChild(overlay);
       const pwInp = overlay.querySelector("#act-type-pw");
       const pwErr = overlay.querySelector("#act-type-pw-err");
       pwInp.focus();
@@ -23615,6 +23686,7 @@ function renderTargetManageContent(student, target) {
           return;
         }
         overlay.remove();
+        sel.value = type;   // the password was right, so the change is real now
         await doChange();
       };
       overlay.querySelector("#act-type-pw-ok").addEventListener("click", tryConfirm);
@@ -24772,7 +24844,12 @@ function renderTemplateManageContent(template) {
   $("manage-modal-body").querySelectorAll(".mn-act-preset").forEach(sel => {
     sel.addEventListener("change", async () => {
       const idx = Number(sel.dataset.idx);
-      const body = $("manage-modal-body");
+      // document, not #manage-modal-body: opening an activity moves its fields
+      // into the floating panel, which hangs off <body>. Scoped to the modal these
+      // all came back null, the first style assignment threw, and the handler died
+      // half way, so picking Multiple Choice changed the dropdown and never
+      // revealed the options editor underneath it.
+      const body = document;
       const starterWrap     = body.querySelector(`.mn-act-starter-wrap[data-idx="${idx}"]`);
       const starterLabel    = body.querySelector(`.mn-act-starter-wrap[data-idx="${idx}"] .mn-act-starter-label`);
       const starterInput    = body.querySelector(`.mn-act-starter-text[data-idx="${idx}"]`);

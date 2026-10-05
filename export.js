@@ -1742,6 +1742,7 @@ async function buildStudentWorkbook(student, sessions, includeTrials) {
   addActivityScoreSheet(wb, allTargets, sortedSessions);
   addIndividualTargetSheets(wb, allTargets, sessions, student.name, includeTrials);
 
+  ensureSheet(wb, student.name);
   return wb.xlsx.writeBuffer();
 }
 
@@ -1775,6 +1776,7 @@ async function buildGroupMemberWorkbook(studentName, allTargets, sessions, inclu
   addActivityScoreSheet(wb, sortedTargets, sortedSessions);
   addIndividualTargetSheets(wb, sortedTargets, filtered, studentName, includeTrials);
 
+  ensureSheet(wb, studentName);
   return wb.xlsx.writeBuffer();
 }
 
@@ -1793,7 +1795,55 @@ function exportedOnSuffix(now) {
 
 // Filename format: "{Name} - Yearly Summary (Exported On {D Mon YYYY}, {HH.MM})"
 function formatExportFilename(name, now) {
-  return `${name} - Yearly Summary (${exportedOnSuffix(now)}).xlsx`;
+  return `${safePathSegment(name)} - Yearly Summary (${exportedOnSuffix(now)}).xlsx`;
+}
+
+/**
+ * One piece of a path inside the zip, with nothing in it that would split or
+ * break the path.
+ *
+ * A slash would silently create a folder, so a group called "Mon/Wed" would
+ * scatter its members into a folder nobody asked for. The rest are characters
+ * Windows refuses in a file name, which makes the whole zip awkward to extract.
+ */
+/**
+ * Excel will not open a workbook with no worksheets in it.
+ *
+ * Every student and every group member is exported now, including ones with no
+ * sessions yet, and a brand-new student with no targets gives every sheet
+ * builder nothing to draw, so the workbook can come out genuinely empty. One
+ * sheet saying so keeps the file openable and explains itself.
+ */
+function ensureSheet(wb, who) {
+  if (wb.worksheets.length > 0) return wb;
+  const ws = wb.addWorksheet("No Data");
+  ws.getColumn(1).width = 70;
+  ws.addRow([`No sessions have been recorded for ${who} yet.`]);
+  ws.addRow([""]);
+  ws.addRow(["This file is here so every student and group appears in the backup,"]);
+  ws.addRow(["whether or not there is anything in them yet."]);
+  ws.getRow(1).font = { bold: true, size: 12 };
+  return wb;
+}
+
+function safePathSegment(text) {
+  return String(text || "")
+    .replace(/[\\/:*?"<>|]/g, " ")
+    .replace(/\s+/g, " ")
+    .replace(/^\.+|\.+$/g, "")
+    .trim() || "Unnamed";
+}
+
+/**
+ * The name a workbook is filed under: the student's name and their note.
+ *
+ * Without the note, two students whose names match wrote to the same path in
+ * the zip and the second quietly replaced the first. "Caden Tan" and "Caden Tan
+ * (School Readiness)" went in as one file, and nothing said so.
+ */
+function exportEntityFilename(entity, now) {
+  const note = String(entity?.note || "").replace(/^\(|\)$/g, "").trim();
+  return formatExportFilename(note ? `${entity.name} (${note})` : entity.name, now);
 }
 
 export async function exportStudentData(student, includeTrials = false) {
@@ -2624,39 +2674,74 @@ export async function exportAllStudents(students, groups = [], includeTrials = f
   const zip = new JSZip();
   const now = new Date();
   let exported = 0;
+  const failed = [];
 
+  // The zip mirrors the home screen: Individual Sessions and Group Sessions,
+  // each with the active entries at the top and an Archived folder beneath.
+  // Archiving decides where something is filed, not whether it is kept, so an
+  // archived student or group is exported in full.
+  //
+  // Everyone gets a file, including students with nothing recorded yet. A
+  // backup you have to check against the app to find out what is missing is not
+  // much of a backup, and "nothing recorded for this student" is itself worth
+  // knowing. Each entry is wrapped on its own, because one workbook that will
+  // not build used to take the entire backup down with it.
   for (const student of students) {
-    const sessions = await getAllSessionsForStudent(student.id);
-    if (sessions.length > 0) {
+    try {
+      const sessions = await getAllSessionsForStudent(student.id);
       const buffer = await buildStudentWorkbook(student, sessions, includeTrials);
-      zip.file(`Individual Sessions/${formatExportFilename(student.name, now)}`, buffer);
+      const folder = student.archived ? "Individual Sessions/Archived" : "Individual Sessions";
+      zip.file(`${folder}/${exportEntityFilename(student, now)}`, buffer);
       exported++;
+    } catch (err) {
+      failed.push(`${student.name}: ${err?.message || err}`);
     }
+  }
 
-    // A student can be linked into a group under a free-typed name that
-    // doesn't exactly match their registered name — same lookup the
-    // single-group "Export" button next to a group attendee already uses
-    // (see exportGroupMemberData), just generalized across every group they
-    // appear in instead of one.
-    const studentGroups = groups.filter(g => Object.values(g.studentLinks || {}).includes(student.id));
-    if (studentGroups.length > 0) {
-      const groupName = Object.entries(studentGroups[0].studentLinks || {}).find(([, id]) => id === student.id)?.[0];
-      let groupSessions = [];
-      for (const group of studentGroups) {
-        groupSessions.push(...await getAllSessionsForGroup(group.id));
-      }
-      if (groupName && groupSessions.length > 0) {
-        const allTargets = unionTargetsByName(studentGroups);
-        const buffer = await buildGroupMemberWorkbook(groupName, allTargets, groupSessions, includeTrials);
-        zip.file(`Group Sessions/${formatExportFilename(student.name, now)}`, buffer);
+  // One folder per group, holding a workbook for each of its members, the way
+  // the Group Sessions list reads on screen. Each file covers that group alone:
+  // a student in two groups gets a file in each rather than one workbook with
+  // both groups blended together, which could not be told apart afterwards.
+  for (const group of groups) {
+    const links = Object.entries(group.studentLinks || {});
+    if (links.length === 0) continue;
+    let groupSessions, allTargets;
+    try {
+      groupSessions = await getAllSessionsForGroup(group.id);
+      allTargets = unionTargetsByName([group]);
+    } catch (err) {
+      failed.push(`${group.name}: ${err?.message || err}`);
+      continue;
+    }
+    const base = group.archived
+      ? `Group Sessions/Archived/${safePathSegment(group.name)}`
+      : `Group Sessions/${safePathSegment(group.name)}`;
+    for (const [linkName, studentId] of links) {
+      if (!linkName) continue;
+      try {
+        // The roster name is what the sessions were recorded under, which is
+        // not always the student's registered name. The file is named after the
+        // student record when there is one, so it matches the rest of the zip.
+        const student = students.find(st => st.id === studentId);
+        const buffer = await buildGroupMemberWorkbook(linkName, allTargets, groupSessions, includeTrials);
+        zip.file(`${base}/${student ? exportEntityFilename(student, now) : formatExportFilename(linkName, now)}`, buffer);
         exported++;
+      } catch (err) {
+        failed.push(`${group.name} / ${linkName}: ${err?.message || err}`);
       }
     }
   }
 
   if (exported === 0) {
-    alert("No session data found for any student.");
+    alert("Nothing could be exported." + (failed.length ? `\n\n${failed.join("\n")}` : ""));
     return;
+  }
+  // Said after the download starts, not instead of it: a backup missing two
+  // files is still worth having, but you have to be told which two.
+  if (failed.length) {
+    setTimeout(() => alert(
+      `${exported} file${exported === 1 ? "" : "s"} exported, but ${failed.length} could not be built:\n\n`
+      + failed.join("\n")), 400);
   }
 
   const monNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
