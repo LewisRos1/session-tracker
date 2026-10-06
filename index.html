@@ -60,24 +60,7 @@
     <div class="pin-container">
       <div class="pin-logo">🧩</div>
       <h1 class="pin-title">Session Tracker</h1>
-      <p class="pin-subtitle">Enter PIN to continue</p>
-      <div class="pin-dots" id="pin-dots"><span class="pin-dot"></span><span class="pin-dot"></span><span class="pin-dot"></span><span class="pin-dot"></span><span class="pin-dot"></span><span class="pin-dot"></span><span class="pin-dot"></span><span class="pin-dot"></span></div>
-      <div id="pin-error" class="pin-error hidden">Incorrect PIN. Try again.</div>
-      <div id="pin-status" class="pin-status hidden">Logging in…</div>
-      <div class="pin-keypad" id="pin-keypad">
-        <button class="pin-key" data-key="1">1</button>
-        <button class="pin-key" data-key="2">2</button>
-        <button class="pin-key" data-key="3">3</button>
-        <button class="pin-key" data-key="4">4</button>
-        <button class="pin-key" data-key="5">5</button>
-        <button class="pin-key" data-key="6">6</button>
-        <button class="pin-key" data-key="7">7</button>
-        <button class="pin-key" data-key="8">8</button>
-        <button class="pin-key" data-key="9">9</button>
-        <button class="pin-key pin-key-empty" disabled></button>
-        <button class="pin-key" data-key="0">0</button>
-        <button class="pin-key pin-key-back" data-key="back">⌫</button>
-      </div>
+      <div id="login-mount"></div>
       <span class="pin-version" id="pin-version"></span>
     </div>
   </div>
@@ -89,6 +72,7 @@
     <header class="app-header">
       <h1>Session Tracker</h1>
       <span id="app-version" class="app-version"></span>
+      <div id="header-user" class="header-user"></div>
       <button id="btn-logout" class="btn-logout">Log Out</button>
     </header>
     <div class="home-body">
@@ -102,7 +86,7 @@
           </section>
           <section id="home-sec-todo" style="flex:1;min-width:200px">
             <div class="section-header">
-              <h2 class="section-title">TO DO LIST</h2>
+              <h2 class="section-title">TO DO LIST &amp; NOTIFICATIONS</h2>
             </div>
             <div id="todo-home-chips"></div>
           </section>
@@ -172,10 +156,11 @@
     <div class="session-body">
       <div class="target-selector">
         <label for="target-select" class="target-label">Target</label>
-        <select id="target-select" class="target-dropdown"
+        <select id="target-select" class="target-dropdown tc-native"
           data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false">
           <option value="">— select —</option>
         </select>
+        <div class="target-combo" id="target-combo"></div>
         <div class="target-type-chip hidden" id="target-type-chip">
           <span class="target-type-label">Type</span>
           <span class="target-type-value" id="target-type-badge"></span>
@@ -237,10 +222,11 @@
     <div class="session-body">
       <div class="target-selector" id="group-target-selector-bar">
         <label for="group-target-select" class="target-label">Target</label>
-        <select id="group-target-select" class="target-dropdown"
+        <select id="group-target-select" class="target-dropdown tc-native"
           data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false">
           <option value="">— select —</option>
         </select>
+        <div class="target-combo" id="group-target-combo"></div>
         <div id="group-avg-chips" style="display:flex;gap:.4rem;align-items:center"></div>
         <button id="btn-group-edit-instructors" class="btn-manage-targets hidden">Edit Instructors</button>
         <button id="btn-group-manage-targets" class="btn-manage-targets hidden">Edit Target</button>
@@ -439,7 +425,7 @@
             <tr>
               <th class="snote-th-no">No.</th>
               <th class="snote-th-text">Correction</th>
-              <th class="snote-th-tick">✓</th>
+              <th class="snote-th-tick">Status</th>
               <th class="snote-th-del"></th>
             </tr>
           </thead>

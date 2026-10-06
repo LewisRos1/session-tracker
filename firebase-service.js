@@ -106,6 +106,20 @@ export function signInWithPin(pin) {
   return signInWithEmailAndPassword(auth, AUTH_EMAIL, PIN_PASSWORD_PREFIX + pin);
 }
 
+/**
+ * Sign in as one named member of staff.
+ *
+ * The shared account above cannot tell one person from another: its address and
+ * password prefix are both in this file, which every visitor downloads, so the
+ * only secret was a four digit PIN. Each person now has their own account, and
+ * what they type is a real password that is written down nowhere the browser
+ * can see. The address is built from the name they picked, so nobody has to
+ * type an e-mail on a tablet.
+ */
+export function signInAs(email, password) {
+  return signInWithEmailAndPassword(auth, email, password);
+}
+
 export function signOutUser() {
   return signOut(auth);
 }
@@ -182,7 +196,9 @@ export async function getOrCreateTodaySession(studentId, targets = []) {
     fullName:            t.fullName || ""
   }));
 
-  const ref = await addDoc(collection(db, "sessions"), {
+  // Not awaited, for the reason spelled out in getOrCreateSessionForDate.
+  const ref = doc(collection(db, "sessions"));
+  setDoc(ref, {
     studentId,
     date: today,
     month,
@@ -193,7 +209,7 @@ export async function getOrCreateTodaySession(studentId, targets = []) {
     fedcComments: {},
     targetsSnapshot,
     createdAt: serverTimestamp()
-  });
+  }).catch(err => console.error("session create failed to sync:", err));
   return ref.id;
 }
 
@@ -355,24 +371,31 @@ export async function getOrCreateSessionForDate(studentId, dateStr, targets = []
     notes: t.notes || [], hasComment: t.hasComment || false, fullName: t.fullName || ""
   }));
 
-  let ref;
-  try {
-    ref = await addDoc(collection(db, "sessions"), {
-      studentId, date: dateStr, month, sessionNumber,
-      finished: false, activities: {}, remarks: {}, fedcComments: {},
-      targetsSnapshot, createdAt: serverTimestamp()
-    });
-  } catch (err) {
-    // Firebase offline-persistence can replay a stale queued write and get
-    // "Document already exists" if another tab or a prior sync already landed
-    // the doc on the server. Recover by re-fetching to return the real ID.
-    if (err.message?.includes("Document already exists")) {
-      const refetched = await getIndividualSessionsForStudent(studentId);
-      const found = refetched.find(s => s.date === dateStr);
-      if (found) return found.id;
-    }
-    throw err;
-  }
+  // The write is NOT awaited, and that is the whole point.
+  //
+  // A Firestore write promise settles only when the SERVER acknowledges it.
+  // Offline, or on a connection that drops for a moment, it simply never
+  // settles: it does not reject, it waits. Awaiting it here meant that opening
+  // a date with no session yet could sit on "Loading…" indefinitely, while
+  // opening a date that already had one was instant, because that path returns
+  // before ever reaching a write. That is exactly the "sometimes it hangs"
+  // shape people were seeing.
+  //
+  // The id is generated locally, so it is known before the write leaves the
+  // machine, and persistence applies the document to the local cache straight
+  // away. The listener that follows therefore gets its first snapshot
+  // immediately and the screen draws. Firestore syncs it when the network
+  // returns, and the queue survives a reload.
+  //
+  // The old "Document already exists" recovery went with it: that could only
+  // happen when the server picked the id, and a locally generated one is new
+  // by construction.
+  const ref = doc(collection(db, "sessions"));
+  setDoc(ref, {
+    studentId, date: dateStr, month, sessionNumber,
+    finished: false, activities: {}, remarks: {}, fedcComments: {},
+    targetsSnapshot, createdAt: serverTimestamp()
+  }).catch(err => console.error("session create failed to sync:", err));
   return ref.id;
 }
 
@@ -380,10 +403,43 @@ export async function getOrCreateSessionForDate(studentId, dateStr, targets = []
  * Real-time listener for a session document.
  * Returns unsubscribe function.
  */
-export function listenToSession(sessionId, callback) {
-  return onSnapshot(doc(db, "sessions", sessionId), snap => {
-    if (snap.exists()) callback(snap.data());
-  });
+export function listenToSession(sessionId, callback, onError) {
+  // onError matters as much as the callback. Without it, a listener that fails
+  // -- rules rejecting the read, a session deleted from another device, a
+  // malformed id -- did nothing at all: no throw, no callback, no complaint.
+  // The screen that was waiting for the first snapshot simply waited forever,
+  // and "Loading…" was the only thing anyone ever saw.
+  return onSnapshot(doc(db, "sessions", sessionId),
+    snap => {
+      if (snap.exists()) { callback(snap.data()); return; }
+      // An empty snapshot is not proof of anything until the server says so.
+      //
+      // With offline persistence on, a listener for a document this browser has
+      // never seen fires immediately with an empty snapshot marked fromCache,
+      // and only then goes to the server. Reporting that as "gone" turned the
+      // ordinary case -- a second person opening a session for the first time --
+      // into an error on their screen. The old code ignored every empty
+      // snapshot and so never had this problem; it also never reported a real
+      // deletion, which is what onError was added for.
+      //
+      // Offline, with nothing cached, nothing is reported at all and the
+      // ten-second watchdog on the screen picks it up. That is the right way
+      // round: better to say "this is taking a while" than to say the session
+      // was deleted when the network is simply down.
+      // Not reported at all, even when the server is the one saying it.
+      //
+      // Claiming a session was deleted is a strong thing to say, and there are
+      // ways to see an empty document that have nothing to do with deletion: a
+      // session created in another browser whose write has not synced yet is
+      // the obvious one. The screen's own watchdog says "this is taking
+      // unusually long" after ten seconds, which is honest about what is known.
+      // Real failures still come through the error callback below.
+      console.warn("listenToSession: no document for", sessionId);
+    },
+    err => {
+      console.error("listenToSession:", err);
+      onError?.(err);
+    });
 }
 
 /** Mark session as finished. */
@@ -928,12 +984,74 @@ export async function getStudentById(studentId) {
   return snap.exists() ? snap.data() : null;
 }
 
+/**
+ * Watch one student's config for changes made anywhere.
+ *
+ * The session document has had a live listener from the start, so a remark
+ * typed on one device appears on another at once. The CONFIG -- the targets and
+ * their activities -- was only ever fetched, so an activity approved on one
+ * device stayed invisible on another until the page was reloaded.
+ */
+export function listenToStudent(studentId, callback, onError) {
+  return onSnapshot(doc(db, "students", studentId),
+    snap => { if (snap.exists()) callback({ id: snap.id, ...snap.data() }); },
+    err => { console.error("listenToStudent:", err); onError?.(err); });
+}
+
+/** The same, for a group's config. */
+export function listenToGroup(groupId, callback, onError) {
+  return onSnapshot(doc(db, "groups", groupId),
+    snap => { if (snap.exists()) callback({ id: snap.id, ...snap.data() }); },
+    err => { console.error("listenToGroup:", err); onError?.(err); });
+}
+
 /** Save (upsert) a student config document. */
+// ─── PENDING APPROVAL ────────────────────────────────────────
+// An activity an assistant proposes is not live. It must not appear in a
+// session, an export or a report until a main teacher approves it.
+//
+// Rather than carry a flag through the 190-odd places that read
+// predefinedActivities -- where missing one would put unapproved content in
+// front of a client -- proposals are stored in a SEPARATE list,
+// target.pendingActivities. Nothing else in the app knows that list exists, so
+// invisible is the default and leaking would take deliberate effort.
+//
+// Edit Target is the one screen that wants them, so it merges the two lists
+// into one while you work, marking the merged-in entries with _pending. Every
+// write goes through saveStudent or saveGroup, which is where they are pulled
+// back apart. Two functions cover every save path in the app, including the
+// ones that call saveStudent directly.
+//
+// The split works on a COPY. The object the editor is holding is never
+// touched, so a save cannot disturb a list being edited.
+function splitPendingForWrite(entity) {
+  const targets = entity?.targets;
+  if (!Array.isArray(targets)) return entity;
+  let changed = false;
+  const out = targets.map(t => {
+    const acts = t?.predefinedActivities;
+    // _pendingMerged marks a target the editor has opened. Such a target is
+    // rebuilt even when nothing is pending any more, because approving or
+    // rejecting the last proposal has to be able to empty the list.
+    if (!t?._pendingMerged && !(Array.isArray(acts) && acts.some(a => a?._pending))) return t;
+    changed = true;
+    const live = [], pend = [];
+    (acts || []).forEach((a, i) => {
+      if (!a?._pending) { live.push(a); return; }
+      const { _pending, ...rest } = a;
+      pend.push({ ...rest, pendingAtIdx: i });
+    });
+    const { _pendingMerged, ...tRest } = t;
+    return { ...tRest, predefinedActivities: live, pendingActivities: pend };
+  });
+  return changed ? { ...entity, targets: out } : entity;
+}
+
 export async function saveStudent(student) {
   if (!student.name || !student.name.trim()) {
     throw new Error("Cannot save a student with a blank name.");
   }
-  await setDoc(doc(db, "students", student.id), student);
+  await setDoc(doc(db, "students", student.id), splitPendingForWrite(student));
 }
 
 /** Delete a student config document. */
@@ -1274,7 +1392,7 @@ export async function loadGroups() {
 }
 
 export async function saveGroup(group) {
-  await setDoc(doc(db, "groups", group.id), group);
+  await setDoc(doc(db, "groups", group.id), splitPendingForWrite(group));
 }
 
 export async function deleteGroup(groupId) {
@@ -1331,22 +1449,14 @@ export async function getOrCreateGroupSessionForDate(groupId, dateStr, targets =
     predefinedActivities: t.predefinedActivities || [],
     notes: t.notes || [], hasComment: t.hasComment || false, fullName: t.fullName || ""
   }));
-  let ref;
-  try {
-    ref = await addDoc(collection(db, "sessions"), {
-      groupId, date: dateStr, month, sessionNumber, attendees,
-      attendeeIds: linkedIds, attendeePersonalSessionNumbers,
-      finished: false, activities: {}, remarks: {}, fedcComments: {},
-      targetsSnapshot, createdAt: serverTimestamp()
-    });
-  } catch (err) {
-    if (err.message?.includes("Document already exists")) {
-      const refetchedSnap = await getDocs(query(collection(db, "sessions"), where("groupId", "==", groupId)));
-      const refetchedDoc  = refetchedSnap.docs.find(d => d.data().date === dateStr);
-      if (refetchedDoc) return refetchedDoc.id;
-    }
-    throw err;
-  }
+  // Not awaited, for the reason spelled out in getOrCreateSessionForDate.
+  const ref = doc(collection(db, "sessions"));
+  setDoc(ref, {
+    groupId, date: dateStr, month, sessionNumber, attendees,
+    attendeeIds: linkedIds, attendeePersonalSessionNumbers,
+    finished: false, activities: {}, remarks: {}, fedcComments: {},
+    targetsSnapshot, createdAt: serverTimestamp()
+  }).catch(err => console.error("group session create failed to sync:", err));
   return ref.id;
 }
 

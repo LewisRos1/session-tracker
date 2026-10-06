@@ -89,9 +89,12 @@ import {
   setCommentStatus,
   updateCommentAssignment,
   listenToReviewQueue,
+  listenToStudent,
+  listenToGroup,
   getSessionsWithParticipant,
   getAllSessions,
   signInWithPin,
+  signInAs,
   signOutUser,
   onAuthChange,
   generateId,
@@ -202,7 +205,7 @@ function versionLineText() {
   return `Made by Lewis · Version ${APP_VERSION}`;
 }
 
-const APP_VERSION = "2082";
+const APP_VERSION = "2147";
 
 // Debug helpers — call from F12 console
 // -1) Recover multiple-choice options wiped by the v2072-and-earlier panel bug:
@@ -1251,6 +1254,57 @@ window.debugDeleteCheck = async function(studentName, targetName, activityName) 
   });
 };
 // The three instructors — id keys match Firestore checks fields (p1_*, p3_*)
+/**
+ * Who can sign in, and what each of them is allowed to do.
+ *
+ * Keyed by e-mail rather than by Firebase user id, because an id exists only
+ * once the account has been created and differs between the staging and live
+ * projects, while the address is the same in both. An address is a username,
+ * not a secret, so there is no harm in it being here.
+ *
+ * Three tiers:
+ *   assistant  the daily work: sessions, remarks, trials, scores. Targets are
+ *              readable but not editable, and nothing leaves the system.
+ *   teacher    everything the 0823 password used to stand in front of, with no
+ *              prompt, because the account already says who they are.
+ *   owner      that, plus changing an activity's type and the debug tools.
+ */
+/**
+ * Firebase only signs in with something e-mail shaped, so each account is
+ * created in the console as <username>@session-tracker.app. The address is an
+ * implementation detail: it is never shown and never typed. Someone signing in
+ * types "daisy", and this is appended.
+ */
+const LOGIN_DOMAIN = "@session-tracker.app";
+const emailForUsername = u => String(u || "").trim().toLowerCase() + LOGIN_DOMAIN;
+
+const USERS = [
+  { id: "daisy", username: "daisy",    name: "Ms. Daisy", role: "teacher"   },
+  { id: "nigel", username: "nigel",    name: "Nigel",     role: "teacher"   },
+  { id: "ray",   username: "rayhanah", name: "Rayhanah",  role: "assistant" },
+  { id: "lewis", username: "lewis",    name: "Lewis",     role: "owner"     },
+].map(u => ({ ...u, email: u.username + LOGIN_DOMAIN }));
+
+/** The signed-in person, or null when the account is not one of the four. */
+function currentUser() {
+  const email = (state.authEmail || "").toLowerCase();
+  return USERS.find(u => u.email.toLowerCase() === email) || null;
+}
+
+/**
+ * Anything not in the list above is the old shared login, and is treated as an
+ * assistant: the safe end of the scale. That keeps the old account usable as a
+ * way back in without handing it the run of the place.
+ */
+function currentRole() {
+  return currentUser()?.role || "assistant";
+}
+
+const isOwner   = () => currentRole() === "owner";
+const isTeacher = () => currentRole() === "teacher";
+/** Everything the 0823 password used to gate. */
+const canUseStaffTools = () => isOwner() || isTeacher();
+
 const INSTRUCTORS = [
   { id: "daisy", name: "Ms. Daisy", isMain: true  },
   { id: "nigel", name: "Nigel",     isMain: false },
@@ -1459,32 +1513,76 @@ async function applyScoreSettings() {
 
 // ─── PASSWORD GATE ────────────────────────────────────────────
 // Single shared password for exports and old-session access.
-function requirePassword(onSuccess, message = "Enter password to continue") {
-  $("manage-modal-title").textContent = "Password Required";
+/**
+ * Runs an action that only a main teacher or the owner may run.
+ *
+ * It used to ask for the 0823 password. The account now says who you are, so
+ * there is nothing to type: a teacher or the owner goes straight through, and
+ * an assistant is told plainly that it is not theirs to do. Every call site
+ * keeps the same shape, which is why the name stays.
+ *
+ * This is a signpost, not the lock. The lock is in the Firestore rules, where
+ * it cannot be stepped around from the browser console.
+ *
+ * Note what this does NOT decide: whether an action is a good idea. Warnings
+ * about consequences, like changing the type of an activity that already has
+ * sessions behind it, are separate and still shown to whoever is allowed
+ * through here.
+ */
+/**
+ * Shows a lock on top of the floating activity panel, if that panel is open.
+ *
+ * The Edit Target modal sits at z-index 1000 and the panel at 1200, so a lock
+ * written into the modal while the panel is up gets painted BEHIND it: you can
+ * make out the grey of it around the edges, but the thing telling you why
+ * nothing happened is the one thing you cannot read. Writing into the modal
+ * also wipes the Edit Target content that is sitting there waiting for the
+ * panel to close.
+ *
+ * Returns false when the panel is not open, which leaves every lock outside the
+ * panel on the modal it has always used.
+ */
+function showLockOverPanel(bodyHtml) {
+  const panelEl = document.getElementById("mn-act-panel-overlay");
+  if (!panelEl || panelEl.style.display === "none") return false;
+  document.querySelectorAll("[data-lock-overlay]").forEach(el => el.remove());
+  const overlay = document.createElement("div");
+  overlay.dataset.lockOverlay = "1";
+  overlay.style.cssText = "position:absolute;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:flex-start;justify-content:center;padding-top:2rem;z-index:300;border-radius:.75rem;overflow-y:auto";
+  overlay.innerHTML = `<div style="background:#fff;padding:1.5rem 1.25rem;border-radius:.75rem;width:min(320px,92%);box-shadow:0 4px 24px rgba(0,0,0,.25);display:flex;flex-direction:column;align-items:center;gap:.9rem;margin-bottom:1rem">
+      <div style="font-size:2rem;line-height:1">🔒</div>
+      <div style="font-size:.9rem;color:#111;text-align:center;line-height:1.55">${bodyHtml}</div>
+      <button class="btn-primary-sm" data-lock-ok style="padding:.5rem 1.75rem">OK</button>
+    </div>`;
+  panelEl.appendChild(overlay);
+  overlay.querySelector("[data-lock-ok]").addEventListener("click", () => overlay.remove());
+  return true;
+}
+
+function requirePassword(onSuccess, message = "") {
+  if (canUseStaffTools()) { onSuccess(); return; }
+
+  // Just "Locked." A role lock said "only a main teacher can do this", which
+  // told an assistant nothing they could act on and ranked them while it did
+  // it. The old-session lock keeps its reason because that one is about the
+  // session, not about the person reading it.
+  const isOldSession = message === EXPIRED_MSG;
+  if (showLockOverPanel(isOldSession
+        ? `Locked. This session is more than 7 days old.`
+        : `Locked.`)) return;
+  $("manage-modal-title").textContent = isOldSession ? "Older Session" : "Locked";
   $("manage-modal-body").innerHTML = `
-    <div style="padding:2rem 1rem;display:flex;flex-direction:column;align-items:center;gap:.75rem">
-      <div style="font-size:.85rem;color:var(--text-muted);text-align:center;max-width:260px;line-height:1.5">${message}</div>
-      <input id="req-pw-input" type="text" class="admin-input"
-        style="width:200px;text-align:center;font-size:1rem;-webkit-text-security:disc"
-        placeholder="Enter password" autocomplete="off">
-      <div id="req-pw-err" style="font-size:.8rem;color:#dc2626;display:none">Incorrect password</div>
-      <button class="btn-primary-sm" id="req-pw-btn" style="padding:.5rem 1.5rem">Continue</button>
+    <div style="padding:2rem 1.25rem;display:flex;flex-direction:column;align-items:center;gap:.9rem">
+      <div style="font-size:2rem;line-height:1">🔒</div>
+      <div style="font-size:.95rem;color:var(--text);text-align:center;max-width:300px;line-height:1.55">
+        ${isOldSession
+          ? `Locked. This session is more than 7 days old.`
+          : `Locked.`}
+      </div>
+      <button class="btn-primary-sm" id="req-deny-ok" style="padding:.5rem 1.75rem">OK</button>
     </div>`;
   $("manage-modal").classList.remove("hidden");
-  const pwInput = $("req-pw-input");
-  pwInput.value = "";
-  setTimeout(() => pwInput.focus(), 50);
-  const check = () => {
-    if (pwInput.value !== "0823") {
-      $("req-pw-err").style.display = "";
-      pwInput.value = "";
-      return;
-    }
-    $("manage-modal").classList.add("hidden");
-    onSuccess();
-  };
-  $("req-pw-btn").addEventListener("click", check);
-  pwInput.addEventListener("keydown", e => { if (e.key === "Enter") check(); });
+  $("req-deny-ok").addEventListener("click", () => $("manage-modal").classList.add("hidden"));
 }
 
 const LEGAL_WARNING = `<strong>Client data is confidential</strong> and must only be accessed, used, or shared for authorised purposes. Unauthorised <strong>downloading of client data</strong> without permission for personal use is <strong>strictly prohibited</strong>.<br><br>Any violation of this policy constitutes a serious breach of privacy law. Violators may be <strong>reported to the relevant authorities</strong> and may be subject to civil and criminal liability.`;
@@ -1963,15 +2061,15 @@ document.addEventListener("DOMContentLoaded", async () => {
   setupStickyNote();
   $("btn-ai-report-back").addEventListener("click", showHome);
 
-  // If there's no today-login record in localStorage, Firebase auth can't possibly
-  // auto-sign-in (either first load or site data was cleared). Skip the Firebase
-  // wait entirely and go straight to PIN — no loading screen hang.
+  // Nothing stored means Firebase has no session to restore either, so go
+  // straight to the sign-in screen rather than hang on the loading screen
+  // waiting for an answer that was always going to be empty.
   let authResolved = false;
-  if (!hasLoggedInToday()) {
+  if (!hasSignedInBefore()) {
     initPin();
     authResolved = true; // prevent the timeout below from calling initPin a second time
   } else {
-    // Logged in today — wait for Firebase to confirm, but give up after 5 s.
+    // Signed in before — wait for Firebase to restore it, giving up after 5 s.
     setTimeout(() => {
       if (!authResolved) initPin();
     }, 5000);
@@ -2055,10 +2153,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   // user = null and fall into the PIN branch below.
   onAuthChange(async user => {
     authResolved = true;
-    if (user && !hasLoggedInToday()) {
-      await signOutUser();
-      return;
-    }
+    // Which of the four signed in. Every permission in the app reads from
+    // this, so it is set before anything else looks at it.
+    state.authEmail = user?.email || null;
     if (!user) {
       if (state.reviewQueueUnsubscribe) { state.reviewQueueUnsubscribe(); state.reviewQueueUnsubscribe = null; }
       await waitForUpdatingScreenMinimum();
@@ -2082,14 +2179,28 @@ document.addEventListener("DOMContentLoaded", async () => {
   });
 });
 
+/**
+ * Whether anyone has ever signed in on this device.
+ *
+ * Not whether they signed in TODAY. A sign-in used to be thrown away at
+ * midnight, so the first person in each morning was asked for the password
+ * again whether or not they had ever signed out. Signing in now lasts until
+ * someone signs out, the way it does everywhere else.
+ *
+ * The flag is only a shortcut at startup: with nothing stored, Firebase cannot
+ * have a session to restore either, so the sign-in screen is shown at once
+ * instead of waiting on a round trip that was always going to come back empty.
+ * The old key is reused and anything stored under it counts, so a device that
+ * had the date written under it is not asked to sign in again.
+ */
 const LAST_LOGIN_DATE_KEY = "lastLoginDate";
-function hasLoggedInToday() {
-  return localStorage.getItem(LAST_LOGIN_DATE_KEY) === getTodayString();
+function hasSignedInBefore() {
+  return !!localStorage.getItem(LAST_LOGIN_DATE_KEY);
 }
-function markLoggedInToday() {
-  localStorage.setItem(LAST_LOGIN_DATE_KEY, getTodayString());
+function markSignedIn() {
+  localStorage.setItem(LAST_LOGIN_DATE_KEY, "1");
 }
-function clearLoggedInToday() {
+function clearSignedIn() {
   localStorage.removeItem(LAST_LOGIN_DATE_KEY);
 }
 
@@ -2259,111 +2370,96 @@ checkVersionFromServer();
 // PIN SCREEN
 // ============================================================
 
+/**
+ * Pick who you are, then type your password.
+ *
+ * Replaces the shared PIN pad. The address is built from the name, so nobody
+ * types an e-mail, and the password is never derived from anything published
+ * in this file the way the old PIN was.
+ */
+/**
+ * Username and password.
+ *
+ * Replaces the shared PIN pad. Nothing here says who has an account, and the
+ * password is not derived from anything published in the served code the way
+ * the old PIN was. The e-mail Firebase needs is built from the username.
+ */
 function initPin() {
   showScreen("screen-pin");
   const vEl = $("pin-version");
   if (vEl) vEl.textContent = versionLineText();
-  const errMsg = $("pin-error");
-  const statusMsg = $("pin-status");
-  const dotsEl = $("pin-dots");
-  const keypad = $("pin-keypad");
-  const pinLen = CONFIG.PIN_LENGTH;
-  let value = "";
+  const mount = $("login-mount");
+  if (!mount) return;
+
   let checking = false;
+  mount.innerHTML = `
+    <p class="pin-subtitle">Sign in</p>
+    <div class="login-pw">
+      <div class="float-field">
+        <input id="login-user" type="text" class="admin-input" placeholder=" "
+          autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
+        <label for="login-user">Username</label>
+      </div>
+      <div class="float-field">
+        <input id="login-pw-input" type="password" class="admin-input" placeholder=" "
+          autocomplete="current-password" autocapitalize="off" spellcheck="false">
+        <label for="login-pw-input">Password</label>
+      </div>
+      <div id="login-err" class="pin-error hidden">Wrong username or password.</div>
+      <div id="login-status" class="pin-status hidden">Signing in…</div>
+      <button class="btn-primary-sm" id="login-go">Sign In</button>
+      <button class="login-back" id="login-old-pin">Use the old staff PIN</button>
+    </div>`;
 
-  // A previous successful login leaves statusMsg's "hidden" class removed
-  // (only the error path explicitly re-hides it — success just navigates
-  // away from this whole screen). Reset both on every fresh entry so
-  // "Logging in…" can't still be showing before anything's been typed.
-  errMsg.classList.add("hidden");
-  statusMsg.classList.add("hidden");
+  const userInp = $("login-user");
+  const pwInp   = $("login-pw-input");
+  const err     = $("login-err");
+  const status  = $("login-status");
 
-  dotsEl.innerHTML = Array.from({ length: pinLen }, () =>
-    '<span class="pin-dot"></span>'
-  ).join("");
-  const dots = dotsEl.querySelectorAll(".pin-dot");
-
-  function renderDots() {
-    dots.forEach((d, i) => d.classList.toggle("filled", i < value.length));
-  }
-
-  function shake() {
-    dotsEl.classList.remove("shake");
-    void dotsEl.offsetWidth;
-    dotsEl.classList.add("shake");
-  }
-
-  async function submit() {
+  const submit = async () => {
     if (checking) return;
+    const username = userInp.value.trim();
+    if (!username || !pwInp.value) return;
     checking = true;
-    keypad.classList.add("checking");
-    errMsg.classList.add("hidden");
-    statusMsg.classList.remove("hidden");
+    err.classList.add("hidden");
+    status.classList.remove("hidden");
     try {
-      // Marked *before* signing in, not after — onAuthChange's listener can
-      // fire as soon as Firebase's internal state updates, which can race
-      // ahead of this async function's own continuation after the await.
-      // If hasLoggedInToday() were still false at that moment, onAuthChange
-      // would immediately sign this brand-new login back out again (it
-      // looks identical to a stale persisted session from a previous day),
-      // leaving "Logging in…" stuck forever since the screen never moves on
-      // to home OR back to a fresh PIN entry.
-      markLoggedInToday();
-      await signInWithPin(value);
-      // Success: onAuthChange (registered once in DOMContentLoaded) picks up
-      // the new signed-in user, loads data, and shows home from there. Leave
-      // "Logging in…" up the whole time — loading that data after sign-in
-      // can itself take a few seconds, and showScreen() will hide this
-      // entire PIN screen (status message included) once home appears, so
-      // there's no gap where nothing is showing.
-      document.removeEventListener("keydown", onKeyDown);
+      await signInAs(emailForUsername(username), pwInp.value);
+      markSignedIn();
+      // onAuthChange takes it from here and loads the app.
+    } catch (_) {
+      // One message for both, on purpose: saying which half was wrong tells
+      // someone guessing that a username exists.
+      status.classList.add("hidden");
+      err.classList.remove("hidden");
+      pwInp.value = "";
+      pwInp.focus();
+    } finally {
       checking = false;
-      keypad.classList.remove("checking");
-    } catch (err) {
-      // The day was marked BEFORE the attempt (see above), so a failed attempt
-      // has to take it back. Leaving it set is what produced "it says the PIN
-      // is wrong and then logs me in anyway": hasLoggedInToday() was now true,
-      // so the next auth-state change onAuthChange saw was accepted instead of
-      // being signed out as a stale session from a previous day.
-      clearLoggedInToday();
-      // Nothing was ever written about WHY a sign-in failed, so a wrong PIN and
-      // a dropped connection looked identical from the outside.
-      console.warn("[PIN] sign-in failed:", err?.code || "(no code)", err?.message || err);
-      shake();
-      errMsg.classList.remove("hidden");
-      statusMsg.classList.add("hidden");
-      value = "";
-      renderDots();
-      checking = false;
-      keypad.classList.remove("checking");
     }
-  }
+  };
 
-  function pressKey(key) {
-    if (key === "back") {
-      value = value.slice(0, -1);
-      errMsg.classList.add("hidden");
-      renderDots();
-      return;
+  $("login-go").addEventListener("click", submit);
+  [userInp, pwInp].forEach(el =>
+    el.addEventListener("keydown", e => { if (e.key === "Enter") submit(); }));
+
+  // The way back in. The four accounts have to be created by hand in the
+  // Firebase console, and until they exist nobody could sign in at all, which
+  // would lock the app shut rather than restrict it. The old shared account
+  // still works and is treated as an assistant. Remove this once the accounts
+  // are in place and proven.
+  $("login-old-pin").addEventListener("click", async () => {
+    const pin = prompt("Old staff PIN:");
+    if (!pin) return;
+    try {
+      await signInWithPin(pin.trim());
+      markSignedIn();
+    } catch (_) {
+      alert("That PIN was not accepted.");
     }
-    if (value.length >= pinLen) return;
-    value += key;
-    renderDots();
-    if (value.length === pinLen) setTimeout(submit, 120);
-  }
-
-  keypad.addEventListener("click", e => {
-    const btn = e.target.closest(".pin-key");
-    if (!btn || btn.disabled) return;
-    pressKey(btn.dataset.key);
   });
 
-  function onKeyDown(e) {
-    if (e.key >= "0" && e.key <= "9") pressKey(e.key);
-    else if (e.key === "Backspace") pressKey("back");
-    else if (e.key === "Enter" && value.length === pinLen) submit();
-  }
-  document.addEventListener("keydown", onKeyDown);
+  setTimeout(() => userInp.focus(), 50);
 }
 
 // ============================================================
@@ -2385,6 +2481,7 @@ async function showHome() {
   renderHalfYearReportsSection();
   renderStudentDatabaseButton();
   renderTodoHomeSection();
+  renderHeaderUser();
   runOneOffRepairs();
 }
 
@@ -2662,6 +2759,9 @@ async function migrateAwayFromMappedScoreType() {
 }
 
 $("btn-logout")?.addEventListener("click", () => {
+  // Clear the shortcut too, or the next load waits on Firebase for a session
+  // that was deliberately ended.
+  clearSignedIn();
   signOutUser();
 });
 
@@ -2670,7 +2770,8 @@ $("btn-logout")?.addEventListener("click", () => {
 // Individual Sessions has no Add button: registering a student in the Student
 // Database is what puts them there. Two steps meant a student could exist and
 // still be missing from the list, with nothing on screen explaining the gap.
-$("btn-add-group").addEventListener("click", addNewGroup);
+$("btn-add-group").addEventListener("click", () =>
+  requirePassword(addNewGroup, EXPORT_MSG));
 $("btn-archived-existing")?.addEventListener("click", () => {
   state.showArchivedExisting = !state.showArchivedExisting;
   renderExistingStudentButtons();
@@ -2697,12 +2798,19 @@ function renderStudentDatabaseButton() {
     <button class="export-btn" id="btn-open-ai-report">AI Report Generator</button>
     <button class="export-btn" id="btn-open-score-settings">Score Settings</button>
   </div>`;
+  // Open to everyone: reading the list is useful and harmless. Every control
+  // on the screen is locked instead, which is the difference between looking
+  // something up and changing it.
   $("btn-open-student-registry").addEventListener("click", () => openStudentRegistryScreen());
   // Behind the same password as Edit Target: the scale it sets decides every
   // score in the app, so it is not something to wander into.
   $("btn-open-score-settings").addEventListener("click", () =>
     requirePassword(() => openScoreSettingsScreen(), "Enter password to open Score Settings"));
-  $("btn-open-ai-report").addEventListener("click", () => showScreen("screen-ai-report"));
+  // Gated on the way in rather than on Generate. The screen shows every
+  // student's name and the shape of their reports, so letting someone walk
+  // around it and only stopping them at the last step guards the wrong thing.
+  $("btn-open-ai-report").addEventListener("click", () =>
+    requirePassword(() => showScreen("screen-ai-report"), EXPORT_MSG));
 }
 
 function renderTodoHomeSection() {
@@ -2752,11 +2860,16 @@ async function loadTodoHomeCounts() {
         } catch { /* skip malformed session */ }
         return n;
       }, 0);
+      // Approvals are Ms. Daisy's and belong to a student rather than a
+      // session, so they are counted separately and added on.
+      const total = count
+        + (inst.id === "daisy" ? entitiesAwaitingApproval().length : 0)
+        + approvalNoticesFor(inst.id).length;
       const badge = document.querySelector(`.todo-home-badge[data-id="${inst.id}"]`);
       if (badge) {
-        badge.textContent = count;
-        badge.style.background = count > 0 ? "#3b82f6" : "#d1d5db";
-        badge.style.color      = count > 0 ? "#fff"    : "#6b7280";
+        badge.textContent = total;
+        badge.style.background = total > 0 ? "#3b82f6" : "#d1d5db";
+        badge.style.color      = total > 0 ? "#fff"    : "#6b7280";
       }
     } catch { /* silently skip this instructor if query fails */ }
   });
@@ -2959,6 +3072,73 @@ function renderTodoTiles(results, filterInst = null) {
     </button>`;
   };
 
+  // Approvals sit above the session tasks, and only on Ms. Daisy's list. They
+  // are not session work: a proposal belongs to a student, not to a day, so it
+  // has no date and no workflow phase and cannot be folded into the rows below.
+  const approvalHtml = (inst) => {
+    if (inst.id !== "daisy") return "";
+    const rows = entitiesAwaitingApproval();
+    if (rows.length === 0) return "";
+    return `<div class="todo-approval-block">
+      ${rows.map(r => `
+        <div class="todo-approval-card" data-approval-id="${escHtml(r.entity.id)}" data-approval-group="${r.isGroup}">
+          <div class="todo-approval-name">${escHtml(r.entity.name || "Unknown")}</div>
+          <span class="todo-approval-pill">(${r.count} item${r.count === 1 ? "" : "s"} waiting for approval)</span>
+        </div>`).join("")}
+    </div>`;
+  };
+
+  // News, not work: nothing has to be done about it, it only has to be read.
+  // Green rather than the approvals' amber, so the two are told apart before
+  // either is read.
+  const noticeHtml = (inst) => {
+    const rows = approvalNoticesFor(inst.id);
+    if (rows.length === 0) return "";
+    return `<div class="todo-notice-block">
+      ${rows.map(r => `
+        <div class="todo-notice-card" data-notice-id="${escHtml(r.entity.id)}" data-notice-group="${r.isGroup}">
+          <div class="todo-notice-name">${escHtml(r.entity.name || "Unknown")}</div>
+          <div class="todo-notice-line">
+            <span class="todo-notice-pill">${escHtml(instructorName(r.notice.by))} has approved ${r.notice.count} item${r.notice.count === 1 ? "" : "s"}</span>
+            <button class="todo-notice-clear" type="button">Clear This Notification</button>
+          </div>
+        </div>`).join("")}
+    </div>`;
+  };
+
+  const wireNoticeCards = (inst) => {
+    body.querySelectorAll(".todo-notice-clear").forEach(btn => {
+      btn.addEventListener("click", async e => {
+        e.stopPropagation();
+        const card   = btn.closest(".todo-notice-card");
+        const isGrp  = card?.dataset.noticeGroup === "true";
+        const list   = isGrp ? (state.groups || []) : (state.students || []);
+        const entity = list.find(x => x.id === card?.dataset.noticeId);
+        if (!entity) return;
+        // Removed before the write, so the card goes the moment it is pressed
+        // rather than after a round trip.
+        delete entity.approvalNotices?.[inst.id];
+        card.remove();
+        try {
+          await (isGrp ? saveGroup(entity) : saveStudent(entity));
+        } catch (err) { console.error("clear notification:", err); }
+        loadTodoHomeCounts();
+      });
+    });
+  };
+
+  const wireApprovalCards = () => {
+    body.querySelectorAll(".todo-approval-card").forEach(card => {
+      card.addEventListener("click", () => {
+        const isGroup = card.dataset.approvalGroup === "true";
+        const list    = isGroup ? (state.groups || []) : (state.students || []);
+        const entity  = list.find(e => e.id === card.dataset.approvalId);
+        if (!entity) return;
+        openApprovalTask({ entity, isGroup, count: 0 });
+      });
+    });
+  };
+
   if (filterInst) {
     // Flat card list for a single instructor
     const { inst, pending } = results[0];
@@ -3015,12 +3195,18 @@ function renderTodoTiles(results, filterInst = null) {
       </div>`;
     };
 
+    const approvals = approvalHtml(inst);
+    const notices   = noticeHtml(inst);
     body.innerHTML = `
       <div style="padding:1rem;max-width:600px;margin:0 auto">
+        ${notices}
+        ${approvals}
         ${sorted.length === 0
-          ? `<p style="color:var(--text-muted);padding:.5rem 0">All caught up! No pending tasks.</p>`
+          ? (approvals || notices ? "" : `<p style="color:var(--text-muted);padding:.5rem 0">All caught up! No pending tasks.</p>`)
           : sorted.map(mkFlatCard).join("")}
       </div>`;
+    wireApprovalCards();
+    wireNoticeCards(inst);
 
     body.querySelectorAll(".todo-flat-card").forEach(card => {
       card.addEventListener("click", () => {
@@ -3044,7 +3230,12 @@ function renderTodoTiles(results, filterInst = null) {
     body.innerHTML = `
       <div style="padding:1rem;display:grid;grid-template-columns:repeat(3,1fr);gap:1rem;align-items:start">
         ${results.map(({ inst, pending }) => {
-          const hasPending = pending.length > 0;
+          // Approvals count towards the badge and towards whether the column
+          // opens at all: a column showing 0 does not expand, which would hide
+          // the very thing it is meant to surface.
+          const approvalRows = inst.id === "daisy" ? entitiesAwaitingApproval().length : 0;
+          const noticeRows   = approvalNoticesFor(inst.id).length;
+          const hasPending = pending.length + approvalRows + noticeRows > 0;
           const sorted = [...pending].sort((a, b) => (a.date || "").localeCompare(b.date || ""));
           return `
           <div class="todo-col" style="border:1.5px solid #e5e7eb;border-radius:14px;overflow:hidden;background:#fff;box-shadow:0 1px 4px rgba(0,0,0,.06)">
@@ -3052,16 +3243,20 @@ function renderTodoTiles(results, filterInst = null) {
               style="display:flex;align-items:center;justify-content:space-between;width:100%;padding:.9rem 1rem;border:none;background:#f9fafb;cursor:${hasPending ? "pointer" : "default"};text-align:left">
               <div style="display:flex;align-items:center;gap:.5rem">
                 <span style="font-weight:700;font-size:.95rem;color:#1f2937">${escHtml(inst.name)}</span>
-                <span style="background:${pending.length > 0 ? '#3b82f6' : '#d1d5db'};color:${pending.length > 0 ? '#fff' : '#6b7280'};border-radius:999px;min-width:20px;height:20px;display:flex;align-items:center;justify-content:center;font-size:.72rem;font-weight:700;padding:0 5px;flex-shrink:0">${pending.length}</span>
+                <span style="background:${hasPending ? '#3b82f6' : '#d1d5db'};color:${hasPending ? '#fff' : '#6b7280'};border-radius:999px;min-width:20px;height:20px;display:flex;align-items:center;justify-content:center;font-size:.72rem;font-weight:700;padding:0 5px;flex-shrink:0">${pending.length + approvalRows + noticeRows}</span>
               </div>
               ${hasPending ? `<span class="todo-chevron" style="color:#6b7280;font-size:1.5rem;line-height:1;transition:transform .2s;transform:rotate(-90deg)">▾</span>` : ""}
             </button>
             <div class="todo-col-body" data-id="${inst.id}" style="display:none">
+              ${noticeHtml(inst)}
+              ${approvalHtml(inst)}
               ${hasPending ? sorted.map(s => mkSessionRow(s, inst)).join("") : ""}
             </div>
           </div>`;
         }).join("")}
       </div>`;
+    wireApprovalCards();
+    results.forEach(({ inst }) => wireNoticeCards(inst));
   }
 
   // Toggle collapse
@@ -3180,6 +3375,42 @@ function genderSelectHtml(s) {
   </select>`;
 }
 
+/**
+ * The Student Database, read-only for an assistant.
+ *
+ * Selects and the delete button are properly disabled, because a half-working
+ * dropdown is worse than one that plainly does nothing. Text boxes are left
+ * clickable but read-only so that clicking one can say why, and the rows and
+ * the Add button do the same. Between them, everything anyone would actually
+ * reach for explains itself.
+ */
+function applyRegistryReadOnly() {
+  if (!proposesOnly()) return;
+  const body = $("student-registry-body");
+  if (!body) return;
+
+  body.querySelectorAll("select, .db-del-student").forEach(el => {
+    el.disabled = true;
+    el.classList.add("mn-locked-field");
+  });
+  body.querySelectorAll("input, textarea").forEach(el => {
+    el.readOnly = true;
+    el.classList.add("mn-locked-field");
+  });
+  $("btn-add-student-row")?.classList.add("mn-locked-field");
+
+  if (body._regLockWired) return;
+  body._regLockWired = true;
+  // Capture, so it runs before the field's own handler rather than after it.
+  body.addEventListener("click", e => {
+    if (!proposesOnly()) return;
+    if (!e.target.closest(".mn-locked-field")) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    requirePassword(() => {}, EXPORT_MSG);
+  }, true);
+}
+
 async function renderStudentRegistryBody({ highlightAdd = false } = {}) {
   const body = $("student-registry-body");
   if (!body) return;
@@ -3259,7 +3490,9 @@ async function renderStudentRegistryBody({ highlightAdd = false } = {}) {
   $("student-registry-body").querySelectorAll(".reg-indiv-num").forEach(cell => {
     cell.addEventListener("click", () => {
       const s = state.students.find(x => x.id === cell.dataset.id);
-      if (s) openManageModal(s);
+      // The student's own page is where renaming, session numbering and
+      // deletion live, so it is the gate rather than the screen behind it.
+      if (s) requirePassword(() => openManageModal(s), EXPORT_MSG);
     });
   });
 
@@ -3388,7 +3621,9 @@ async function renderStudentRegistryBody({ highlightAdd = false } = {}) {
     });
   });
 
-  $("btn-add-student-row").addEventListener("click", startAddStudentRow);
+  $("btn-add-student-row").addEventListener("click", () =>
+    requirePassword(startAddStudentRow, EXPORT_MSG));
+  applyRegistryReadOnly();
 
   if (highlightAdd) {
     const btn = $("btn-add-student-row");
@@ -4050,8 +4285,13 @@ function renderExportButtons() {
     });
   };
   wire("btn-export-all-trials", "Backup All Excel (ZIP)", true);
-  $("btn-data-integrity-check").addEventListener("click", runDataIntegrityCheck);
-  $("btn-recently-deleted").addEventListener("click", renderRecentlyDeleted);
+  // The whole "FOR LEWIS (IT) USE" row is locked. Recently Deleted can
+  // restore and permanently destroy; the integrity check writes nothing but
+  // reports on data an assistant has no business reading through.
+  $("btn-data-integrity-check").addEventListener("click", () =>
+    requirePassword(runDataIntegrityCheck, EXPORT_MSG));
+  $("btn-recently-deleted").addEventListener("click", () =>
+    requirePassword(renderRecentlyDeleted, EXPORT_MSG));
   $("btn-hyr-settings").addEventListener("click", hyrOpenSettings);
 }
 
@@ -9343,29 +9583,8 @@ async function monthlyDownloadExcel(student, year, month, monthName, overviewDat
 }
 
 async function hyrOpenSettings() {
-  $("manage-modal-title").textContent = "Prompt for AI Report";
-  $("manage-modal-body").innerHTML = `
-    <div style="padding:2rem 1rem;display:flex;flex-direction:column;align-items:center;gap:.75rem">
-      <div style="font-size:.9rem;color:var(--text-muted)">Enter password to continue</div>
-      <input id="hyr-settings-pw" type="text" class="admin-input"
-        style="width:200px;text-align:center;font-size:1rem;-webkit-text-security:disc"
-        placeholder="Enter password" autocomplete="off">
-      <div id="hyr-settings-pw-err" style="font-size:.8rem;color:#dc2626;display:none">Incorrect password</div>
-    </div>`;
-  $("manage-modal").classList.remove("hidden");
-
-  const pwInput = $("hyr-settings-pw");
-  pwInput.value = "";
-  setTimeout(() => { pwInput.value = ""; pwInput.focus(); }, 50);
-  pwInput.addEventListener("keydown", async e => {
-    if (e.key !== "Enter") return;
-    if (pwInput.value !== "0823") {
-      $("hyr-settings-pw-err").style.display = "";
-      pwInput.value = "";
-      return;
-    }
-    await hyrShowPromptEditor();
-  });
+  // Was its own password box asking for 0823. The account answers that now.
+  requirePassword(() => hyrShowPromptEditor(), EXPORT_MSG);
 }
 
 async function hyrShowPromptEditor() {
@@ -9818,13 +10037,16 @@ function showStudentChoice(student) {
   // Archiving only takes someone off the home list. Their sessions, targets,
   // reports, exports and backups are all untouched, which is why this needs no
   // warning: it is a tidying-up, not a deletion.
-  $("session-picker-list").querySelector(".choice-archive").addEventListener("click", async () => {
-    student.archived = !student.archived;
-    if (!student.archived) delete student.archived;
-    closeSessionPicker();
-    await saveStudent(student).catch(() => {});
-    renderExistingStudentButtons();
-  });
+  // Archiving takes someone off the home list. Not destructive, but to
+  // anyone looking for them it is indistinguishable from their being gone.
+  $("session-picker-list").querySelector(".choice-archive").addEventListener("click", () =>
+    requirePassword(async () => {
+      student.archived = !student.archived;
+      if (!student.archived) delete student.archived;
+      closeSessionPicker();
+      await saveStudent(student).catch(() => {});
+      renderExistingStudentButtons();
+    }, EXPORT_MSG));
 
   $("session-picker-list").querySelector(".choice-export-excel").addEventListener("click", () => {
     requirePassword(() => showExportTrialsChoice(student.name, includeTrials => exportStudentData(student, includeTrials)), EXPORT_MSG);
@@ -9906,31 +10128,8 @@ function showStudentChoice(student) {
   });
   $("session-picker-list").querySelector(".choice-manage-activity").addEventListener("click", () => {
     closeSessionPicker();
-    $("manage-modal-title").textContent = "Manage Targets";
-    $("manage-modal-body").innerHTML = `
-      <div style="padding:2rem 1rem;display:flex;flex-direction:column;align-items:center;gap:.75rem">
-        <div style="font-size:.9rem;color:var(--text-muted)">Enter password to continue</div>
-        <input id="ma-gate-pw" type="text" class="admin-input"
-          style="width:200px;text-align:center;font-size:1rem;-webkit-text-security:disc"
-          placeholder="Enter password" autocomplete="off">
-        <div id="ma-gate-pw-err" style="font-size:.8rem;color:#dc2626;display:none">Incorrect password</div>
-        <button class="btn-primary-sm" id="ma-gate-pw-btn" style="padding:.5rem 1.5rem">Continue</button>
-      </div>`;
-    $("manage-modal").classList.remove("hidden");
-    const pwInput = $("ma-gate-pw");
-    pwInput.value = "";
-    setTimeout(() => { pwInput.value = ""; pwInput.focus(); }, 50);
-    const checkPw = () => {
-      if (pwInput.value !== "0823") {
-        $("ma-gate-pw-err").style.display = "";
-        pwInput.value = "";
-        return;
-      }
-      $("manage-modal").classList.add("hidden");
-      openManageActivityScreen(student);
-    };
-    pwInput.addEventListener("keydown", e => { if (e.key === "Enter") checkPw(); });
-    $("ma-gate-pw-btn").addEventListener("click", checkPw);
+    // Was its own password box. Same gate as everywhere else now.
+    requirePassword(() => openManageActivityScreen(student), EXPORT_MSG);
   });
 }
 
@@ -10086,6 +10285,10 @@ function renderPickDateCalendar(student, sessions, byMonth, today, displayDate, 
     const isFut   = ds > today;
     const isTaken = sessionIdByDate.has(ds);
     let cls = "date-picker-day";
+    // A ring, not a fill: the selected day is already a solid block, and a
+    // second filled day would read as a second selection. The ring also
+    // survives today BEING the selected day, which a fill could not.
+    if (ds === today) cls += " date-picker-day-today";
     if (isFut)   cls += " date-picker-day-future";
     if (isTaken) cls += " date-picker-day-taken";
     const dotCls = isTaken ? "date-taken-dot" : "day-dot-spacer";
@@ -10528,6 +10731,10 @@ function renderStartSessionCalendar(student, today, displayDate, takenDates = ne
     const isFut   = ds > today;
     const isTaken = takenDates.has(ds);
     let cls = "date-picker-day";
+    // A ring, not a fill: the selected day is already a solid block, and a
+    // second filled day would read as a second selection. The ring also
+    // survives today BEING the selected day, which a fill could not.
+    if (ds === today) cls += " date-picker-day-today";
     if (isFut)   cls += " date-picker-day-future";
     if (isTaken) cls += " date-picker-day-taken";
     const dotCls = isTaken ? "date-taken-dot" : "day-dot-spacer";
@@ -10596,6 +10803,10 @@ function renderGroupStartSessionCalendar(group, today, displayDate, takenDates =
     const isFut   = ds > today;
     const isTaken = takenDates.has(ds);
     let cls = "date-picker-day";
+    // A ring, not a fill: the selected day is already a solid block, and a
+    // second filled day would read as a second selection. The ring also
+    // survives today BEING the selected day, which a fill could not.
+    if (ds === today) cls += " date-picker-day-today";
     if (isFut)   cls += " date-picker-day-future";
     if (isTaken) cls += " date-picker-day-taken";
     const dotCls = isTaken ? "date-taken-dot" : "day-dot-spacer";
@@ -10667,6 +10878,10 @@ function renderDatePickerCalendar(displayDate, takenDates, today, currentDate) {
     const isTaken = takenDates.has(ds);
     const dis    = isFut || isTaken;
     let cls = "date-picker-day";
+    // A ring, not a fill: the selected day is already a solid block, and a
+    // second filled day would read as a second selection. The ring also
+    // survives today BEING the selected day, which a fill could not.
+    if (ds === today) cls += " date-picker-day-today";
     if (isCur)   cls += " date-picker-day-current";
     if (isFut)   cls += " date-picker-day-future";
     if (isTaken) cls += " date-picker-day-taken";
@@ -10704,8 +10919,56 @@ function renderDatePickerCalendar(displayDate, takenDates, today, currentDate) {
 // SESSION SCREEN
 // ============================================================
 
+/**
+ * Strip proposals out of a target for anything that displays it.
+ *
+ * The editor already works on a copy, so in principle nothing outside it ever
+ * holds a merged list. This is the guarantee rather than the argument: closing
+ * Edit Target was still showing the proposals for an instant before they went,
+ * and "shown for an instant" is shown. One filter on the way out of the
+ * accessor costs nothing and cannot be reasoned wrong.
+ *
+ * The SAME object comes back when nothing is pending, which is almost always.
+ * Callers that mutate what they are given therefore keep working exactly as
+ * before.
+ */
+function stripPendingFromTarget(t) {
+  const acts = Array.isArray(t?.predefinedActivities) ? t.predefinedActivities : null;
+  if (!acts) return t;
+
+  // Proposals live in TWO places depending on who is looking.
+  //
+  // Stored, they sit in their own pendingActivities list. Inside Edit Target
+  // they are merged into predefinedActivities and flagged _pending. This
+  // function only knew about the second, so for every screen outside the editor
+  // -- which is all of them -- it found nothing and did nothing, and a parent
+  // whose sub-activities were all still waiting arrived looking like a parent
+  // with no children. Indistinguishable from a plain activity, so it was drawn
+  // as one, offering a remark box it can never hold.
+  const merged = acts.filter(a => a?._pending);
+  const stored = Array.isArray(t.pendingActivities) ? t.pendingActivities : [];
+  const pending = merged.concat(stored).filter(a => a && !isEmptyActItem(a));
+  if (pending.length === 0) return merged.length ? { ...t, predefinedActivities: acts.filter(a => !a?._pending) } : t;
+
+  const kept = acts.filter(a => !a?._pending);
+  const pendingSubs = pending.filter(a => a.parentActivity);
+  if (pendingSubs.length === 0) return { ...t, predefinedActivities: kept };
+
+  // The count of what is being held back travels with the copy, so the screen
+  // can say what is actually going on instead of guessing from an empty list.
+  return {
+    ...t,
+    predefinedActivities: kept.map(a => {
+      if (!a || a.parentActivity) return a;
+      const key = a._linkKey || a.title || a.name;
+      const n = key ? pendingSubs.filter(x => x.parentActivity === key).length : 0;
+      return n ? { ...a, _pendingSubs: n } : a;
+    }),
+  };
+}
+
 function getEffectiveTargets() {
-  return state.currentStudent?.targets || [];
+  return (state.currentStudent?.targets || []).map(stripPendingFromTarget);
 }
 
 async function openSession(student, existingSessionId = null, dateStr = null, participants = null) {
@@ -10814,7 +11077,23 @@ async function openSession(student, existingSessionId = null, dateStr = null, pa
       updateSessionParticipants(sessionId, participants).catch(() => {});
     }
 
+    // A watchdog, not a retry. Every known way this hangs is fixed above, so
+    // anything still sitting here after ten seconds is something we have not
+    // seen -- and a message that admits it beats a spinner that never stops.
+    const _loadWatchdog = setTimeout(() => {
+      if (state.currentSessionId === sessionId && state.sessionData === null) {
+        $("target-content").innerHTML = sessionLoadFailedHtml(new Error("It is taking unusually long."));
+      }
+    }, 10000);
+
+    // Config changes made elsewhere -- an activity approved by someone on
+    // another device -- arrive while the screen is open, instead of waiting for
+    // a reload.
+    state.fbConfigUnsub?.();
+    state.fbConfigUnsub = watchConfigForOpenSession(false);
+
     state.fbUnsubscribe = listenToSession(sessionId, async data => {
+      clearTimeout(_loadWatchdog);
       const firstLoad = state.sessionData === null;
       // Strip orphan extra activities from EVERY incoming snapshot (empty name
       // + no substantive remarks) before storing in state — prevents pre-existing
@@ -10876,9 +11155,15 @@ async function openSession(student, existingSessionId = null, dateStr = null, pa
           deleteOrphanActivities(sessionId, staleActIds, staleRemIds).catch(() => {});
         }
         const eff = getEffectiveTargets();
-        state.selectedTargetName = (preservedTargetName && eff.some(t => t.name === preservedTargetName))
-          ? preservedTargetName
-          : (eff[0]?.name || null);
+        // Arriving from an approval task lands on the target that is waiting,
+        // rather than on whichever target happens to be first.
+        const jump = _approvalJumpTarget && eff.some(t => t.name === _approvalJumpTarget)
+          ? _approvalJumpTarget : null;
+        _approvalJumpTarget = null;
+        state.selectedTargetName = jump
+          || ((preservedTargetName && eff.some(t => t.name === preservedTargetName))
+                ? preservedTargetName
+                : (eff[0]?.name || null));
         populateTargetDropdown(eff);
         // Auto-create an empty remark for "pick from options" activities
         // (Select one / Tick boxes / Sentence Starter + either, or + Select
@@ -10937,11 +11222,15 @@ async function openSession(student, existingSessionId = null, dateStr = null, pa
           else { renderTargetContent(); }
         }, 0);
       }
+    }, err => {
+      clearTimeout(_loadWatchdog);
+      if (state.currentSessionId === sessionId) {
+        $("target-content").innerHTML = sessionLoadFailedHtml(err);
+      }
     });
 
   } catch (err) {
-    $("target-content").innerHTML =
-      `<div class="error-msg">Could not load session.<br>${escHtml(err.message)}</div>`;
+    $("target-content").innerHTML = sessionLoadFailedHtml(err);
   }
 }
 
@@ -10956,6 +11245,7 @@ async function leaveSession() {
   state.entryEnterKeyCleanup?.();
   state.entryEnterKeyCleanup = null;
   if (state.fbUnsubscribe) { state.fbUnsubscribe(); state.fbUnsubscribe = null; }
+  state.fbConfigUnsub?.(); state.fbConfigUnsub = null;
   const sessionId = state.currentSessionId;
   const data      = state.sessionData;
   const student   = state.currentStudent;
@@ -11052,6 +11342,106 @@ function sortTargetsByOrder(targets) {
   return [...targets].sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || a.name.localeCompare(b.name));
 }
 
+/**
+ * A dropdown that can show a coloured tag beside a target.
+ *
+ * A native <option> renders as plain text -- browsers discard any markup or
+ * styling inside it -- so the count had to live in the option's text, reading
+ * like part of the target's name. This draws the list itself instead, so the
+ * count can be a tag.
+ *
+ * The <select> is kept and stays the source of truth. It is hidden, written to,
+ * and told to fire "change" exactly as a person clicking it would. Every
+ * .value read, every change listener and every "is the menu open" guard in the
+ * app therefore carries on working untouched, which is the whole reason for
+ * driving the old control rather than replacing it.
+ *
+ * busyFlag is the same flag trackSelectOpen sets for the native menu. A render
+ * arriving while the list is open would otherwise close it under the cursor --
+ * the exact fault this dropdown had for months.
+ */
+function renderTargetCombo(comboId, selectId, items, busyFlag) {
+  const combo = $(comboId), sel = $(selectId);
+  if (!combo || !sel) return;
+
+  // Redraw whenever the select's value changes, from anywhere.
+  //
+  // A native <select> repaints itself when its value changes; a drawn list does
+  // not. Picking a target re-renders the screen but does NOT rebuild the
+  // dropdown -- there was never a reason to -- so the button went on naming the
+  // target you had left and the highlight stayed on it. The items are stashed
+  // on the element so this can redraw with exactly what it had, and the listener
+  // is registered once per select so repeated renders cannot stack them up.
+  combo._tcItems = items;
+  combo._tcBusy  = busyFlag;
+  if (!sel._tcBound) {
+    sel._tcBound = true;
+    sel.addEventListener("change", () => {
+      const c = $(comboId);
+      if (c?._tcItems) renderTargetCombo(comboId, selectId, c._tcItems, c._tcBusy);
+    });
+  }
+
+  const current = items.find(i => i.value === sel.value);
+  // Both wordings are rendered and CSS picks one. Choosing in JS would need a
+  // resize listener to stay right, and a pill that says "12 waiting" must not
+  // be shortened by trimming characters off the front of the number.
+  const tag = n => n > 0
+    ? `<span class="tc-pill"><span class="tcp-long">${n} waiting for approval</span><span class="tcp-short">${n}</span></span>`
+    : "";
+  const label = current
+    ? `<span class="tc-name">${escHtml(current.label)}</span>${tag(current.pending)}`
+    : `<span class="tc-name tc-placeholder">${escHtml(items.length ? "— select —" : "— no targets yet —")}</span>`;
+
+  combo.innerHTML = `
+    <button type="button" class="tc-btn" aria-haspopup="listbox" aria-expanded="false">
+      ${label}<span class="tc-caret" aria-hidden="true">▾</span>
+    </button>
+    <div class="tc-list" role="listbox" hidden>
+      ${items.map(i => `
+        <button type="button" class="tc-opt${i.value === sel.value ? " is-current" : ""}${i.isAdd ? " tc-opt-add" : ""}"
+          role="option" aria-selected="${i.value === sel.value}" data-value="${escHtml(i.value)}">
+          <span class="tc-name">${escHtml(i.label)}</span>${tag(i.pending)}
+        </button>`).join("")}
+    </div>`;
+
+  const btn  = combo.querySelector(".tc-btn");
+  const list = combo.querySelector(".tc-list");
+
+  const close = () => {
+    list.hidden = true;
+    btn.setAttribute("aria-expanded", "false");
+    state[busyFlag] = false;
+    document.removeEventListener("pointerdown", onOutside, true);
+    document.removeEventListener("keydown", onKey, true);
+  };
+  const onOutside = e => { if (!combo.contains(e.target)) close(); };
+  const onKey = e => { if (e.key === "Escape") { close(); btn.focus(); } };
+  const open = () => {
+    list.hidden = false;
+    btn.setAttribute("aria-expanded", "true");
+    // Held open against re-renders for the same reason the native one was.
+    state[busyFlag] = true;
+    document.addEventListener("pointerdown", onOutside, true);
+    document.addEventListener("keydown", onKey, true);
+    list.querySelector(".tc-opt.is-current")?.scrollIntoView({ block: "nearest" });
+  };
+
+  btn.addEventListener("click", () => (list.hidden ? open() : close()));
+
+  list.querySelectorAll(".tc-opt").forEach(opt => {
+    opt.addEventListener("click", () => {
+      close();
+      const v = opt.dataset.value;
+      if (v === sel.value) return;      // nothing changed, so nothing to announce
+      sel.value = v;
+      // The app listens on the select, not here. Dispatching keeps one code
+      // path for "a target was chosen", however it was chosen.
+      sel.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+  });
+}
+
 function populateTargetDropdown(targets) {
   const sel = $("target-select");
   const sorted = sortTargetsByOrder(targets).filter(t => !t.discontinuedOn);
@@ -11061,13 +11451,19 @@ function populateTargetDropdown(targets) {
   if (!state._targetSelDown) {
     const placeholder = sorted.length === 0
       ? `<option value="" disabled selected>— no targets yet —</option>` : "";
+    // The hidden select keeps plain names and no counts: it is the value the
+    // app reads, and an export that ever reached for it must get the target's
+    // real name. The count belongs to the drawn list only.
     sel.innerHTML = placeholder +
-      sorted.map(t =>
-        `<option value="${escHtml(t.name)}">${escHtml(t.name)}</option>`
-      ).join("") + `<option value="__add_target__">+ Add Target…</option>`;
+      sorted.map(t => `<option value="${escHtml(t.name)}">${escHtml(t.name)}</option>`).join("")
+      + `<option value="__add_target__">+ Add Target…</option>`;
 
     sel.value = state.selectedTargetName || sorted[0]?.name || "";
   }
+  renderTargetCombo("target-combo", "target-select",
+    sorted.map(t => ({ value: t.name, label: t.name, pending: pendingCountForTarget(t) }))
+      .concat([{ value: "__add_target__", label: "+ Add Target…", pending: 0, isAdd: true }]),
+    "_targetSelDown");
 
   const editInstBtn2 = $("btn-entry-edit-instructors");
   if (editInstBtn2) {
@@ -11250,7 +11646,15 @@ function renderTargetContent() {
   }
 
   if (manageBtn) {
-    manageBtn.classList.toggle("hidden", target.isStructured !== true && !target.predefinedActivities?.length);
+    // Proposals are stripped out of `target` before it gets here, so a target
+    // whose only activities are still waiting looks empty -- and the one button
+    // that leads to them would hide itself. Counted from the unstripped target.
+    const rawTarget = (state.currentStudent?.targets || [])
+      .find(t => t.name === state.selectedTargetName);
+    const hasPending = pendingCountForTarget(rawTarget) > 0;
+    manageBtn.classList.toggle("hidden",
+      !hasPending && target.isStructured !== true && !target.predefinedActivities?.length);
+    if (_approvalFlashEdit && flashButtonHint(manageBtn)) _approvalFlashEdit = false;
   }
 
   $("target-type-chip")?.classList.add("hidden");
@@ -11508,7 +11912,7 @@ function renderFedcTarget(target, _filterPaSet = null, _sectionOnly = false) {
             <span class="field-value-fixed"><span style="color:#6b7280;font-weight:600;margin-right:.2rem">${actNum})</span>${paDisplayHtml(pa, true)}</span>
             ${pa.activeFrom ? `<span style="font-size:.75rem;color:#9ca3af;white-space:nowrap;flex-shrink:0;align-self:flex-start">Created: ${fmtPeriodDate(pa.activeFrom)}</span>` : ""}
           </div>
-          <div class="empty-parent-note" contenteditable="false">${escHtml(EMPTY_PARENT_NOTE)}</div>
+          <div class="empty-parent-note" contenteditable="false">${escHtml(_ep.awaitingApproval ? PARENT_PENDING_NOTE(_ep.count) : EMPTY_PARENT_NOTE)}</div>
         </div>`;
         return;
       }
@@ -12449,12 +12853,24 @@ function emptyParentInfo(a, acts) {
   const key = a._linkKey || a.title || a.name;
   if (!key) return null;
   const mine = (acts || []).filter(p => p.parentActivity === key);
-  if (mine.length === 0) return null;
+  // Sub-activities exist but none of them are approved yet. Still a parent, and
+  // still not something that can hold a remark, so it is reported here with a
+  // flag that changes only the wording.
+  if (mine.length === 0) {
+    return a._pendingSubs > 0
+      ? { lastDate: null, count: a._pendingSubs, awaitingApproval: true }
+      : null;
+  }
   const retired = p => p.isCompleted || p.isArchived || p.isStopped || p.masteredOn || p.discontinuedOn;
   if (mine.some(p => !retired(p))) return null;
   const dates = mine.map(p => p.masteredOn || p.discontinuedOn).filter(Boolean).sort();
   return { lastDate: dates.length ? dates[dates.length - 1] : null, count: mine.length };
 }
+
+const PARENT_PENDING_NOTE = n =>
+  `${n} sub-activit${n === 1 ? "y" : "ies"} under this parent activity ${n === 1 ? "is" : "are"} `
+  + `waiting for approval, so ${n === 1 ? "it is" : "they are"} not shown here yet. `
+  + `Go into Edit Target and approve ${n === 1 ? "it" : "them"}.`;
 
 const EMPTY_PARENT_NOTE =
   "All sub-activities under this parent activity have been mastered or discontinued. " +
@@ -14114,10 +14530,13 @@ async function openSessionView(student, sessionId) {
           }
         }, 250);
       }
+    }, err => {
+      if (state.viewSessionId === sessionId) {
+        $("session-view-body").innerHTML = sessionLoadFailedHtml(err);
+      }
     });
   } catch (err) {
-    $("session-view-body").innerHTML =
-      `<div class="error-msg">Could not load session.<br>${escHtml(err.message)}</div>`;
+    $("session-view-body").innerHTML = sessionLoadFailedHtml(err);
   }
 }
 
@@ -14236,6 +14655,633 @@ let _noteDebounce           = null;
 let _focusNewRow            = false;
 let _phase3Error            = null; // error string shown in Phase 3 node, auto-clears
 const _textareaDebounce     = new Map();
+
+/**
+ * The signed-in person as an INSTRUCTORS id, or null when they have no place
+ * in the workflow.
+ *
+ * null is deliberately permissive and means "do not apply the rule": it covers
+ * Lewis, who owns no pills and is allowed everything, and it covers the old
+ * shared PIN, which cannot tell who is using it. Were null treated as "nobody",
+ * the whole workflow would lock itself shut for everyone still signing in with
+ * the PIN, which is everyone until the four accounts exist.
+ */
+function workflowActorId() {
+  const u = currentUser();
+  if (!u || u.role === "owner") return null;
+  return INSTRUCTORS.some(i => i.id === u.id) ? u.id : null;
+}
+
+/** Whose pill this is. Phases 2 and 4 are Ms. Daisy checking someone else's
+ *  work, so they belong to her, not to the person named in the label. */
+function pillOwnerId(role) {
+  if (role.startsWith("p2_check_") || role.startsWith("p4_check_")) return "daisy";
+  if (role === "p4_nigel") return "nigel";
+  if (role.startsWith("p1_") || role.startsWith("p3_")) return role.slice(3);
+  return null;
+}
+
+/** You may tick your own pills and nobody else's. */
+function canTickPill(role) {
+  const me = workflowActorId();
+  if (me === null) return true;
+  const owner = pillOwnerId(role);
+  return owner === null || owner === me;
+}
+
+const instructorName = id => (INSTRUCTORS.find(i => i.id === id) || { name: id }).name;
+
+// ─── PENDING APPROVAL ────────────────────────────────────────
+// What an assistant adds in Edit Target is a proposal, not a change. It lives
+// in target.pendingActivities (see splitPendingForWrite in firebase-service)
+// and stays out of sessions, exports and reports until a main teacher
+// approves it.
+//
+// The editor works on ONE list, so the two are merged on open and pulled apart
+// on save. Entries merged in carry _pending, which never reaches Firestore.
+
+/**
+ * Everything a known assistant adds here is a proposal.
+ *
+ * Deliberately NOT !canUseStaffTools(). currentRole() answers "assistant" for
+ * anyone it cannot identify, which includes the old shared PIN that everyone
+ * is still using. Treating that as an assistant would quietly turn every
+ * addition anybody made into an invisible proposal with nobody able to approve
+ * it. An unknown signer keeps working as before; only a named assistant
+ * proposes.
+ */
+const proposesOnly = () => currentUser()?.role === "assistant";
+/**
+ * Ms. Daisy decides. Nigel is a main teacher and can do everything else on
+ * this screen, but approving is hers alone, and the To Do task goes only to
+ * her.
+ *
+ * An unidentified signer is allowed through for the same reason proposesOnly
+ * turns them down: the shared PIN cannot say who is holding it, and nobody
+ * being able to approve would strand every proposal.
+ */
+const canApprove = () => {
+  const u = currentUser();
+  if (!u) return true;
+  return u.id === "daisy" || u.role === "owner";
+};
+
+/**
+ * Fold a target's proposals into its live list for editing.
+ *
+ * Returns a COPY, and the caller must use what comes back. The target handed
+ * in is a live reference inside state.currentStudent, and merging into it was
+ * enough to put an unapproved activity on the session screen the moment anyone
+ * opened Edit Target -- no save required. The copy keeps proposals inside the
+ * editor, where they belong.
+ *
+ * Only the target and its list are copied; the entries themselves stay shared.
+ * The editor has always written straight into those objects, and changing that
+ * here would quietly alter what an edit does.
+ *
+ * pendingAtIdx is where the entry sat when it was last saved. Inserting in
+ * ascending order means each index is correct as it is used, because
+ * everything before it is already back in place. An index past the end lands
+ * at the end, which is where an entry whose neighbours have since gone belongs.
+ */
+function mergePendingForEdit(target) {
+  if (!target || target._pendingMerged) return target;
+  // Blank leftovers are dropped on the way in rather than merged back. They can
+  // only come from an editor that was closed before anything was typed, and
+  // carrying them forward is what let a target claim it had something waiting
+  // when it had nothing to show.
+  const pend   = (Array.isArray(target.pendingActivities) ? target.pendingActivities : [])
+    .filter(a => a && !isEmptyActItem(a));
+  const merged = (target.predefinedActivities || []).slice();
+  pend
+    .slice()
+    .sort((a, b) => (a.pendingAtIdx ?? 1e9) - (b.pendingAtIdx ?? 1e9))
+    .forEach(item => {
+      const { pendingAtIdx, ...rest } = item;
+      merged.splice(Math.min(pendingAtIdx ?? merged.length, merged.length), 0,
+                    { ...rest, _pending: true });
+    });
+  // _pendingMerged marks this as the editor's copy: it stops a re-render
+  // copying again, and tells the split below to rebuild pendingActivities even
+  // when the last proposal has just been approved or rejected.
+  return { ...target, predefinedActivities: merged, _pendingMerged: true };
+}
+
+/**
+ * The reverse: the editor's copy back to a plain target.
+ *
+ * The same shape as splitPendingForWrite in firebase-service, which guards the
+ * write. This one guards MEMORY, so what sits in state.currentStudent after a
+ * save is a target with no proposals in its live list.
+ */
+function splitPendingTarget(t) {
+  if (!t?._pendingMerged) return t;
+  const live = [], pend = [];
+  (t.predefinedActivities || []).forEach((a, i) => {
+    if (!a?._pending) { live.push(a); return; }
+    const { _pending, ...rest } = a;
+    pend.push({ ...rest, pendingAtIdx: i });
+  });
+  const { _pendingMerged, ...rest } = t;
+  return { ...rest, predefinedActivities: live, pendingActivities: pend };
+}
+
+// The filter survives the re-render that approving or rejecting triggers, so
+// working through a list does not mean switching it back on each time.
+let _mnPendingOnly = false;
+
+// Set just before openSession so the screen opens on the target that is
+// waiting. Cleared as soon as it is used, so it cannot steer a later visit.
+let _approvalJumpTarget = null;
+// Arriving from an approval task leaves you on the session screen with nothing
+// obviously to do: the proposals are not shown here, by design. The one button
+// that leads to them gets the same flash the app uses elsewhere to point at a
+// control.
+let _approvalFlashEdit = false;
+
+/** Everyone carrying proposals, newest-looking first. */
+function entitiesAwaitingApproval() {
+  const rows = [];
+  for (const st of state.students || []) {
+    const n = pendingCountForEntity(st);
+    if (n > 0) rows.push({ entity: st, isGroup: false, count: n });
+  }
+  for (const g of state.groups || []) {
+    const n = pendingCountForEntity(g);
+    if (n > 0) rows.push({ entity: g, isGroup: true, count: n });
+  }
+  return rows.sort((a, b) => b.count - a.count);
+}
+
+/**
+ * Open the student on the first target that is waiting.
+ *
+ * Their most recent EXISTING session, never a new one: reviewing somebody
+ * else's proposal should not quietly create a session for today that nobody
+ * ran.
+ */
+async function openApprovalTask(row) {
+  const t = (row.entity.targets || []).find(x => pendingCountForTarget(x) > 0);
+  _approvalJumpTarget = t?.name || null;
+  _approvalFlashEdit  = true;
+  try {
+    if (row.isGroup) {
+      const sessions = await getRecentGroupSessions(row.entity.id, 1).catch(() => []);
+      if (!sessions.length) { alert("This group has no sessions yet, so there is nothing to open."); return; }
+      await openGroupSession(row.entity, sessions[0].date, sessions[0].attendees || []);
+    } else {
+      const sessions = await getIndividualSessionsForStudent(row.entity.id).catch(() => []);
+      if (!sessions.length) { alert("This student has no sessions yet, so there is nothing to open."); return; }
+      const latest = sessions.sort((a, b) => (b.date || "").localeCompare(a.date || ""))[0];
+      await openSession(row.entity, latest.id, latest.date);
+    }
+  } catch (err) {
+    _approvalJumpTarget = null;
+    _approvalFlashEdit  = false;
+    console.error("openApprovalTask:", err);
+  }
+}
+
+/**
+ * "Ms. Daisy has approved 3 activities."
+ *
+ * Kept on the student or group, under the id of the person who proposed the
+ * work, because that is the only person it means anything to and it is already
+ * being saved alongside the proposals themselves. One record per person per
+ * student, counting up, rather than one per activity: approving ten things in a
+ * row is one piece of news, not ten.
+ *
+ * It is cleared by the person it is for. Nothing expires it, because the point
+ * is that they see it, and they may not open the app for days.
+ */
+function noteApproval(entity, proposerId, by) {
+  if (!entity || !proposerId) return;
+  entity.approvalNotices = entity.approvalNotices || {};
+  const prev = entity.approvalNotices[proposerId];
+  entity.approvalNotices[proposerId] = {
+    count: (prev?.count || 0) + 1,
+    by:    by || "daisy",
+    at:    Date.now(),
+  };
+}
+
+/**
+ * The app's standard "look here" flash: .85s, three times.
+ *
+ * Matched to the one the Student Database already uses rather than invented
+ * again, because two slightly different flashes read as two different things.
+ */
+function flashButtonHint(btn) {
+  if (!btn || btn.classList.contains("hidden")) return false;
+  btn.classList.add("btn-flash-hint");
+  setTimeout(() => btn.classList.remove("btn-flash-hint"), 3400);
+  return true;
+}
+
+/** Everything waiting to be read by one person. */
+function approvalNoticesFor(instId) {
+  const rows = [];
+  const pick = (list, isGroup) => {
+    for (const e of list || []) {
+      const n = e.approvalNotices?.[instId];
+      if (n?.count > 0) rows.push({ entity: e, isGroup, notice: n });
+    }
+  };
+  pick(state.students, false);
+  pick(state.groups, true);
+  return rows.sort((a, b) => (b.notice.at || 0) - (a.notice.at || 0));
+}
+
+/**
+ * The tag, the details and the two decisions, stacked under a proposal.
+ *
+ * They used to share the title row, which left a long title and a block of
+ * details fighting over what was left of it. On their own lines the text gets
+ * the full width, and the buttons are nowhere near the title you click to open
+ * the editor.
+ */
+function buildPendingFooter(item, idx, blockedHint) {
+  // Returns two nodes. The details belong with the text, down the left; the
+  // tag and the two buttons are pinned in a column at the top right, and the
+  // card is padded so the text wraps before it reaches them. Laid out in the
+  // flow they ended up wherever the title happened to finish, which is why they
+  // looked scattered.
+  const out = document.createDocumentFragment();
+
+  // Shown rather than folded away: a proposal is being read in order to be
+  // judged, and the detail is the thing being judged. Not truncated, for the
+  // same reason.
+  const detail = (item.isHeading || item.isMaintainHeading) ? ""
+    : (item.isNote || item.isExportNote) ? (noteParts(item).details || "")
+    : (item.name || "");
+  if (detail.trim()) {
+    const d = document.createElement("div");
+    d.className = "mn-pending-details";
+    // Labelled. Dropped in under the title with nothing to introduce it, the
+    // details read as a second, unexplained line of the title.
+    d.innerHTML = `<span class="mn-pending-details-label">Details:</span>`
+      + `<span class="mn-pending-details-body">${formatActivityMarkup(detail)}</span>`;
+    out.appendChild(d);
+  }
+
+  const col = document.createElement("div");
+  // Marked when it carries the two buttons, so the row can be told to reserve
+  // enough height for them. Without it a one-line activity was shorter than its
+  // own column and the buttons hung out of the bottom of the card.
+  col.className = "mn-pending-foot" + (canApprove() ? " mn-pending-foot--decide" : "");
+  // A two-column grid: the tag and the buttons share the first column, so they
+  // share a left edge and a width, and the kebab sits in the second beside the
+  // tag. On its own line above, it pushed the tag down and away from the title
+  // it belongs to; sharing a line inside one column made it narrower than the
+  // buttons underneath.
+  col.innerHTML = `
+    <span class="mn-pending-tag">Waiting for approval</span>
+    <span class="mn-pending-kebab-slot"></span>
+    ${canApprove() ? `
+      ${blockedHint ? `<span class="mn-pending-hint">${blockedHint}</span>` : ``}
+      <button class="mn-pending-btn mn-pending-ok" data-pending-idx="${idx}"${blockedHint ? " disabled" : ""}>✓ Approve</button>
+      <button class="mn-pending-btn mn-pending-no" data-pending-idx="${idx}">✗ Reject &amp; Delete</button>` : ``}`;
+  out.appendChild(col);
+  return out;
+}
+
+/**
+ * Move a row's own kebab into the proposal column.
+ *
+ * The column sits where a kebab normally does, so left alone the two fought
+ * over the same corner and the kebab was pushed somewhere arbitrary. Moved, not
+ * copied: a second menu would need its own handlers and would have to be kept
+ * in step with this one forever.
+ */
+function adoptKebabIntoPendingFoot(host, kebabBtn) {
+  const slot = host?.querySelector(".mn-pending-kebab-slot");
+  const wrap = kebabBtn?.parentElement;
+  if (!slot || !wrap || slot.contains(wrap)) return;
+  wrap.style.marginTop = "0";
+  wrap.style.marginLeft = "0";
+  wrap.style.alignSelf = "center";
+  slot.appendChild(wrap);
+}
+
+/**
+ * Wrap a row's bare title text in a span.
+ *
+ * A text node is an anonymous flex item: CSS cannot reach it, and it will not
+ * shrink below its longest word, so once the approval column took its strip of
+ * the row the title gave up and dropped to the next line instead of sitting
+ * beside the chip. Wrapped, it is an element that can be told to take the space
+ * that is left and wrap inside itself.
+ */
+function wrapRowTitleText(row) {
+  if (!row || row.querySelector(":scope > .mn-sub-title-text")) return;
+  // Everything that is not furniture, gathered into ONE span.
+  //
+  // The row is built as `a) ` plus formatted markup, so the title arrives as a
+  // run of text nodes and <b>/<u> elements side by side. Wrapping each text
+  // node on its own made several flex items that each claimed a share of the
+  // row and broke across lines between words. One wrapper is one item, and it
+  // wraps inside itself like ordinary text.
+  const furniture = n => n.nodeType === 1 && (
+    n.classList.contains("drag-handle") ||
+    n.classList.contains("mn-row-chip") ||
+    n.classList.contains("mn-pending-foot") ||
+    n.classList.contains("mn-pending-details") ||
+    n.classList.contains("mn-sub-kebab-wrap"));
+  const parts = [...row.childNodes].filter(n =>
+    !furniture(n) && (n.nodeType !== 3 || n.textContent.trim()));
+  if (!parts.length) return;
+  const span = document.createElement("span");
+  span.className = "mn-sub-title-text";
+  row.insertBefore(span, parts[0]);
+  parts.forEach(n => span.appendChild(n));
+}
+
+/**
+ * Keep the open session screen in step with config changes from elsewhere.
+ *
+ * Returns the unsubscribe. The incoming copy is merged into the SAME object the
+ * screen already holds rather than swapping it, because handlers all around the
+ * app close over that object; replacing it would leave them writing to one
+ * nobody reads.
+ *
+ * A redraw is skipped while the Edit Target modal is open or a field is being
+ * typed into. The config has already been taken on board either way -- this only
+ * decides when the screen is rebuilt, and rebuilding it under someone's cursor
+ * is how typing gets thrown away.
+ */
+function watchConfigForOpenSession(isGroup) {
+  const entity = isGroup ? state.currentGroup : state.currentStudent;
+  if (!entity?.id) return null;
+  const listen = isGroup ? listenToGroup : listenToStudent;
+  return listen(entity.id, fresh => {
+    const live = isGroup ? state.currentGroup : state.currentStudent;
+    if (!live || live.id !== fresh.id) return;
+    Object.assign(live, fresh);
+    const list = isGroup ? (state.groups || []) : (state.students || []);
+    const i = list.findIndex(x => x.id === fresh.id);
+    if (i >= 0) list[i] = live;
+
+    if (!$("manage-modal")?.classList.contains("hidden")) return;
+    const ae = document.activeElement;
+    const host = $(isGroup ? "group-target-content" : "target-content");
+    if (host?.contains(ae) && (ae?.tagName === "TEXTAREA" || ae?.tagName === "INPUT")) return;
+    try {
+      if (isGroup) {
+        populateGroupTargetDropdown(live.targets || []);
+        renderGroupTargetContent();
+      } else {
+        populateTargetDropdown(getEffectiveTargets());
+        renderTargetContent();
+      }
+    } catch (err) { console.error("config refresh:", err); }
+  });
+}
+
+/**
+ * The lock, shown over Edit Target.
+ *
+ * requirePassword writes into the modal's body, which is where the target's
+ * whole list lives -- using it here would wipe the screen the message is about.
+ * This lays an overlay over whatever is in front instead: the floating activity
+ * panel if one is open, the modal sheet otherwise.
+ */
+function showEditTargetLock(msg) {
+  const panelEl = document.getElementById("mn-act-panel-overlay");
+  const onPanel = panelEl && panelEl.style.display !== "none";
+  const host = onPanel ? panelEl : $("manage-modal")?.querySelector(".modal-sheet");
+  if (!host) return;
+  host.querySelectorAll("[data-lock-overlay]").forEach(el => el.remove());
+  if (!onPanel) host.style.position = "relative";
+  const overlay = document.createElement("div");
+  overlay.dataset.lockOverlay = "1";
+  overlay.style.cssText = "position:absolute;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:flex-start;justify-content:center;padding-top:2rem;z-index:400;border-radius:.75rem;overflow-y:auto";
+  overlay.innerHTML = `<div style="background:#fff;padding:1.5rem 1.25rem;border-radius:.75rem;width:min(320px,92%);box-shadow:0 4px 24px rgba(0,0,0,.25);display:flex;flex-direction:column;align-items:center;gap:.9rem;margin-bottom:1rem">
+      <div style="font-size:2rem;line-height:1">🔒</div>
+      <div style="font-size:.9rem;color:#111;text-align:center;line-height:1.55">${escHtml(msg)}</div>
+      <button class="btn-primary-sm" data-lock-ok style="padding:.5rem 1.75rem">OK</button>
+    </div>`;
+  host.appendChild(overlay);
+  overlay.querySelector("[data-lock-ok]").addEventListener("click", () => overlay.remove());
+}
+
+/**
+ * Everything in a kebab that changes something already live.
+ *
+ * An assistant may propose; she may not alter what has been approved. Her own
+ * proposals are exempt -- Delete on one of those is how she withdraws it, and
+ * it is the only way she has.
+ */
+const LIVE_ONLY_MENU_ITEMS = [
+  ".mn-km-status-btn", ".mn-sub-km-status-btn",
+  ".mn-km-move-to-parent", ".mn-move-sub-act", ".mn-make-standalone",
+  ".mn-del-sub-act",
+  ".mn-hkm-color-toggle", ".mn-hkm-opt",
+  // Delete Activity shares .mn-km-opt with other entries, so it is picked out
+  // by its action rather than by a class of its own.
+  ".mn-km-opt[data-action='delete']",
+].join(", ");
+
+/**
+ * One capture listener on the modal body, which always runs before a listener
+ * on the button itself, so the real handler never starts. Registered once and
+ * fed the current list through the element, because the body survives every
+ * re-render and adding it each time would stack them up.
+ */
+function wireAssistantMenuLock(bodyEl, acts) {
+  if (!bodyEl) return;
+  bodyEl._mnActs = acts;
+  if (bodyEl._mnLockWired) return;
+  bodyEl._mnLockWired = true;
+  bodyEl.addEventListener("click", e => {
+    if (!proposesOnly()) return;
+    const locked = e.target.closest(".mn-locked-field, .mn-locked-handle");
+    if (locked) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      showEditTargetLock("Locked.");
+      return;
+    }
+    const btn = e.target.closest(LIVE_ONLY_MENU_ITEMS + ", .mn-km-add-sub");
+    if (!btn) return;
+    const idx = Number(btn.dataset.idx);
+    const acts = bodyEl._mnActs || [];
+    const item = acts[idx];
+    if (item?._pending) return;   // her own proposal; Delete must still work
+
+    // Adding a sub-activity to something that is ALREADY a parent is proposing,
+    // not changing: the sub arrives waiting for approval and the parent is
+    // untouched. On a plain activity the same menu entry converts it -- it stops
+    // holding its own score and becomes a heading for the rows beneath it --
+    // and that is a change to approved work.
+    if (btn.classList.contains("mn-km-add-sub")) {
+      const key = item && (item._linkKey || item.title || item.name);
+      const alreadyParent = !!key && acts.some(x => x && x !== item && x.parentActivity === key);
+      if (alreadyParent) return;
+    }
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    bodyEl.querySelectorAll(".mn-kebab-menu, .mn-sub-kebab-menu, .mn-inactive-km, .mn-heading-color-menu")
+      .forEach(m => { m.style.display = "none"; });
+    showEditTargetLock("Locked. Only Ms. Daisy can perform these functions.");
+  }, true);
+}
+
+/**
+ * Lock everything in Edit Target that is already approved.
+ *
+ * Deliberately the other way round from a list of things to disable: every
+ * field is locked, and then the ones belonging to this person's own proposals
+ * are let back in. A list of what to lock has to be kept in step with the
+ * screen forever, and the cost of forgetting one is an assistant quietly
+ * editing live work. The cost of locking one too many is a field that does not
+ * respond, which gets noticed and reported.
+ *
+ * That covers the mastered and discontinued cards too, which are approved work
+ * like any other, and the target's own name, which belongs to no row at all.
+ */
+function applyAssistantReadOnly(bodyEl, acts) {
+  if (!proposesOnly() || !bodyEl) return;
+
+  const ownIdx = el => {
+    const host = el.closest("[data-idx],[data-global-idx],[data-completed-idx],[data-discontinued-idx]");
+    if (!host) return null;
+    const d = host.dataset;
+    const raw = d.idx ?? d.globalIdx ?? d.completedIdx ?? d.discontinuedIdx;
+    return raw == null || raw === "" ? null : Number(raw);
+  };
+  const isHers = el => {
+    const i = ownIdx(el);
+    return i != null && !!acts[i]?._pending;
+  };
+
+  bodyEl.querySelectorAll("input, textarea, select").forEach(el => {
+    if (isHers(el)) return;
+    if (el.tagName === "SELECT") el.disabled = true;
+    else el.readOnly = true;
+    el.classList.add("mn-locked-field");
+  });
+
+  // Buttons that edit rather than navigate. The kebab is left alone: it opens
+  // and shows the lock, which says more than a dead button does.
+  bodyEl.querySelectorAll(
+    ".mn-opt-add, .mn-opt-remove, .mn-opt-unremove, .mn-act-start-btn, " +
+    ".mn-parent-start-date-btn, .btn-mn-del-mastered"
+  ).forEach(b => { if (!isHers(b)) b.classList.add("mn-locked-field"); });
+
+  // Reordering approved work is editing it. Her own proposals keep their
+  // handles, and can be dragged anywhere in the list -- including in among
+  // approved rows, which is the only way to say which heading one belongs
+  // under.
+  bodyEl.querySelectorAll(".drag-handle").forEach(h => {
+    if (!isHers(h)) h.classList.add("mn-locked-handle");
+  });
+}
+
+/** Stamp an entry as somebody's proposal. */
+function markAsProposal(item) {
+  item._pending   = true;
+  item.proposedBy = currentUser()?.id || "";
+  item.proposedAt = Date.now();
+  return item;
+}
+
+/**
+ * How many proposals a target is carrying, without opening it.
+ *
+ * An entry with nothing written in it is not counted. Adding an activity
+ * creates the row before anything has been typed into it, so backing out of
+ * the editor could leave a blank proposal behind -- which announced itself on
+ * the target, raised a task for Ms. Daisy, and then showed her an Edit Target
+ * with nothing in it, because an empty row is cleaned off the list on close.
+ * Counting what is actually there keeps the two in step whichever way the
+ * editor was left.
+ */
+function pendingCountForTarget(target) {
+  if (!target) return 0;
+  const list = target._pendingMerged
+    ? (target.predefinedActivities || []).filter(a => a?._pending)
+    : (target.pendingActivities || []);
+  return list.filter(a => a && !isEmptyActItem(a)).length;
+}
+
+/** How many a whole student or group is carrying. */
+function pendingCountForEntity(entity) {
+  return (entity?.targets || []).reduce((n, t) => n + pendingCountForTarget(t), 0);
+}
+
+/**
+ * Whether this entry can be approved yet.
+ *
+ * An activity under a heading that is itself still a proposal has nowhere to
+ * sit: approving it would drop it under whatever heading happens to precede
+ * it. The heading goes first.
+ */
+function pendingBlockedByHeading(acts, idx) {
+  for (let i = idx - 1; i >= 0; i--) {
+    const a = acts[i];
+    if (!a) continue;
+    if (a.isHeading || a.isMaintainHeading) return a._pending ? a : null;
+  }
+  return null;
+}
+
+/**
+ * Names the account in the header.
+ *
+ * "Staff" when the old shared PIN is in use, because it genuinely cannot say
+ * who is holding it. Putting a name there would be a guess, and the whole job
+ * of this line is to be the one place you can check who the app thinks you
+ * are.
+ */
+function renderHeaderUser() {
+  const el = $("header-user");
+  if (!el) return;
+  const me = currentUser();
+  const meName = me ? me.name : "Staff";
+  el.innerHTML = `<span class="hu-me" title="Signed in as ${escHtml(meName)}">${escHtml(meName)}</span>`;
+}
+
+/**
+ * A brief message that does not move anything on the screen.
+ *
+ * The phases are a row of cards whose heights are already uneven; putting the
+ * refusal inside the card it came from would reflow the row every time someone
+ * tapped the wrong pill.
+ */
+let _wfToastTimer = null;
+function showWorkflowToast(msg) {
+  let el = document.getElementById("wf-toast");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "wf-toast";
+    document.body.appendChild(el);
+  }
+  el.textContent = msg;
+  el.classList.remove("hidden");
+  // Restart the fade rather than letting an earlier one close this one early.
+  void el.offsetWidth;
+  el.classList.add("wf-toast--in");
+  clearTimeout(_wfToastTimer);
+  _wfToastTimer = setTimeout(() => {
+    el.classList.remove("wf-toast--in");
+    setTimeout(() => el.classList.add("hidden"), 220);
+  }, 2600);
+}
+
+/**
+ * The three statuses as people say them, rather than as they are stored.
+ *
+ * "", "fixed" and "rejected" are what Firestore holds and are not changed
+ * here: renaming the stored values would strand every correction already
+ * written. Only the words on screen change, and a blank circle is now a
+ * labelled choice, because an empty cell said nothing about whether anyone had
+ * looked at the row.
+ */
+const CORRECTION_STATUSES = [
+  { value: "",         label: "Undone",      cls: "snote-status--empty"    },
+  { value: "fixed",    label: "Corrected",   cls: "snote-status--fixed"    },
+  { value: "rejected", label: "Still Wrong", cls: "snote-status--rejected" },
+];
 
 // Returns null | "fixed" | "rejected" for a correction entry.
 function getCmtStatus(c) {
@@ -14518,13 +15564,10 @@ function renderCheckedByStripHtml(data, confirmRole, isGroup = false) {
     p3State = ws.allP3Done ? "done" : (anyUnlocked ? "corrections" : "locked");
     p3Body  = ws.p3Ids.map(mkPill3).join("");
   }
-  const hasRejections = !ws.daisyOnly && ws.p3Ids.some(id =>
-    ws.commentsFor(id).some(([, c]) => getCmtStatus(c) === "rejected"));
   const p3Node = `<div class="wf-node wf-node--${p3State}">
     <div class="wf-node-label">Phase 3: Revision</div>
     <div class="wf-node-body">${p3Body}</div>
     ${_phase3Error ? `<div class="wf-error-msg">${escHtml(_phase3Error)}</div>` : ""}
-    ${hasRejections ? `<div class="wf-p3-hint">✗ Crosses indicate that Ms. Daisy has reviewed the work and errors are still present.</div>` : ""}
   </div>`;
 
   // ── Phase 4: Check #2 — per instructor, unlocks after their Phase 3 ──
@@ -14557,9 +15600,6 @@ function renderCheckedByStripHtml(data, confirmRole, isGroup = false) {
     const anyUnlocked4 = ws.p3Ids.some(id => ws.p3Done(id) || ws.noCorr(id));
     p4State = ws.allP4Done ? "done" : (anyUnlocked4 ? "p2-active" : "locked");
     p4Body  = ws.p3Ids.map(mkPill4).join("");
-    if (!ws.allP4Done) {
-      p4Body += `<div class="wf-p4-hint">If their work still contains errors, go to their list of corrections and click any incorrect ticks (✓) to change them into crosses (✗). Add an extra note if needed.</div>`;
-    }
   }
   const p4Node = `<div class="wf-node wf-node--${p4State}">
     <div class="wf-node-label">Phase 4: Check #2</div>
@@ -14597,12 +15637,18 @@ function renderCheckedByStripHtml(data, confirmRole, isGroup = false) {
       ? `<button class="wf-note-btn" data-action="open-note" data-inst-id="">📝 List of Corrections</button>`
       : noteIds.map(id => {
           const idComments = ws.commentsFor(id);
-          const cnt  = idComments.length;
           const name = instName(id);
-          const allFixed  = cnt > 0 && idComments.every(([, c]) => getCmtStatus(c) === "fixed");
-          const colorCls  = cnt === 0 ? "" : allFixed ? " wf-note-btn--green" : " wf-note-btn--red";
+          // What is still to do, not how many rows exist. The old count never
+          // moved as rows were worked through, so a list of five said "(5)"
+          // whether four were done or none were.
+          //
+          // Undone and Still Wrong both count as outstanding; only Corrected
+          // clears a row. An empty list and a fully corrected one both read
+          // "0 left"; the green says which kind of nothing it is.
+          const left = idComments.filter(([, c]) => getCmtStatus(c) !== "fixed").length;
+          const colorCls = left === 0 ? " wf-note-btn--green" : " wf-note-btn--red";
           return `<button class="wf-note-btn${colorCls}" data-action="open-note" data-inst-id="${escHtml(id)}">
-            📝 List of Corrections – ${escHtml(name)}${cnt > 0 ? ` (${cnt})` : ""}
+            📝 List of Corrections – ${escHtml(name)} (${left} left)
           </button>`;
         }).join("")}
   </div>`;
@@ -14725,6 +15771,14 @@ async function handleCheckedByClick(e, isGroup) {
   // ── Phase-pill click → confirm flow ─────────────────────────
   const pillBtn = e.target.closest(".wf-pill[data-role]");
   if (pillBtn) {
+    // Every pill click funnels through here, so one check covers all five
+    // phases. Refused before the confirm step, not after, so nobody is asked
+    // "Sure?" about something they were never going to be allowed to do.
+    if (!canTickPill(pillBtn.dataset.role)) {
+      const owner = pillOwnerId(pillBtn.dataset.role);
+      showWorkflowToast(`Locked. Only ${instructorName(owner)} can tick this.`);
+      return true;
+    }
     clearTimer();
     setConfirm(pillBtn.dataset.role);
     rerender();
@@ -14735,6 +15789,15 @@ async function handleCheckedByClick(e, isGroup) {
   // ── Confirm button ───────────────────────────────────────────
   const yesBtn = e.target.closest(".chk-btn-yes");
   if (yesBtn) {
+    // Checked again here, not only on the pill: a confirm box left open while
+    // somebody else signs in would otherwise still act on the old person's
+    // behalf.
+    if (!canTickPill(yesBtn.dataset.role)) {
+      clearTimer(); setConfirm(null); rerender();
+      const owner = pillOwnerId(yesBtn.dataset.role);
+      showWorkflowToast(`Locked. Only ${instructorName(owner)} can tick this.`);
+      return true;
+    }
     clearTimer(); setConfirm(null); rerender(); // remove confirm UI immediately — no lag
     const sid  = getSid();
     const data = getData();
@@ -14910,15 +15973,15 @@ function renderStickyNoteContent(data, isGroup) {
   } else {
     tbody.innerHTML = visible.map(([id, c], i) => {
       const text = (focusedCmtId === id && liveText !== null) ? liveText : (c.text || "");
-      const st = getCmtStatus(c);
-      const [stIcon, stCls] = st === "fixed" ? ["✓", "snote-status--fixed"]
-        : st === "rejected" ? ["✗", "snote-status--rejected"]
-        : ["", "snote-status--empty"];
+      const st = getCmtStatus(c) || "";
+      const stCls = (CORRECTION_STATUSES.find(o => o.value === st) || CORRECTION_STATUSES[0]).cls;
       const rowCls = st === "fixed" ? " snote-row--done" : st === "rejected" ? " snote-row--rejected" : "";
+      const opts = CORRECTION_STATUSES.map(o =>
+        `<option value="${o.value}"${o.value === st ? " selected" : ""}>${escHtml(o.label)}</option>`).join("");
       return `<tr class="snote-row${rowCls}">
         <td class="snote-no">${i + 1}</td>
         <td class="snote-text"><textarea class="snote-textarea" data-cmt-id="${id}" rows="1" placeholder="Type here…">${escHtml(text)}</textarea></td>
-        <td class="snote-tick"><button class="snote-status-btn ${stCls}" data-cmt-id="${id}" title="Click to change status">${stIcon}</button></td>
+        <td class="snote-tick"><select class="snote-status-sel ${stCls}" data-cmt-id="${id}">${opts}</select></td>
         <td class="snote-del"><button class="snote-del-btn" data-cmt-id="${id}" title="Delete row">🗑</button></td>
       </tr>`;
     }).join("");
@@ -15119,35 +16182,6 @@ function setupStickyNote() {
       return;
     }
 
-    // 3-state status button: empty → fixed (✓) → rejected (✗) → empty
-    const statusBtn = e.target.closest(".snote-status-btn");
-    if (statusBtn) {
-      const { sid, data } = getCtx();
-      if (!sid) return;
-      const cmtId = statusBtn.dataset.cmtId;
-      const cmt   = (data?.reviewComments || {})[cmtId];
-      if (!cmt) return;
-      const current = getCmtStatus(cmt);
-      const next = current === null ? "fixed" : current === "fixed" ? "rejected" : null;
-      try {
-        await setCommentStatus(sid, cmtId, next);
-        // Leaving "fixed" state → reset this instructor's Phase 3 & 4
-        if (next !== "fixed") {
-          const instId = cmt.forInstructor || _stickyNoteInstructorId;
-          const ws2 = getWorkflowState(data);
-          const affected = instId ? [instId] : ws2.p3Ids;
-          const checks = { ...(data?.checks || {}) };
-          let changed = false;
-          affected.forEach(id => {
-            if (checks[`p3_${id}`]) { delete checks[`p3_${id}`]; changed = true; }
-            if (checks[`p4_check_${id}`]) { delete checks[`p4_check_${id}`]; changed = true; }
-          });
-          if (changed) { delete checks["p4_nigel"]; await updateSessionChecks(sid, checks).catch(() => {}); }
-        }
-      } catch (err) { console.error("setCommentStatus:", err); }
-      return;
-    }
-
     // Delete row
     const delBtn = e.target.closest(".snote-del-btn");
     if (delBtn) {
@@ -15159,6 +16193,40 @@ function setupStickyNote() {
       catch (err) { console.error("deleteReviewComment:", err); }
       return;
     }
+  });
+
+  // ── Status dropdown ──────────────────────────────────────────
+  // A "change" listener, not a click. The old button cycled
+  // blank → ✓ → ✗ → blank, so marking a row Still Wrong meant clicking twice
+  // and passing through Corrected on the way, which told the workflow the row
+  // was done and bounced Phases 3 and 4 for no reason. Picking a value states
+  // it once.
+  note.addEventListener("change", async e => {
+    const sel = e.target.closest(".snote-status-sel");
+    if (!sel) return;
+    const { sid, data } = getCtx();
+    if (!sid) return;
+    const cmtId = sel.dataset.cmtId;
+    const cmt   = (data?.reviewComments || {})[cmtId];
+    if (!cmt) return;
+    const next = sel.value || null;   // "" is stored as null, exactly as before
+    try {
+      await setCommentStatus(sid, cmtId, next);
+      // Anything other than Corrected means this instructor is not finished,
+      // so Phases 3 and 4 go back to pending.
+      if (next !== "fixed") {
+        const instId = cmt.forInstructor || _stickyNoteInstructorId;
+        const ws2 = getWorkflowState(data);
+        const affected = instId ? [instId] : ws2.p3Ids;
+        const checks = { ...(data?.checks || {}) };
+        let changed = false;
+        affected.forEach(id => {
+          if (checks[`p3_${id}`]) { delete checks[`p3_${id}`]; changed = true; }
+          if (checks[`p4_check_${id}`]) { delete checks[`p4_check_${id}`]; changed = true; }
+        });
+        if (changed) { delete checks["p4_nigel"]; await updateSessionChecks(sid, checks).catch(() => {}); }
+      }
+    } catch (err) { console.error("setCommentStatus:", err); }
   });
 
   // ── Textarea auto-save (debounced, per-row) ──────────────────
@@ -15201,9 +16269,10 @@ function renderSessionView() {
   const delBtn = $("btn-delete-session");
   if (delBtn) delBtn.classList.remove("hidden");
 
-  $("view-session-meta").querySelector(".btn-edit-session-date").addEventListener("click", () => {
-    showEditDatePicker();
-  });
+  // Moving a session to another day shifts its number and everything that
+  // reads from it.
+  $("view-session-meta").querySelector(".btn-edit-session-date").addEventListener("click", () =>
+    requirePassword(() => showEditDatePicker(), EXPORT_MSG));
 
   const gotoBtn = $("btn-goto-session");
   if (gotoBtn) {
@@ -15217,13 +16286,13 @@ function renderSessionView() {
     const newDelBtn = _delBtn.cloneNode(true); // remove old listeners
     newDelBtn.classList.remove("hidden");
     _delBtn.replaceWith(newDelBtn);
-    newDelBtn.addEventListener("click", async () => {
+    newDelBtn.addEventListener("click", () => requirePassword(async () => {
       const typed = prompt(`Delete Session ${data.sessionNumber} (${formatDate(data.date)})?\n\nThis cannot be undone. Type DELETE to confirm:`);
       if (typed !== "DELETE") return;
       const sid = state.viewSessionId;
       leaveSessionView();
       await deleteSession(sid).catch(() => {});
-    });
+    }, EXPORT_MSG));
   }
 
   const targets = getViewEffectiveTargets();
@@ -17262,10 +18331,13 @@ async function openGroupSessionView(group, sessionId) {
           }
         }, 250);
       }
+    }, err => {
+      if (state.viewGroupSessionId === sessionId) {
+        $("group-session-view-body").innerHTML = sessionLoadFailedHtml(err);
+      }
     });
   } catch (err) {
-    $("group-session-view-body").innerHTML =
-      `<div class="error-msg">Could not load session.<br>${escHtml(err.message)}</div>`;
+    $("group-session-view-body").innerHTML = sessionLoadFailedHtml(err);
   }
 }
 
@@ -17335,9 +18407,9 @@ function renderGroupSessionView() {
   const delBtn = $("btn-group-delete-session");
   if (delBtn) delBtn.classList.remove("hidden");
 
-  $("group-view-session-meta").querySelector(".btn-edit-session-date").addEventListener("click", () => {
-    showEditGroupDatePicker();
-  });
+  // Same as the individual screen: moving a session shifts its number.
+  $("group-view-session-meta").querySelector(".btn-edit-session-date").addEventListener("click", () =>
+    requirePassword(() => showEditGroupDatePicker(), EXPORT_MSG));
 
   const gotoBtn = $("btn-group-goto-session");
   if (gotoBtn) {
@@ -17351,13 +18423,13 @@ function renderGroupSessionView() {
     const newDelBtn = _delBtn.cloneNode(true); // remove old listeners
     newDelBtn.classList.remove("hidden");
     _delBtn.replaceWith(newDelBtn);
-    newDelBtn.addEventListener("click", async () => {
+    newDelBtn.addEventListener("click", () => requirePassword(async () => {
       const typed = prompt(`Delete Session ${data.sessionNumber} of ${data.month.split(" ")[0]} (${formatDate(data.date)})?\n\nThis cannot be undone. Type DELETE to confirm:`);
       if (typed !== "DELETE") return;
       const sid = state.viewGroupSessionId;
       leaveGroupSessionView();
       await deleteSession(sid).catch(() => {});
-    });
+    }, EXPORT_MSG));
   }
 
   const attendees = data.attendees || (group.students || []).filter(Boolean);
@@ -18765,6 +19837,10 @@ function renderGroupDatePickerCalendar(displayDate, takenDates, today, currentDa
     const isTaken = takenDates.has(ds);
     const dis     = isFut || isTaken;
     let cls = "date-picker-day";
+    // A ring, not a fill: the selected day is already a solid block, and a
+    // second filled day would read as a second selection. The ring also
+    // survives today BEING the selected day, which a fill could not.
+    if (ds === today) cls += " date-picker-day-today";
     if (isCur)   cls += " date-picker-day-current";
     if (isFut)   cls += " date-picker-day-future";
     if (isTaken) cls += " date-picker-day-taken";
@@ -18973,7 +20049,8 @@ function periodSectionHtml(activeFrom, activeTo, idx, withBorder, inactiveReason
         <option value="discontinued"${inactiveReason === 'discontinued' ? ' selected' : ''}>Discontinued</option>
       </select>
     </div>` : '';
-  return `<div style="padding:.45rem .6rem;${border}">
+  // Classed so it can be hidden on a row that is not live yet.
+  return `<div class="mn-period-section" style="padding:.45rem .6rem;${border}">
     <div style="font-size:.84rem;color:inherit;margin-bottom:.35rem">📅 Active Period</div>
     <div style="display:flex;align-items:center;gap:.4rem">
       <div style="position:relative;flex:1;min-width:0">
@@ -19097,25 +20174,12 @@ function openManageModal(student, targetOrNull, templateOrNull = null, remarkPre
   } else if (templateOrNull) {
     renderTemplateManageContent(templateOrNull);
   } else if (targetOrNull) {
-    // Password gate before revealing Edit Target
-    $("manage-modal-title").textContent = "Edit Target";
-    $("manage-modal-body").innerHTML = `
-      <div style="padding:2rem 1rem;display:flex;flex-direction:column;align-items:center;gap:.75rem">
-        <div style="font-size:.9rem;color:var(--text-muted)">Enter password to continue</div>
-        <input id="edit-target-pw" type="text" class="admin-input"
-          style="width:200px;text-align:center;font-size:1rem;-webkit-text-security:disc"
-          placeholder="Enter password" autocomplete="off">
-        <div id="edit-target-pw-err" style="font-size:.8rem;color:#dc2626;display:none">Incorrect password</div>
-      </div>`;
-    const pwInput = $("edit-target-pw");
-    pwInput.value = "";
-    setTimeout(() => { pwInput.value = ""; pwInput.focus(); }, 50);
-    const checkPw = () => {
-      if (pwInput.value !== "0823") {
-        $("edit-target-pw-err").style.display = "";
-        pwInput.value = "";
-        return;
-      }
+    // Open to everyone. An assistant is not locked out: what they add here
+    // becomes a proposal rather than a change, and the rule lives inside the
+    // screen (see mergePendingForEdit and proposesOnly) rather than on the
+    // door. Locking the door was the stopgap while there was nothing on the
+    // other side of it.
+    (() => {
       renderTargetManageContent(student, targetOrNull);
       if (scrollToPaId) {
         requestAnimationFrame(() => requestAnimationFrame(() => {
@@ -19134,8 +20198,7 @@ function openManageModal(student, targetOrNull, templateOrNull = null, remarkPre
           el.addEventListener("animationend", () => el.classList.remove("activity-cfg-blink"), { once: true });
         }));
       }
-    };
-    pwInput.addEventListener("keydown", e => { if (e.key === "Enter") checkPw(); });
+    })();
   } else {
     renderStudentManageContent(student);
   }
@@ -19386,8 +20449,16 @@ async function closeManageModal() {
       if (a.name && a.title && a.name.trim() === a.title.trim()) a.name = "";
     });
 
-    // Block close if any newly-created parent activity still has no title.
-    const blankParentIdx = acts.findIndex(a => a._linkKey && !(a.title || "").trim());
+    // Block close if a newly-created parent still has no title AND something
+    // real is hanging off it: those sub-activities need a name to sit under.
+    //
+    // A parent with nothing but blank sub-activities is not held back. It is a
+    // "+ Add Parent Activity" that was never filled in, and demanding a title
+    // for something about to be thrown away is asking for work to be done on
+    // rubbish. The cleanup below removes the whole family instead.
+    const blankParentIdx = acts.findIndex(a =>
+      a._linkKey && !(a.title || "").trim()
+      && acts.some(sub => sub !== a && sub.parentActivity === a._linkKey && !isEmptyActItem(sub)));
     if (blankParentIdx !== -1) {
       $("manage-modal").classList.remove("hidden");
       _groupForTargetEdit = _savedGroupForTargetEdit;
@@ -19425,6 +20496,24 @@ async function closeManageModal() {
         if (removedKey) acts.forEach(a2 => { if (a2.parentActivity === removedKey) delete a2.parentActivity; });
         acts.splice(i, 1);
       }
+    }
+    // A parent with no sub-activities at all is not a parent.
+    //
+    // The sweep above removes blank sub-activities, which can leave behind a
+    // parent that was given a title and never a real sub. It is not kept as an
+    // ordinary activity: a parent holds no score and no remark of its own, so
+    // on its own it is a row that can never be filled in. Almost always it is
+    // a "+ Add Parent Activity" that was abandoned half way.
+    //
+    // A parent whose sub-activities were mastered or discontinued still HAS
+    // those entries in the list, so it is untouched. This only catches one
+    // that never had any.
+    for (let i = acts.length - 1; i >= 0; i--) {
+      const a = acts[i];
+      if (!a?.noRemark) continue;
+      const key = a._linkKey || a.title || a.name;
+      if (key && acts.some(sub => sub !== a && sub.parentActivity === key)) continue;
+      acts.splice(i, 1);
     }
     if (acts.length !== before) acts.forEach((a, i) => a.order = i);
     // Always save on close — not just when empty items were removed. Any
@@ -20046,7 +21135,16 @@ function initDragSort(listEl, onReorder) {
   }
 
   listEl.addEventListener('pointerdown', e => {
-    if (!e.target.closest('.drag-handle')) return;
+    const handle = e.target.closest('.drag-handle');
+    if (!handle) return;
+    // Locked for this person: the class was styling only, so the drag still
+    // started and approved rows could be reordered by an assistant. Refused
+    // here, where the drag actually begins, rather than left to CSS.
+    if (handle.classList.contains('mn-locked-handle')) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
     // Find the direct child of listEl that contains the handle (works for any item class)
     const item = [...listEl.children].find(child => child.contains(e.target));
     if (!item) return;
@@ -20542,6 +21640,7 @@ function mnActPanelEl() {
   el.innerHTML =
     `<div class="mn-act-panel" role="dialog" aria-modal="true">` +
       `<div class="mn-act-panel-head">` +
+        `<span class="mn-act-panel-kind"></span>` +
         `<span class="mn-act-panel-title"></span>` +
         `<button class="mn-act-panel-x" type="button" title="Close">&#10005;</button>` +
       `</div>` +
@@ -20587,15 +21686,33 @@ function mnPanelTitleHtml(titleEl) {
   if (!titleEl) return "";
   const clone = titleEl.cloneNode(true);
   clone.querySelectorAll(".mn-act-note-preview").forEach(n => n.remove());
+  // A mastered or discontinued card carries its chip INSIDE the title, where
+  // an ordinary row keeps it alongside. Cloning the title therefore brought a
+  // chip with it, and the panel added its own on top -- two PARENT ACTIVITY
+  // labels side by side. The panel's own is the one that stays.
+  clone.querySelectorAll(".mn-row-chip").forEach(n => n.remove());
   return clone.innerHTML;
 }
 
 /** `body` is the card's own field container, moved in as-is. */
-function mnOpenActPanel(card, body, titleHtml, key) {
+function mnOpenActPanel(card, body, titleHtml, key, chipHtml) {
   if (!body || !_mnPanelHost) return;
   if (_mnPanelOpen) mnPanelSave();
   const el = mnActPanelEl();
   const slot = el.querySelector(".mn-act-panel-body");
+  // The same chip the row carries, so the panel says what it is editing. Once
+  // the fields are out of the list and on their own, an activity, a note and a
+  // section heading are three boxes of text that have to be told apart by
+  // reading the field labels -- which is a moment's work every single time.
+  //
+  // Taken from the row rather than worked out again, so the two can never
+  // disagree. A sub-activity's chip lives on its compact row rather than inside
+  // the element passed here, so that caller hands one in.
+  const chip = chipHtml
+    || card?.querySelector(":scope > .mn-act-head .mn-row-chip")?.outerHTML
+    || card?.querySelector(":scope .mn-row-chip")?.outerHTML
+    || "";
+  el.querySelector(".mn-act-panel-kind").innerHTML = chip;
   el.querySelector(".mn-act-panel-title").innerHTML = titleHtml || "";
   // Snapshot the WHOLE list, not just this activity: renaming a parent rewrites
   // its sub-activities' parentActivity, so a per-activity copy could not put
@@ -20772,6 +21889,20 @@ document.addEventListener("keydown", e => {
 
 /** SECTION / ACTIVITY / SUB-ACTIVITY / NOTE, the same labelling the Start
  *  Session screen uses, so a section heading cannot be mistaken for an activity. */
+/**
+ * Which Mastered / Discontinued lists are open.
+ *
+ * The lists are opened by setting display on the panel, and every edit rebuilds
+ * the whole screen -- so opening one, editing a row and closing the editor
+ * collapsed it again, every time. Remembered by section and kind rather than by
+ * position, so it survives the list being reordered.
+ *
+ * Module level, not per render, because the render is exactly what wipes it.
+ */
+const _mnOpenInactGroups = new Set();
+const mnInactKey = group =>
+  (group?.closest(".mn-seg-groups")?.dataset.seg ?? "") + "|" + (group?.dataset.kind ?? "");
+
 function mnRowChip(kind) {
   const el = document.createElement("span");
   el.className = "mn-row-chip mn-row-chip--" + kind;
@@ -20918,6 +22049,45 @@ function mnInitActivityCollapse(bodyEl, acts) {
       else titleEl.insertBefore(mnRowChip(kind), titleEl.firstChild);   // mastered / discontinued cards
     }
 
+    // ── Waiting for approval ──
+    // Decorated here rather than in the row's own markup because this pass
+    // already runs over every kind of row -- activity, heading, note, mastered,
+    // discontinued -- and each builds its HTML somewhere different.
+    if (act && act._pending) {
+      card.classList.add("mn-pending-card");
+      // The kebab is trimmed, not taken away.
+      //
+      // Mastering, discontinuing and maintaining are about a live activity and
+      // mean nothing for one that has not been approved. A heading's colour and
+      // active period are the same. But the menu is also where sub-activities
+      // are built, and it is the only way the person who proposed something can
+      // withdraw it -- they have no Reject button, that is the reviewer's. Hiding
+      // the whole menu left a proposal that could be neither finished nor taken
+      // back.
+      //
+      // Both class names, because a section heading's menu is
+      // .mn-heading-color-btn rather than .mn-kebab-btn. A sub-activity's own
+      // menu is left alone: it belongs to that row, not this one.
+      const ownMenu = sel => [...card.querySelectorAll(sel)]
+        .filter(el => !el.closest(".mn-sub-item") && !el.closest(".mn-sub-compact"));
+      ownMenu(".mn-km-status-btn, .mn-hkm-color-toggle, .mn-hkm-color-panel, .mn-period-section")
+        .forEach(el => { el.style.display = "none"; });
+      // A heading that is itself unapproved cannot hold anything yet:
+      // approving the activity now would file it under whichever heading
+      // happens to sit above it instead. The reason is said on the row rather
+      // than in a title attribute, which is no reason at all on a tablet.
+      if (!card.querySelector(":scope > .mn-pending-foot")) {
+        const blocker = pendingBlockedByHeading(acts, gi);
+        const bName   = blocker ? (blocker.name || blocker.title || "").trim() : "";
+        const hint = blocker
+          ? `Approve ${bName ? `“${escHtml(truncateWords(bName))}” section heading` : "the section heading above"} first`
+          : "";
+        card.appendChild(buildPendingFooter(act, gi, hint));
+        if (canApprove()) card.classList.add("mn-pending-decide");
+        adoptKebabIntoPendingFoot(card, ownMenu(".mn-kebab-btn, .mn-heading-color-btn")[0]);
+      }
+    }
+
     const body = card.querySelector(":scope > .mn-act-body") || card.querySelector(".mn-act-body");
     titleEl.addEventListener("click", () =>
       mnOpenActPanel(card, body, mnPanelTitleHtml(titleEl), card.dataset.panelKey));
@@ -20937,6 +22107,39 @@ function mnInitActivityCollapse(bodyEl, acts) {
       const handle = row.querySelector(".drag-handle");
       row.insertBefore(mnRowChip("sub"), handle ? handle.nextSibling : row.firstChild);
     }
+
+    // A sub-activity is decorated here and not in the pass above, because its
+    // compact row is not one of the cards that pass walks. It was therefore the
+    // one kind of proposal carrying no tag at all: counted, invisible as a
+    // proposal, and with nothing to approve it by.
+    if (sub?._pending) {
+      row.classList.add("mn-pending-card");
+      // Everything except Delete goes. Mastering, discontinuing, maintaining,
+      // moving to another parent and making it standalone are all things you do
+      // to a sub-activity that exists; this one does not exist yet. Delete stays
+      // because it is the only way the person who proposed it can withdraw it.
+      [row, item].forEach(host => host.querySelectorAll(
+        ".mn-sub-km-status-btn, .mn-km-status-btn, .mn-move-sub-act, .mn-make-standalone"
+      ).forEach(el => { el.style.display = "none"; }));
+
+      wrapRowTitleText(row);
+      if (!row.querySelector(".mn-pending-foot")) {
+        // A sub cannot go live before the parent it hangs off: approved on its
+        // own it would point at a parent that is not there yet.
+        const pKey    = (sub.parentActivity || "").trim();
+        const parent  = pKey ? acts.find(x => x && !x.parentActivity
+                          && ((x._linkKey || x.title || x.name) === pKey)) : null;
+        const blocked = parent?._pending ? parent : null;
+        const bName   = blocked ? (blocked.title || blocked.name || "").trim() : "";
+        const hint = blocked
+          ? `Approve ${bName ? `“${escHtml(truncateWords(bName))}” parent activity` : "the parent activity"} first`
+          : "";
+        row.appendChild(buildPendingFooter(sub, subIdx, hint));
+        if (canApprove()) row.classList.add("mn-pending-decide");
+        adoptKebabIntoPendingFoot(row, row.querySelector(".mn-sub-kebab-btn")
+                                    || item.querySelector(".mn-sub-kebab-btn"));
+      }
+    }
     // The ⋮ belongs on the row, level with the parent activity's own ⋮ above
     // it, rather than inside the card you have to open first. The element is
     // MOVED, not copied: a second menu would need its own handlers and would
@@ -20955,7 +22158,8 @@ function mnInitActivityCollapse(bodyEl, acts) {
       if (e.target.closest(".mn-sub-kebab-wrap")) return;   // using the menu, not opening the card
       const shown = escHtml(nameOf(sub)) ||
         `<span style="color:#9ca3af;font-style:italic;font-weight:500">(Untitled sub-activity)</span>`;
-      mnOpenActPanel(item, subBody, `<span class="mn-act-title-text">${shown}</span>`, keyOf(sub));
+      mnOpenActPanel(item, subBody, `<span class="mn-act-title-text">${shown}</span>`, keyOf(sub),
+        mnRowChip("sub").outerHTML);
     });
   });
 
@@ -21085,17 +22289,30 @@ function mnRegroupInactiveCards(bodyEl, acts) {
   src.remove();
   mnWrapInactiveFamilies(bodyEl);
   bodyEl.querySelectorAll(".mn-inact-toggle").forEach(btn => {
+    const group = btn.parentElement;
+    const setOpen = (panel, arrow, open) => {
+      panel.style.display = open ? "block" : "none";
+      // Expanded, the group becomes a bordered card so its rows cannot be read
+      // as a continuation of the active list above it.
+      group?.classList.toggle("mn-inact-open", open);
+      if (arrow) arrow.textContent = open ? "\u25bc" : "\u25b6";
+      if (open) panel.querySelectorAll(".mn-act-details-input,.mn-inactive-name-input").forEach(autoResizeTextarea);
+    };
+
+    // Put back whatever was open before this render.
+    if (_mnOpenInactGroups.has(mnInactKey(group))) {
+      const panel = btn.nextElementSibling;
+      if (panel) setOpen(panel, btn.querySelector(".mn-inact-arrow"), true);
+    }
+
     btn.addEventListener("click", () => {
       const panel = btn.nextElementSibling;
       const arrow = btn.querySelector(".mn-inact-arrow");
       if (!panel) return;
-      const open = panel.style.display !== "none";
-      panel.style.display = open ? "none" : "block";
-      // Expanded, the group becomes a bordered card so its rows cannot be read
-      // as a continuation of the active list above it.
-      btn.parentElement?.classList.toggle("mn-inact-open", !open);
-      if (arrow) arrow.textContent = open ? "▶" : "▼";
-      if (!open) panel.querySelectorAll(".mn-act-details-input,.mn-inactive-name-input").forEach(autoResizeTextarea);
+      const willOpen = panel.style.display === "none" || !panel.style.display;
+      setOpen(panel, arrow, willOpen);
+      const key = mnInactKey(group);
+      if (willOpen) _mnOpenInactGroups.add(key); else _mnOpenInactGroups.delete(key);
     });
   });
 }
@@ -21103,6 +22320,11 @@ function mnRegroupInactiveCards(bodyEl, acts) {
 function renderTargetManageContent(student, target) {
   $("manage-modal-title").textContent = target.name;
   target.predefinedActivities = normalizeActivitiesFormat(target.predefinedActivities || []);
+  // Proposals join the live list for the duration of the edit, on a copy. The
+  // reassignment is the point: everything below, including every handler that
+  // closes over `target`, works on the editor's copy, while the object the rest
+  // of the app holds keeps its live list clean.
+  target = mergePendingForEdit(target);
 
   // Migrate legacy notes array into the unified predefinedActivities list
   if (target.notes?.length > 0) {
@@ -21119,8 +22341,11 @@ function renderTargetManageContent(student, target) {
     // Discard Changes, and a discard can only put things back if they never
     // left. Save and Close lifts the hold and writes once.
     if (_mnPanelHold) { _mnPanelSaveWanted = true; return; }
+    // The split version, not the editor's copy. Handing back the merged list
+    // would put the proposals straight into the object the session screen
+    // reads, which is the leak this whole arrangement exists to prevent.
     const i = student.targets.findIndex(t => t.id === target.id);
-    if (i >= 0) student.targets[i] = target;
+    if (i >= 0) student.targets[i] = splitPendingTarget(target);
     if (_groupForTargetEdit) {
       const gi = state.groups.findIndex(g => g.id === _groupForTargetEdit.id);
       if (gi >= 0) state.groups[gi] = _groupForTargetEdit;
@@ -21273,18 +22498,24 @@ function renderTargetManageContent(student, target) {
             </select>
           </div>
           ${(() => { const _np = noteParts(a); return `
-          <div>
-            <div style="font-size:.85rem;font-weight:700;color:#78350f;margin-bottom:.2rem">Note Title</div>
-            <textarea class="admin-input mn-note-title-input" id="mn-note-title-${idx}" data-idx="${idx}"
-              rows="1" placeholder="Enter Note Title Here (Optional)"
-              style="width:100%;box-sizing:border-box;display:block;overflow-y:hidden;resize:none">${escHtml(_np.title)}</textarea>
+          <div style="display:flex;gap:.6rem;align-items:flex-start">
+            <div style="flex-shrink:0">
+              <div style="font-size:.85rem;font-weight:700;color:#78350f;margin-bottom:.2rem">Start Date</div>
+              <button class="mn-act-start-btn" data-idx="${idx}" style="padding:.35rem .65rem;border:1.5px solid #fcd34d;border-radius:.4rem;background:#fef3c7;cursor:pointer;font-size:.95rem;color:#78350f;white-space:nowrap;display:block">📅 ${a.activeFrom ? fmtPeriodDate(a.activeFrom) : 'Set date'}</button>
+            </div>
+            <div style="flex:1;min-width:0">
+              <div style="font-size:.85rem;font-weight:700;color:#78350f;margin-bottom:.2rem">Note Title</div>
+              <textarea class="admin-input mn-note-title-input" id="mn-note-title-${idx}" data-idx="${idx}"
+                rows="1" placeholder="Enter Text Here"
+                style="width:100%;box-sizing:border-box;display:block;overflow-y:hidden;resize:none">${escHtml(_np.title)}</textarea>
+            </div>
           </div>
           <div>
-            <div style="font-size:.85rem;font-weight:700;color:#78350f;margin-bottom:.2rem">Note Details</div>
+            <div style="font-size:.85rem;font-weight:700;color:#78350f;margin-bottom:.2rem">Details</div>
             <div style="display:flex;align-items:flex-start;gap:.3rem">
               ${formatButtonsHtml(`mn-note-details-${idx}`)}
               <textarea class="admin-input mn-note-details-input" id="mn-note-details-${idx}" data-idx="${idx}"
-                rows="1" placeholder="Enter Note Details Here (Optional)"
+                rows="1" placeholder="Enter Text Here"
                 style="flex:1;overflow-y:hidden;resize:none">${escHtml(bulletifyForEditing(_np.details))}</textarea>
             </div>
           </div>`; })()}
@@ -21355,10 +22586,10 @@ function renderTargetManageContent(student, target) {
                     <button class="mn-act-start-btn" data-idx="${subIdx}" style="padding:.35rem .65rem;border:1.5px solid #d1d5db;border-radius:.4rem;background:#f0f9ff;cursor:pointer;font-size:.95rem;color:#374151;white-space:nowrap;display:block">📅 ${sub.activeFrom ? fmtPeriodDate(sub.activeFrom) : 'Set date'}</button>
                   </div>
                   <div style="flex:1">
-                    <div style="font-size:.95rem;font-weight:700;color:#374151;margin-bottom:.28rem">Activity Title</div>
+                    <div style="font-size:.95rem;font-weight:700;color:#374151;margin-bottom:.28rem">Sub-activity Title</div>
                     <div style="border:1px solid #b8bcc4;border-radius:.45rem;overflow:hidden">
                       <input type="text" class="admin-input mn-act-title-input" id="mn-act-title-${subIdx}" data-idx="${subIdx}"
-                        placeholder="Enter Activity Title Here" value="${escHtml(sub.title || '')}" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block" />
+                        placeholder="Enter Text Here" value="${escHtml(sub.title || '')}" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block" />
                     </div>
                   </div>
                   <div class="mn-sub-kebab-wrap" style="position:relative;align-self:flex-start;flex-shrink:0;margin-top:1.6rem">
@@ -21373,7 +22604,7 @@ function renderTargetManageContent(student, target) {
                 </div>
               </div>
               <div>
-                <div style="font-size:.95rem;font-weight:700;color:#374151;margin-bottom:.28rem">Activity Details</div>
+                <div style="font-size:.95rem;font-weight:700;color:#374151;margin-bottom:.28rem">Details</div>
                 <div style="border:1px solid #b8bcc4;border-radius:.45rem;overflow:hidden">
                   <div style="display:flex;gap:.2rem;padding:.28rem .45rem;background:#f9fafb;border-bottom:1px solid #b8bcc4">
                     <button class="btn-fmt btn-fmt-bold" type="button" data-input-id="mn-act-details-${subIdx}" title="Bold (Ctrl+B)">B</button>
@@ -21381,12 +22612,12 @@ function renderTargetManageContent(student, target) {
                     <button class="btn-fmt btn-fmt-bullet" type="button" data-input-id="mn-act-details-${subIdx}" title="Bullet (Ctrl+Shift+L)">•</button>
                   </div>
                   <textarea class="admin-input mn-act-details-input" id="mn-act-details-${subIdx}" data-idx="${subIdx}"
-                    rows="2" placeholder="Enter Activity Detail Here" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block;resize:none">${escHtml(bulletifyForEditing(sub.name || ''))}</textarea>
+                    rows="2" placeholder="Enter Text Here" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block;resize:none">${escHtml(bulletifyForEditing(sub.name || ''))}</textarea>
                 </div>
               </div>
               <div class="mn-sub-act-body" data-idx="${subIdx}" style="display:flex;flex-direction:column;gap:.55rem">
                 <div>
-                  <div style="font-size:.95rem;font-weight:700;color:#374151;margin-bottom:.28rem">Activity Type</div>
+                  <div style="font-size:.95rem;font-weight:700;color:#374151;margin-bottom:.28rem">Type</div>
                   ${subRemarkType}
                 </div>
               </div>
@@ -21418,19 +22649,15 @@ function renderTargetManageContent(student, target) {
                   <button class="mn-parent-start-date-btn" data-idx="${idx}" style="padding:.35rem .65rem;border:1.5px solid #b91c1c;border-radius:.4rem;background:#dc2626;cursor:not-allowed;font-size:.95rem;color:#ffffff;white-space:nowrap;display:block" title="Automatically set from earliest sub-activity">📅 ${_parentStartDate ? fmtPeriodDate(_parentStartDate) : 'No dates set'}</button>
                 </div>
                 <div style="flex:1">
-                  <div style="font-size:.95rem;font-weight:700;color:#374151;margin-bottom:.28rem">Activity Title</div>
+                  <div style="font-size:.95rem;font-weight:700;color:#374151;margin-bottom:.28rem">Parent Activity Title</div>
                   <div style="border:1px solid #b8bcc4;border-radius:.45rem;overflow:hidden">
                     <input type="text" class="admin-input mn-act-title-input" id="mn-act-title-${idx}" data-idx="${idx}"
-                      placeholder="Enter Activity Title Here" value="${escHtml(a.title || '')}" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block" />
+                      placeholder="Enter Text Here" value="${escHtml(a.title || '')}" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block" />
                   </div>
                 </div>
               </div>
               <div class="mn-sub-list" data-parent-key="${escHtml(_paKey || "")}">${subActsHtml}</div>
               ${maintainedRowSub}
-              <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">
-                <button class="mn-add-sub-act-btn" data-parent-idx="${idx}" style="font-size:.82rem;padding:.3rem .7rem;background:#f9fafb;border:1px solid #d1d5db;border-radius:.35rem;color:#374151;cursor:pointer">+ Add Sub-activity</button>
-                ${a._linkKey ? `<button class="mn-undo-convert-btn" data-idx="${idx}" style="font-size:.82rem;padding:.3rem .7rem;background:#fee2e2;border:1px solid #fca5a5;border-radius:.35rem;color:#dc2626;cursor:pointer">↩ Undo — keep as its own activity</button>` : ''}
-              </div>
               </div>
             </div>
           </div>
@@ -21468,12 +22695,12 @@ function renderTargetManageContent(student, target) {
                   <div style="font-size:.95rem;font-weight:700;color:#374151;margin-bottom:.28rem">Activity Title</div>
                   <div style="border:1px solid #b8bcc4;border-radius:.45rem;overflow:hidden">
                     <input type="text" class="admin-input mn-act-title-input" id="mn-act-title-${idx}" data-idx="${idx}"
-                      placeholder="Enter Activity Title Here" value="${escHtml(a.title || '')}" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block" />
+                      placeholder="Enter Text Here" value="${escHtml(a.title || '')}" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block" />
                   </div>
                 </div>
               </div>
               <div>
-                <div style="font-size:.95rem;font-weight:700;color:#374151;margin-bottom:.28rem">Activity Details</div>
+                <div style="font-size:.95rem;font-weight:700;color:#374151;margin-bottom:.28rem">Details</div>
                 <div style="border:1px solid #b8bcc4;border-radius:.45rem;overflow:hidden">
                   <div style="display:flex;gap:.2rem;padding:.28rem .45rem;background:#f9fafb;border-bottom:1px solid #b8bcc4">
                     <button class="btn-fmt btn-fmt-bold" type="button" data-input-id="mn-act-details-${idx}" title="Bold (Ctrl+B)">B</button>
@@ -21481,11 +22708,11 @@ function renderTargetManageContent(student, target) {
                     <button class="btn-fmt btn-fmt-bullet" type="button" data-input-id="mn-act-details-${idx}" title="Bullet (Ctrl+Shift+L)">•</button>
                   </div>
                   <textarea class="admin-input mn-act-details-input" id="mn-act-details-${idx}" data-idx="${idx}"
-                    rows="2" placeholder="Enter Activity Detail Here" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block;resize:none">${escHtml(bulletifyForEditing(a.name || ''))}</textarea>
+                    rows="2" placeholder="Enter Text Here" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block;resize:none">${escHtml(bulletifyForEditing(a.name || ''))}</textarea>
                 </div>
               </div>
               <div>
-                <div style="font-size:.95rem;font-weight:700;color:#374151;margin-bottom:.28rem">Activity Type</div>
+                <div style="font-size:.95rem;font-weight:700;color:#374151;margin-bottom:.28rem">Type</div>
                 ${remarkTypeSelect}
               </div>
               ${maintainedRow}
@@ -21503,7 +22730,7 @@ function renderTargetManageContent(student, target) {
                 // refill it, or to remove it.
                 ? `<button class="mn-hide-empty-parent" data-idx="${idx}" type="button" style="width:100%;padding:.55rem .9rem;text-align:left;background:none;border:none;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:.84rem;color:#9a3412">🙈 Hide Parent Activity</button>`
                 : `${mnStatusKebabHtml(a, idx, false)}
-              <button class="mn-km-move-to-parent" data-idx="${idx}" style="width:100%;padding:.55rem .9rem;text-align:left;background:none;border:none;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:.84rem;color:#374151;white-space:nowrap">↪️ Make this activity into a Sub-activity</button>`}
+              <button class="mn-km-move-to-parent" data-idx="${idx}" style="width:100%;padding:.55rem .9rem;text-align:left;background:none;border:none;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:.84rem;color:#374151;white-space:nowrap">🔄 Move this activity under a Parent Activity</button>`}
               <button class="mn-km-add-sub" data-idx="${idx}" style="width:100%;padding:.55rem .9rem;text-align:left;background:none;border:none;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:.84rem;color:#374151">➕ Add sub-activity</button>
               <div style="display:flex;align-items:stretch">
                 <button class="mn-km-opt" data-idx="${idx}" data-action="delete" style="flex:1;padding:.55rem .9rem;text-align:left;background:none;border:none;cursor:pointer;font-size:.84rem;color:#dc2626">🗑️ Delete Activity</button>
@@ -21546,20 +22773,20 @@ function renderTargetManageContent(student, target) {
       html += `<div class="mn-inact-card" data-global-idx="${globalIdx}" style="margin-bottom:${myMastSubs.length ? '.1rem' : '.35rem'}">
         <div style="flex:1;display:flex;flex-direction:column;gap:.4rem">
           <div>
-            <div style="font-size:.85rem;font-weight:700;color:#374151;margin-bottom:.2rem">Activity Title</div>
+            <div style="font-size:.85rem;font-weight:700;color:#374151;margin-bottom:.2rem">${acts.some(a2 => a2.parentActivity === (a.title || a.name)) ? "Parent Activity Title" : "Activity Title"}</div>
             <div style="border:1px solid #b8bcc4;border-radius:.45rem;overflow:hidden">
-              <input type="text" class="admin-input mn-act-title-input" id="mn-act-title-${globalIdx}" data-idx="${globalIdx}" placeholder="Enter Activity Title Here" value="${escHtml(a.title || '')}" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block" />
+              <input type="text" class="admin-input mn-act-title-input" id="mn-act-title-${globalIdx}" data-idx="${globalIdx}" placeholder="Enter Text Here" value="${escHtml(a.title || '')}" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block" />
             </div>
           </div>
           ${acts.some(a2 => a2.parentActivity === (a.title || a.name)) ? '' : `<div>
-            <div style="font-size:.85rem;font-weight:700;color:#374151;margin-bottom:.2rem">Activity Details</div>
+            <div style="font-size:.85rem;font-weight:700;color:#374151;margin-bottom:.2rem">Details</div>
             <div style="border:1px solid #b8bcc4;border-radius:.45rem;overflow:hidden">
               <div style="display:flex;gap:.2rem;padding:.28rem .45rem;background:#f9fafb;border-bottom:1px solid #b8bcc4">
                 <button class="btn-fmt btn-fmt-bold" type="button" data-input-id="mn-act-details-${globalIdx}" title="Bold (Ctrl+B)">B</button>
                 <button class="btn-fmt btn-fmt-underline" type="button" data-input-id="mn-act-details-${globalIdx}" title="Underline (Ctrl+U)">U</button>
                 <button class="btn-fmt btn-fmt-bullet" type="button" data-input-id="mn-act-details-${globalIdx}" title="Bullet (Ctrl+Shift+L)">•</button>
               </div>
-              <textarea class="admin-input mn-act-details-input" id="mn-act-details-${globalIdx}" data-idx="${globalIdx}" rows="2" placeholder="Enter Activity Detail Here" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block;resize:none">${escHtml(bulletifyForEditing(a.name || ''))}</textarea>
+              <textarea class="admin-input mn-act-details-input" id="mn-act-details-${globalIdx}" data-idx="${globalIdx}" rows="2" placeholder="Enter Text Here" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block;resize:none">${escHtml(bulletifyForEditing(a.name || ''))}</textarea>
             </div>
           </div>`}
         </div>
@@ -21585,20 +22812,20 @@ function renderTargetManageContent(student, target) {
           <span style="font-size:.8rem;color:#059669;font-weight:700;flex-shrink:0;padding:.5rem .3rem 0 .55rem">${String.fromCharCode(97 + si)})</span>
           <div style="flex:1;display:flex;flex-direction:column;gap:.3rem;min-width:0">
             <div>
-              <div style="font-size:.8rem;font-weight:700;color:#374151;margin-bottom:.15rem">Activity Title</div>
+              <div style="font-size:.8rem;font-weight:700;color:#374151;margin-bottom:.15rem">Sub-activity Title</div>
               <div style="border:1px solid #b8bcc4;border-radius:.4rem;overflow:hidden">
-                <input type="text" class="admin-input mn-act-title-input" id="mn-act-title-${subGlobalIdx}" data-idx="${subGlobalIdx}" placeholder="Enter Activity Title Here" value="${escHtml(sub.title || '')}" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block" />
+                <input type="text" class="admin-input mn-act-title-input" id="mn-act-title-${subGlobalIdx}" data-idx="${subGlobalIdx}" placeholder="Enter Text Here" value="${escHtml(sub.title || '')}" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block" />
               </div>
             </div>
             <div>
-              <div style="font-size:.8rem;font-weight:700;color:#374151;margin-bottom:.15rem">Activity Details</div>
+              <div style="font-size:.8rem;font-weight:700;color:#374151;margin-bottom:.15rem">Details</div>
               <div style="border:1px solid #b8bcc4;border-radius:.4rem;overflow:hidden">
                 <div style="display:flex;gap:.2rem;padding:.25rem .4rem;background:#f9fafb;border-bottom:1px solid #b8bcc4">
                   <button class="btn-fmt btn-fmt-bold" type="button" data-input-id="mn-act-details-${subGlobalIdx}" title="Bold (Ctrl+B)">B</button>
                   <button class="btn-fmt btn-fmt-underline" type="button" data-input-id="mn-act-details-${subGlobalIdx}" title="Underline (Ctrl+U)">U</button>
                   <button class="btn-fmt btn-fmt-bullet" type="button" data-input-id="mn-act-details-${subGlobalIdx}" title="Bullet (Ctrl+Shift+L)">•</button>
                 </div>
-                <textarea class="admin-input mn-act-details-input" id="mn-act-details-${subGlobalIdx}" data-idx="${subGlobalIdx}" rows="2" placeholder="Enter Activity Detail Here" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block;resize:none">${escHtml(bulletifyForEditing(sub.name || ''))}</textarea>
+                <textarea class="admin-input mn-act-details-input" id="mn-act-details-${subGlobalIdx}" data-idx="${subGlobalIdx}" rows="2" placeholder="Enter Text Here" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block;resize:none">${escHtml(bulletifyForEditing(sub.name || ''))}</textarea>
               </div>
             </div>
           </div>
@@ -21632,20 +22859,20 @@ function renderTargetManageContent(student, target) {
             <span style="font-size:.8rem;color:#059669;font-weight:700;flex-shrink:0;padding:.5rem .3rem 0 .55rem">${String.fromCharCode(97 + si)})</span>
             <div style="flex:1;display:flex;flex-direction:column;gap:.3rem;min-width:0">
               <div>
-                <div style="font-size:.8rem;font-weight:700;color:#374151;margin-bottom:.15rem">Activity Title</div>
+                <div style="font-size:.8rem;font-weight:700;color:#374151;margin-bottom:.15rem">Sub-activity Title</div>
                 <div style="border:1px solid #b8bcc4;border-radius:.4rem;overflow:hidden">
-                  <input type="text" class="admin-input mn-act-title-input" id="mn-act-title-${subGlobalIdx}" data-idx="${subGlobalIdx}" placeholder="Enter Activity Title Here" value="${escHtml(sub.title || '')}" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block" />
+                  <input type="text" class="admin-input mn-act-title-input" id="mn-act-title-${subGlobalIdx}" data-idx="${subGlobalIdx}" placeholder="Enter Text Here" value="${escHtml(sub.title || '')}" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block" />
                 </div>
               </div>
               <div>
-                <div style="font-size:.8rem;font-weight:700;color:#374151;margin-bottom:.15rem">Activity Details</div>
+                <div style="font-size:.8rem;font-weight:700;color:#374151;margin-bottom:.15rem">Details</div>
                 <div style="border:1px solid #b8bcc4;border-radius:.4rem;overflow:hidden">
                   <div style="display:flex;gap:.2rem;padding:.25rem .4rem;background:#f9fafb;border-bottom:1px solid #b8bcc4">
                     <button class="btn-fmt btn-fmt-bold" type="button" data-input-id="mn-act-details-${subGlobalIdx}" title="Bold (Ctrl+B)">B</button>
                     <button class="btn-fmt btn-fmt-underline" type="button" data-input-id="mn-act-details-${subGlobalIdx}" title="Underline (Ctrl+U)">U</button>
                     <button class="btn-fmt btn-fmt-bullet" type="button" data-input-id="mn-act-details-${subGlobalIdx}" title="Bullet (Ctrl+Shift+L)">•</button>
                   </div>
-                  <textarea class="admin-input mn-act-details-input" id="mn-act-details-${subGlobalIdx}" data-idx="${subGlobalIdx}" rows="2" placeholder="Enter Activity Detail Here" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block;resize:none">${escHtml(bulletifyForEditing(sub.name || ''))}</textarea>
+                  <textarea class="admin-input mn-act-details-input" id="mn-act-details-${subGlobalIdx}" data-idx="${subGlobalIdx}" rows="2" placeholder="Enter Text Here" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block;resize:none">${escHtml(bulletifyForEditing(sub.name || ''))}</textarea>
                 </div>
               </div>
             </div>
@@ -21687,20 +22914,20 @@ function renderTargetManageContent(student, target) {
       html += `<div class="mn-inact-card" data-global-idx="${globalIdx}" style="margin-bottom:${myDiscSubs.length ? '.1rem' : '.35rem'}">
         <div style="flex:1;display:flex;flex-direction:column;gap:.4rem">
           <div>
-            <div style="font-size:.85rem;font-weight:700;color:#374151;margin-bottom:.2rem">Activity Title</div>
+            <div style="font-size:.85rem;font-weight:700;color:#374151;margin-bottom:.2rem">${acts.some(a2 => a2.parentActivity === (a.title || a.name)) ? "Parent Activity Title" : "Activity Title"}</div>
             <div style="border:1px solid #b8bcc4;border-radius:.45rem;overflow:hidden">
-              <input type="text" class="admin-input mn-act-title-input" id="mn-act-title-${globalIdx}" data-idx="${globalIdx}" placeholder="Enter Activity Title Here" value="${escHtml(a.title || '')}" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block" />
+              <input type="text" class="admin-input mn-act-title-input" id="mn-act-title-${globalIdx}" data-idx="${globalIdx}" placeholder="Enter Text Here" value="${escHtml(a.title || '')}" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block" />
             </div>
           </div>
           ${acts.some(a2 => a2.parentActivity === (a.title || a.name)) ? '' : `<div>
-            <div style="font-size:.85rem;font-weight:700;color:#374151;margin-bottom:.2rem">Activity Details</div>
+            <div style="font-size:.85rem;font-weight:700;color:#374151;margin-bottom:.2rem">Details</div>
             <div style="border:1px solid #b8bcc4;border-radius:.45rem;overflow:hidden">
               <div style="display:flex;gap:.2rem;padding:.28rem .45rem;background:#f9fafb;border-bottom:1px solid #b8bcc4">
                 <button class="btn-fmt btn-fmt-bold" type="button" data-input-id="mn-act-details-${globalIdx}" title="Bold (Ctrl+B)">B</button>
                 <button class="btn-fmt btn-fmt-underline" type="button" data-input-id="mn-act-details-${globalIdx}" title="Underline (Ctrl+U)">U</button>
                 <button class="btn-fmt btn-fmt-bullet" type="button" data-input-id="mn-act-details-${globalIdx}" title="Bullet (Ctrl+Shift+L)">•</button>
               </div>
-              <textarea class="admin-input mn-act-details-input" id="mn-act-details-${globalIdx}" data-idx="${globalIdx}" rows="2" placeholder="Enter Activity Detail Here" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block;resize:none">${escHtml(bulletifyForEditing(a.name || ''))}</textarea>
+              <textarea class="admin-input mn-act-details-input" id="mn-act-details-${globalIdx}" data-idx="${globalIdx}" rows="2" placeholder="Enter Text Here" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block;resize:none">${escHtml(bulletifyForEditing(a.name || ''))}</textarea>
             </div>
           </div>`}
         </div>
@@ -21726,20 +22953,20 @@ function renderTargetManageContent(student, target) {
           <span style="font-size:.8rem;color:#dc2626;font-weight:700;flex-shrink:0;padding:.5rem .3rem 0 .55rem">${String.fromCharCode(97 + si)})</span>
           <div style="flex:1;display:flex;flex-direction:column;gap:.3rem;min-width:0">
             <div>
-              <div style="font-size:.8rem;font-weight:700;color:#374151;margin-bottom:.15rem">Activity Title</div>
+              <div style="font-size:.8rem;font-weight:700;color:#374151;margin-bottom:.15rem">Sub-activity Title</div>
               <div style="border:1px solid #b8bcc4;border-radius:.4rem;overflow:hidden">
-                <input type="text" class="admin-input mn-act-title-input" id="mn-act-title-${subGlobalIdx}" data-idx="${subGlobalIdx}" placeholder="Enter Activity Title Here" value="${escHtml(sub.title || '')}" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block" />
+                <input type="text" class="admin-input mn-act-title-input" id="mn-act-title-${subGlobalIdx}" data-idx="${subGlobalIdx}" placeholder="Enter Text Here" value="${escHtml(sub.title || '')}" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block" />
               </div>
             </div>
             <div>
-              <div style="font-size:.8rem;font-weight:700;color:#374151;margin-bottom:.15rem">Activity Details</div>
+              <div style="font-size:.8rem;font-weight:700;color:#374151;margin-bottom:.15rem">Details</div>
               <div style="border:1px solid #b8bcc4;border-radius:.4rem;overflow:hidden">
                 <div style="display:flex;gap:.2rem;padding:.25rem .4rem;background:#f9fafb;border-bottom:1px solid #b8bcc4">
                   <button class="btn-fmt btn-fmt-bold" type="button" data-input-id="mn-act-details-${subGlobalIdx}" title="Bold (Ctrl+B)">B</button>
                   <button class="btn-fmt btn-fmt-underline" type="button" data-input-id="mn-act-details-${subGlobalIdx}" title="Underline (Ctrl+U)">U</button>
                   <button class="btn-fmt btn-fmt-bullet" type="button" data-input-id="mn-act-details-${subGlobalIdx}" title="Bullet (Ctrl+Shift+L)">•</button>
                 </div>
-                <textarea class="admin-input mn-act-details-input" id="mn-act-details-${subGlobalIdx}" data-idx="${subGlobalIdx}" rows="2" placeholder="Enter Activity Detail Here" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block;resize:none">${escHtml(bulletifyForEditing(sub.name || ''))}</textarea>
+                <textarea class="admin-input mn-act-details-input" id="mn-act-details-${subGlobalIdx}" data-idx="${subGlobalIdx}" rows="2" placeholder="Enter Text Here" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block;resize:none">${escHtml(bulletifyForEditing(sub.name || ''))}</textarea>
               </div>
             </div>
           </div>
@@ -21773,20 +23000,20 @@ function renderTargetManageContent(student, target) {
             <span style="font-size:.8rem;color:#dc2626;font-weight:700;flex-shrink:0;padding:.5rem .3rem 0 .55rem">${String.fromCharCode(97 + si)})</span>
             <div style="flex:1;display:flex;flex-direction:column;gap:.3rem;min-width:0">
               <div>
-                <div style="font-size:.8rem;font-weight:700;color:#374151;margin-bottom:.15rem">Activity Title</div>
+                <div style="font-size:.8rem;font-weight:700;color:#374151;margin-bottom:.15rem">Sub-activity Title</div>
                 <div style="border:1px solid #b8bcc4;border-radius:.4rem;overflow:hidden">
-                  <input type="text" class="admin-input mn-act-title-input" id="mn-act-title-${subGlobalIdx}" data-idx="${subGlobalIdx}" placeholder="Enter Activity Title Here" value="${escHtml(sub.title || '')}" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block" />
+                  <input type="text" class="admin-input mn-act-title-input" id="mn-act-title-${subGlobalIdx}" data-idx="${subGlobalIdx}" placeholder="Enter Text Here" value="${escHtml(sub.title || '')}" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block" />
                 </div>
               </div>
               <div>
-                <div style="font-size:.8rem;font-weight:700;color:#374151;margin-bottom:.15rem">Activity Details</div>
+                <div style="font-size:.8rem;font-weight:700;color:#374151;margin-bottom:.15rem">Details</div>
                 <div style="border:1px solid #b8bcc4;border-radius:.4rem;overflow:hidden">
                   <div style="display:flex;gap:.2rem;padding:.25rem .4rem;background:#f9fafb;border-bottom:1px solid #b8bcc4">
                     <button class="btn-fmt btn-fmt-bold" type="button" data-input-id="mn-act-details-${subGlobalIdx}" title="Bold (Ctrl+B)">B</button>
                     <button class="btn-fmt btn-fmt-underline" type="button" data-input-id="mn-act-details-${subGlobalIdx}" title="Underline (Ctrl+U)">U</button>
                     <button class="btn-fmt btn-fmt-bullet" type="button" data-input-id="mn-act-details-${subGlobalIdx}" title="Bullet (Ctrl+Shift+L)">•</button>
                   </div>
-                  <textarea class="admin-input mn-act-details-input" id="mn-act-details-${subGlobalIdx}" data-idx="${subGlobalIdx}" rows="2" placeholder="Enter Activity Detail Here" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block;resize:none">${escHtml(bulletifyForEditing(sub.name || ''))}</textarea>
+                  <textarea class="admin-input mn-act-details-input" id="mn-act-details-${subGlobalIdx}" data-idx="${subGlobalIdx}" rows="2" placeholder="Enter Text Here" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block;resize:none">${escHtml(bulletifyForEditing(sub.name || ''))}</textarea>
                 </div>
               </div>
             </div>
@@ -21813,6 +23040,7 @@ function renderTargetManageContent(student, target) {
   html += `
     <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.25rem">
       <button class="btn-admin-add" id="btn-mn-add-act" style="flex:0 0 auto;width:auto">+ Add Activity</button>
+      <button class="btn-admin-add" id="btn-mn-add-parent" style="flex:0 0 auto;width:auto">+ Add Parent Activity with Sub-activities</button>
       <button class="btn-admin-add" id="btn-mn-add-heading" style="flex:0 0 auto;width:auto">+ Add Section Heading</button>
       <button class="btn-admin-add" id="btn-mn-add-note" style="flex:0 0 auto;width:auto">+ Add Note</button>
     </div>
@@ -21830,6 +23058,8 @@ function renderTargetManageContent(student, target) {
   // listener is bound, so every handler below finds them in their final home.
   mnRegroupInactiveCards($("manage-modal-body"), acts);
   mnInitActivityCollapse($("manage-modal-body"), acts);
+  wireAssistantMenuLock($("manage-modal-body"), acts);
+  applyAssistantReadOnly($("manage-modal-body"), acts);
   $("manage-modal-body").querySelectorAll(".admin-list-item textarea").forEach(autoResizeTextarea);
 
   _pendingActsCleanup = { acts, save: saveTarget };
@@ -21839,7 +23069,10 @@ function renderTargetManageContent(student, target) {
   _mnPanelHost = {
     acts,
     rerender: () => renderTargetManageContent(student, target),
-    flushSave: async () => { const i = student.targets.findIndex(t => t.id === target.id); if (i >= 0) student.targets[i] = target;
+    // splitPendingTarget for the same reason saveTarget uses it: handing the
+    // editor's merged copy back would put proposals into the object the rest of
+    // the app reads.
+    flushSave: async () => { const i = student.targets.findIndex(t => t.id === target.id); if (i >= 0) student.targets[i] = splitPendingTarget(target);
       if (_groupForTargetEdit) { const gi = state.groups.findIndex(g => g.id === _groupForTargetEdit.id); if (gi >= 0) state.groups[gi] = _groupForTargetEdit; await saveGroup(_groupForTargetEdit); }
       else { const si = state.students.findIndex(s => s.id === student.id); if (si >= 0) state.students[si] = student; await saveStudent(student); } },
     student, target
@@ -22182,6 +23415,38 @@ function renderTargetManageContent(student, target) {
     });
   });
 
+  /** Greys out "Add sub-activity" and says why, before it is pressed. */
+  async function markAddSubAvailability(menu, idx) {
+    const item = menu?.querySelector(".mn-km-add-sub");
+    const act  = acts[idx];
+    if (!item || !act || item.dataset.subChecked) return;
+    item.dataset.subChecked = "1";
+    try {
+      const sessions = await getSessionsCached();
+      const n = sessions.filter(sess => {
+        const matchIds = Object.entries(sess.activities || {}).filter(([, a2]) => {
+          if (a2.targetName !== target.name || a2.parentActivity) return false;
+          if (a2.configId && act.id && a2.configId !== act.id) return false;
+          return (act.name && a2.activityName === act.name) || (act.title && a2.activityName === act.title);
+        }).map(([id2]) => id2);
+        return matchIds.some(aid => Object.values(sess.remarks || {}).some(r =>
+          r.activityId === aid && (
+            (r.text || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim().length > 0 ||
+            (r.masteryNote || "").trim().length > 0 ||
+            (r.trials || []).some(t => t !== null && t !== -1) ||
+            (r.optionScore !== undefined && r.optionScore !== null))));
+      }).length;
+      if (n === 0) return;
+      item.disabled = true;
+      item.style.opacity = ".5";
+      item.style.cursor = "not-allowed";
+      item.innerHTML = `➕ Add sub-activity`
+        + `<div style="font-size:.74rem;font-style:italic;color:#92400e;margin-top:.15rem;white-space:normal">`
+        + `Not available: this activity has data in ${n} session${n === 1 ? "" : "s"}, and a parent activity holds none of its own.`
+        + `</div>`;
+    } catch { /* leave it enabled; the click still checks properly */ }
+  }
+
   $("manage-modal-body").querySelectorAll(".mn-kebab-btn").forEach(btn => {
     btn.addEventListener("click", e => {
       e.stopPropagation();
@@ -22193,6 +23458,16 @@ function renderTargetManageContent(student, target) {
         menu.style.top    = "100%";
         menu.style.bottom = "auto";
         menu.style.display = "block";
+        // Say up front whether this activity can take sub-activities.
+        //
+        // A parent is a title for the rows beneath it and holds no score or
+        // remark of its own, so an activity that already has session data
+        // cannot become one. That was only discovered on clicking, as a
+        // refusal after the fact. Checked here instead, while the menu is
+        // opening, which is early enough to be useful and rare enough not to
+        // cost a query on every render. The click still re-checks: this is a
+        // label, not the gate.
+        markAddSubAvailability(menu, Number(idx));
         const rect = menu.getBoundingClientRect();
         if (rect.bottom > window.innerHeight - 8) {
           menu.style.top    = "auto";
@@ -22508,6 +23783,10 @@ function renderTargetManageContent(student, target) {
         ? (state.groupSessionData?.date || todayDateStr())
         : (state.sessionData?.date || todayDateStr());
       const newSub = { id: subId, title: "", name: "", parentActivity: paKey, order: 0, activeFrom: _newSubDate, createdOn: todayDateStr() };
+      // The kebab is a fifth way to add something, and it was the one that got
+      // missed: everything an assistant adds is a proposal, whichever control
+      // they reached for.
+      if (proposesOnly()) markAsProposal(newSub);
       // After the last sub it already has, not straight under the parent. This
       // menu can now be used on an activity that is already a parent, and
       // dropping the new one in front would relabel every existing sub.
@@ -23093,12 +24372,157 @@ function renderTargetManageContent(student, target) {
     });
   });
 
+  // ── Waiting for approval: the banner, the filter, and the decisions ──
+  renderPendingBanner();
+
+  function renderPendingBanner() {
+    const bodyEl = $("manage-modal-body");
+    if (!bodyEl) return;
+    bodyEl.querySelector(":scope > .mn-pending-banner")?.remove();
+    const n = acts.filter(a => a?._pending).length;
+    if (n === 0) {
+      bodyEl.classList.remove("mn-pending-only");
+      _mnPendingOnly = false;
+      return;
+    }
+    const bar = document.createElement("div");
+    bar.className = "mn-pending-banner";
+    bar.innerHTML = `
+      <span class="mn-pending-banner-count">${n} item${n === 1 ? "" : "s"} waiting for approval</span>
+      <button class="mn-pending-filter${_mnPendingOnly ? " is-on" : ""}" id="btn-mn-pending-only">
+        ${_mnPendingOnly ? "Show everything" : "Show only these"}
+      </button>`;
+    bodyEl.insertBefore(bar, bodyEl.firstChild);
+    bodyEl.classList.toggle("mn-pending-only", _mnPendingOnly);
+    applyPendingFilter();
+    $("btn-mn-pending-only").addEventListener("click", () => {
+      _mnPendingOnly = !_mnPendingOnly;
+      renderPendingBanner();
+    });
+  }
+
+  /**
+   * Hide everything already approved.
+   *
+   * A section whose rows are all hidden is hidden with them, otherwise the
+   * filtered view is a column of empty headings. The rule is deliberately
+   * "contains a pending card", so a section heading that is itself a proposal
+   * stays visible even before anything is added under it.
+   */
+  function applyPendingFilter() {
+    const bodyEl = $("manage-modal-body");
+    const list   = $("mn-act-list");
+    if (!bodyEl) return;
+    bodyEl.querySelectorAll(".mn-hidden-by-pending")
+      .forEach(el => el.classList.remove("mn-hidden-by-pending"));
+    if (!_mnPendingOnly || !list) return;
+
+    const isPending = el =>
+      el.classList.contains("mn-pending-card") || !!el.querySelector(".mn-pending-card");
+
+    // Sections are not containers here: a heading and the rows under it are
+    // siblings, marked out by data-sec-* for the rail CSS. So a heading is kept
+    // by looking forward to the next heading rather than by looking inside it.
+    const rows = [...list.children];
+    rows.forEach((row, i) => {
+      if (isPending(row)) return;
+      if (row.classList.contains("mn-heading-item")) {
+        for (let j = i + 1; j < rows.length; j++) {
+          if (rows[j].classList.contains("mn-heading-item")) break;
+          if (isPending(rows[j])) return;
+        }
+      }
+      row.classList.add("mn-hidden-by-pending");
+    });
+
+    // Mastered and discontinued are approved by definition, so the whole
+    // section goes while the filter is on.
+    bodyEl.querySelectorAll(".mn-inact-group, .mn-inact-card")
+      .forEach(el => el.classList.add("mn-hidden-by-pending"));
+  }
+
+  $("manage-modal-body").querySelectorAll(".mn-pending-ok").forEach(btn => {
+    btn.addEventListener("click", async e => {
+      e.stopPropagation();
+      const i = Number(btn.dataset.pendingIdx);
+      const a = acts[i];
+      if (!a || !a._pending) return;
+      // Approving is only ever a promotion: the entry is already sitting in
+      // the right place in the list, so nothing moves and nothing is rewritten.
+      const proposer = a.proposedBy;
+      delete a._pending;
+      delete a.proposedBy;
+      delete a.proposedAt;
+
+      // It starts the day it is approved, not the day it was asked for.
+      //
+      // Proposed on the 7th and approved on the 9th, it did not exist on the
+      // 7th or the 8th: it was in nobody's session and nobody could write
+      // against it. Dating it back makes it look unfilled for days it was never
+      // part of. Today's real date, not the open session's -- the approval
+      // happens now, whatever day is being written up.
+      const approvedOn = todayDateStr();
+      if (a.createdOn !== undefined) a.createdOn = approvedOn;
+      // A section heading's activeFrom is deliberately null and stays that way.
+      if (a.activeFrom) a.activeFrom = approvedOn;
+      // Told to whoever asked for it. Recorded on the entity being edited, which
+      // for a group target is the group rather than the student standing in for
+      // it here.
+      noteApproval(_groupForTargetEdit || student, proposer, currentUser()?.id);
+      target.predefinedActivities = acts;
+      await saveTarget().catch(() => {});
+      renderTargetManageContent(student, target);
+    });
+  });
+
+  $("manage-modal-body").querySelectorAll(".mn-pending-no").forEach(btn => {
+    btn.addEventListener("click", async e => {
+      e.stopPropagation();
+      const i = Number(btn.dataset.pendingIdx);
+      const a = acts[i];
+      if (!a || !a._pending) return;
+
+      const what = a.isHeading || a.isMaintainHeading ? "section heading"
+                 : a.isNote || a.isExportNote ? "note"
+                 : a.parentActivity ? "sub-activity"
+                 : a.noRemark ? "parent activity" : "activity";
+      const label = (a.title || a.name || a.text || "").trim();
+
+      // A parent is only a name for the rows under it, so rejecting one takes
+      // those rows with it -- there is nowhere for them to go. Said plainly,
+      // and they are listed, because "2 sub-activities" is easy to agree to
+      // without picturing which two.
+      const pKey = a.noRemark ? (a._linkKey || a.title || a.name) : null;
+      const subs = pKey ? acts.filter(x => x !== a && x.parentActivity === pKey) : [];
+      const subList = subs.length
+        ? "\n\nThese " + subs.length + " sub-activit" + (subs.length === 1 ? "y goes" : "ies go") + " with it:\n"
+          + subs.map(x => "  \u2022 " + ((x.title || x.name || "").trim() || "(untitled)")).join("\n")
+        : "";
+
+      if (!confirm(
+        `Reject this ${what}${label ? ` ("${label.slice(0, 60)}")` : ""}?`
+        + subList
+        + `\n\nIt will be deleted. This cannot be undone.`)) return;
+
+      // Highest index first, so removing one does not shift the next.
+      [...subs.map(x => acts.indexOf(x)), i]
+        .filter(k => k >= 0)
+        .sort((x, y) => y - x)
+        .forEach(k => acts.splice(k, 1));
+      acts.forEach((x, k) => { x.order = k; });
+      target.predefinedActivities = acts;
+      await saveTarget().catch(() => {});
+      renderTargetManageContent(student, target);
+    });
+  });
+
   $("btn-mn-add-act").addEventListener("click", () => {
     const btn = $("btn-mn-add-act"); if (btn) btn.disabled = true;
     const _newActDate = _groupForTargetEdit ? (state.groupSessionData?.date || todayDateStr()) : (state.sessionData?.date || todayDateStr());
     // Opened straight away: a brand new activity has nothing to read and every
     // field still to fill in.
     const _newAct = { id: cfgId("a"), name: "", order: acts.length, createdOn: todayDateStr(), activeFrom: _newActDate };
+    if (proposesOnly()) markAsProposal(_newAct);
     _mnPanelOpenAfterRender = _newAct.id;
     acts.push(_newAct);
     target.predefinedActivities = acts;
@@ -23108,15 +24532,72 @@ function renderTargetManageContent(student, target) {
 
   $("btn-mn-add-heading").addEventListener("click", () => {
     const btn = $("btn-mn-add-heading"); if (btn) btn.disabled = true;
-    acts.push({ id: cfgId("h"), isHeading: true, name: "", order: acts.length, activeFrom: null });
+    const _newHead = { id: cfgId("h"), isHeading: true, name: "", order: acts.length, activeFrom: null };
+    if (proposesOnly()) markAsProposal(_newHead);
+    acts.push(_newHead);
     target.predefinedActivities = acts;
     renderTargetManageContent(student, target);
     saveTarget().catch(() => {});
   });
 
+  /**
+   * A parent activity and its first sub-activity, in one go.
+   *
+   * The old route was to add an ordinary activity and then convert it through
+   * the kebab, which only worked if you had not already typed anything into it:
+   * a parent is a title for the rows beneath it and cannot hold a score or a
+   * remark of its own, so an activity with data in it cannot become one. That
+   * rule arrived as a refusal AFTER the work was done. Made this way the thing
+   * is a parent from the moment it exists and the rule never comes up.
+   *
+   * _linkKey is how a parent with no title yet is still something its
+   * sub-activities can point at. The first time a title is typed the subs are
+   * repointed to it and the key is dropped, which is the existing behaviour --
+   * this just gives a brand-new parent one from the start.
+   */
+  $("btn-mn-add-parent").addEventListener("click", () => {
+    const btn = $("btn-mn-add-parent"); if (btn) btn.disabled = true;
+    const _newDate = _groupForTargetEdit
+      ? (state.groupSessionData?.date || todayDateStr())
+      : (state.sessionData?.date || todayDateStr());
+    const linkKey = cfgId("pk");
+    const parent = {
+      id: cfgId("a"), _linkKey: linkKey, title: "", name: "",
+      noRemark: true, order: acts.length, createdOn: todayDateStr(), activeFrom: null,
+    };
+    const sub = {
+      id: cfgId("a"), title: "", name: "", parentActivity: linkKey,
+      order: acts.length + 1, createdOn: todayDateStr(), activeFrom: _newDate,
+    };
+    if (proposesOnly()) { markAsProposal(parent); markAsProposal(sub); }
+    acts.push(parent, sub);
+    acts.forEach((a2, i) => { a2.order = i; });
+    target.predefinedActivities = acts;
+    renderTargetManageContent(student, target);
+    // Straight into the parent's title. It is the one field that must be filled
+    // before the modal will close, and it is what the sub-activities hang off.
+    requestAnimationFrame(() => {
+      const input = $(`mn-act-title-${acts.length - 2}`);
+      if (input) {
+        input.focus();
+        input.classList.add("input-bg-blink");
+        input.addEventListener("animationend", () => input.classList.remove("input-bg-blink"), { once: true });
+      }
+    });
+    saveTarget().catch(() => {});
+  });
+
   $("btn-mn-add-note").addEventListener("click", () => {
     const btn = $("btn-mn-add-note"); if (btn) btn.disabled = true;
-    acts.push({ id: cfgId("n"), isNote: true, text: "", order: acts.length, activeFrom: null });
+    // The session's date, not null. A note added today belongs to today, the
+    // same as an activity added today; a null start meant it was treated as
+    // having been there since the beginning.
+    const _newNoteDate = _groupForTargetEdit
+      ? (state.groupSessionData?.date || todayDateStr())
+      : (state.sessionData?.date || todayDateStr());
+    const _newNote = { id: cfgId("n"), isNote: true, text: "", order: acts.length, activeFrom: _newNoteDate };
+    if (proposesOnly()) markAsProposal(_newNote);
+    acts.push(_newNote);
     target.predefinedActivities = acts;
     renderTargetManageContent(student, target);
     saveTarget().catch(() => {});
@@ -23131,64 +24612,6 @@ function renderTargetManageContent(student, target) {
       target.predefinedActivities = acts;
       await saveTarget();
       renderTargetManageContent(student, target);
-    });
-  });
-
-  $("manage-modal-body").querySelectorAll(".mn-add-sub-act-btn").forEach(btn => {
-    btn.addEventListener("click", async () => {
-      const parentIdx = Number(btn.dataset.parentIdx);
-      const parentAct = acts[parentIdx];
-      if (!parentAct) return;
-
-      // Sync parent name from textarea — user may not have blurred it yet
-      const nameInput = $("manage-modal-body").querySelector(`.mn-act-name-input[data-idx="${parentIdx}"]`);
-      if (nameInput) {
-        const typedName = nameInput.value.trim();
-        if (typedName !== parentAct.name) parentAct.name = typedName;
-      }
-      if (!(parentAct.title || parentAct.name)) {
-        alert("Please enter an activity name before adding sub-activities.");
-        nameInput?.focus();
-        return;
-      }
-
-      // Check existing subs — all must be named before adding another
-      const _parentKey = parentAct.title || parentAct.name;
-      const existingSubs = acts.filter(a2 => a2.parentActivity === _parentKey && !a2.isCompleted && !a2.isArchived && !a2.isStopped);
-      const unnamedSub = existingSubs.find(s => !s.name?.trim() && !s.title?.trim());
-      if (unnamedSub) {
-        const unnamedIdx = acts.indexOf(unnamedSub);
-        const unnamedInput = $("manage-modal-body").querySelector(`.mn-act-title-${unnamedIdx}, .mn-act-name-input[data-idx="${unnamedIdx}"]`);
-        unnamedInput?.focus();
-        alert("Please name all existing sub-activities before adding another.");
-        return;
-      }
-
-      // Warn if parent has a remark type configured — it won't apply once it has sub-activities
-      if (!existingSubs.length && (parentAct.inlineOptions || parentAct.sentenceStarter || parentAct.fixedRemark !== undefined || parentAct.manualScore)) {
-        const typeLabel = parentAct.fixedRemark !== undefined ? "Fixed Remark" : parentAct.manualScore ? "Manual Score" : "remark options";
-        if (!confirm(`"${parentAct.name}" has a ${typeLabel} configured.\n\nAdding sub-activities removes the remark field from this activity — configure the remark type on each sub-activity instead. The current options will be cleared.\n\nContinue?`)) return;
-        parentAct.sentenceStarter = null;
-        parentAct.remarkPresetId  = null;
-        parentAct.inlineOptions   = null;
-        parentAct.optionsMulti    = false;
-        parentAct.remarkHasNote   = false;
-        delete parentAct.manualScore;
-        delete parentAct.fixedRemark;
-        delete parentAct.optionScores;
-      }
-
-      parentAct.noRemark = true;
-      const siblingIdxs = acts.map((a2, i) => a2.parentActivity === _parentKey ? i : -1).filter(i => i >= 0);
-      const insertAfter = siblingIdxs.length > 0 ? Math.max(...siblingIdxs) : parentIdx;
-      const _newSubActDate = _groupForTargetEdit ? (state.groupSessionData?.date || todayDateStr()) : (state.sessionData?.date || todayDateStr());
-      acts.splice(insertAfter + 1, 0, { id: cfgId("a"), name: "", parentActivity: _parentKey, order: 0, activeFrom: _newSubActDate, createdOn: todayDateStr() });
-      acts.forEach((a2, i) => a2.order = i);
-      target.predefinedActivities = acts;
-      const sp = $("manage-modal-body").scrollTop;
-      renderTargetManageContent(student, target);
-      requestAnimationFrame(() => { const b = $("manage-modal-body"); if (b) b.scrollTop = sp; });
-      saveTarget();
     });
   });
 
@@ -23298,25 +24721,6 @@ function renderTargetManageContent(student, target) {
         overlay.remove();
         await doDelete();
       });
-    });
-  });
-
-  $("manage-modal-body").querySelectorAll(".mn-undo-convert-btn").forEach(btn => {
-    btn.addEventListener("click", async () => {
-      const idx = Number(btn.dataset.idx);
-      const parentAct = acts[idx];
-      if (!parentAct) return;
-      // Restore all sub-activities under this parent back to top-level
-      const linkKey = parentAct._linkKey || parentAct.title || parentAct.name;
-      acts.forEach(a2 => { if (a2.parentActivity === linkKey) delete a2.parentActivity; });
-      // Remove the blank parent
-      acts.splice(idx, 1);
-      acts.forEach((a2, i) => a2.order = i);
-      target.predefinedActivities = acts;
-      await saveTarget();
-      const sp = $("manage-modal-body").scrollTop;
-      renderTargetManageContent(student, target);
-      requestAnimationFrame(() => { const b = $("manage-modal-body"); if (b) b.scrollTop = sp; });
     });
   });
 
@@ -23624,8 +25028,33 @@ function renderTargetManageContent(student, target) {
         return;
       }
 
-      // Has past data — show password overlay.
-      //
+      // Has past data. An activity with nothing recorded against it can be
+      // retyped by anyone who got into Edit Target at all: there is nothing to
+      // lose, and asking would be asking about damage that cannot happen. Past
+      // data is what makes the change destructive, and that one is the owner's
+      // alone. This is also why the check sits HERE and not at the top of the
+      // handler, where it blocked every teacher whether or not the activity
+      // had ever been used.
+      if (!isOwner()) {
+        sel.value = oldType;
+        // A reason, unlike the other locks: this one is read by the two main
+        // teachers, who can do everything else on this screen, so "Locked." on
+        // its own would look like a fault rather than a decision.
+        const lockMsg = `Locked. Only Lewis can perform this action.`;
+        if (!showLockOverPanel(lockMsg)) {
+          $("manage-modal-title").textContent = "Locked";
+          $("manage-modal-body").innerHTML = `
+            <div style="padding:2rem 1.25rem;display:flex;flex-direction:column;align-items:center;gap:.9rem">
+              <div style="font-size:2rem;line-height:1">🔒</div>
+              <div style="font-size:.9rem;color:var(--text);text-align:center;max-width:300px;line-height:1.55">${lockMsg}</div>
+              <button class="btn-primary-sm" id="type-deny-ok" style="padding:.5rem 1.75rem">OK</button>
+            </div>`;
+          $("manage-modal").classList.remove("hidden");
+          $("type-deny-ok").addEventListener("click", () => $("manage-modal").classList.add("hidden"));
+        }
+        return;
+      }
+
       // Put the dropdown back to the type the activity actually still has while
       // the gate is up. Leaving it on the new choice said the change had gone
       // through when it had not, and anyone who closed the gate without the
@@ -23647,10 +25076,7 @@ function renderTargetManageContent(student, target) {
         <p style="font-size:.82rem;margin:0 0 .25rem;color:#374151;font-weight:600">Sessions with data:</p>
         <ul style="font-size:.82rem;color:#374151;margin:0 0 .75rem;padding-left:1.2rem;line-height:1.8">${sessionDateHtml}</ul>
         ${type === "no_trials" && hasScoringData ? `<p style="font-size:.83rem;margin:0 0 .75rem;color:#dc2626;font-weight:700;line-height:1.5">WARNING: All past trial scores, multiple choice and checkbox selections for this activity will be permanently deleted. Only remarks you have written will be kept.</p>` : ``}
-        <p style="font-size:.84rem;margin:0 0 .35rem;color:#374151;font-weight:600">To change the activity type, please enter special password (only Lewis knows)</p>
-        <input id="act-type-pw" type="text" autocomplete="off" value=""
-          style="width:100%;box-sizing:border-box;padding:.45rem .6rem;border:2px solid #d1d5db;border-radius:.4rem;font-size:1.1rem;text-align:center;outline:none;margin-bottom:.3rem;-webkit-text-security:disc" placeholder="Enter password">
-        <div id="act-type-pw-err" style="color:#dc2626;font-size:.82rem;margin-bottom:.5rem;min-height:1.1em"></div>
+        <p style="font-size:.84rem;margin:0 0 .6rem;color:#374151;font-weight:600">Change the type anyway?</p>
         <div style="display:flex;gap:.5rem">
           <button id="act-type-pw-cancel" style="flex:1;padding:.45rem;border:1px solid #d1d5db;border-radius:.4rem;background:#f9fafb;cursor:pointer;font-size:.85rem">Cancel</button>
           <button id="act-type-pw-ok" style="flex:1;padding:.45rem;border:none;border-radius:.4rem;background:var(--primary);color:#fff;cursor:pointer;font-size:.85rem">Confirm</button>
@@ -23671,26 +25097,18 @@ function renderTargetManageContent(student, target) {
       // The panel is already position:fixed; only the modal sheet needs one.
       if (mount !== panelEl) mount.style.position = "relative";
       mount.appendChild(overlay);
-      const pwInp = overlay.querySelector("#act-type-pw");
-      const pwErr = overlay.querySelector("#act-type-pw-err");
-      pwInp.focus();
+      // No password here any more: only the owner reaches this point at all.
+      // The warning stays, because it is about what the change COSTS, which is
+      // worth seeing however senior you are.
       overlay.querySelector("#act-type-pw-cancel").addEventListener("click", () => {
         overlay.remove();
         sel.value = oldType;
       });
-      const tryConfirm = async () => {
-        if (pwInp.value !== "8888") {
-          pwErr.textContent = "Incorrect password.";
-          pwInp.value = "";
-          pwInp.focus();
-          return;
-        }
+      overlay.querySelector("#act-type-pw-ok").addEventListener("click", async () => {
         overlay.remove();
-        sel.value = type;   // the password was right, so the change is real now
+        sel.value = type;   // confirmed, so the change is real now
         await doChange();
-      };
-      overlay.querySelector("#act-type-pw-ok").addEventListener("click", tryConfirm);
-      pwInp.addEventListener("keydown", e => { if (e.key === "Enter") tryConfirm(); });
+      });
     });
   });
 
@@ -24237,15 +25655,15 @@ function renderTemplateManageContent(template) {
           <div>
             <div style="font-size:.85rem;font-weight:700;color:#78350f;margin-bottom:.2rem">Note Title</div>
             <textarea class="admin-input mn-note-title-input" id="mn-note-title-${idx}" data-idx="${idx}"
-              rows="1" placeholder="Enter Note Title Here (Optional)"
+              rows="1" placeholder="Enter Text Here"
               style="width:100%;box-sizing:border-box;display:block;overflow-y:hidden;resize:none">${escHtml(_np.title)}</textarea>
           </div>
           <div>
-            <div style="font-size:.85rem;font-weight:700;color:#78350f;margin-bottom:.2rem">Note Details</div>
+            <div style="font-size:.85rem;font-weight:700;color:#78350f;margin-bottom:.2rem">Details</div>
             <div style="display:flex;align-items:flex-start;gap:.3rem">
               ${formatButtonsHtml(`mn-note-details-${idx}`)}
               <textarea class="admin-input mn-note-details-input" id="mn-note-details-${idx}" data-idx="${idx}"
-                rows="1" placeholder="Enter Note Details Here (Optional)"
+                rows="1" placeholder="Enter Text Here"
                 style="flex:1;overflow-y:hidden;resize:none">${escHtml(bulletifyForEditing(_np.details))}</textarea>
             </div>
           </div>`; })()}
@@ -24353,20 +25771,20 @@ function renderTemplateManageContent(template) {
       html += `<div class="mn-inact-card" data-global-idx="${globalIdx}" style="margin-bottom:${myMastSubs.length ? '.1rem' : '.35rem'}">
         <div style="flex:1;display:flex;flex-direction:column;gap:.4rem">
           <div>
-            <div style="font-size:.85rem;font-weight:700;color:#374151;margin-bottom:.2rem">Activity Title</div>
+            <div style="font-size:.85rem;font-weight:700;color:#374151;margin-bottom:.2rem">${acts.some(a2 => a2.parentActivity === (a.title || a.name)) ? "Parent Activity Title" : "Activity Title"}</div>
             <div style="border:1px solid #b8bcc4;border-radius:.45rem;overflow:hidden">
-              <input type="text" class="admin-input mn-act-title-input" id="mn-act-title-${globalIdx}" data-idx="${globalIdx}" placeholder="Enter Activity Title Here" value="${escHtml(a.title || '')}" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block" />
+              <input type="text" class="admin-input mn-act-title-input" id="mn-act-title-${globalIdx}" data-idx="${globalIdx}" placeholder="Enter Text Here" value="${escHtml(a.title || '')}" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block" />
             </div>
           </div>
           ${acts.some(a2 => a2.parentActivity === (a.title || a.name)) ? '' : `<div>
-            <div style="font-size:.85rem;font-weight:700;color:#374151;margin-bottom:.2rem">Activity Details</div>
+            <div style="font-size:.85rem;font-weight:700;color:#374151;margin-bottom:.2rem">Details</div>
             <div style="border:1px solid #b8bcc4;border-radius:.45rem;overflow:hidden">
               <div style="display:flex;gap:.2rem;padding:.28rem .45rem;background:#f9fafb;border-bottom:1px solid #b8bcc4">
                 <button class="btn-fmt btn-fmt-bold" type="button" data-input-id="mn-act-details-${globalIdx}" title="Bold (Ctrl+B)">B</button>
                 <button class="btn-fmt btn-fmt-underline" type="button" data-input-id="mn-act-details-${globalIdx}" title="Underline (Ctrl+U)">U</button>
                 <button class="btn-fmt btn-fmt-bullet" type="button" data-input-id="mn-act-details-${globalIdx}" title="Bullet (Ctrl+Shift+L)">•</button>
               </div>
-              <textarea class="admin-input mn-act-details-input" id="mn-act-details-${globalIdx}" data-idx="${globalIdx}" rows="2" placeholder="Enter Activity Detail Here" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block;resize:none">${escHtml(bulletifyForEditing(a.name || ''))}</textarea>
+              <textarea class="admin-input mn-act-details-input" id="mn-act-details-${globalIdx}" data-idx="${globalIdx}" rows="2" placeholder="Enter Text Here" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block;resize:none">${escHtml(bulletifyForEditing(a.name || ''))}</textarea>
             </div>
           </div>`}
         </div>
@@ -24392,20 +25810,20 @@ function renderTemplateManageContent(template) {
           <span style="font-size:.8rem;color:#059669;font-weight:700;flex-shrink:0;padding:.5rem .3rem 0 .55rem">${String.fromCharCode(97 + si)})</span>
           <div style="flex:1;display:flex;flex-direction:column;gap:.3rem;min-width:0">
             <div>
-              <div style="font-size:.8rem;font-weight:700;color:#374151;margin-bottom:.15rem">Activity Title</div>
+              <div style="font-size:.8rem;font-weight:700;color:#374151;margin-bottom:.15rem">Sub-activity Title</div>
               <div style="border:1px solid #b8bcc4;border-radius:.4rem;overflow:hidden">
-                <input type="text" class="admin-input mn-act-title-input" id="mn-act-title-${subGlobalIdx}" data-idx="${subGlobalIdx}" placeholder="Enter Activity Title Here" value="${escHtml(sub.title || '')}" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block" />
+                <input type="text" class="admin-input mn-act-title-input" id="mn-act-title-${subGlobalIdx}" data-idx="${subGlobalIdx}" placeholder="Enter Text Here" value="${escHtml(sub.title || '')}" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block" />
               </div>
             </div>
             <div>
-              <div style="font-size:.8rem;font-weight:700;color:#374151;margin-bottom:.15rem">Activity Details</div>
+              <div style="font-size:.8rem;font-weight:700;color:#374151;margin-bottom:.15rem">Details</div>
               <div style="border:1px solid #b8bcc4;border-radius:.4rem;overflow:hidden">
                 <div style="display:flex;gap:.2rem;padding:.25rem .4rem;background:#f9fafb;border-bottom:1px solid #b8bcc4">
                   <button class="btn-fmt btn-fmt-bold" type="button" data-input-id="mn-act-details-${subGlobalIdx}" title="Bold (Ctrl+B)">B</button>
                   <button class="btn-fmt btn-fmt-underline" type="button" data-input-id="mn-act-details-${subGlobalIdx}" title="Underline (Ctrl+U)">U</button>
                   <button class="btn-fmt btn-fmt-bullet" type="button" data-input-id="mn-act-details-${subGlobalIdx}" title="Bullet (Ctrl+Shift+L)">•</button>
                 </div>
-                <textarea class="admin-input mn-act-details-input" id="mn-act-details-${subGlobalIdx}" data-idx="${subGlobalIdx}" rows="2" placeholder="Enter Activity Detail Here" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block;resize:none">${escHtml(bulletifyForEditing(sub.name || ''))}</textarea>
+                <textarea class="admin-input mn-act-details-input" id="mn-act-details-${subGlobalIdx}" data-idx="${subGlobalIdx}" rows="2" placeholder="Enter Text Here" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block;resize:none">${escHtml(bulletifyForEditing(sub.name || ''))}</textarea>
               </div>
             </div>
           </div>
@@ -24439,20 +25857,20 @@ function renderTemplateManageContent(template) {
             <span style="font-size:.8rem;color:#059669;font-weight:700;flex-shrink:0;padding:.5rem .3rem 0 .55rem">${String.fromCharCode(97 + si)})</span>
             <div style="flex:1;display:flex;flex-direction:column;gap:.3rem;min-width:0">
               <div>
-                <div style="font-size:.8rem;font-weight:700;color:#374151;margin-bottom:.15rem">Activity Title</div>
+                <div style="font-size:.8rem;font-weight:700;color:#374151;margin-bottom:.15rem">Sub-activity Title</div>
                 <div style="border:1px solid #b8bcc4;border-radius:.4rem;overflow:hidden">
-                  <input type="text" class="admin-input mn-act-title-input" id="mn-act-title-${subGlobalIdx}" data-idx="${subGlobalIdx}" placeholder="Enter Activity Title Here" value="${escHtml(sub.title || '')}" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block" />
+                  <input type="text" class="admin-input mn-act-title-input" id="mn-act-title-${subGlobalIdx}" data-idx="${subGlobalIdx}" placeholder="Enter Text Here" value="${escHtml(sub.title || '')}" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block" />
                 </div>
               </div>
               <div>
-                <div style="font-size:.8rem;font-weight:700;color:#374151;margin-bottom:.15rem">Activity Details</div>
+                <div style="font-size:.8rem;font-weight:700;color:#374151;margin-bottom:.15rem">Details</div>
                 <div style="border:1px solid #b8bcc4;border-radius:.4rem;overflow:hidden">
                   <div style="display:flex;gap:.2rem;padding:.25rem .4rem;background:#f9fafb;border-bottom:1px solid #b8bcc4">
                     <button class="btn-fmt btn-fmt-bold" type="button" data-input-id="mn-act-details-${subGlobalIdx}" title="Bold (Ctrl+B)">B</button>
                     <button class="btn-fmt btn-fmt-underline" type="button" data-input-id="mn-act-details-${subGlobalIdx}" title="Underline (Ctrl+U)">U</button>
                     <button class="btn-fmt btn-fmt-bullet" type="button" data-input-id="mn-act-details-${subGlobalIdx}" title="Bullet (Ctrl+Shift+L)">•</button>
                   </div>
-                  <textarea class="admin-input mn-act-details-input" id="mn-act-details-${subGlobalIdx}" data-idx="${subGlobalIdx}" rows="2" placeholder="Enter Activity Detail Here" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block;resize:none">${escHtml(bulletifyForEditing(sub.name || ''))}</textarea>
+                  <textarea class="admin-input mn-act-details-input" id="mn-act-details-${subGlobalIdx}" data-idx="${subGlobalIdx}" rows="2" placeholder="Enter Text Here" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block;resize:none">${escHtml(bulletifyForEditing(sub.name || ''))}</textarea>
                 </div>
               </div>
             </div>
@@ -24494,20 +25912,20 @@ function renderTemplateManageContent(template) {
       html += `<div class="mn-inact-card" data-global-idx="${globalIdx}" style="margin-bottom:${myDiscSubs.length ? '.1rem' : '.35rem'}">
         <div style="flex:1;display:flex;flex-direction:column;gap:.4rem">
           <div>
-            <div style="font-size:.85rem;font-weight:700;color:#374151;margin-bottom:.2rem">Activity Title</div>
+            <div style="font-size:.85rem;font-weight:700;color:#374151;margin-bottom:.2rem">${acts.some(a2 => a2.parentActivity === (a.title || a.name)) ? "Parent Activity Title" : "Activity Title"}</div>
             <div style="border:1px solid #b8bcc4;border-radius:.45rem;overflow:hidden">
-              <input type="text" class="admin-input mn-act-title-input" id="mn-act-title-${globalIdx}" data-idx="${globalIdx}" placeholder="Enter Activity Title Here" value="${escHtml(a.title || '')}" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block" />
+              <input type="text" class="admin-input mn-act-title-input" id="mn-act-title-${globalIdx}" data-idx="${globalIdx}" placeholder="Enter Text Here" value="${escHtml(a.title || '')}" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block" />
             </div>
           </div>
           ${acts.some(a2 => a2.parentActivity === (a.title || a.name)) ? '' : `<div>
-            <div style="font-size:.85rem;font-weight:700;color:#374151;margin-bottom:.2rem">Activity Details</div>
+            <div style="font-size:.85rem;font-weight:700;color:#374151;margin-bottom:.2rem">Details</div>
             <div style="border:1px solid #b8bcc4;border-radius:.45rem;overflow:hidden">
               <div style="display:flex;gap:.2rem;padding:.28rem .45rem;background:#f9fafb;border-bottom:1px solid #b8bcc4">
                 <button class="btn-fmt btn-fmt-bold" type="button" data-input-id="mn-act-details-${globalIdx}" title="Bold (Ctrl+B)">B</button>
                 <button class="btn-fmt btn-fmt-underline" type="button" data-input-id="mn-act-details-${globalIdx}" title="Underline (Ctrl+U)">U</button>
                 <button class="btn-fmt btn-fmt-bullet" type="button" data-input-id="mn-act-details-${globalIdx}" title="Bullet (Ctrl+Shift+L)">•</button>
               </div>
-              <textarea class="admin-input mn-act-details-input" id="mn-act-details-${globalIdx}" data-idx="${globalIdx}" rows="2" placeholder="Enter Activity Detail Here" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block;resize:none">${escHtml(bulletifyForEditing(a.name || ''))}</textarea>
+              <textarea class="admin-input mn-act-details-input" id="mn-act-details-${globalIdx}" data-idx="${globalIdx}" rows="2" placeholder="Enter Text Here" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block;resize:none">${escHtml(bulletifyForEditing(a.name || ''))}</textarea>
             </div>
           </div>`}
         </div>
@@ -24533,20 +25951,20 @@ function renderTemplateManageContent(template) {
           <span style="font-size:.8rem;color:#dc2626;font-weight:700;flex-shrink:0;padding:.5rem .3rem 0 .55rem">${String.fromCharCode(97 + si)})</span>
           <div style="flex:1;display:flex;flex-direction:column;gap:.3rem;min-width:0">
             <div>
-              <div style="font-size:.8rem;font-weight:700;color:#374151;margin-bottom:.15rem">Activity Title</div>
+              <div style="font-size:.8rem;font-weight:700;color:#374151;margin-bottom:.15rem">Sub-activity Title</div>
               <div style="border:1px solid #b8bcc4;border-radius:.4rem;overflow:hidden">
-                <input type="text" class="admin-input mn-act-title-input" id="mn-act-title-${subGlobalIdx}" data-idx="${subGlobalIdx}" placeholder="Enter Activity Title Here" value="${escHtml(sub.title || '')}" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block" />
+                <input type="text" class="admin-input mn-act-title-input" id="mn-act-title-${subGlobalIdx}" data-idx="${subGlobalIdx}" placeholder="Enter Text Here" value="${escHtml(sub.title || '')}" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block" />
               </div>
             </div>
             <div>
-              <div style="font-size:.8rem;font-weight:700;color:#374151;margin-bottom:.15rem">Activity Details</div>
+              <div style="font-size:.8rem;font-weight:700;color:#374151;margin-bottom:.15rem">Details</div>
               <div style="border:1px solid #b8bcc4;border-radius:.4rem;overflow:hidden">
                 <div style="display:flex;gap:.2rem;padding:.25rem .4rem;background:#f9fafb;border-bottom:1px solid #b8bcc4">
                   <button class="btn-fmt btn-fmt-bold" type="button" data-input-id="mn-act-details-${subGlobalIdx}" title="Bold (Ctrl+B)">B</button>
                   <button class="btn-fmt btn-fmt-underline" type="button" data-input-id="mn-act-details-${subGlobalIdx}" title="Underline (Ctrl+U)">U</button>
                   <button class="btn-fmt btn-fmt-bullet" type="button" data-input-id="mn-act-details-${subGlobalIdx}" title="Bullet (Ctrl+Shift+L)">•</button>
                 </div>
-                <textarea class="admin-input mn-act-details-input" id="mn-act-details-${subGlobalIdx}" data-idx="${subGlobalIdx}" rows="2" placeholder="Enter Activity Detail Here" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block;resize:none">${escHtml(bulletifyForEditing(sub.name || ''))}</textarea>
+                <textarea class="admin-input mn-act-details-input" id="mn-act-details-${subGlobalIdx}" data-idx="${subGlobalIdx}" rows="2" placeholder="Enter Text Here" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block;resize:none">${escHtml(bulletifyForEditing(sub.name || ''))}</textarea>
               </div>
             </div>
           </div>
@@ -24580,20 +25998,20 @@ function renderTemplateManageContent(template) {
             <span style="font-size:.8rem;color:#dc2626;font-weight:700;flex-shrink:0;padding:.5rem .3rem 0 .55rem">${String.fromCharCode(97 + si)})</span>
             <div style="flex:1;display:flex;flex-direction:column;gap:.3rem;min-width:0">
               <div>
-                <div style="font-size:.8rem;font-weight:700;color:#374151;margin-bottom:.15rem">Activity Title</div>
+                <div style="font-size:.8rem;font-weight:700;color:#374151;margin-bottom:.15rem">Sub-activity Title</div>
                 <div style="border:1px solid #b8bcc4;border-radius:.4rem;overflow:hidden">
-                  <input type="text" class="admin-input mn-act-title-input" id="mn-act-title-${subGlobalIdx}" data-idx="${subGlobalIdx}" placeholder="Enter Activity Title Here" value="${escHtml(sub.title || '')}" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block" />
+                  <input type="text" class="admin-input mn-act-title-input" id="mn-act-title-${subGlobalIdx}" data-idx="${subGlobalIdx}" placeholder="Enter Text Here" value="${escHtml(sub.title || '')}" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block" />
                 </div>
               </div>
               <div>
-                <div style="font-size:.8rem;font-weight:700;color:#374151;margin-bottom:.15rem">Activity Details</div>
+                <div style="font-size:.8rem;font-weight:700;color:#374151;margin-bottom:.15rem">Details</div>
                 <div style="border:1px solid #b8bcc4;border-radius:.4rem;overflow:hidden">
                   <div style="display:flex;gap:.2rem;padding:.25rem .4rem;background:#f9fafb;border-bottom:1px solid #b8bcc4">
                     <button class="btn-fmt btn-fmt-bold" type="button" data-input-id="mn-act-details-${subGlobalIdx}" title="Bold (Ctrl+B)">B</button>
                     <button class="btn-fmt btn-fmt-underline" type="button" data-input-id="mn-act-details-${subGlobalIdx}" title="Underline (Ctrl+U)">U</button>
                     <button class="btn-fmt btn-fmt-bullet" type="button" data-input-id="mn-act-details-${subGlobalIdx}" title="Bullet (Ctrl+Shift+L)">•</button>
                   </div>
-                  <textarea class="admin-input mn-act-details-input" id="mn-act-details-${subGlobalIdx}" data-idx="${subGlobalIdx}" rows="2" placeholder="Enter Activity Detail Here" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block;resize:none">${escHtml(bulletifyForEditing(sub.name || ''))}</textarea>
+                  <textarea class="admin-input mn-act-details-input" id="mn-act-details-${subGlobalIdx}" data-idx="${subGlobalIdx}" rows="2" placeholder="Enter Text Here" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block;resize:none">${escHtml(bulletifyForEditing(sub.name || ''))}</textarea>
                 </div>
               </div>
             </div>
@@ -24636,6 +26054,8 @@ function renderTemplateManageContent(template) {
   // See renderTargetManageContent — relocate before listeners are bound.
   mnRegroupInactiveCards($("manage-modal-body"), acts);
   mnInitActivityCollapse($("manage-modal-body"), acts);
+  wireAssistantMenuLock($("manage-modal-body"), acts);
+  applyAssistantReadOnly($("manage-modal-body"), acts);
   $("manage-modal-body").querySelectorAll(".admin-list-item textarea").forEach(autoResizeTextarea);
 
   const saveTemplateFn = async () => {
@@ -25509,13 +26929,16 @@ function showGroupChoice(group) {
 
   // See the note on the individual version: this hides the group from the home
   // list and changes nothing else about it.
-  $("session-picker-list").querySelector(".choice-archive").addEventListener("click", async () => {
-    group.archived = !group.archived;
-    if (!group.archived) delete group.archived;
-    closeSessionPicker();
-    await saveGroup(group).catch(() => {});
-    renderGroupButtons();
-  });
+  // Archiving takes someone off the home list. Not destructive, but to
+  // anyone looking for them it is indistinguishable from their being gone.
+  $("session-picker-list").querySelector(".choice-archive").addEventListener("click", () =>
+    requirePassword(async () => {
+      group.archived = !group.archived;
+      if (!group.archived) delete group.archived;
+      closeSessionPicker();
+      await saveGroup(group).catch(() => {});
+      renderGroupButtons();
+    }, EXPORT_MSG));
 
   $("session-picker-list").querySelector(".choice-export-excel").addEventListener("click", () => {
     showGroupExportStudentPicker(group, "excel");
@@ -25642,6 +27065,7 @@ async function openGroupSession(group, dateStr, attendees, participants = null) 
   const _prevGroup        = state.currentGroup;
   if (_prevGrpSessionId && _prevGrpData) await state.entryGroupRemarkSaver?.flush();
   if (state.fbGroupUnsubscribe) { state.fbGroupUnsubscribe(); state.fbGroupUnsubscribe = null; }
+  state.fbGroupConfigUnsub?.(); state.fbGroupConfigUnsub = null;
   state.entryGroupRemarkSaver?.cleanup();
   if (_prevGrpSessionId && _prevGrpData && _prevGroup) {
     const _allGrpTgtNames = new Set(Object.values(_prevGrpData.activities || {}).map(a => a.targetName));
@@ -25692,13 +27116,29 @@ async function openGroupSession(group, dateStr, attendees, participants = null) 
     state.groupSessionId = sid;
     if (participants) updateSessionParticipants(sid, participants).catch(() => {});
     let firstLoad = true;
+    // Same watchdog as the individual entry screen; see the note there.
+    const _grpLoadWatchdog = setTimeout(() => {
+      if (state.groupSessionId === sid && state.groupSessionData === null) {
+        $("group-target-content").innerHTML = sessionLoadFailedHtml(new Error("It is taking unusually long."));
+      }
+    }, 10000);
+
+    state.fbGroupConfigUnsub?.();
+    state.fbGroupConfigUnsub = watchConfigForOpenSession(true);
+
     state.fbGroupUnsubscribe = listenToSession(sid, async data => {
+      clearTimeout(_grpLoadWatchdog);
       state.groupSessionData = data;
       renderGroupSessionHeader(data);
       if (firstLoad) {
         firstLoad = false;
         const stillValid = preservedGroupTargetName && group.targets.some(t => t.name === preservedGroupTargetName);
-        state.selectedGroupTargetName = stillValid ? preservedGroupTargetName : (sortTargetsByOrder(group.targets)[0]?.name || null);
+        // An approval task lands on the target that is waiting; see openSession.
+        const grpJump = _approvalJumpTarget && group.targets.some(t => t.name === _approvalJumpTarget)
+          ? _approvalJumpTarget : null;
+        _approvalJumpTarget = null;
+        state.selectedGroupTargetName = grpJump
+          || (stillValid ? preservedGroupTargetName : (sortTargetsByOrder(group.targets)[0]?.name || null));
         populateGroupTargetDropdown(group.targets);
         try { renderGroupTargetContent(); } catch (e) { console.error("renderGroupTargetContent (init) failed:", e); }
         if (state.selectedGroupTargetName) {
@@ -25738,10 +27178,17 @@ async function openGroupSession(group, dateStr, attendees, participants = null) 
         if (isGroupEntryBusy()) { state.groupRenderPending = true; }
         else { try { renderGroupTargetContent(); } catch (e) { console.error("renderGroupTargetContent (snap):", e); } }
       }, 0);
+    }, err => {
+      clearTimeout(_grpLoadWatchdog);
+      if (state.groupSessionId === sid) {
+        $("group-target-content").innerHTML = sessionLoadFailedHtml(err);
+      }
     });
   } catch (err) {
-    alert("Error opening session: " + err.message);
-    showHome();
+    // Was an alert that then threw you back to the home screen, losing the
+    // session you were trying to open. The message belongs on the screen it
+    // is about, the same as everywhere else.
+    $("group-target-content").innerHTML = sessionLoadFailedHtml(err);
   }
 }
 
@@ -25768,10 +27215,18 @@ function populateGroupTargetDropdown(targets) {
       ).join("") +
       `<option value="__add_target__">+ Add Target…</option>`;
   }
+  // Same drawn list as the individual screen, so a group target can carry its
+  // count too.
+  renderTargetCombo("group-target-combo", "group-target-select",
+    sorted.map(t => ({ value: t.name, label: t.name, pending: pendingCountForTarget(t) }))
+      .concat([{ value: "__add_target__", label: "+ Add Target…", pending: 0, isAdd: true }]),
+    "_grpTargetSelDown");
 
   const manageBtn = $("btn-group-manage-targets");
   if (manageBtn) {
     manageBtn.classList.toggle("hidden", !state.selectedGroupTargetName);
+    // Same flash as the individual screen when arriving from an approval task.
+    if (_approvalFlashEdit && flashButtonHint(manageBtn)) _approvalFlashEdit = false;
     manageBtn.onclick = () => {
       const tgt = state.currentGroup?.targets.find(t => t.name === state.selectedGroupTargetName);
       if (tgt) requirePassword(() => openGroupManageModal(state.currentGroup, tgt), EXPORT_MSG);
@@ -25981,6 +27436,7 @@ async function leaveGroupSession() {
   state.entryGroupRemarkSaver?.cleanup();
   state.entryGroupRemarkSaver = null;
   if (state.fbGroupUnsubscribe) { state.fbGroupUnsubscribe(); state.fbGroupUnsubscribe = null; }
+  state.fbGroupConfigUnsub?.(); state.fbGroupConfigUnsub = null;
   const sessionId = state.groupSessionId;
   const data      = state.groupSessionData;
   const group     = state.currentGroup;
@@ -26052,12 +27508,12 @@ function renderGroupTargetContent() {
   if (!content) return;
   const group   = state.currentGroup;
   const data    = state.groupSessionData;
-  let   target  = group?.targets.find(t => t.name === state.selectedGroupTargetName);
+  let   target  = stripPendingFromTarget(group?.targets.find(t => t.name === state.selectedGroupTargetName));
   // Fallback: if state says a target is selected but it's not found (brief state mismatch),
   // auto-select the first available target so the screen never gets stuck on "No targets added yet"
   if (!target && state.selectedGroupTargetName && group?.targets.length) {
     const fallback = sortTargetsByOrder(group.targets).find(t => !t.discontinuedOn);
-    if (fallback) { state.selectedGroupTargetName = fallback.name; target = fallback; populateGroupTargetDropdown(group.targets); }
+    if (fallback) { state.selectedGroupTargetName = fallback.name; target = stripPendingFromTarget(fallback); populateGroupTargetDropdown(group.targets); }
   }
   if (!target || !data) {
     content.innerHTML = `<p class="empty-hint" contenteditable="false" style="padding:2rem;text-align:center">No targets added yet. Use the dropdown above to add one.</p>`;
@@ -27566,6 +29022,10 @@ function renderGroupPickDateCalendar(group, sessions, byMonth, displayDate) {
     const isFut   = ds > today;
     const isTaken = sessionIdByDate.has(ds);
     let cls = "date-picker-day";
+    // A ring, not a fill: the selected day is already a solid block, and a
+    // second filled day would read as a second selection. The ring also
+    // survives today BEING the selected day, which a fill could not.
+    if (ds === today) cls += " date-picker-day-today";
     if (isFut)   cls += " date-picker-day-future";
     if (isTaken) cls += " date-picker-day-taken";
     const dotCls = isTaken ? "date-taken-dot" : "day-dot-spacer";
@@ -27902,6 +29362,23 @@ function findActivityByName(targetName, activityName, parentActivity = null, con
 }
 
 // ─── UTILITIES ───────────────────────────────────────────────
+
+/**
+ * What a screen shows when its session never arrives.
+ *
+ * Reload rather than a cleverer retry: by the time this appears the listener
+ * has already failed or the document has gone, and re-running the same call
+ * on the same state is the least likely thing to behave differently.
+ */
+function sessionLoadFailedHtml(err) {
+  const msg = err?.message || "Something went wrong.";
+  return `<div class="error-msg" style="padding:1.5rem;text-align:center;line-height:1.6">
+    Could not load this session.<br>
+    <span style="font-size:.85rem;opacity:.8">${escHtml(msg)}</span><br>
+    <button class="btn-primary-sm" style="margin-top:.9rem;padding:.45rem 1.4rem"
+      onclick="location.reload()">Reload</button>
+  </div>`;
+}
 
 function escHtml(str) {
   return String(str ?? "")

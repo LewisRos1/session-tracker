@@ -191,6 +191,79 @@ html, body {
 
 .pin-error.hidden { display: none; }
 
+/* ── Sign in: username and password ────────────────────────────
+   Replaces the shared PIN pad. Ordinary text and password fields so a password
+   manager can fill them, and nothing on the screen says who has an account. */
+.login-pw {
+  display: flex;
+  flex-direction: column;
+  gap: .6rem;
+  align-items: center;
+  width: min(280px, 80vw);
+  margin: .5rem auto 0;
+}
+/* The label rides up out of the way instead of disappearing, so you can still
+   see which field you are in once there is something in it. The placeholder is
+   a single space on purpose: :placeholder-shown is what tells an empty field
+   from a filled one, and it only holds while a placeholder exists. */
+.float-field { position: relative; width: 100%; }
+.float-field label {
+  position: absolute;
+  left: .85rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  font-size: .95rem;
+  pointer-events: none;
+  transition: top .13s ease, font-size .13s ease, transform .13s ease;
+}
+/* Autofill counts as filled. Chrome fills the value without the field ever
+   being typed in, and without this the label sat on top of the dots it was
+   supposed to be labelling. */
+.float-field input:-webkit-autofill + label,
+.float-field input:focus + label,
+.float-field input:not(:placeholder-shown) + label {
+  top: .34rem;
+  transform: none;
+  font-size: .68rem;
+  font-weight: 700;
+  letter-spacing: .02em;
+}
+.float-field input {
+  padding-top: 1.15rem !important;
+  padding-bottom: .4rem !important;
+  text-align: left !important;
+}
+
+/* Chrome paints an autofilled field its own blue, which does not belong to this
+   design and made the box look broken next to the one beside it. The colour
+   cannot be set directly, but an inset shadow covers it, and the text colour
+   has its own property. */
+.float-field input:-webkit-autofill,
+.float-field input:-webkit-autofill:hover,
+.float-field input:-webkit-autofill:focus {
+  -webkit-box-shadow: 0 0 0 1000px var(--input-bg, #f8fafc) inset;
+  -webkit-text-fill-color: var(--text);
+  caret-color: var(--text);
+  transition: background-color 9999s ease-out;
+}
+
+.login-pw .admin-input {
+  width: 100%;
+  text-align: center;
+  font-size: 1rem;
+}
+.login-pw .btn-primary-sm { width: 100%; padding: .6rem; }
+.login-back {
+  background: none;
+  border: none;
+  color: rgba(255,255,255,.75);
+  font-size: .85rem;
+  cursor: pointer;
+  padding: .2rem;
+}
+.login-back:hover { color: #fff; }
+
 .pin-status {
   color: var(--text-muted);
   font-size: .9rem;
@@ -252,6 +325,34 @@ html, body {
   box-shadow: var(--shadow);
   flex-shrink: 0;
 }
+/* The user chip takes the spacer now, so Log Out sits beside it rather than
+   being pushed to the far edge on its own. Scoped to the header, since the
+   class is styling elsewhere too. */
+.app-header .btn-logout { margin-left: 0; }
+.header-user {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: .45rem;
+  min-width: 0;
+}
+/* Plain text, no box. Given the same pill shape as Log Out beside it, the
+   name read as a second button and invited a click that does nothing. */
+.hu-me {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 .2rem;
+  font-size: .82rem;
+  font-weight: 600;
+  color: rgba(255,255,255,.85);
+  white-space: nowrap;
+  cursor: default;
+}
+@media (max-width: 560px) {
+  /* The header is one line, and the version and the button are already on it. */
+  .hu-me { max-width: 7.5rem; overflow: hidden; text-overflow: ellipsis; }
+}
+
 .btn-logout {
   margin-left: auto;
   background: rgba(255,255,255,.15);
@@ -635,6 +736,24 @@ html, body {
   background: var(--primary);
   color: #fff;
   font-weight: 700;
+}
+/* Today: a darker grey fill. Every other cell is the same pale grey, so a
+   deeper shade of it is enough to pick today out without adding a second
+   colour. The ring and the bold number are gone; the ring competed with the
+   purple of the selected day, and the bold was shouting.
+   :not(...current) so that today being the SELECTED day still shows as the
+   purple block, and hover is restated because this rule would otherwise sit
+   on top of it. */
+.date-picker-day-today:not(.date-picker-day-current) {
+  background: var(--primary);
+  color: #fff;
+}
+/* The tick is purple on the pale cells and would disappear into this one. */
+.date-picker-day-today:not(.date-picker-day-current) .date-taken-dot {
+  color: #fff;
+}
+.date-picker-day-today:not(.date-picker-day-current):hover {
+  background: var(--primary-dark);
 }
 .date-picker-day-future { color: #bbb; cursor: default; }
 .date-picker-day-taken  { cursor: default; }
@@ -3190,21 +3309,6 @@ button.wf-pill:hover { filter: brightness(.93); }
 .wf-note-btn.wf-note-btn--green { background: #d1fae5; border-color: #10b981; color: #064e3b; }
 .wf-note-btn.wf-note-btn--green:hover { background: #a7f3d0; border-color: #059669; }
 
-.wf-p3-hint {
-  font-size: .73rem;
-  color: #b91c1c;
-  margin-top: .4rem;
-  font-style: italic;
-  line-height: 1.4;
-}
-.wf-p4-hint {
-  font-size: .73rem;
-  color: var(--text-muted);
-  margin-top: .4rem;
-  font-style: italic;
-  line-height: 1.4;
-}
-
 /* chk-export-btn keeps its pill style but sits in the grid */
 .wf-export-wrap .chk-export-btn { margin: 0; }
 
@@ -3313,7 +3417,7 @@ button.wf-pill:hover { filter: brightness(.93); }
 .snote-table thead th:last-child { border-right: none; }
 .snote-th-no   { width: 2rem; text-align: center; }
 .snote-th-del  { width: 1.8rem; }
-.snote-table thead th.snote-th-tick { width: 2.2rem; text-align: center; }
+.snote-table thead th.snote-th-tick { width: 6.6rem; text-align: center; }
 .snote-table thead .snote-th-text { text-align: center; }
 
 .snote-row td {
@@ -3327,18 +3431,47 @@ button.wf-pill:hover { filter: brightness(.93); }
 .snote-no   { color: #92400e; font-weight: 600; text-align: right; padding-right: .6rem; }
 .snote-text { word-break: break-word; }
 .snote-tick { text-align: center; vertical-align: middle; }
-.snote-status-btn {
-  width: 1.5rem; height: 1.5rem;
-  border-radius: 50%; border: 1.5px solid #d1d5db;
+/* Was a 1.5rem circle that cycled through three states on click. It is a
+   dropdown now, so it needs room for the longest label ("Still Wrong") and
+   keeps the same three colours, which are what makes the list scannable. */
+.snote-status-sel {
+  width: 100%;
+  border-radius: 6px; border: 1.5px solid #d1d5db;
   background: white; cursor: pointer;
-  font-size: .85rem; font-weight: 700;
-  display: flex; align-items: center; justify-content: center;
-  padding: 0; margin: 0 auto; line-height: 1;
+  font-size: .76rem; font-weight: 700;
+  padding: .2rem .25rem; line-height: 1.2;
+  font-family: inherit;
   transition: background .1s, border-color .1s;
 }
-.snote-status--empty  { color: #9ca3af; }
+.snote-status--empty  { color: #6b7280; }
 .snote-status--fixed  { background: #d1fae5; border-color: #10b981; color: #065f46; }
 .snote-status--rejected { background: #fee2e2; border-color: #ef4444; color: #b91c1c; }
+
+/* Refusals from the phase row. Fixed to the viewport so a refusal never
+   reflows the row of phase cards it came from. */
+#wf-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 2.2rem;
+  transform: translateX(-50%) translateY(.5rem);
+  z-index: 2000;
+  background: #111827;
+  color: #fff;
+  font-size: .85rem;
+  font-weight: 600;
+  padding: .6rem 1.1rem;
+  border-radius: 8px;
+  box-shadow: 0 6px 24px rgba(0,0,0,.3);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .2s ease, transform .2s ease;
+  max-width: min(90vw, 26rem);
+  text-align: center;
+}
+#wf-toast.wf-toast--in {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
 .snote-row--done .snote-text { text-decoration: line-through; opacity: .6; }
 .snote-row--rejected .snote-text { color: #ef4444; }
 .snote-empty { color: #92400e; opacity: .7; font-style: italic; font-size: .82rem; padding: .5rem .35rem; }
@@ -4433,4 +4566,412 @@ button.wf-pill:hover { filter: brightness(.93); }
    sorter finds the row a handle belongs to by walking the list's children. */
 #mn-act-list > [data-sec-member] {
   margin-left: 2.75rem;
+}
+
+/* ── Waiting for approval ─────────────────────────────────── */
+/* An amber rail down the side, so a proposal is recognisable at a glance in a
+   long list without the tag having to be read. */
+.mn-pending-card {
+  box-shadow: inset 3px 0 0 #f59e0b;
+  background: #fffbeb !important;
+}
+.mn-pending-tag {
+  font-size: .78rem;
+  font-weight: 700;
+  color: #92400e;
+  background: #fde68a;
+  border: 1px solid #f59e0b;
+  border-radius: .3rem;
+  padding: .05rem .4rem;
+  white-space: nowrap;
+  flex-shrink: 0;
+  margin-left: .4rem;
+}
+.mn-pending-actions {
+  display: inline-flex;
+  gap: .25rem;
+  margin-left: .35rem;
+  flex-shrink: 0;
+}
+/* Solid and opposite. Two outlined buttons side by side are told apart by
+   reading them, which is exactly what does not happen when a list is being
+   worked through quickly, and one of the two deletes. */
+.mn-pending-btn {
+  border-radius: .4rem;
+  border: 1.5px solid transparent;
+  cursor: pointer;
+  font-size: .78rem;
+  font-weight: 700;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: .25rem;
+  justify-content: center;
+  padding: .4rem .85rem;
+  white-space: nowrap;
+  color: #fff;
+}
+.mn-pending-ok { background: #059669; border-color: #047857; }
+.mn-pending-ok:hover:not(:disabled) { background: #047857; }
+.mn-pending-no { background: #dc2626; border-color: #b91c1c; }
+.mn-pending-no:hover { background: #b91c1c; }
+.mn-pending-btn:disabled { opacity: .4; cursor: not-allowed; }
+
+/* The tag and the two buttons, pinned as a column at the top right.
+   In the flow they ended up wherever the title happened to finish, which is
+   what made them look scattered. Absolute keeps them in one place whatever
+   length the title is, and the card is padded so the text wraps before it
+   reaches them. */
+/* The reserved strip is padding on the CARD, never on its children.
+   Padding every child pushed the chip, the title and the kebab around
+   individually, which is what sent the row's own layout to pieces. */
+.mn-pending-card {
+  position: relative;
+  padding-right: 14rem !important;
+  box-sizing: border-box;
+}
+/* Two columns. The tag and both buttons live in the first, so they share a
+   left edge and a width; the kebab sits in the second, level with the tag and
+   as far right as every other kebab in the list. The top of the tag is the top
+   of the column, which is what puts it level with the title. */
+.mn-pending-foot {
+  position: absolute;
+  top: .55rem;
+  right: .55rem;
+  width: 13rem;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: start;
+  gap: .35rem;
+  z-index: 2;
+}
+.mn-pending-foot > * { grid-column: 1; }
+.mn-pending-foot > .mn-pending-kebab-slot { grid-column: 2; grid-row: 1; }
+.admin-list-item.mn-pending-card > .mn-pending-foot { top: .8rem; }
+/* The kebab alone on the top line, pushed right so it sits where every other
+   kebab in the list sits. Everything below it is full width, so the tag and
+   both buttons share one left edge. */
+.mn-pending-kebab-slot { flex-shrink: 0; display: inline-flex; }
+/* The tag is a label, like the SUB-ACTIVITY chip opposite it, so it is set in
+   the same type as that chip rather than in the buttons'. Its box is the width
+   of the column and its top is the top of the column, which puts it level with
+   the chip across the row. */
+.mn-pending-foot .mn-pending-tag {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  text-align: center;
+  margin: 0;
+  padding: .18rem .42rem;
+  font-size: .65rem;
+  font-weight: 800;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  line-height: 1;
+  border-radius: .3rem;
+}
+
+/* Room for the column.
+   It is positioned out of the flow, so a card shorter than the column -- a
+   one-line activity, a section heading, a note -- had the buttons hanging out
+   of its bottom edge. The class is set in JS rather than matched with :has(),
+   which not every browser this runs on understands. Only when the buttons are
+   actually there: with just the tag, the reserved height would be empty
+   space. */
+.mn-pending-card.mn-pending-decide { min-height: 8.1rem; }
+.mn-pending-foot .mn-pending-hint { max-width: none; white-space: normal; text-align: center; }
+
+/* Same size as the title it sits under, with a gap above so the two read as
+   two things rather than one paragraph that changed its mind. */
+/* Shown rather than folded away: a proposal is read in order to be judged.
+   pre-wrap so typed line breaks and bullet lines survive. Same size as the
+   title above it -- there was a second copy of this rule further down the file
+   holding it at .84rem, which is why it stayed smaller. */
+.mn-pending-details {
+  padding-left: 2.6rem;
+  margin-top: .55rem;
+  font-size: inherit;
+  line-height: 1.5;
+  color: #78350f;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.mn-pending-details-label {
+  display: block;
+  font-weight: 700;
+  letter-spacing: .02em;
+}
+.mn-pending-details-body { display: block; }
+.mn-sub-compact.mn-pending-card .mn-pending-details { padding-left: 1.7rem; }
+
+@media (max-width: 760px) {
+  /* No room for a column beside the text, so it goes back under it. */
+  .mn-pending-card { padding-right: .6rem !important; }
+  .mn-pending-foot {
+    position: static;
+    width: 100%;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    margin-top: .35rem;
+    padding-left: 2.6rem;
+    box-sizing: border-box;
+  }
+  .mn-pending-foot .mn-pending-btn { flex: 1 1 auto; }
+}
+
+.mn-pending-banner {
+  display: flex;
+  align-items: center;
+  gap: .6rem;
+  flex-wrap: wrap;
+  background: #fef3c7;
+  border: 1.5px solid #f59e0b;
+  border-radius: .5rem;
+  padding: .5rem .75rem;
+  margin: 0 0 .75rem;
+}
+.mn-pending-banner-count {
+  font-size: .83rem;
+  font-weight: 700;
+  color: #92400e;
+  flex: 1;
+  min-width: 0;
+}
+.mn-pending-filter {
+  font-size: .78rem;
+  font-weight: 700;
+  padding: .28rem .7rem;
+  border-radius: .4rem;
+  border: 1.5px solid #f59e0b;
+  background: #fff;
+  color: #92400e;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.mn-pending-filter.is-on { background: #f59e0b; color: #fff; }
+
+/* display:none, not visibility: a hidden row must not keep its space, and the
+   section rail is drawn from data-sec-* on the rows that remain. */
+.mn-hidden-by-pending { display: none !important; }
+
+
+/* ── Approval tasks in the To Do list ─────────────────────── */
+.todo-approval-block { margin-bottom: .65rem; }
+.todo-approval-card {
+  border: 1.5px solid #f59e0b;
+  border-left-width: 4px;
+  border-radius: 12px;
+  background: #fffbeb;
+  margin-bottom: .65rem;
+  cursor: pointer;
+  padding: .9rem 1rem;
+  box-shadow: 0 1px 3px rgba(0,0,0,.06);
+}
+.todo-approval-card:hover { background: #fef3c7; }
+.todo-approval-name {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: #1f2937;
+}
+/* On its own line under the name, so a long student name never squeezes it. */
+.todo-approval-pill {
+  display: inline-block;
+  margin-top: .3rem;
+  font-size: .8rem;
+  font-weight: 700;
+  padding: .15rem .55rem;
+  border-radius: 999px;
+  background: #fde68a;
+  color: #92400e;
+}
+
+/* ── Target dropdown, drawn rather than native ─────────────── */
+/* The <select> stays in the DOM and stays the source of truth; it is only
+   hidden. Everything that reads .value or listens for "change" is unchanged. */
+.tc-native { display: none !important; }
+
+.target-combo { position: relative; flex: 1; min-width: 0; }
+.tc-btn {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  width: 100%;
+  padding: .55rem .75rem;
+  border: 2px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 1rem;
+  font-weight: 500;
+  font-family: inherit;
+  color: var(--text);
+  background: var(--white);
+  min-height: var(--tap-min);
+  cursor: pointer;
+  text-align: left;
+}
+.tc-btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
+.tc-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tc-placeholder { color: var(--text-muted); }
+.tc-caret { flex-shrink: 0; color: var(--text-muted); font-size: .9rem; }
+
+/* The reason for drawing the list at all. */
+.tc-pill {
+  flex-shrink: 0;
+  font-size: .7rem;
+  font-weight: 700;
+  padding: .12rem .45rem;
+  border-radius: 999px;
+  background: #fde68a;
+  color: #92400e;
+  border: 1px solid #f59e0b;
+  white-space: nowrap;
+}
+
+.tc-list {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  /* Above the session content, below the Edit Target modal at 1000. */
+  z-index: 60;
+  background: var(--white);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 8px 24px rgba(0,0,0,.18);
+  max-height: 17rem;
+  overflow-y: auto;
+  padding: .25rem;
+}
+.tc-list[hidden] { display: none; }
+.tc-opt {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  width: 100%;
+  padding: .5rem .6rem;
+  border: none;
+  border-radius: .35rem;
+  background: none;
+  font-size: .95rem;
+  font-family: inherit;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+  min-height: 2.4rem;
+}
+.tc-opt:hover { background: var(--primary-light); }
+.tc-opt.is-current { background: var(--primary); color: #fff; font-weight: 600; }
+.tc-opt.is-current .tc-pill { background: #fff; color: #92400e; border-color: #fff; }
+.tc-opt-add { color: var(--primary); font-weight: 600; border-top: 1px solid var(--border); border-radius: 0; margin-top: .25rem; }
+.tc-opt-add.is-current { color: #fff; }
+
+.tc-pill .tcp-short { display: none; }
+@media (max-width: 560px) {
+  /* Just the number: the row has a name to fit first. */
+  .tc-pill .tcp-long  { display: none; }
+  .tc-pill .tcp-short { display: inline; }
+}
+
+/* Says why Approve is unavailable, instead of leaving a dead button. */
+.mn-pending-hint {
+  font-size: .72rem;
+  font-weight: 600;
+  font-style: italic;
+  color: #92400e;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 20rem;
+}
+
+/* The kind of block the panel is editing, as the same chip the row carries. */
+.mn-act-panel-kind { flex-shrink: 0; display: inline-flex; }
+.mn-act-panel-kind:empty { display: none; }
+.mn-act-panel-kind .mn-row-chip { margin: 0; }
+
+/* ── Approval notifications ───────────────────────────────── */
+/* Green against the approvals' amber: one is news, the other is work, and the
+   difference should be clear before either is read. */
+.todo-notice-block { margin-bottom: .65rem; }
+.todo-notice-card {
+  border: 1.5px solid #10b981;
+  border-left-width: 4px;
+  border-radius: 12px;
+  background: #ecfdf5;
+  margin-bottom: .65rem;
+  padding: .9rem 1rem;
+  box-shadow: 0 1px 3px rgba(0,0,0,.06);
+}
+.todo-notice-name {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: #1f2937;
+}
+.todo-notice-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .6rem;
+  flex-wrap: wrap;
+  margin-top: .35rem;
+}
+.todo-notice-pill {
+  font-size: .8rem;
+  font-weight: 700;
+  padding: .15rem .55rem;
+  border-radius: 999px;
+  background: #d1fae5;
+  color: #065f46;
+}
+.todo-notice-clear {
+  font-size: .76rem;
+  font-weight: 700;
+  padding: .3rem .7rem;
+  border-radius: .4rem;
+  border: 1.5px solid #10b981;
+  background: #fff;
+  color: #065f46;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.todo-notice-clear:hover { background: #d1fae5; }
+
+/* A sub-activity's row is one flex line by default. The details need a line of
+   their own under the title rather than a slot beside it. */
+.mn-sub-compact.mn-pending-card {
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+.mn-sub-compact.mn-pending-card .mn-sub-compact-title,
+.mn-sub-compact.mn-pending-card > span:not(.drag-handle):not(.mn-row-chip) {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.mn-pending-card .mn-pending-details { width: 100%; box-sizing: border-box; }
+
+/* The wrapped title text: take what is left of the row and wrap inside it,
+   rather than dropping below the chip. */
+.mn-sub-title-text { flex: 1 1 0; min-width: 0; }
+
+/* A mastered or discontinued card keeps its chip INSIDE the title, where there
+   is no flex gap to separate it from the status badge that follows. */
+.mn-act-compact-title > .mn-row-chip { margin-right: .4rem; }
+
+/* Locked for an assistant: visibly inert, and it says so when clicked. */
+.mn-locked-field {
+  background: #f3f4f6 !important;
+  color: #6b7280 !important;
+  cursor: not-allowed !important;
+  opacity: .85;
+}
+.mn-locked-handle {
+  opacity: .3;
+  cursor: not-allowed !important;
+  pointer-events: auto;
 }
