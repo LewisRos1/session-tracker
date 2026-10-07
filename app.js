@@ -204,7 +204,7 @@ function versionLineText() {
   return `Made by Lewis · Version ${APP_VERSION}`;
 }
 
-const APP_VERSION = "2150";
+const APP_VERSION = "2155";
 
 // Debug helpers — call from F12 console
 // -1) Recover multiple-choice options wiped by the v2072-and-earlier panel bug:
@@ -2064,7 +2064,15 @@ document.addEventListener("DOMContentLoaded", async () => {
   // straight to the sign-in screen rather than hang on the loading screen
   // waiting for an answer that was always going to be empty.
   let authResolved = false;
-  if (!hasSignedInBefore() || sessionEpochStale()) {
+  if (sessionEpochStale()) {
+    // A one-off sign-out is due. Do NOT draw the login screen yet: Firebase is
+    // still restoring the old session, and when it lands onAuthChange signs it
+    // out and draws the login screen itself. Drawing it here as well meant the
+    // form appeared, then was rebuilt underneath whoever had started typing --
+    // which is the "it logs in twice" everyone was seeing. The timeout below
+    // still covers the case where no session comes back at all.
+    setTimeout(() => { if (!authResolved) initPin(); }, 5000);
+  } else if (!hasSignedInBefore()) {
     initPin();
     authResolved = true; // prevent the timeout below from calling initPin a second time
   } else {
@@ -2428,6 +2436,8 @@ function initPin() {
         <input id="login-pw-input" type="password" class="admin-input" placeholder=" "
           autocomplete="current-password" autocapitalize="off" spellcheck="false">
         <label for="login-pw-input">Password</label>
+        <button type="button" id="login-pw-eye" class="pw-eye" tabindex="-1"
+          aria-label="Hold to show password">👁</button>
       </div>
       <div id="login-err" class="pin-error hidden">Wrong username or password.</div>
       <div id="login-status" class="pin-status hidden">Signing in…</div>
@@ -2436,6 +2446,31 @@ function initPin() {
 
   const userInp = $("login-user");
   const pwInp   = $("login-pw-input");
+
+  // Held, not toggled.
+  //
+  // A toggle can be left on: someone checks their typing, signs in, and the
+  // next person to open the laptop finds the box already readable. Holding it
+  // cannot be left anywhere -- let go and it is covered again.
+  //
+  // pointerup and pointercancel are bound to the window rather than the button
+  // because the finger or the mouse is often released somewhere else entirely,
+  // and a release missed outside would leave the password on screen, which is
+  // the one thing this must not do.
+  const eye = $("login-pw-eye");
+  if (eye) {
+    const reveal = on => {
+      pwInp.type = on ? "text" : "password";
+      eye.classList.toggle("is-on", on);
+    };
+    eye.addEventListener("pointerdown", e => { e.preventDefault(); reveal(true); });
+    ["pointerup", "pointercancel", "blur"].forEach(ev =>
+      window.addEventListener(ev, () => reveal(false)));
+    // A keyboard reaches it too: held while the key is down, for the same
+    // reason.
+    eye.addEventListener("keydown", e => { if (e.key === " " || e.key === "Enter") reveal(true); });
+    eye.addEventListener("keyup", () => reveal(false));
+  }
   const err     = $("login-err");
   const status  = $("login-status");
 
@@ -21427,14 +21462,14 @@ function buildRemarkTypeControls(a, idx, maxPts = 3) {
     <div class="mn-act-note-starter-wrap" data-idx="${idx}" style="${showStarter ? "display:flex;flex-direction:column;gap:.3rem" : "display:none"}">
       <span style="font-size:.95rem;color:#374151;font-weight:700">Sentence Starter (for Remark)</span>
       <input class="admin-input mn-act-note-starter-text" data-idx="${idx}"
-        placeholder="Enter Sentence Starter Here (Optional)"
+        placeholder="Enter Text Here"
         style="width:100%;min-width:0;box-sizing:border-box;border-color:#b8bcc4"
         value="${escHtml(a.noteSentenceStarter || "")}">
     </div>
     <div class="mn-act-starter-wrap" data-idx="${idx}" style="${isMC ? "display:flex;flex-direction:column;gap:.3rem" : "display:none"}">
       <span class="mn-act-starter-label" style="font-size:.95rem;color:#374151;font-weight:700">${type === "starter_fixed_multi" ? "Sentence Starter (for Checkboxes)" : "Sentence Starter (for Multiple Choice)"}</span>
       <input class="admin-input mn-act-starter-text" data-idx="${idx}"
-        placeholder="Enter Sentence Starter Here (Optional)"
+        placeholder="Enter Text Here"
         style="width:100%;min-width:0;box-sizing:border-box;border-color:#b8bcc4"
         value="${escHtml(a.sentenceStarter || "")}">
     </div>
@@ -22099,8 +22134,22 @@ function mnInitActivityCollapse(bodyEl, acts) {
     }
 
     const body = card.querySelector(":scope > .mn-act-body") || card.querySelector(".mn-act-body");
-    titleEl.addEventListener("click", () =>
-      mnOpenActPanel(card, body, mnPanelTitleHtml(titleEl), card.dataset.panelKey));
+    // The whole row opens it, not just the words.
+    //
+    // The title text is a few characters wide on a short activity and the rest
+    // of the row did nothing, so opening one meant aiming. Everything that has
+    // its own job is excluded: the drag handle, the menus, the approval
+    // buttons, any field, and a sub-activity's own row, which opens the
+    // sub-activity rather than the parent it sits in.
+    card.classList.add("mn-act-clickable");
+    card.addEventListener("click", e => {
+      if (e.target.closest(
+        ".drag-handle, button, a, input, textarea, select, " +
+        ".mn-kebab-menu, .mn-heading-color-menu, .mn-sub-kebab-menu, .mn-inactive-km, " +
+        ".mn-pending-foot, .mn-sub-compact, .mn-sub-item, .mn-act-panel-open"
+      )) return;
+      mnOpenActPanel(card, body, mnPanelTitleHtml(titleEl), card.dataset.panelKey);
+    });
   });
 
   // ── Sub-activities: the indented rows under a parent open their own panel ──
@@ -22510,23 +22559,27 @@ function renderTargetManageContent(student, target) {
           ${(() => { const _np = noteParts(a); return `
           <div style="display:flex;gap:.6rem;align-items:flex-start">
             <div style="flex-shrink:0">
-              <div style="font-size:.85rem;font-weight:700;color:#78350f;margin-bottom:.2rem">Start Date</div>
+              <div style="font-size:.95rem;font-weight:700;color:#78350f;margin-bottom:.28rem">Start Date</div>
               <button class="mn-act-start-btn" data-idx="${idx}" style="padding:.35rem .65rem;border:1.5px solid #fcd34d;border-radius:.4rem;background:#fef3c7;cursor:pointer;font-size:.95rem;color:#78350f;white-space:nowrap;display:block">📅 ${a.activeFrom ? fmtPeriodDate(a.activeFrom) : 'Set date'}</button>
             </div>
             <div style="flex:1;min-width:0">
-              <div style="font-size:.85rem;font-weight:700;color:#78350f;margin-bottom:.2rem">Note Title</div>
-              <textarea class="admin-input mn-note-title-input" id="mn-note-title-${idx}" data-idx="${idx}"
-                rows="1" placeholder="Enter Text Here"
-                style="width:100%;box-sizing:border-box;display:block;overflow-y:hidden;resize:none">${escHtml(_np.title)}</textarea>
+              <div style="font-size:.95rem;font-weight:700;color:#78350f;margin-bottom:.28rem">Note Title</div>
+              <div style="border:1px solid #b8bcc4;border-radius:.45rem;overflow:hidden">
+                <textarea class="admin-input mn-note-title-input" id="mn-note-title-${idx}" data-idx="${idx}"
+                  rows="1" placeholder="Enter Text Here"
+                  style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block;overflow-y:hidden;resize:none">${escHtml(_np.title)}</textarea>
+              </div>
             </div>
           </div>
           <div>
-            <div style="font-size:.85rem;font-weight:700;color:#78350f;margin-bottom:.2rem">Details</div>
-            <div style="display:flex;align-items:flex-start;gap:.3rem">
-              ${formatButtonsHtml(`mn-note-details-${idx}`)}
+            <div style="font-size:.95rem;font-weight:700;color:#78350f;margin-bottom:.28rem">Details</div>
+            <div style="border:1px solid #b8bcc4;border-radius:.45rem;overflow:hidden">
+              <div style="display:flex;gap:.2rem;padding:.28rem .45rem;background:#f9fafb;border-bottom:1px solid #b8bcc4">
+                ${formatButtonsHtml(`mn-note-details-${idx}`)}
+              </div>
               <textarea class="admin-input mn-note-details-input" id="mn-note-details-${idx}" data-idx="${idx}"
                 rows="1" placeholder="Enter Text Here"
-                style="flex:1;overflow-y:hidden;resize:none">${escHtml(bulletifyForEditing(_np.details))}</textarea>
+                style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block;overflow-y:hidden;resize:none">${escHtml(bulletifyForEditing(_np.details))}</textarea>
             </div>
           </div>`; })()}
         </div>
@@ -24400,7 +24453,7 @@ function renderTargetManageContent(student, target) {
     bar.innerHTML = `
       <span class="mn-pending-banner-count">${n} item${n === 1 ? "" : "s"} waiting for approval</span>
       <button class="mn-pending-filter${_mnPendingOnly ? " is-on" : ""}" id="btn-mn-pending-only">
-        ${_mnPendingOnly ? "Show everything" : "Show only these"}
+        ${_mnPendingOnly ? "Show Everything" : "Show Items"}
       </button>`;
     bodyEl.insertBefore(bar, bodyEl.firstChild);
     bodyEl.classList.toggle("mn-pending-only", _mnPendingOnly);
@@ -24544,6 +24597,10 @@ function renderTargetManageContent(student, target) {
     const btn = $("btn-mn-add-heading"); if (btn) btn.disabled = true;
     const _newHead = { id: cfgId("h"), isHeading: true, name: "", order: acts.length, activeFrom: null };
     if (proposesOnly()) markAsProposal(_newHead);
+    // Straight into the editor, the way a new activity already does. Landing on
+    // an "(Untitled section heading)" row and having to click it to start
+    // typing is a step that exists for no reason.
+    _mnPanelOpenAfterRender = _newHead.id;
     acts.push(_newHead);
     target.predefinedActivities = acts;
     renderTargetManageContent(student, target);
@@ -24607,6 +24664,7 @@ function renderTargetManageContent(student, target) {
       : (state.sessionData?.date || todayDateStr());
     const _newNote = { id: cfgId("n"), isNote: true, text: "", order: acts.length, activeFrom: _newNoteDate };
     if (proposesOnly()) markAsProposal(_newNote);
+    _mnPanelOpenAfterRender = _newNote.id;
     acts.push(_newNote);
     target.predefinedActivities = acts;
     renderTargetManageContent(student, target);
