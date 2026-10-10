@@ -1002,6 +1002,56 @@ export function listenToGroup(groupId, callback, onError) {
     err => { console.error("listenToGroup:", err); onError?.(err); });
 }
 
+// ─── EDIT TARGET LOCKS ───────────────────────────────────────
+// One small document per target saying who has its Edit Target screen open.
+//
+// Two people editing one target both write the WHOLE student record when they
+// save, so whoever saves last silently undoes the other. Rather than try to
+// merge two versions after the fact, only one person is let in at a time.
+//
+// Its own collection on purpose: kept as a field on the student document,
+// every lock and unlock would rewrite that record, which is the very thing
+// this exists to prevent.
+//
+// `heldAt` is refreshed while the window is open. A lock whose heldAt has
+// stopped moving belongs to a browser that is asleep or gone, and is treated
+// as dead -- see LOCK_DEAD_AFTER_MS in app.js. Written from the client clock
+// rather than serverTimestamp() so it can be compared without a round trip.
+
+/** The document id for one target. Stable, and safe in a path. */
+export function editLockId(ownerId, targetId) {
+  return `${sanitizeKey(String(ownerId || ""))}__${sanitizeKey(String(targetId || ""))}`;
+}
+
+/** Read a target's lock, or null when nobody holds it. */
+export async function getEditLock(ownerId, targetId) {
+  const snap = await getDoc(doc(db, "editLocks", editLockId(ownerId, targetId)));
+  return snap.exists() ? { id: snap.id, ...snap.data() } : null;
+}
+
+/** Take or refresh the lock. The caller decides whether it was free. */
+export async function setEditLock(ownerId, targetId, holder) {
+  await setDoc(doc(db, "editLocks", editLockId(ownerId, targetId)), {
+    ownerId: String(ownerId || ""),
+    targetId: String(targetId || ""),
+    holderId: holder.id,
+    holderName: holder.name,
+    heldAt: Date.now(),
+  });
+}
+
+/** Give it up. Safe to call when it was never taken. */
+export async function clearEditLock(ownerId, targetId) {
+  await deleteDoc(doc(db, "editLocks", editLockId(ownerId, targetId))).catch(() => {});
+}
+
+/** Watch one target's lock, so a waiting screen knows the moment it is free. */
+export function listenToEditLock(ownerId, targetId, callback, onError) {
+  return onSnapshot(doc(db, "editLocks", editLockId(ownerId, targetId)),
+    snap => callback(snap.exists() ? { id: snap.id, ...snap.data() } : null),
+    err => { console.error("listenToEditLock:", err); onError?.(err); });
+}
+
 /** Save (upsert) a student config document. */
 // ─── PENDING APPROVAL ────────────────────────────────────────
 // An activity an assistant proposes is not live. It must not appear in a
@@ -1044,11 +1094,59 @@ function splitPendingForWrite(entity) {
   return changed ? { ...entity, targets: out } : entity;
 }
 
+/**
+ * Which tab wrote a document, so a listener can tell its own save from
+ * somebody else's change.
+ *
+ * Edit Target used to compare the copy that came back against the copy it
+ * was holding, and treat a difference as somebody else's work. It never
+ * matched: splitPendingForWrite rebuilds a merged target on the way out, so
+ * what reaches the database is not what state holds, and the window flagged
+ * ITSELF -- "Ms. Daisy has approved the previous version" over a brand new
+ * activity that had never been sent to anybody.
+ *
+ * A stamp cannot be fooled by that, nor by anything the database normalises
+ * on the way through. New on every page load, so two tabs of the same
+ * browser still count as two people -- which they are.
+ */
+export const WRITE_TAB_ID = "tab-" + Math.random().toString(36).slice(2) + "-" + Date.now();
+
+/**
+ * How many saves this tab has in the air right now.
+ *
+ * The stamp alone is not enough. onSnapshot serves the local cache first, so
+ * while a save is on its way a window can be handed the copy from BEFORE it
+ * -- older than what it is already holding, and carrying whatever stamp was
+ * on it last time. Edit Target read that as somebody else and asked Lewis
+ * about an activity he had just typed himself.
+ *
+ * Counted here rather than at each call site because every screen writes the
+ * whole record, and they all come through these two functions.
+ */
+/**
+ * Who was signed in when a document was written.
+ *
+ * The point the stamps above kept missing. A tab id answers "did THIS page
+ * load write it", which the cache, a reload and a second tab can all defeat.
+ * This answers the question actually being asked -- "was somebody else
+ * involved" -- and when Rayhanah is the only person signed in anywhere, the
+ * answer can only be no.
+ */
+const writtenBy = () => (auth.currentUser?.email || "").toLowerCase();
+
+let _writesInFlight = 0;
+export const writesInFlight = () => _writesInFlight;
+
 export async function saveStudent(student) {
   if (!student.name || !student.name.trim()) {
     throw new Error("Cannot save a student with a blank name.");
   }
-  await setDoc(doc(db, "students", student.id), splitPendingForWrite(student));
+  _writesInFlight++;
+  try {
+    await setDoc(doc(db, "students", student.id),
+      { ...splitPendingForWrite(student), lastWriteTab: WRITE_TAB_ID,
+        lastWriteBy: writtenBy() });
+  } finally { _writesInFlight--; }
 }
 
 /** Delete a student config document. */
@@ -1389,7 +1487,12 @@ export async function loadGroups() {
 }
 
 export async function saveGroup(group) {
-  await setDoc(doc(db, "groups", group.id), splitPendingForWrite(group));
+  _writesInFlight++;
+  try {
+    await setDoc(doc(db, "groups", group.id),
+      { ...splitPendingForWrite(group), lastWriteTab: WRITE_TAB_ID,
+        lastWriteBy: writtenBy() });
+  } finally { _writesInFlight--; }
 }
 
 export async function deleteGroup(groupId) {

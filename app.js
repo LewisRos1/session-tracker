@@ -90,6 +90,12 @@ import {
   updateCommentAssignment,
   listenToReviewQueue,
   listenToStudent,
+  WRITE_TAB_ID,
+  writesInFlight,
+  getEditLock,
+  setEditLock,
+  clearEditLock,
+  listenToEditLock,
   listenToGroup,
   getSessionsWithParticipant,
   getAllSessions,
@@ -134,20 +140,23 @@ if ("serviceWorker" in navigator) {
     // happens when a deploy is still propagating and app.js and sw.js are served
     // from different edges, which a run of quick version bumps makes likely.
     // Count reloads across loads and give up rather than spin.
+    // localStorage, not sessionStorage: a session is per tab, so closing the
+    // app and opening it again wiped the count and the loop began afresh.
+    // Which is exactly what someone does when the app will not load.
     try {
       const now = Date.now();
-      const hist = JSON.parse(sessionStorage.getItem("swReloadHistory") || "[]")
+      const hist = JSON.parse(localStorage.getItem("swReloadHistory") || "[]")
         .filter(t => now - t < 60000);
       hist.push(now);
-      sessionStorage.setItem("swReloadHistory", JSON.stringify(hist));
+      localStorage.setItem("swReloadHistory", JSON.stringify(hist));
       if (hist.length > 3) {
-        sessionStorage.removeItem("swReloadHistory");
+        localStorage.removeItem("swReloadHistory");
         console.error("[SW] update reload loop detected after " + hist.length
           + " reloads in under a minute. Staying on version " + APP_VERSION
           + " instead of reloading again. Refresh by hand once the deploy has settled.");
         return;
       }
-    } catch { /* sessionStorage unavailable: fall through and reload as before */ }
+    } catch { /* storage unavailable: fall through and reload as before */ }
     _reloadQueued = true;
     _swReloadQueued = true;
     sessionStorage.setItem("justUpdated", "1");
@@ -168,8 +177,16 @@ if ("serviceWorker" in navigator) {
   // PWA mode. The new SW broadcasts "swActivated" after clients.claim(); if the
   // version differs from the running app, trigger a reload here instead.
   navigator.serviceWorker.addEventListener("message", event => {
-    if (event.data?.type === "swActivated" && event.data.version !== APP_VERSION)
-      _doUpdateReload();
+    if (event.data?.type !== "swActivated") return;
+    // Only when the worker is NEWER. "Different" was enough before, and a
+    // deploy that moved sw.js without moving app.js -- or an edge still
+    // serving the older app.js -- made them permanently different: reload,
+    // disagree again, reload. Reloading cannot help when the page is already
+    // ahead of the worker, so it does not try.
+    const swV  = Number(event.data.version);
+    const appV = Number(APP_VERSION);
+    if (Number.isFinite(swV) && Number.isFinite(appV) && swV <= appV) return;
+    _doUpdateReload();
   });
 }
 
@@ -209,7 +226,7 @@ function versionLineText() {
   return `Made by Lewis · Version ${APP_VERSION}`;
 }
 
-const APP_VERSION = "2156";
+const APP_VERSION = "2220";
 
 // Debug helpers — call from F12 console
 // -1) Recover multiple-choice options wiped by the v2072-and-earlier panel bug:
@@ -2114,6 +2131,21 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (!(e.key === "b" && (e.ctrlKey || e.metaKey))) return;
     const el = document.activeElement;
     if (!el) return;
+    // A details box is contenteditable as well, so it has to be asked
+    // about BEFORE the general branch, which would otherwise swallow it:
+    // no styleWithCSS, so the browser was free to produce a styled span
+    // that richToMarkers does not read; no sync back to the field, so
+    // Discard Changes had nothing to compare against until you clicked
+    // away; and no refusal when nothing is highlighted, which turned bold
+    // on for whatever got typed next and left an empty <b> behind -- the
+    // stray marker pairs that appeared on reopening.
+    //
+    // The bullet shortcut below already asked in this order.
+    if (isRichBox(el)) {
+      e.preventDefault();
+      richToggle(el, "bold");
+      return;
+    }
     if (el.isContentEditable) {
       e.preventDefault();
       document.execCommand("bold");
@@ -2132,6 +2164,21 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (!(e.key === "u" && (e.ctrlKey || e.metaKey))) return;
     const el = document.activeElement;
     if (!el) return;
+    // A details box is contenteditable as well, so it has to be asked
+    // about BEFORE the general branch, which would otherwise swallow it:
+    // no styleWithCSS, so the browser was free to produce a styled span
+    // that richToMarkers does not read; no sync back to the field, so
+    // Discard Changes had nothing to compare against until you clicked
+    // away; and no refusal when nothing is highlighted, which turned bold
+    // on for whatever got typed next and left an empty <b> behind -- the
+    // stray marker pairs that appeared on reopening.
+    //
+    // The bullet shortcut below already asked in this order.
+    if (isRichBox(el)) {
+      e.preventDefault();
+      richToggle(el, "underline");
+      return;
+    }
     if (el.isContentEditable) {
       e.preventDefault();
       document.execCommand("underline");
@@ -2148,6 +2195,11 @@ document.addEventListener("DOMContentLoaded", async () => {
   document.addEventListener("keydown", e => {
     if (!(e.key === "L" || e.key === "l") || !e.shiftKey || !(e.ctrlKey || e.metaKey)) return;
     const el = document.activeElement;
+    if (isRichBox(el)) {
+      e.preventDefault();
+      richToggleBullet(el);
+      return;
+    }
     if (!el || !isActivityMarkupField(el)) return;
     e.preventDefault();
     toggleBulletSelection(el);
@@ -2447,7 +2499,12 @@ function initPin() {
           autocomplete="current-password" autocapitalize="off" spellcheck="false">
         <label for="login-pw-input">Password</label>
         <button type="button" id="login-pw-eye" class="pw-eye" tabindex="-1"
-          aria-label="Hold to show password">👁</button>
+          aria-label="Hold to show password">
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M1.9 12S5.9 5.9 12 5.9 22.1 12 22.1 12 18.1 18.1 12 18.1 1.9 12 1.9 12Z"/>
+            <circle cx="12" cy="12" r="2.45"/>
+          </svg>
+        </button>
       </div>
       <div id="login-err" class="pin-error hidden">Wrong username or password.</div>
       <div id="login-status" class="pin-status hidden">Signing in…</div>
@@ -4519,8 +4576,31 @@ async function aiRequest(aiPrompt, signal, meta = {}) {
       + "\n  body:         " + (raw.slice(0, 400) || "(empty)")
     );
 
-    if (!ours && (mitigated || resp.status === 403)) {
+    // Anthropic answering IS the answer.
+    //
+    // Every 403 used to be reported as a Cloudflare block, which sent Lewis
+    // off trying other networks and other browsers while the body in front
+    // of him said, in Anthropic's own words, that the account was not
+    // allowed to make the request. A reply carrying Anthropic's error shape
+    // reached Anthropic, whatever its status.
+    const fromAnthropic = !!err.error?.type;
+
+    if (!ours && !fromAnthropic && (mitigated || resp.status === 403)) {
       throw new Error(`Blocked before the request reached the report service (HTTP ${resp.status}${mitigated ? ", " + mitigated : ""}). Cloudflare decides this from the network and the browser, not from the report, which is why the same report can fail on one computer and work on another. Try a different network or another browser, and send Lewis the red line in the console (F12).`);
+    }
+
+    if (!ours && fromAnthropic && resp.status === 403) {
+      // A 403 here is transient, not a verdict on the account.
+      //
+      // A half-year report failed with 403 twice over two days and then
+      // worked, unchanged, on the same student and the same months. The key
+      // was never the problem -- monthly reports went through the whole
+      // time -- and nor was the content. Anthropic’s own 403 is
+      // documented as permission_error; this one said "forbidden" /
+      // "Request not allowed", so something in front of the API was turning
+      // the relay away for a while. The relay now asks again before giving
+      // up, so reaching here means several attempts were all refused.
+      throw new Error("The report service was turned away before it reached the AI (HTTP 403), on every attempt. This is not your account, your network or this report — it usually clears by itself. Wait a few minutes and try again; tell Lewis if it keeps happening.");
     }
     throw new Error(`${err.error?.message || "Request failed"} (HTTP ${resp.status}${err.error?.type ? ", " + err.error.type : ""})`);
   }
@@ -9951,7 +10031,7 @@ function renderManageActivityScreen(entity) {
   const isDiscontinued = !!target.discontinuedOn;
   const discBadge = isDiscontinued
     ? `<div style="font-size:.8rem;color:#dc2626;font-weight:600;padding:.2rem .1rem .4rem;display:flex;align-items:center;gap:.35rem">
-        🛑 Discontinued since ${fmtPeriodDate(target.discontinuedOn)} — hidden from session dropdown
+        🛑 Discontinued on ${fmtPeriodDate(target.discontinuedOn)} — hidden from ${fmtPeriodDate(addOneDay(target.discontinuedOn))} onwards
       </div>`
     : '';
   const dropHtml = `<div class="target-selector" style="position:static;margin-bottom:${isDiscontinued ? '.3rem' : '.8rem'};display:flex;align-items:center;gap:.5rem;flex-wrap:wrap">
@@ -11496,7 +11576,12 @@ function renderTargetCombo(comboId, selectId, items, busyFlag) {
 
 function populateTargetDropdown(targets) {
   const sel = $("target-select");
-  const sorted = sortTargetsByOrder(targets).filter(t => !t.discontinuedOn);
+  // Judged against the session being written, not against today. A target
+  // discontinued in August belongs in an August session and was being hidden
+  // from it, so writing up an old day showed fewer targets than that day
+  // actually had.
+  const _sessDate = state.sessionData?.date || todayDateStr();
+  const sorted = sortTargetsByOrder(targets).filter(t => targetActiveOn(t, _sessDate));
   // Rewriting the options closes an open menu, so the list is left alone while
   // the user is reading it. Everything below still runs: skipping the whole
   // function here would leave the Edit Instructors button unwired.
@@ -12964,7 +13049,7 @@ function paDisplayHtml(pa, showPlaceholder = false, titleOnly = false) {
   // lines deep for every activity in the list.
   const detailsText = titleOnly ? "" : detailsFull;
   if (detailsText && titleHasDetails) {
-    html += `<span style="display:block;margin-top:.1rem;font-weight:400;text-decoration:none">${formatActivityMarkup(detailsText)}</span>`;
+    html += `<span style="display:block;margin-top:.1rem;font-weight:400;text-decoration:none;white-space:pre-wrap">${formatActivityMarkup(detailsText)}</span>`;
   }
   return html;
 }
@@ -13010,6 +13095,328 @@ function findMarkerSpan(value, selStart, selEnd, marker) {
 // nothing between them. Caller is responsible for keeping the field focused
 // (see the mousedown handlers on the format buttons) so the selection
 // survives long enough to read it.
+// ─── RICH DETAILS BOXES ──────────────────────────────────────
+// Bold and underline are stored as *markers* and _markers_, which is what
+// every export, report and session screen reads. Showing those characters to
+// the person typing is the problem; the format itself is fine.
+//
+// So the format does not change. The <textarea> stays exactly where it is,
+// keeping its id, its class, its value and every listener already bound to it
+// -- the debounce, the blur save, the rename propagation. It is only hidden. A
+// contenteditable box is added beside it, shows the markers as real bold and
+// underline, and writes the markers back into the textarea on every keystroke.
+//
+// Nothing downstream can tell the difference, which is the point: the last
+// time this app used contenteditable for its text boxes it had to be reverted,
+// and that version WAS the storage.
+
+const RICH_FIELD_SELECTOR =
+  ".mn-act-details-input, .mn-note-details-input, .mn-act-name-input";
+
+/** Markers to HTML, for showing. */
+function markersToRichHtml(text) {
+  // No tidying of stray marker pairs here, and there cannot be any.
+  //
+  // A rule that removed a star, any whitespace, a star could not tell an
+  // empty pair from the gap BETWEEN two marked runs. Two bold words on their
+  // own lines are stored as *yup*, newline, *hello*: the newline sits between
+  // two stars, so the rule ate it and the two lines became one bold line.
+  // Same for two bold words with a space between them.
+  //
+  // Empty pairs are not written in the first place now -- richToMarkers will
+  // not mark a tag with no text in it -- so there is nothing to clean up.
+  return escHtml(text || "")
+    .replace(/\*(.+?)\*/g, "<b>$1</b>")
+    .replace(/_(.+?)_/g, "<u>$1</u>");
+}
+
+/**
+ * HTML back to markers, for storing.
+ *
+ * Walked rather than regexed off innerHTML: browsers produce different markup
+ * for the same keystroke -- <div> on Enter in one, <br> in another, <strong>
+ * where another gives <b> -- and only the text and which runs are bold or
+ * underlined actually matter.
+ */
+function richToMarkers(root) {
+  // Each node returns its own text instead of appending to a shared string,
+  // so a <b> can be asked what is inside it BEFORE deciding to mark it.
+  //
+  // Taking bold off a word leaves an empty <b></b> behind in most browsers,
+  // and the old version put a marker on each side of whatever it found
+  // without asking whether anything was there. An empty pair came out as
+  // *_ _*, on lines of its own where the tag had wrapped a line break.
+  const read = node => {
+    let out = "";
+    for (const n of node.childNodes) {
+      if (n.nodeType === 3) { out += n.nodeValue; continue; }
+      if (n.nodeName === "BR") { out += "\n"; continue; }
+      const tag = n.nodeName;
+      if (tag === "DIV" || tag === "P") {
+        if (out && !out.endsWith("\n")) out += "\n";
+        out += read(n);
+        continue;
+      }
+      const inner = read(n);
+      // A tag holding no actual text contributes only its whitespace.
+      if (tag === "B" || tag === "STRONG") { out += inner.trim() ? "*" + inner + "*" : inner; continue; }
+      if (tag === "U")                     { out += inner.trim() ? "_" + inner + "_" : inner; continue; }
+      out += inner;
+    }
+    return out;
+  };
+  return read(root);
+}
+
+/** Push what is on screen into the textarea, and let its own handlers run. */
+function syncRichToField(rich) {
+  const ta = rich._richField;
+  if (!ta) return;
+  const next = richToMarkers(rich);
+  if (ta.value === next) return;
+  ta.value = next;
+  ta.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
+/** Redraw the box from the textarea. Used after an edit made on the text. */
+function refreshRichFromField(rich) {
+  const ta = rich._richField;
+  if (!ta) return;
+  rich.innerHTML = markersToRichHtml(ta.value);
+}
+
+/**
+ * Give every details box in `scope` a rich twin.
+ *
+ * Idempotent: a field that already has one is left alone, so this can run on
+ * every render without stacking boxes or listeners.
+ */
+function attachRichEditors(scope) {
+  if (!scope) return;
+  scope.querySelectorAll(RICH_FIELD_SELECTOR).forEach(ta => {
+    if (ta._richTwin) return;
+
+    const rich = document.createElement("div");
+    rich.className = "mn-rich";
+    rich.contentEditable = "true";
+    rich.spellcheck = true;
+    rich.dataset.placeholder = ta.placeholder || "";
+    rich.innerHTML = markersToRichHtml(ta.value);
+    rich._richField = ta;
+    ta._richTwin = rich;
+    ta.classList.add("mn-rich-hidden");
+    ta.after(rich);
+
+    rich.addEventListener("input", () => syncRichToField(rich));
+
+    // Pressing anywhere on the field's own chrome -- the toolbar strip, the
+    // border, the gap beside the buttons -- keeps the caret and the highlight
+    // where they are. Only the B and U buttons guarded themselves, so a press
+    // that landed a pixel beside one took the selection away, and the click
+    // that followed had nothing to format. That is the "it does not respond,
+    // click it again".
+    const wrap = rich.parentElement;
+    wrap?.addEventListener("mousedown", e => {
+      if (rich.contains(e.target)) return;
+      if (e.target.closest("input, textarea, select, a")) return;
+      e.preventDefault();
+    });
+    // The textarea never receives focus now, so its own blur never fires and
+    // the save bound to it would never run. Handed on by hand -- but only when
+    // the person has actually finished with the field.
+    //
+    // Its blur does far more than save: it renames the activity, repoints every
+    // sub-activity at the new name, re-renders the session screen and
+    // propagates the rename across every stored session. A contenteditable
+    // blurs constantly, and clicking its own B button is a blur, so passing
+    // every one of them straight through ran all of that on each formatting
+    // click. The panel closed under the cursor and the first click on Bold
+    // appeared to do nothing, because a re-render had already taken the
+    // selection away.
+    //
+    // Where the focus is GOING, read from the event, not from the document a
+    // tick later.
+    //
+    // A tick later is too late. Discard Changes asks "has anything changed?" by
+    // comparing the activity list to the snapshot taken when the panel opened,
+    // and the details only reach that list when this blur is handed on. Deferred
+    // by even one tick, the handoff landed AFTER Discard had already decided
+    // nothing had changed and put the old list back -- so it asked for no
+    // confirmation, and then wrote the new text in on top of the restore.
+    //
+    // relatedTarget is null when focus lands nowhere, which is what Save and
+    // Close does when it detaches the panel. That has to pass through: it is
+    // the blur that writes the details down.
+    rich.addEventListener("blur", e => {
+      const goingTo = e.relatedTarget;
+      if (goingTo && rich.parentElement?.contains(goingTo)) return;
+      syncRichToField(rich);
+      ta.dispatchEvent(new Event("blur"));
+    });
+    // Paste arrives as whatever was copied, often a whole document's styling.
+    // Only the words are wanted; bold and underline are applied here, not
+    // inherited from somewhere else.
+    rich.addEventListener("paste", e => {
+      e.preventDefault();
+      const text = (e.clipboardData || window.clipboardData)?.getData("text/plain") || "";
+      document.execCommand("insertText", false, text);
+    });
+  });
+}
+
+/** True when the caret is inside one of these boxes. */
+const isRichBox = el => !!el?.classList?.contains("mn-rich");
+
+/**
+ * The box's visible text, and where each piece of it lives in the DOM.
+ *
+ * One traversal that everything else measures against. It writes line
+ * breaks exactly where richToMarkers writes them -- a BR, and the start of
+ * each DIV or P -- and markers never contain a newline, so line number N
+ * here is line number N of the stored text. That is the only thing the
+ * bullet toggle actually needs them to agree about.
+ *
+ * This replaced three different ways of counting the same box: a hand-rolled
+ * walk for the caret, element.innerText for the line, and richToMarkers for
+ * the text to edit. They agreed on simple content and parted company as soon
+ * as there was a blank line in the box -- an empty line is <div><br></div>,
+ * which innerText counts once and the marker walk counted twice. The line
+ * number then pointed past the end of the stored lines, the toggle gave up,
+ * and the bullet button did nothing at all.
+ */
+function richTextMap(root) {
+  let text = "";
+  const spans = [];                 // { node, start } for every text node
+  const read = node => {
+    for (const n of node.childNodes) {
+      if (n.nodeType === 3) { spans.push({ node: n, start: text.length }); text += n.nodeValue; continue; }
+      if (n.nodeName === "BR") { text += "\n"; continue; }
+      if (n.nodeName === "DIV" || n.nodeName === "P") {
+        if (text && !text.endsWith("\n")) text += "\n";
+        read(n);
+        continue;
+      }
+      read(n);
+    }
+  };
+  read(root);
+  return { text, spans };
+}
+
+/** Where the caret sits in that visible text, or null if it is not in the box. */
+function richCaretOffset(rich, map) {
+  const sel = window.getSelection();
+  if (!sel || !sel.focusNode || !rich.contains(sel.focusNode)) return null;
+  const node = sel.focusNode;
+
+  if (node.nodeType === 3) {
+    const hit = map.spans.find(sp => sp.node === node);
+    return hit ? hit.start + Math.min(sel.focusOffset, node.nodeValue.length) : null;
+  }
+
+  // An element focus node means the caret sits BETWEEN children, which is
+  // what an empty line gives you. Take the position of the first text node
+  // at or after that child; with none, the end of the box.
+  const after = node.childNodes[sel.focusOffset];
+  if (after) {
+    const inside = sp => sp.node === after || (after.contains && after.contains(sp.node));
+    const hit = map.spans.find(inside);
+    if (hit) return hit.start;
+  }
+  const before = node.childNodes[sel.focusOffset - 1];
+  if (before) {
+    const inside = sp => sp.node === before || (before.contains && before.contains(sp.node));
+    const last = [...map.spans].reverse().find(inside);
+    if (last) return last.start + last.node.nodeValue.length;
+  }
+  return map.text.length;
+}
+
+/**
+ * Toggle a bullet on the line the caret is on, the way Word does it.
+ *
+ * Done here rather than by calling the plain-textarea version, which reads
+ * selectionStart on the textarea. That textarea is hidden and never focused,
+ * so its selectionStart is stuck at 0 -- the bullet went on the first line
+ * whatever line you were on, and pressing again never found it to remove.
+ */
+function richToggleBullet(rich) {
+  const map   = richTextMap(rich);
+  const caret = richCaretOffset(rich, map);
+  if (caret === null) return;
+
+  // Which line that offset falls on. Counted in the same text, so a blank
+  // line counts once here and once in the stored text.
+  const lineNo = map.text.slice(0, caret).split("\n").length - 1;
+
+  const stored = richToMarkers(rich).split("\n");
+  // Should not happen now the two are counted the same way, but a box with
+  // nothing in it still has a caret, and refusing beats writing to nowhere.
+  if (stored[lineNo] === undefined) return;
+
+  const bulleted = /^\s*\u2022\s?/.test(stored[lineNo]);
+  stored[lineNo] = bulleted
+    ? stored[lineNo].replace(/^(\s*)\u2022\s?/, "$1")
+    : "\u2022 " + stored[lineNo];
+
+  const ta = rich._richField;
+  if (!ta) return;
+  ta.value = stored.join("\n");
+  ta.dispatchEvent(new Event("input", { bubbles: true }));
+  refreshRichFromField(rich);
+
+  // Back to the end of the line that moved, so typing carries on where it
+  // was rather than jumping to the top of the box.
+  const after = richTextMap(rich);
+  const lines = after.text.split("\n");
+  let target = 0;
+  for (let i = 0; i < lineNo && i < lines.length; i++) target += lines[i].length + 1;
+  target += (lines[lineNo] || "").length;
+  placeRichCaret(rich, target, after);
+}
+
+/**
+ * Put the caret this many visible characters into the box.
+ *
+ * Measured against richTextMap, not against the text nodes alone. A tree
+ * walker counts only the characters inside text nodes, so every line break
+ * -- which is a BR or the edge of a DIV, not a character in any text node --
+ * was missing from its count, and the caret landed earlier and earlier the
+ * further down the box you were.
+ */
+function placeRichCaret(rich, offset, map = null) {
+  const { spans } = map || richTextMap(rich);
+  const sel = window.getSelection();
+  if (!sel) return;
+  for (let i = spans.length - 1; i >= 0; i--) {
+    const sp = spans[i];
+    if (offset < sp.start) continue;
+    const range = document.createRange();
+    range.setStart(sp.node, Math.min(offset - sp.start, sp.node.nodeValue.length));
+    range.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(range);
+    return;
+  }
+  rich.focus();
+}
+
+/**
+ * Bold or underline whatever is selected inside a rich box.
+ *
+ * execCommand is deprecated and still the only thing every browser implements
+ * for this. styleWithCSS is turned off so it produces <b> and <u> rather than
+ * spans carrying inline styles, which is what richToMarkers reads.
+ */
+function richToggle(rich, what) {
+  const sel = window.getSelection();
+  // Nothing highlighted, nothing happens -- same rule as the plain boxes.
+  if (!sel || sel.isCollapsed || !rich.contains(sel.anchorNode)) return;
+  try { document.execCommand("styleWithCSS", false, false); } catch {}
+  document.execCommand(what, false, null);
+  syncRichToField(rich);
+}
+
 function wrapTextareaSelection(el, marker) {
   const value = el.value;
   const mLen = marker.length;
@@ -13023,10 +13430,11 @@ function wrapTextareaSelection(el, marker) {
     return;
   }
 
-  if (start === end) {
-    if (!value.trim()) return;
-    start = 0; end = value.length;
-  }
+  // Nothing highlighted, nothing happens -- the way every word processor
+  // behaves. It used to take the whole field as the selection, so clicking B
+  // with the cursor resting somewhere bolded the entire block, and the only way
+  // back was to click it again and know that was why.
+  if (start === end) return;
 
   const before = value.slice(0, start);
   const selected = value.slice(start, end);
@@ -14476,12 +14884,32 @@ $("score-modal-backdrop").addEventListener("click", closeScorePicker);
 // SESSION VIEW SCREEN (table-based view/edit for past sessions)
 // ============================================================
 
+/**
+ * Was this target still in use on this date?
+ *
+ * discontinuedOn is the LAST day it was used, matching what the same field
+ * means on an activity and what masteredOn means. Targets used to store the
+ * first day they were HIDDEN, one day later, which is why a target could not be
+ * reasoned about the same way as the activities inside it.
+ *
+ * A missing date means it is still running.
+ */
+function targetActiveOn(t, dateStr) {
+  if (!t?.discontinuedOn) return true;
+  // No date to judge by: it is discontinued, so it is out. Showing it would be
+  // the old behaviour this is replacing.
+  if (!dateStr) return false;
+  return dateStr <= t.discontinuedOn;
+}
+
 function getViewEffectiveTargets() {
   const currentTargets = state.viewStudent?.targets || [];
   if (!state.viewSessionData) return currentTargets;
   // Always use the current target list: new targets appear in old sessions,
   // deleted targets disappear from all sessions (data removed by deleteTargetDataFromSessions).
-  return currentTargets;
+  // A discontinued one is the exception: it belongs to the days it was running
+  // and to no others, so it is judged against this session's own date.
+  return currentTargets.filter(t => targetActiveOn(t, state.viewSessionData.date));
 }
 
 async function openSessionView(student, sessionId) {
@@ -15068,12 +15496,27 @@ function watchConfigForOpenSession(isGroup) {
   return listen(entity.id, fresh => {
     const live = isGroup ? state.currentGroup : state.currentStudent;
     if (!live || live.id !== fresh.id) return;
+    // Before the merge, while there is still something to compare.
+    const somebodyElse = mnEchoIsSomebodyElse(fresh, live);
     Object.assign(live, fresh);
     const list = isGroup ? (state.groups || []) : (state.students || []);
     const i = list.findIndex(x => x.id === fresh.id);
     if (i >= 0) list[i] = live;
 
-    if (!$("manage-modal")?.classList.contains("hidden")) return;
+    // Edit Target is open: it holds its own COPY of the target, taken when
+    // it was drawn, and nothing above touches that copy. Leaving it alone
+    // meant the window sat on a copy from before whatever just happened and
+    // put it back the moment it saved anything -- which is how an approval
+    // made on one machine came undone from another.
+    //
+    // So it is redrawn, but only when that cannot take anything away:
+    // nothing focused, no activity panel open, and nothing typed that has
+    // not been saved. Otherwise the window is marked, and mnWarnIfStale asks
+    // before it is allowed to write over someone else.
+    if (!$("manage-modal")?.classList.contains("hidden")) {
+      if (somebodyElse) mnRefreshOpenEditTarget(live, isGroup);
+      return;
+    }
     const ae = document.activeElement;
     const host = $(isGroup ? "group-target-content" : "target-content");
     if (host?.contains(ae) && (ae?.tagName === "TEXTAREA" || ae?.tagName === "INPUT")) return;
@@ -15227,6 +15670,47 @@ function applyAssistantReadOnly(bodyEl, acts) {
   bodyEl.querySelectorAll(".drag-handle").forEach(h => {
     if (!isHers(h)) h.classList.add("mn-locked-handle");
   });
+
+  // The rich box is a div, so readOnly means nothing to it. It follows the
+  // textarea it was built for.
+  bodyEl.querySelectorAll(".mn-rich").forEach(rich => {
+    if (!rich._richField?.readOnly) return;
+    rich.contentEditable = "false";
+    rich.classList.add("mn-locked-field");
+  });
+
+  // An approved row does not open at all.
+  //
+  // Every field inside it was already read-only, but the row still opened its
+  // panel, so an assistant could sit in a screen full of dead boxes with no
+  // idea why nothing would type. The row now refuses the click and says who
+  // can change it.
+  bodyEl.querySelectorAll(".mn-act-card, .mn-sub-compact").forEach(row => {
+    row.classList.toggle("mn-locked-row", !isHers(row));
+  });
+
+  if (!bodyEl._assistantRowGuard) {
+    bodyEl._assistantRowGuard = true;
+    // On the way down, so it gets there before the row's own handler.
+    bodyEl.addEventListener("click", e => {
+      if (!proposesOnly()) return;
+
+      // Looking is fine. The mastered and discontinued lists still open, and
+      // the kebab still opens to show its own lock, which says more than a
+      // dead button does.
+      if (e.target.closest(".mn-inact-toggle, .mn-kebab-btn, .mn-kebab-menu, "
+                         + ".mn-sub-kebab-wrap, .mn-inactive-km, .mn-pending-foot")) return;
+
+      const row = e.target.closest(".mn-locked-row");
+      if (!row || !bodyEl.contains(row)) return;
+
+      e.preventDefault();
+      e.stopPropagation();
+      const i = ownIdx(row);
+      const kind = i == null ? "items" : mnRowKindPlural(acts[i], acts);
+      showEditTargetLock(`Only Ms. Daisy can make changes to approved ${kind}.`);
+    }, true);
+  }
 }
 
 /** Stamp an entry as somebody's proposal. */
@@ -18332,7 +18816,8 @@ function attachViewListeners() {
 // ============================================================
 
 function getViewGroupEffectiveTargets() {
-  return state.viewGroup?.targets || [];
+  const d = state.viewGroupSessionData?.date;
+  return (state.viewGroup?.targets || []).filter(t => targetActiveOn(t, d));
 }
 
 async function openGroupSessionView(group, sessionId) {
@@ -20221,8 +20706,28 @@ async function handleActStartPickerChange() {
 
 // ── Open / close ──────────────────────────────────────────────
 
-function openManageModal(student, targetOrNull, templateOrNull = null, remarkPresetOrNull = null, scrollToPaId = null) {
-  mnDetachPanel(true); _mnPanelHold = false; _mnPanelSnapshot = null;   // never inherit a panel from the last target
+function openManageModal(student, targetOrNull, templateOrNull = null, remarkPresetOrNull = null, scrollToPaId = null, _lockHeld = false) {
+  // A target can only be edited by one person at a time, and that is settled
+  // before the window is drawn -- see mnOpenWhenFree. `_lockHeld` is how this
+  // function calls itself back once the target is ours.
+  if (targetOrNull && !templateOrNull && !remarkPresetOrNull && !_lockHeld) {
+    mnOpenWhenFree(student, targetOrNull, false, () =>
+      openManageModal(student, targetOrNull, templateOrNull, remarkPresetOrNull, scrollToPaId, true));
+    return;
+  }
+  // Opening the screen is when blank rows left behind by a closed tab go.
+  _mnSweepOnOpen = true;
+  // Watch for changes made elsewhere for as long as this window is open.
+  if (targetOrNull && !templateOrNull && !remarkPresetOrNull) mnWatchWhileEditing(student, false);
+  // never inherit a panel from the last target
+  //
+  // _mnPanelSaveWanted was missed here. It is what tells the window it
+  // has work that has not been written, and a window that was left by the
+  // back arrow rather than by Done carried it into the NEXT window --
+  // which then treated the very first copy the database handed it as
+  // somebody else's change.
+  mnDetachPanel(true); _mnPanelHold = false; _mnPanelSnapshot = null;
+  _mnPanelSaveWanted = false;
   $("manage-modal").classList.remove("hidden");
   if (remarkPresetOrNull) {
     renderRemarkPresetManageContent(remarkPresetOrNull);
@@ -20459,6 +20964,39 @@ function showGroupDupFromOtherPickTarget(group, sourceGroup) {
 
 
 async function closeManageModal() {
+  // If somebody else changed this target while the window was open and it
+  // could not be refreshed underneath, ask before writing over them.
+  // Answering no closes without writing, which leaves their version alone.
+  const _mayWrite = mnWarnIfStale();
+  // Nothing to watch once the window is shut, and the target is free again.
+  mnStopWatchingWhileEditing();
+  stopHoldingLock();
+
+  // An open activity panel is holding the save, so it has to be closed first.
+  //
+  // While a panel is open saveTarget deliberately writes nothing, so that
+  // Discard Changes has something to put back. Closing the modal ran the
+  // flush below -- which did copy the typed text into the list -- and then
+  // called saveTarget, which refused, because the panel was still open.
+  // Nothing closed the panel either, so the refusal was never revisited: the
+  // edit sat in memory looking saved and was gone on the next reload.
+  //
+  // mnPanelSave is the same path as Save and Close: it puts the fields back,
+  // lifts the hold and writes what changed. It runs BEFORE
+  // _groupForTargetEdit is cleared, because the write chooses between the
+  // group and the student by reading it.
+  if (_mnPanelOpen) {
+    if (_mayWrite) await mnPanelSave();
+    else {
+      // Let the panel go without writing: the fields go back to their card,
+      // the hold is lifted, and nothing reaches Firestore.
+      mnDetachPanel();
+      _mnPanelHold = false;
+      _mnPanelSaveWanted = false;
+      _mnPanelRenameQueue = [];
+      _mnPanelSnapshot = null;
+    }
+  }
   $("manage-modal").classList.add("hidden");
   const _savedGroupForTargetEdit = _groupForTargetEdit;
   _groupForTargetEdit = null;
@@ -20543,40 +21081,27 @@ async function closeManageModal() {
 
     _pendingActsCleanup = null;
     const before = acts.length;
-    for (let i = acts.length - 1; i >= 0; i--) {
-      if (isEmptyActItem(acts[i])) {
-        // Restore any sub-activities pointing to this empty parent so they
-        // become top-level instead of orphaned (invisible everywhere).
-        const removedKey = acts[i]._linkKey || acts[i].id;
-        if (removedKey) acts.forEach(a2 => { if (a2.parentActivity === removedKey) delete a2.parentActivity; });
-        acts.splice(i, 1);
-      }
-    }
-    // A parent with no sub-activities at all is not a parent.
+    // Anything left blank goes now. A blank row is allowed to sit there while
+    // the screen is open -- a new parent's sub-activity starts blank and has
+    // to survive the save that names the parent -- so this is where they are
+    // cleared instead.
     //
-    // The sweep above removes blank sub-activities, which can leave behind a
-    // parent that was given a title and never a real sub. It is not kept as an
-    // ordinary activity: a parent holds no score and no remark of its own, so
-    // on its own it is a row that can never be filled in. Almost always it is
-    // a "+ Add Parent Activity" that was abandoned half way.
-    //
-    // A parent whose sub-activities were mastered or discontinued still HAS
-    // those entries in the list, so it is untouched. This only catches one
-    // that never had any.
-    for (let i = acts.length - 1; i >= 0; i--) {
-      const a = acts[i];
-      if (!a?.noRemark) continue;
-      const key = a._linkKey || a.title || a.name;
-      if (key && acts.some(sub => sub !== a && sub.parentActivity === key)) continue;
-      acts.splice(i, 1);
-    }
-    if (acts.length !== before) acts.forEach((a, i) => a.order = i);
+    // A sub-activity whose parent is being removed with it does not need
+    // rescuing to the top level any more: sweepBlankActs only removes a
+    // parent when nothing real is left under it, so there is never a real
+    // child to orphan.
+    sweepBlankActs(acts);
+    // (A parent left with nothing real under it goes in the same sweep: a
+    //  parent holds no score and no remark of its own, so on its own it is a
+    //  row that can never be filled in. A parent whose sub-activities were
+    //  mastered or discontinued still HAS those entries, so it is untouched.)
+    void before;
     // Always save on close — not just when empty items were removed. Any
     // in-memory change (e.g. changing the remark type dropdown) that didn't
     // happen to trigger a blur on the inputs would otherwise silently fail
     // to persist to Firestore.
     try {
-      await save();
+      if (_mayWrite) await save();
     } catch (err) {
       alert("Couldn't save — check your connection and try again.\n\n" + err.message);
     }
@@ -20616,22 +21141,39 @@ async function closeManageModal() {
   if (state.currentGroup) {
     populateGroupTargetDropdown(state.currentGroup.targets);
     if (state.groupSessionId && state.groupSessionData && state.selectedGroupTargetName) {
-      autoFillGroupSession(
-        state.currentGroup, state.groupSessionId, state.groupSessionData,
-        state.selectedGroupTargetName
-      ).then(filled => {
-        if (filled > 0) return;
-        return autoFillGroupStructuredRemarks(
-          state.currentGroup, state.groupSessionId, state.groupSessionData,
-          state.selectedGroupTargetName, state.groupAttendees
-        ).then(structuredFilled => {
-          if (structuredFilled > 0) return;
-          return autoFillGroupMaintainedRemarks(
+      // Redraw afterwards WHATEVER the auto-fills did.
+      //
+      // Saving the target config does not write to the session document, so
+      // no Firestore snapshot arrives on its own to redraw this screen --
+      // the individual branch above says exactly that and redraws
+      // unconditionally for that reason.
+      //
+      // Here the redraw sat at the bottom of a chain that returned early as
+      // soon as any auto-fill had filled something, so on a group with
+      // anything auto-filling, renaming an activity and closing the window
+      // left the session screen showing the old name until a reload. The
+      // individual and group screens are meant to behave the same.
+      //
+      // The auto-fills keep their order: a later one only runs when the one
+      // before it filled nothing. Only the redraw has moved.
+      (async () => {
+        try {
+          const filled = await autoFillGroupSession(
             state.currentGroup, state.groupSessionId, state.groupSessionData,
-            state.selectedGroupTargetName, state.groupAttendees
-          ).then(mFilled => { if (mFilled === 0) renderGroupTargetContent(); });
-        });
-      }).catch(() => renderGroupTargetContent());
+            state.selectedGroupTargetName);
+          if (filled === 0) {
+            const structuredFilled = await autoFillGroupStructuredRemarks(
+              state.currentGroup, state.groupSessionId, state.groupSessionData,
+              state.selectedGroupTargetName, state.groupAttendees);
+            if (structuredFilled === 0) {
+              await autoFillGroupMaintainedRemarks(
+                state.currentGroup, state.groupSessionId, state.groupSessionData,
+                state.selectedGroupTargetName, state.groupAttendees);
+            }
+          }
+        } catch (e) { console.error("auto-fill error after Edit Target (group):", e); }
+        renderGroupTargetContent();
+      })();
     } else if (state.groupSessionId) {
       renderGroupTargetContent();
     }
@@ -20801,9 +21343,15 @@ async function handleDiscontinueTarget(entity, target, isGroup) {
     finally { if (btn) { btn.disabled = false; btn.textContent = origText; } }
   }
 
-  const minDate = lastDate ? addOneDay(lastDate) : todayDateStr();
+  // The last session itself, not the day after it.
+  //
+  // The date recorded is the last day the target was USED, which is what
+  // masteredOn and an activity's discontinuedOn have always meant. Targets
+  // alone counted from the day after, so the same field meant two things
+  // depending on what it was attached to.
+  const minDate = lastDate || todayDateStr();
   const infoHtml = lastDate
-    ? `<strong>"${escHtml(target.name)}"</strong> will be hidden from the session dropdown from this date onwards. All past session data is preserved and will still appear in exports.<br><br>The last recorded session for this target was on <strong>${fmtPeriodDate(lastDate)}</strong>. So, the earliest you can discontinue is <strong>${fmtPeriodDate(minDate)}</strong>.`
+    ? `<strong>"${escHtml(target.name)}"</strong> stays visible up to and including this date, and all past session data is preserved.<br><br>The last recorded session for this target was on <strong>${fmtPeriodDate(lastDate)}</strong>. So, the earliest you can discontinue is <strong>${fmtPeriodDate(minDate)}</strong>. This target will stop showing from <strong>${fmtPeriodDate(addOneDay(minDate))}</strong> onwards.`
     : `<strong>"${escHtml(target.name)}"</strong> will be hidden from the session dropdown from this date onwards. All past session data is preserved and will still appear in exports.<br><br>No previous session data was found for this target.`;
 
   const pickedDate = await showDatePickerOverlay({
@@ -21685,6 +22233,224 @@ let _mnPanelHold = false;             // true while a panel is open: writes are 
 let _mnPanelSaveWanted = false;       // a held write asked to happen
 let _mnPanelRenameQueue = [];         // renames waiting for a save
 let _mnPanelSnapshot = null;          // deep copy of acts as it was when the panel opened
+/**
+ * Set by the two functions that OPEN Edit Target, cleared by the first
+ * render after that.
+ *
+ * The blank-row sweep belongs to opening the screen, not to drawing it.
+ * Running it on every draw deleted a brand new parent and its sub-activity
+ * the instant they were added, because both start blank -- which is the
+ * whole reason they are allowed to be blank in the first place.
+ */
+let _mnSweepOnOpen = false;
+/** Guards against a refresh starting another refresh. */
+let _mnRefreshing = false;
+// ── Only one person in a target at a time ────────────────────────────
+//
+// Saving writes the WHOLE student or group record, so two people editing one
+// target overwrite each other: whoever saves last wins and the other's work
+// is gone. Rather than try to merge two versions after the fact, the second
+// person is kept out until the first has finished.
+//
+// Locked per TARGET, not per student: Rayhanah in FEDC 1 does not stop
+// Ms. Daisy editing FEDC 2 on the same child.
+//
+// Nobody can take a lock from somebody else, main teacher or not.
+
+/**
+ * Nothing touched for this long and the window closes itself.
+ *
+ * Anything counts: a keystroke, a click, a scroll. Reading the list without
+ * changing a thing is still being in there, and Lewis asked for it that way.
+ */
+let LOCK_IDLE_MS = 10 * 60 * 1000;
+/**
+ * Shorten the wait, for the tests only.
+ *
+ * Nothing in the app calls this. Without it a test of the close would have
+ * to sit there for ten minutes, so it would never be written and the close
+ * would go unchecked -- which is how it got built in the first place.
+ */
+function mnSetIdleTimeoutForTests(ms) { LOCK_IDLE_MS = ms; }
+/** How often the holder says it is still there. */
+const LOCK_RENEW_MS = 30 * 1000;
+/**
+ * A lock nobody has refreshed for this long belongs to a browser that is
+ * asleep or gone.
+ *
+ * The holder's own window closes itself after LOCK_IDLE_MS -- but only while
+ * it is running. A sleeping laptop runs nothing, so without this the lock
+ * would sit there for as long as the lid stayed shut. The same wait from the
+ * other side, so the two cannot disagree.
+ */
+const LOCK_DEAD_AFTER_MS = LOCK_IDLE_MS;
+
+let _lock = null;          // { ownerId, targetId, renewTimer, tickTimer, lastActive }
+
+const lockIsDead = l => !l || (Date.now() - (l.heldAt || 0)) > LOCK_DEAD_AFTER_MS;
+
+/**
+ * Try to take a target's lock.
+ *
+ * Gives back { ok: true } or { ok: false, holder } so the caller can say who
+ * is in there. A dead lock is taken over without asking anybody.
+ */
+async function acquireEditLock(ownerId, targetId) {
+  const me = currentUser();
+  if (!me) return { ok: true };                 // not signed in as one of ours
+  try {
+    const held = await getEditLock(ownerId, targetId);
+    if (held && held.holderId !== me.id && !lockIsDead(held)) {
+      return { ok: false, holder: held };
+    }
+    // Claimed without waiting for the write to land.
+    //
+    // The read tells us it is free; the write only tells everyone else. Two
+    // round trips before the window appeared meant about three seconds of
+    // nothing when the target WAS free -- while being turned away was instant,
+    // because that path never wrote at all.
+    //
+    // Two people could in principle read "free" in the same few milliseconds
+    // and both claim it. This is a courtesy between colleagues, not a
+    // security control, and the version that asks before overwriting is still
+    // underneath it.
+    setEditLock(ownerId, targetId, { id: me.id, name: me.name })
+      .catch(err => console.warn("could not write the Edit Target lock:", err));
+    return { ok: true };
+  } catch (err) {
+    // The lock is a courtesy between colleagues, not a security control. If
+    // the rules have not been published yet, or the network is down, editing
+    // still has to work -- the version that asks before overwriting is still
+    // underneath it.
+    console.warn("could not take the Edit Target lock:", err);
+    return { ok: true };
+  }
+}
+
+/** Hold it, and watch for going idle. */
+function startHoldingLock(ownerId, targetId) {
+  stopHoldingLock();
+  _lock = { ownerId, targetId, lastActive: Date.now(), renewTimer: null, tickTimer: null };
+
+  const touch = () => { if (_lock) _lock.lastActive = Date.now(); };
+  _lock.touch = touch;
+  for (const ev of ["keydown", "pointerdown", "input", "wheel"]) {
+    document.addEventListener(ev, touch, true);
+  }
+
+  _lock.renewTimer = setInterval(() => {
+    const me = currentUser();
+    if (!me || !_lock) return;
+    setEditLock(_lock.ownerId, _lock.targetId, { id: me.id, name: me.name })
+      .catch(err => console.warn("could not refresh the Edit Target lock:", err));
+  }, LOCK_RENEW_MS);
+
+  // Read from the clock, not counted down.
+  //
+  // A number ticking down stops with the browser when a laptop sleeps and
+  // would carry on hours later from where it left off. Compared against the
+  // clock, the window notices the moment it wakes that its ten minutes went
+  // long ago, and closes straight away.
+  //
+  // Said quietly, beside the Done button. It was a banner across the top of
+  // the list once, which is a clock running out at you while you work.
+  _lock.tickTimer = setInterval(() => {
+    if (!_lock) return;
+    const left = LOCK_IDLE_MS - (Date.now() - _lock.lastActive);
+    if (left <= 0) { closeManageModalForIdle(); return; }
+    renderLockCountdown(left);
+  }, 1000);
+  renderLockCountdown(LOCK_IDLE_MS);
+}
+
+function stopHoldingLock() {
+  if (!_lock) return;
+  clearInterval(_lock.renewTimer);
+  clearInterval(_lock.tickTimer);
+  for (const ev of ["keydown", "pointerdown", "input", "wheel"]) {
+    document.removeEventListener(ev, _lock.touch, true);
+  }
+  const { ownerId, targetId } = _lock;
+  _lock = null;
+  clearLockCountdown();
+  clearEditLock(ownerId, targetId).catch(() => {});
+}
+
+/** Ten minutes untouched: save what is there and close, as Done does. */
+function closeManageModalForIdle() {
+  if (!_lock) return;
+  closeManageModal();
+}
+
+/** The countdown, beside the Done button. */
+function renderLockCountdown(msLeft) {
+  const done = $("manage-modal-close");
+  if (!done) return;
+  const mins = Math.floor(Math.max(0, msLeft) / 60000);
+  const secs = Math.floor((Math.max(0, msLeft) % 60000) / 1000);
+  const clock = `${mins}:${String(secs).padStart(2, "0")}`;
+
+  let out = $("mn-lock-countdown");
+  if (!out) {
+    out = document.createElement("span");
+    out.id = "mn-lock-countdown";
+    out.className = "mn-lock-countdown";
+    done.before(out);
+  }
+  const text = `Auto-closes in ${clock}`;
+  if (out.textContent !== text) out.textContent = text;
+}
+
+/** Take it away when the window is not holding a target. */
+function clearLockCountdown() {
+  $("mn-lock-countdown")?.remove();
+}
+
+/**
+ * Take the target's lock, and only then let the window be drawn.
+ *
+ * Asked BEFORE anything is shown. Opening first and taking it away again
+ * when somebody else had it flashed the whole screen up for half a second,
+ * which looks like a fault even though nothing was ever editable.
+ *
+ * `proceed` draws the window. The countdown is started straight after it, so
+ * the banner is there with everything else rather than a second later.
+ */
+async function mnOpenWhenFree(entity, target, isGroup, proceed) {
+  if (!entity?.id || !target) { proceed(); return; }
+  const targetKey = target.id || target.name;
+  const res = await acquireEditLock(entity.id, targetKey);
+  if (!res.ok) { showLockedByOther(res.holder); return; }
+  proceed();
+  startHoldingLock(entity.id, targetKey);
+}
+
+/** Somebody else is in there. */
+function showLockedByOther(holder) {
+  const name = escHtml(holder?.holderName || "Somebody");
+  const host = $("manage-modal")?.querySelector(".modal-sheet") || document.body;
+  host.querySelectorAll("[data-lock-wait]").forEach(el => el.remove());
+  const overlay = document.createElement("div");
+  overlay.dataset.lockWait = "1";
+  overlay.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;"
+    + "align-items:center;justify-content:center;z-index:600;padding:1rem";
+  overlay.innerHTML = `<div style="background:#fff;padding:1.5rem 1.25rem;border-radius:.75rem;width:min(360px,92%);box-shadow:0 4px 24px rgba(0,0,0,.25);display:flex;flex-direction:column;align-items:center;gap:1rem;text-align:center">
+      <div style="font-size:2rem;line-height:1">\u{1F512}</div>
+      <div style="font-size:.95rem;color:#111;line-height:1.6">
+        <strong>${name}</strong> is currently making changes in this target\u2019s
+        \u201cEdit Target\u201d.
+      </div>
+      <div style="font-size:.9rem;color:#4b5563">Please try again in a moment.</div>
+      <button class="btn-primary-sm" data-lock-ok style="padding:.5rem 2rem">OK</button>
+    </div>`;
+  document.body.appendChild(overlay);
+  overlay.querySelector("[data-lock-ok]").addEventListener("click", () => overlay.remove());
+}
+
+/** Dropped when the Edit Target window closes. */
+let _mnConfigUnsub = null;
+/** The target Edit Target is currently showing, for the live refresh. */
+let _mnOpenTargetName = null;
 let _mnPanelOpenAfterRender = null;   // an activity id to open once the list is rebuilt
 
 function mnActPanelEl() {
@@ -21707,8 +22473,16 @@ function mnActPanelEl() {
     `</div>`;
   // Clicking the dimmed area closes only when there is nothing to lose.
   // Otherwise it points at the button rather than throwing the edit away.
+  //
+  // The press has to have STARTED on the dimmed area too. A click fires on
+  // whatever contains both ends of it, so highlighting text inside the panel
+  // and letting go past its edge -- which is how anyone selects a whole line --
+  // counted as a click on the backdrop. The panel shut, or blinked Save and
+  // Close at someone who had merely selected a word.
+  let _downOnBackdrop = false;
+  el.addEventListener("pointerdown", e => { _downOnBackdrop = (e.target === el); });
   el.addEventListener("click", e => {
-    if (e.target !== el) return;
+    if (e.target !== el || !_downOnBackdrop) return;
     if (mnPanelIsDirty()) mnBlinkPanelSave(); else mnPanelSave();
   });
   // The X behaves exactly like clicking off the panel: it can close when there
@@ -21779,6 +22553,9 @@ function mnOpenActPanel(card, body, titleHtml, key, chipHtml) {
   // Remember exactly where the fields came from, so they go back in the same
   // place even if siblings shifted while they were away.
   _mnPanelOpen = { body, home: body.parentElement, next: body.nextSibling, card, key };
+  // Anything still in the slot is an orphan from an earlier open -- a body
+  // whose card has since been rebuilt. Only ever show the one being opened.
+  [...slot.children].forEach(n => { if (n !== body) n.remove(); });
   slot.appendChild(body);
   body.classList.add("mn-act-panel-open");
   el.style.display = "flex";
@@ -21820,7 +22597,20 @@ function mnDetachPanel(discardNode = false) {
     document.activeElement.blur();
   }
   open.body.classList.remove("mn-act-panel-open");
-  if (discardNode || !open.home || !open.home.isConnected) return;
+  if (discardNode || !open.home || !open.home.isConnected) {
+    // Nowhere to put it back, so it has to GO rather than be left sitting in
+    // the panel.
+    //
+    // It used to be left behind, and the panel appends the next body beside
+    // whatever is already there. So Discard Changes abandoned the fields
+    // holding the discarded text, and reopening that activity showed TWO
+    // Details boxes: the stale one first, with the words that had just been
+    // thrown away, and the real empty one under it. That is what "discard
+    // changes doesn't work" looked like, even once the data behind it was
+    // being restored correctly. Every discard leaked another copy.
+    open.body.remove();
+    return;
+  }
   open.home.insertBefore(open.body, open.next && open.next.isConnected ? open.next : null);
 }
 
@@ -21831,6 +22621,358 @@ function mnDetachPanel(discardNode = false) {
  * A parent that still has sub-activities under it is kept whatever its own
  * fields say, or the children would be orphaned.
  */
+/**
+ * Clear blank rows out of an activity list.
+ *
+ * A blank row is one with no title and no details. They are allowed to
+ * exist while the screen is open -- a new parent's sub-activity starts
+ * blank and has to survive until it is filled in -- so they are cleared on
+ * the way out, and again on the way in, in case a tab was closed mid-edit.
+ *
+ * A parent goes with its children: a parent holds no score and no remark of
+ * its own, so once every row under it is blank the whole family is one
+ * "+ Add Parent Activity" that was never filled in. A parent with even one
+ * real sub-activity is left alone, and so is that sub-activity.
+ *
+ * Returns true if anything was removed.
+ */
+function sweepBlankActs(acts) {
+  if (!Array.isArray(acts)) return false;
+  const before = acts.length;
+  const keyOf = a => a && (a._linkKey || a.title || a.name);
+
+  // A parent counts as real when something under it has been filled in.
+  const parentHasRealChild = parent => {
+    const key = keyOf(parent);
+    if (!key) return false;
+    return acts.some(x => x !== parent && x.parentActivity === key && !isEmptyActItem(x));
+  };
+
+  for (let i = acts.length - 1; i >= 0; i--) {
+    const a = acts[i];
+    if (!a) { acts.splice(i, 1); continue; }
+
+    if (a.parentActivity) {
+      // A sub-activity: blank ones go.
+      if (isEmptyActItem(a)) acts.splice(i, 1);
+      continue;
+    }
+
+    // A parent with a real sub-activity stays, whatever its own fields say.
+    if (parentHasRealChild(a)) continue;
+
+    // Nothing real under it. It goes if it is blank itself, and it also goes
+    // if it is a parent row, which cannot stand on its own -- that is the
+    // named parent whose only sub-activity was never filled in.
+    const isParentRow = !!a._linkKey || !!a.noRemark;
+    if (isEmptyActItem(a) || isParentRow) acts.splice(i, 1);
+  }
+
+  if (acts.length !== before) acts.forEach((a, n) => { a.order = n; });
+  return acts.length !== before;
+}
+
+/**
+ * The sub-activities belonging to `pa`, in list order.
+ *
+ * A sub-activity points at its parent by NAME, not by id: parentActivity
+ * holds the parent's link key, or its title, or its details line, whichever
+ * the parent had when the link was made. Asking in one place keeps the menu
+ * label, the session count and the delete itself from disagreeing about what
+ * is about to go.
+ */
+/**
+ * What to call this row in a sentence: activity, note, section heading,
+ * sub-activity or parent activity.
+ */
+/**
+ * Make a proposal row tall enough for its own approve column.
+ *
+ * The column is positioned absolutely, so it cannot push the row open by
+ * itself, and a row that is shorter than its column lets the Reject button
+ * hang out of the bottom. It was being held open by fixed min-heights in the
+ * stylesheet, which had to be guessed and then re-guessed every time any of
+ * the wording changed -- and a section heading, which is one short line, was
+ * never given one at all.
+ *
+ * Measured after a frame, because the text has to be laid out before its
+ * height means anything.
+ */
+function mnFitPendingRow(el) {
+  if (!el) return;
+  requestAnimationFrame(() => {
+    const foot = el.querySelector(":scope > .mn-pending-foot");
+    if (!foot) return;
+    const top = foot.offsetTop;
+    const needed = top + foot.offsetHeight + top;   // same gap under as over
+    if (needed > el.offsetHeight) el.style.minHeight = needed + "px";
+  });
+}
+
+/** The same, said of more than one: activities, not activitys. */
+function mnRowKindPlural(a, acts) {
+  const one = mnRowKindName(a, acts);
+  return one.endsWith("y") ? one.slice(0, -1) + "ies" : one + "s";
+}
+
+function mnRowKindName(a, acts) {
+  if (!a) return "item";
+  if (a.isNote || a.isExportNote) return "note";
+  if (a.isHeading || a.isMaintainHeading) return "section heading";
+  if (a.parentActivity) return "sub-activity";
+  if (subActivitiesOf(a, acts).length || a._linkKey || a.noRemark) return "parent activity";
+  return "activity";
+}
+
+function subActivitiesOf(pa, acts) {
+  if (!pa || !Array.isArray(acts)) return [];
+  const key = pa._linkKey || pa.title || pa.name;
+  if (!key) return [];
+  return acts.filter(a => a !== pa && a.parentActivity === key
+    && !a.isHeading && !a.isNote && !a.isExportNote);
+}
+
+/**
+ * True when this window has edits that have not been written yet.
+ *
+ * While an activity panel is open nothing is written at all -- saveTarget
+ * holds the write so Discard Changes has something to put back -- so an open
+ * panel always counts as unsaved work.
+ */
+/**
+ * Watch this student or group for as long as Edit Target is open.
+ *
+ * The session screen has its own listener, but Edit Target can be reached
+ * from the home screen too, and then there was none at all -- the window sat
+ * on a copy nothing could ever refresh. This one belongs to the window, so
+ * it is there however the window was opened, and goes when it closes.
+ */
+/**
+ * JSON with the keys in a fixed order.
+ *
+ * Two objects holding the same thing compare equal whatever order they were
+ * built in, which plain JSON.stringify cannot promise once a value has been
+ * round-tripped through the database.
+ */
+function stableJson(v) {
+  if (v === null || typeof v !== "object") return JSON.stringify(v) ?? "null";
+  if (Array.isArray(v)) return "[" + v.map(stableJson).join(",") + "]";
+  return "{" + Object.keys(v).sort()
+    .map(k => JSON.stringify(k) + ":" + stableJson(v[k])).join(",") + "}";
+}
+
+/**
+ * Was this copy somebody else's doing?
+ *
+ * TWO listeners hand copies to Edit Target: this screen's own, and the
+ * session screen's, which is running whenever Edit Target was opened from a
+ * session. Only the first one asked this question. The second called the
+ * refresh on every copy that arrived, including the window's own saves, so
+ * anyone editing from inside a session was warned about their own work --
+ * which is exactly where Lewis was every time. Both go through here now.
+ *
+ * Must be asked BEFORE the incoming copy is merged into the held one, or
+ * there is nothing left to compare.
+ */
+function mnEchoIsSomebodyElse(fresh, held) {
+  // Written by the person sitting here. Not this tab -- this PERSON. A tab
+  // id is defeated by the cache, by a reload and by a second tab, and every
+  // one of those read as a stranger.
+  const me = (state.authEmail || "").toLowerCase();
+  if (fresh.lastWriteBy && me && fresh.lastWriteBy === me) return false;
+  if (fresh.lastWriteTab && fresh.lastWriteTab === WRITE_TAB_ID) return false;
+  // A save of ours is still on its way, so what arrived is the copy from
+  // before it -- older than what we hold, not newer.
+  if (writesInFlight() > 0) return false;
+  // Both sides in the shape they are stored in, so the editor having merged
+  // its proposals cannot look like a difference.
+  const stored = t => (t ? stableJson(splitPendingTarget(t)) : "");
+  const openName = _mnOpenTargetName;
+  // A change to some OTHER target of the same person is nothing to do with
+  // the window that is open.
+  if (openName) {
+    return stored((fresh.targets || []).find(t => t.name === openName))
+        !== stored((held.targets  || []).find(t => t.name === openName));
+  }
+  return stableJson(fresh.targets) !== stableJson(held.targets);
+}
+
+function mnWatchWhileEditing(entity, isGroup) {
+  mnStopWatchingWhileEditing();
+  // This window has seen nothing yet.
+  //
+  // These outlive any one window, and nothing used to clear them. A flag
+  // set in an earlier window -- by somebody really changing something --
+  // sat there through the close, and the next window to be opened asked
+  // about it: over a different student, a different target, a brand new
+  // activity nobody had ever been asked to approve. _mnStaleFrom was
+  // worse: declining would have drawn that other student's target into
+  // this window.
+  _mnEditTargetStale = false;
+  _mnStaleFrom = null;
+  if (!entity?.id) return;
+  const listen = isGroup ? listenToGroup : listenToStudent;
+  try {
+    _mnConfigUnsub = listen(entity.id, fresh => {
+      if (!fresh || fresh.id !== entity.id) return;
+
+      // Our own save coming back is not somebody else's change.
+      //
+      // Every write from this screen updates the object in state before it
+      // goes out, so when the listener hears that same write the two already
+      // match. Without this check the window flagged ITSELF: add an activity,
+      // press Discard Changes, and it asked whether to resend for approval --
+      // with nobody else involved and nothing ever approved.
+      //
+      // Compared on the targets alone. The rest of the document carries
+      // fields the server adds or reorders, and a whole-document comparison
+      // would differ every time and flag every save.
+      const unchanged = !mnEchoIsSomebodyElse(fresh, entity);
+
+      // Into the object the rest of the app already holds, not over it:
+      // handlers everywhere close over this one.
+      Object.assign(entity, fresh);
+      const list = isGroup ? (state.groups || []) : (state.students || []);
+      const i = list.findIndex(x => x.id === fresh.id);
+      if (i >= 0) list[i] = entity;
+      if (unchanged) return;
+      if ($("manage-modal")?.classList.contains("hidden")) return;
+      mnRefreshOpenEditTarget(entity, isGroup);
+    });
+  } catch (err) { console.error("could not watch while editing:", err); }
+}
+
+function mnStopWatchingWhileEditing() {
+  // Nothing to carry out of a window that is closing.
+  _mnEditTargetStale = false;
+  _mnStaleFrom = null;
+  if (typeof _mnConfigUnsub === "function") {
+    try { _mnConfigUnsub(); } catch { /* already gone */ }
+  }
+  _mnConfigUnsub = null;
+}
+
+function mnEditTargetHasUnsavedWork() {
+  if (_mnPanelOpen) return true;
+  if (_mnPanelSaveWanted) return true;
+  const body = $("manage-modal-body");
+  if (!body) return false;
+  const ae = document.activeElement;
+  return !!(body.contains(ae) &&
+    (ae?.tagName === "TEXTAREA" || ae?.tagName === "INPUT" || ae?.isContentEditable));
+}
+
+/** Set when someone else changed this target while the window was open. */
+let _mnEditTargetStale = false;
+/**
+ * Which drawing of Edit Target is the current one.
+ *
+ * Every handler on that screen closes over the list it was drawn with. Once
+ * the screen has been drawn again -- because somebody else changed the
+ * target, or because a warning was declined and the newer version put up --
+ * the handlers from the previous drawing hold a list nobody is looking at
+ * any more. They must not be able to write it.
+ */
+let _mnRenderSeq = 0;
+/**
+ * The one drawing whose writes are refused, because the person was asked and
+ * said no.
+ *
+ * Refusing EVERY superseded drawing threw work away without a word: the
+ * screen is redrawn for all sorts of ordinary reasons, and a save that landed
+ * just after one -- a newly added parent activity, say -- was dropped in
+ * silence and never reached anybody. Only a drawing that was explicitly
+ * declined is refused now.
+ */
+let _mnDeclinedRender = -1;
+/** The newer copy an open window has not been able to take on yet. */
+let _mnStaleFrom = null;
+
+/**
+ * Put a fresh copy of the target in front of an open Edit Target window.
+ *
+ * Called from the live listener. The screen is only redrawn when there is
+ * nothing to lose by redrawing it; otherwise the window is flagged and
+ * mnWarnIfStale deals with it on the way out.
+ */
+function mnRefreshOpenEditTarget(live, isGroup) {
+  const body = $("manage-modal-body");
+  if (!body || !_pendingActsCleanup) return;          // not the target screen
+  const open = _mnOpenTargetName;
+  if (!open) return;
+
+  const fresh = (live.targets || []).find(t => t.name === open);
+  if (!fresh) return;                                  // target itself has gone
+
+  if (mnEditTargetHasUnsavedWork()) {
+    // If this ever fires when nobody else was involved, the console says
+    // which guard let it through.
+    console.warn("Edit Target flagged stale:", {
+      target: open,
+      writtenBy: live.lastWriteBy || "(none)",
+      me: (state.authEmail || "").toLowerCase(),
+      stampedBy: live.lastWriteTab || "(none)",
+      thisTab: WRITE_TAB_ID,
+      panelOpen: !!_mnPanelOpen,
+      saveWanted: _mnPanelSaveWanted,
+    });
+    // Keep what we could not show yet, so saying "no" to the warning can
+    // put the newer version on screen instead of leaving a stale one there.
+    _mnEditTargetStale = true;
+    _mnStaleFrom = { live, isGroup, name: open };
+    return;
+  }
+
+  _mnEditTargetStale = false;
+  // Redraw the contents, NOT reopen the window.
+  //
+  // Reopening ran the whole open path again: it restarted this very listener
+  // from inside its own callback, re-ran the blank-row sweep, and did it all
+  // over again on the next poll. One approval turned into a loop of reopens,
+  // and a save made in the middle of it was built from whichever copy
+  // happened to be on screen.
+  if (_mnRefreshing) return;
+  _mnRefreshing = true;
+  try {
+    if (isGroup) renderTargetManageContent(live, fresh);
+    else renderTargetManageContent(live, fresh);
+  } catch (err) { console.error("could not refresh Edit Target:", err); _mnEditTargetStale = true; }
+  finally { _mnRefreshing = false; }
+}
+
+/**
+ * Ask before writing over somebody else.
+ *
+ * Only reached when this window could not be refreshed because something was
+ * half-typed. Answering no leaves the newer version alone and throws nothing
+ * away on screen -- the window simply closes without writing.
+ */
+function mnWarnIfStale() {
+  if (!_mnEditTargetStale) return true;
+  const from = _mnStaleFrom;
+  _mnEditTargetStale = false;
+  _mnStaleFrom = null;
+
+  if (confirm(
+    "Somebody else changed this target while you had it open.\n\n" +
+    "Save your changes anyway?"
+  )) return true;
+
+  // No: nothing from this drawing of the screen is written, now or later.
+  _mnDeclinedRender = _mnRenderSeq;
+
+  // No: their version stands. Put it on screen, or this window carries on
+  // holding the old copy and the very next save writes it without asking.
+  if (from) {
+    const fresh = (from.live.targets || []).find(t => t.name === from.name);
+    if (fresh) {
+      try { renderTargetManageContent(from.live, fresh); }
+      catch (err) { console.error("could not reload after declining:", err); }
+    }
+  }
+  return false;
+}
+
 function mnDropEmptyPanelAct(host, key) {
   if (!host || !key) return false;
   const i = host.acts.findIndex(a => a && a.id === key);
@@ -21839,6 +22981,18 @@ function mnDropEmptyPanelAct(host, key) {
   if (!isEmptyActItem(a)) return false;
   const ownName = (a.title || a.name || "").trim();
   if (ownName && host.acts.some(s => s !== a && (s.parentActivity || "").trim() === ownName)) return false;
+  // A sub-activity under a parent is KEPT even with nothing in it.
+  //
+  // Adding a parent creates the parent and one blank sub together, and the
+  // two have to be filled in one at a time: name the parent, Save and Close,
+  // then open the sub. Dropping an empty row here threw the sub away on that
+  // first save, and the parent -- with nothing left under it -- stopped being
+  // a parent at all.
+  //
+  // It is not kept for ever. Done still clears out anything left blank, and
+  // so does opening Edit Target again.
+  if (a.parentActivity && host.acts.some(pr => pr !== a &&
+      (pr._linkKey || pr.title || pr.name) === a.parentActivity)) return false;
   host.acts.splice(i, 1);
   host.acts.forEach((x, n) => { x.order = n; });
   host.target.predefinedActivities = host.acts;
@@ -21896,13 +23050,23 @@ function mnPanelDiscard() {
   _mnPanelSaveWanted = false;
   _mnPanelRenameQueue = [];
   _mnPanelSnapshot = null;
-  // Restore in place: handlers all close over this same array.
+  // Restore in place: every handler on this screen closes over this array.
   if (host && snap) {
     try {
       const before = JSON.parse(snap);
       host.acts.length = 0;
       host.acts.push(...before);
       host.target.predefinedActivities = host.acts;
+      // And back into state, or the restore only reaches this screen.
+      //
+      // The editor holds a merged COPY of the target, so putting the list
+      // back here left state still holding what was typed. The panel then
+      // rebuilt itself from state and the text reappeared -- which is why
+      // Discard Changes looked like it did nothing at all.
+      //
+      // Nothing is written to Firestore: saveTarget refuses to write while a
+      // panel is open, exactly so a discard has nothing to undo there.
+      host.syncState?.();
     } catch (err) { console.error("Could not restore the activity list:", err); }
   }
   // The snapshot was taken after "+ Add Activity" pushed the blank row, so a
@@ -22020,7 +23184,10 @@ function mnInitActivityCollapse(bodyEl, acts) {
     // the title line instead, rather than being a blank strip.
     const _noteNp = isNote ? noteParts(a) : null;
     const text = isNote ? (_noteNp.title || _noteNp.details || "") : (a.name || "");
-    const _notePreview = isNote && _noteNp.title ? _noteNp.details : "";
+    // No preview of the details on the row. A note's title is what identifies
+    // it; the details underneath turned every note into two lines of small
+    // print, markers and all, in a list meant to be scanned.
+    const _notePreview = "";
     const title = document.createElement("div");
     title.className = "mn-act-compact-title";
     title.innerHTML = `<span class="mn-act-title-text">${escHtml(truncateWords(text))}</span>`
@@ -22134,11 +23301,17 @@ function mnInitActivityCollapse(bodyEl, acts) {
       if (!card.querySelector(":scope > .mn-pending-foot")) {
         const blocker = pendingBlockedByHeading(acts, gi);
         const bName   = blocker ? (blocker.name || blocker.title || "").trim() : "";
+        const kind    = mnRowKindName(act, acts);
         const hint = blocker
-          ? `Approve ${bName ? `“${escHtml(truncateWords(bName))}” section heading` : "the section heading above"} first`
+          ? `Approve the section heading ${bName ? `“${escHtml(truncateWords(bName))}” ` : ""}above first `
+            + `before you can approve this ${kind}`
           : "";
         card.appendChild(buildPendingFooter(act, gi, hint));
         if (canApprove()) card.classList.add("mn-pending-decide");
+        // The note is several lines, so the row needs the taller reservation
+        // or the buttons drop out of the bottom of it.
+        if (hint) card.classList.add("mn-pending-blocked");
+        mnFitPendingRow(card);
         adoptKebabIntoPendingFoot(card, ownMenu(".mn-kebab-btn, .mn-heading-color-btn")[0]);
       }
     }
@@ -22199,12 +23372,14 @@ function mnInitActivityCollapse(bodyEl, acts) {
         const parent  = pKey ? acts.find(x => x && !x.parentActivity
                           && ((x._linkKey || x.title || x.name) === pKey)) : null;
         const blocked = parent?._pending ? parent : null;
-        const bName   = blocked ? (blocked.title || blocked.name || "").trim() : "";
-        const hint = blocked
-          ? `Approve ${bName ? `“${escHtml(truncateWords(bName))}” parent activity` : "the parent activity"} first`
-          : "";
+        const hint = blocked ? "Approve this sub-activity’s parent activity first" : "";
         row.appendChild(buildPendingFooter(sub, subIdx, hint));
         if (canApprove()) row.classList.add("mn-pending-decide");
+        mnFitPendingRow(row);
+        // The hint is three more lines above the buttons, so the row needs
+        // more height than a plain approve column. Without it the Reject
+        // button hung below the row's own border.
+        if (hint) row.classList.add("mn-pending-blocked");
         adoptKebabIntoPendingFoot(row, row.querySelector(".mn-sub-kebab-btn")
                                     || item.querySelector(".mn-sub-kebab-btn"));
       }
@@ -22255,13 +23430,26 @@ function mnInitActivityCollapse(bodyEl, acts) {
 
   // A newly added activity, or one whose panel was interrupted by a rebuild,
   // opens straight back up.
+  //
+  // Deferred to the next frame, and that is the whole point of it.
+  //
+  // Opening the panel MOVES the card's fields out of the modal body and into
+  // the panel. This function runs partway through the render, and everything
+  // below it wires handlers with
+  // $("manage-modal-body").querySelectorAll(...) -- so a card whose fields had
+  // already been carried off was skipped by every one of them. Its bold,
+  // underline and bullet buttons did nothing, and neither did anything else
+  // wired after this point. It only showed on a BRAND NEW item, because that
+  // is the only time the panel opens during the render rather than on a click.
   if (_mnPanelOpenAfterRender) {
     const want = _mnPanelOpenAfterRender;
     _mnPanelOpenAfterRender = null;
-    const card = [...list.querySelectorAll("[data-panel-key]")].find(c => c.dataset.panelKey === want);
-    const titleEl = card?.querySelector(".mn-act-compact-title");
-    const body = card?.querySelector(".mn-act-body");
-    if (card && body) mnOpenActPanel(card, body, mnPanelTitleHtml(titleEl), want);
+    requestAnimationFrame(() => {
+      const card = [...list.querySelectorAll("[data-panel-key]")].find(c => c.dataset.panelKey === want);
+      const titleEl = card?.querySelector(".mn-act-compact-title");
+      const body = card?.querySelector(".mn-act-body");
+      if (card && body) mnOpenActPanel(card, body, mnPanelTitleHtml(titleEl), want);
+    });
   }
 }
 // Moves every card built into the hidden #mn-inactive-source into a collapsed
@@ -22387,6 +23575,18 @@ function mnRegroupInactiveCards(bodyEl, acts) {
 }
 
 function renderTargetManageContent(student, target) {
+  // Whether this edit belongs to a group, decided ONCE, here.
+  //
+  // _groupForTargetEdit is a module flag, and closeManageModal clears it on
+  // the way out. The saves below can run after that: the panel holds the
+  // write while it is open, so closing the window is what finally releases
+  // it. By then the flag said "not a group", and a group target was written
+  // as a STUDENT document under the group's id -- `student` here IS the
+  // group object when a group is being edited.
+  //
+  // Reading it once means the save cannot change its mind about where it is
+  // going between the edit and the write.
+  const editingGroup = _groupForTargetEdit;
   $("manage-modal-title").textContent = target.name;
   target.predefinedActivities = normalizeActivitiesFormat(target.predefinedActivities || []);
   // Proposals join the live list for the duration of the edit, on a copy. The
@@ -22404,21 +23604,51 @@ function renderTargetManageContent(student, target) {
   }
 
   const acts = target.predefinedActivities;
+  _mnOpenTargetName = target.name;
+  // This drawing. Everything below that writes checks it is still current.
+  const myRender = ++_mnRenderSeq;
+
+  // Clear blank rows on the way IN as well as on the way out.
+  //
+  // A blank row is allowed to sit there while this screen is open: adding a
+  // parent creates a blank sub-activity that has to survive the save which
+  // names the parent. Done clears them -- but closing the tab, or the back
+  // arrow, never runs Done, and nobody should open this and find an empty row
+  // waiting from last time.
+  //
+  // ONLY on open. This function also runs on every redraw, and sweeping
+  // there removed a new parent and its sub-activity as soon as they appeared.
+  //
+  // After mergePendingForEdit, so it sees proposals too: an assistant's blank
+  // sub-activity lives in pendingActivities and would be invisible here
+  // otherwise. saveTarget splits them back out as it writes.
+  const _sweepNow = _mnSweepOnOpen;
+  _mnSweepOnOpen = false;
+  if (_sweepNow && sweepBlankActs(acts)) {
+    target.predefinedActivities = acts;
+    // Deferred: saveTarget is declared further down this function, and the
+    // list on screen should not wait on a write.
+    Promise.resolve().then(() => saveTarget().catch(() => {}));
+  }
 
   const saveTarget = async () => {
     // While an activity panel is open nothing is written. The panel offers
     // Discard Changes, and a discard can only put things back if they never
     // left. Save and Close lifts the hold and writes once.
     if (_mnPanelHold) { _mnPanelSaveWanted = true; return; }
+    if (myRender === _mnDeclinedRender) return;   // this drawing was declined
+    // Same question as flushSave asks, and it is only asked once per change
+    // made elsewhere.
+    if (!mnWarnIfStale()) return;
     // The split version, not the editor's copy. Handing back the merged list
     // would put the proposals straight into the object the session screen
     // reads, which is the leak this whole arrangement exists to prevent.
     const i = student.targets.findIndex(t => t.id === target.id);
     if (i >= 0) student.targets[i] = splitPendingTarget(target);
-    if (_groupForTargetEdit) {
-      const gi = state.groups.findIndex(g => g.id === _groupForTargetEdit.id);
-      if (gi >= 0) state.groups[gi] = _groupForTargetEdit;
-      await saveGroup(_groupForTargetEdit);
+    if (editingGroup) {
+      const gi = state.groups.findIndex(g => g.id === editingGroup.id);
+      if (gi >= 0) state.groups[gi] = editingGroup;
+      await saveGroup(editingGroup);
     } else {
       const si = state.students.findIndex(s => s.id === student.id);
       if (si >= 0) state.students[si] = student;
@@ -22437,7 +23667,7 @@ function renderTargetManageContent(student, target) {
     });
     if (orphanFixed) {
       acts.forEach((a, i) => a.order = i);
-      (_groupForTargetEdit ? saveGroup(_groupForTargetEdit) : saveStudent(student)).catch(() => {});
+      (editingGroup ? saveGroup(editingGroup) : saveStudent(student)).catch(() => {});
     }
   }
 
@@ -22449,7 +23679,7 @@ function renderTargetManageContent(student, target) {
         delete a.fixedRemark;
       }
     });
-    (_groupForTargetEdit ? saveGroup(_groupForTargetEdit) : saveStudent(student)).catch(() => {});
+    (editingGroup ? saveGroup(editingGroup) : saveStudent(student)).catch(() => {});
   }
 
   // Backfill activeFrom: any activity/subactivity missing it gets "2026-01-01" as default
@@ -22459,14 +23689,14 @@ function renderTargetManageContent(student, target) {
         a.activeFrom = "2026-01-01";
       }
     });
-    (_groupForTargetEdit ? saveGroup(_groupForTargetEdit) : saveStudent(student)).catch(() => {});
+    (editingGroup ? saveGroup(editingGroup) : saveStudent(student)).catch(() => {});
   }
 
   // Self-heal: clear isArchived from discontinued activities (set by old bug in btn-mn-switch-status)
   {
     let _archFixed = false;
     acts.forEach(a => { if (a.isArchived && a.discontinuedOn) { delete a.isArchived; _archFixed = true; } });
-    if (_archFixed) (_groupForTargetEdit ? saveGroup(_groupForTargetEdit) : saveStudent(student)).catch(() => {});
+    if (_archFixed) (editingGroup ? saveGroup(editingGroup) : saveStudent(student)).catch(() => {});
   }
 
   const masteredActs     = acts.filter(a => !a.isHeading && !a.isNote && !a.isExportNote && !a.isMaintain && !a.isMaintainHeading && (a.masteredOn || a.isCompleted));
@@ -22474,17 +23704,17 @@ function renderTargetManageContent(student, target) {
   // Use the currently-loaded session's date (if any) so that when the user
   // opens Edit Target while viewing a past session, Discontinued/Mastered is
   // stamped with that session's date rather than today's.
-  const _refDate = _groupForTargetEdit
+  const _refDate = editingGroup
     ? (state.groupSessionData?.date || todayDateStr())
     : (state.sessionData?.date || todayDateStr());
   const _refDateLabel = fmtPeriodDate(_refDate);
 
   let html = `
     <div class="admin-section">
-      <label class="admin-label">Target Name</label>
+      <label class="admin-section-title" for="mn-t-name">Target Name</label>
       <input class="admin-input" id="mn-t-name" value="${escHtml(target.name)}" />
     </div>
-    ${_groupForTargetEdit ? `
+    ${editingGroup ? `
     <div class="admin-section">
       <div class="admin-label-row">
         <label class="admin-label">Layout</label>
@@ -22740,8 +23970,8 @@ function renderTargetManageContent(student, target) {
               ${mnStatusKebabHtml(a, idx, true)}
               <button class="mn-km-add-sub" data-idx="${idx}" style="width:100%;padding:.55rem .9rem;text-align:left;background:none;border:none;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:.84rem;color:#374151">➕ Add sub-activity</button>
               <div style="display:flex;align-items:stretch">
-                <button class="mn-km-opt" data-idx="${idx}" data-action="delete" style="flex:1;padding:.55rem .9rem;text-align:left;background:none;border:none;cursor:pointer;font-size:.84rem;color:#dc2626">🗑️ Delete Activity</button>
-                <span title="Deletes this activity and all its sub-activities." style="padding:.55rem .5rem;cursor:default;color:#9ca3af;font-size:.8rem;display:flex;align-items:center">ⓘ</span>
+                <button class="mn-km-opt" data-idx="${idx}" data-action="delete" style="flex:1;padding:.55rem .9rem;text-align:left;background:none;border:none;cursor:pointer;font-size:.84rem;color:#dc2626">${subActivitiesOf(a, acts).length ? "🗑️ Delete Parent Activity &amp; All Its Sub-activities" : "🗑️ Delete Activity"}</button>
+                <span title="${subActivitiesOf(a, acts).length ? `Deletes this parent and its ${subActivitiesOf(a, acts).length} sub-activity/ies, with all of their past session data.` : 'Permanently removes this activity and all of its session data.'}" style="padding:.55rem .5rem;cursor:default;color:#9ca3af;font-size:.8rem;display:flex;align-items:center">ⓘ</span>
               </div>
             </div>
           </div>
@@ -23111,6 +24341,9 @@ function renderTargetManageContent(student, target) {
   html += `</div>`; // close #mn-inactive-source
 
   html += `
+    <!-- Headed like the list above it, so the buttons read as their own
+         section rather than as another row in the list. -->
+    <div class="admin-section-title" style="margin-top:1.1rem">Add New</div>
     <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.25rem">
       <button class="btn-admin-add" id="btn-mn-add-act" style="flex:0 0 auto;width:auto">+ Add Activity</button>
       <button class="btn-admin-add" id="btn-mn-add-parent" style="flex:0 0 auto;width:auto">+ Add Parent Activity with Sub-activities</button>
@@ -23118,9 +24351,7 @@ function renderTargetManageContent(student, target) {
       <button class="btn-admin-add" id="btn-mn-add-note" style="flex:0 0 auto;width:auto">+ Add Note</button>
     </div>
     <div style="margin-top:2rem;padding-bottom:1.5rem">
-      <button class="btn-primary-sm" id="btn-mn-done-target"
-        style="width:100%;padding:.75rem;margin-bottom:.75rem">Done</button>
-      ${_groupForTargetEdit ? `<button class="btn-adm-danger" id="btn-mn-del-target">Delete This Target</button>` : ''}
+      ${editingGroup ? `<button class="btn-adm-danger" id="btn-mn-del-target">Delete This Target</button>` : ''}
     </div>`;
 
   // A re-render replaces the very card the panel borrowed its fields from, so
@@ -23131,6 +24362,7 @@ function renderTargetManageContent(student, target) {
   // listener is bound, so every handler below finds them in their final home.
   mnRegroupInactiveCards($("manage-modal-body"), acts);
   mnInitActivityCollapse($("manage-modal-body"), acts);
+  attachRichEditors($("manage-modal-body"));
   wireAssistantMenuLock($("manage-modal-body"), acts);
   applyAssistantReadOnly($("manage-modal-body"), acts);
   $("manage-modal-body").querySelectorAll(".admin-list-item textarea").forEach(autoResizeTextarea);
@@ -23142,12 +24374,42 @@ function renderTargetManageContent(student, target) {
   _mnPanelHost = {
     acts,
     rerender: () => renderTargetManageContent(student, target),
-    // splitPendingTarget for the same reason saveTarget uses it: handing the
-    // editor's merged copy back would put proposals into the object the rest of
-    // the app reads.
-    flushSave: async () => { const i = student.targets.findIndex(t => t.id === target.id); if (i >= 0) student.targets[i] = splitPendingTarget(target);
-      if (_groupForTargetEdit) { const gi = state.groups.findIndex(g => g.id === _groupForTargetEdit.id); if (gi >= 0) state.groups[gi] = _groupForTargetEdit; await saveGroup(_groupForTargetEdit); }
-      else { const si = state.students.findIndex(s => s.id === student.id); if (si >= 0) state.students[si] = student; await saveStudent(student); } },
+    /**
+     * Put the edited list back where the rest of the app reads it, writing
+     * nothing.
+     *
+     * This screen does NOT edit the target the app reads. mergePendingForEdit
+     * hands it a merged COPY, so state only ever sees what gets pushed back
+     * here. Save and Close pushed it back; Discard Changes did not, and that
+     * was the bug: it restored its own copy, the screen was rebuilt from
+     * state, and the text that had just been thrown away was still there.
+     *
+     * splitPendingTarget for the same reason saveTarget uses it: handing the
+     * editor's merged copy back would put proposals into the object the rest
+     * of the app reads.
+     */
+    syncState: () => {
+      const i = student.targets.findIndex(t => t.id === target.id);
+      if (i >= 0) student.targets[i] = splitPendingTarget(target);
+      if (editingGroup) {
+        const gi = state.groups.findIndex(g => g.id === editingGroup.id);
+        if (gi >= 0) state.groups[gi] = editingGroup;
+      } else {
+        const si = state.students.findIndex(s => s.id === student.id);
+        if (si >= 0) state.students[si] = student;
+      }
+    },
+    flushSave: async () => {
+      // Asked here rather than only when the window closes. Save and Close on
+      // an activity panel writes straight through this, so a window holding
+      // an older copy could undo somebody else's approval without ever being
+      // asked -- and the approved activity came back as a proposal.
+      if (myRender === _mnDeclinedRender) return;   // this drawing was declined
+      if (!mnWarnIfStale()) return;
+      _mnPanelHost.syncState();
+      if (editingGroup) await saveGroup(editingGroup);
+      else await saveStudent(student);
+    },
     student, target
   };
 
@@ -23190,7 +24452,7 @@ function renderTargetManageContent(student, target) {
   $("mn-t-name").addEventListener("blur", async () => {
     const v = $("mn-t-name").value.trim();
     if (!v || v === target.name) return;
-    const ownerTargets = (_groupForTargetEdit || student).targets || [];
+    const ownerTargets = (editingGroup || student).targets || [];
     if (ownerTargets.some(t => t.id !== target.id && t.name === v)) {
       alert(`A target named "${v}" already exists. Please use a different name.`);
       $("mn-t-name").value = target.name;
@@ -23344,11 +24606,16 @@ function renderTargetManageContent(student, target) {
     btn.addEventListener("click", () => {
       const field = $(btn.dataset.inputId);
       if (!field) return;
+      const rich = field._richTwin;
       if (btn.classList.contains("btn-fmt-bullet")) {
-        toggleBulletSelection(field);
-      } else {
-        wrapTextareaSelection(field, btn.classList.contains("btn-fmt-bold") ? "*" : "_");
+        if (rich) richToggleBullet(rich); else toggleBulletSelection(field);
+        return;
       }
+      if (rich) {
+        richToggle(rich, btn.classList.contains("btn-fmt-bold") ? "bold" : "underline");
+        return;
+      }
+      wrapTextareaSelection(field, btn.classList.contains("btn-fmt-bold") ? "*" : "_");
     });
   });
 
@@ -23378,8 +24645,8 @@ function renderTargetManageContent(student, target) {
       let affected = 0;
       let affectedSessions = [];
       try {
-        const allSessions = _groupForTargetEdit
-          ? await getAllSessionsForGroup(_groupForTargetEdit.id)
+        const allSessions = editingGroup
+          ? await getAllSessionsForGroup(editingGroup.id)
           : await getAllSessionsForStudent(student.id);
         const paKey = item._linkKey || item.title || item.name;
         const toCheck = [{ name: item.name, title: item.title, paPA: item.parentActivity || null }];
@@ -23474,9 +24741,9 @@ function renderTargetManageContent(student, target) {
           await saveTarget();
           try {
             await softDeleteActivityAcrossSessions(
-              _groupForTargetEdit ? "group" : "student",
-              _groupForTargetEdit ? _groupForTargetEdit.id   : student.id,
-              _groupForTargetEdit ? _groupForTargetEdit.name : student.name,
+              editingGroup ? "group" : "student",
+              editingGroup ? editingGroup.id   : student.id,
+              editingGroup ? editingGroup.name : student.name,
               target.name, item.name, item.parentActivity || null
             );
           } catch (err) {
@@ -23583,7 +24850,7 @@ function renderTargetManageContent(student, target) {
         const origText = btn.textContent;
         btn.disabled = true; btn.textContent = "Checking…";
         let result = { date: null, subName: null };
-        try { result = await maGetLastDataDate(_groupForTargetEdit || student, target, sub, !!_groupForTargetEdit); }
+        try { result = await maGetLastDataDate(editingGroup || student, target, sub, !!editingGroup); }
         finally { btn.disabled = false; btn.textContent = origText; }
         return result;
       };
@@ -23675,17 +24942,19 @@ function renderTargetManageContent(student, target) {
         } else {
           btn.disabled = true;
           btn.textContent = "Checking…";
+          // Everything that is about to go. Worked out once and used by the
+          // count, the wording and the delete, so the three cannot disagree.
+          const _delSubs = subActivitiesOf(pa, acts);
           let affected = 0;
           let affectedSessions = [];
           try {
-            const allSessions = _groupForTargetEdit
-              ? await getAllSessionsForGroup(_groupForTargetEdit.id)
+            const allSessions = editingGroup
+              ? await getAllSessionsForGroup(editingGroup.id)
               : await getAllSessionsForStudent(student.id);
             // Include sub-activities when checking a parent activity
             const paKey = pa._linkKey || pa.title || pa.name;
             const toCheck = [{ name: pa.name, title: pa.title, paPA: pa.parentActivity || null }];
-            (acts || []).filter(a => a.parentActivity === paKey && !a.isHeading && !a.isNote && !a.isExportNote)
-              .forEach(sub => toCheck.push({ name: sub.name, title: sub.title, paPA: paKey }));
+            _delSubs.forEach(sub => toCheck.push({ name: sub.name, title: sub.title, paPA: paKey }));
             const _tmpRx2 = /\(temp(orary)?\)$/i;
             affectedSessions = allSessions.filter(s => {
               const sActs = s.activities || {}; const sRems = s.remarks || {};
@@ -23710,7 +24979,9 @@ function renderTargetManageContent(student, target) {
             affected = affectedSessions.length;
           } catch { affected = -1; }
           btn.disabled = false;
-          btn.textContent = "🗑️ Delete Activity";
+          btn.textContent = _delSubs.length
+            ? "🗑️ Delete Parent Activity & All Its Sub-activities"
+            : "🗑️ Delete Activity";
           {
             const confirmWord = affected > 0 ? String(affected) : "DELETE";
             $("manage-modal").querySelectorAll("[data-del-overlay]").forEach(el => el.remove());
@@ -23725,12 +24996,13 @@ function renderTargetManageContent(student, target) {
                  }${affectedSessions.length > 5 ? `<li style="color:#9ca3af">  …and ${affectedSessions.length - 5} more</li>` : ''}</ul>` : "";
             const hasData = affected > 0;
             overlay.innerHTML = `<div style="background:#fff;padding:1.25rem;border-radius:.75rem;width:min(320px,92%);box-shadow:0 4px 24px rgba(0,0,0,.25);margin-bottom:1rem">
-              <p style="font-size:.88rem;margin:0 0 .5rem;color:#111;font-weight:700">⚠️ Delete "${escHtml(pa.title || pa.name || 'this activity')}"?</p>
+              <p style="font-size:.88rem;margin:0 0 .5rem;color:#111;font-weight:700">⚠️ ${_delSubs.length ? `Delete the &quot;${escHtml(pa.title || pa.name || 'this activity')}&quot; parent activity?` : `Delete &quot;${escHtml(pa.title || pa.name || 'this activity')}&quot;?`}</p>
+              ${_delSubs.length ? `<p style="font-size:.84rem;margin:0 0 .5rem;color:#b91c1c;font-weight:600">Its ${_delSubs.length} sub-activit${_delSubs.length === 1 ? "y" : "ies"} will also get deleted. ${_delSubs.length === 1 ? "This is the sub-activity" : "These are the sub-activities"}:</p><ul style="font-size:.82rem;color:#374151;margin:0 0 .6rem;padding-left:0;list-style:none;line-height:1.8">${_delSubs.map(sb => `<li>• ${escHtml(sb.title || sb.name || "(untitled)")}</li>`).join("")}</ul>` : ""}
               ${hasData
                 ? `<p style="font-size:.84rem;margin:0 0 .4rem;color:#374151">This activity contains data from ${affected} session${affected !== 1 ? "s" : ""}. Deleting it will permanently remove all associated data.</p>
                    ${sessionDateList}
-                   <p style="font-size:.84rem;margin:0 0 .6rem;color:#374151">We recommend selecting <strong>"Mark as Discontinued"</strong> instead. This will remove the activity from future sessions while keeping your past data intact.</p>
-                   <p style="font-size:.84rem;margin:0 0 .35rem;color:#374151">To confirm deletion, type: <strong>${confirmWord}</strong></p>
+                   <p style="font-size:.84rem;margin:0 0 .6rem;color:#374151">${_delSubs.length ? `Instead of deleting this parent activity and all its sub-activities, we recommend selecting <strong>&quot;Mark as Discontinued&quot;</strong>.` : `We recommend selecting <strong>&quot;Mark as Discontinued&quot;</strong> instead.`} This will remove the activity from future sessions while keeping your past data intact.</p>
+                   <p style="font-size:.84rem;margin:0 0 .35rem;color:#374151">However, if you still wish to confirm deletion, type: <strong>${confirmWord}</strong></p>
                    <input id="del-type-input" type="text" autocomplete="off" inputmode="numeric"
                      style="width:100%;box-sizing:border-box;padding:.45rem .6rem;border:2px solid #d1d5db;border-radius:.4rem;font-size:1.1rem;text-align:center;outline:none;margin-bottom:.6rem" placeholder="${confirmWord}">`
                 : `<p style="font-size:.84rem;margin:0 0 .4rem;color:#374151">We checked all sessions — <strong>0 sessions</strong> have data for this activity.</p>
@@ -23760,20 +25032,35 @@ function renderTargetManageContent(student, target) {
             okBtn.addEventListener("click", async () => {
               if (inp && inp.value !== confirmWord) return;
               overlay.remove();
-              const actIdx = acts.indexOf(pa);
-              if (actIdx >= 0) { acts.splice(actIdx, 1); acts.forEach((a, i) => a.order = i); }
+              // The sub-activities go with the parent.
+              //
+              // Only the parent used to be removed. Its sub-activities stayed
+              // in the list pointing at a parent that no longer existed, so
+              // they were invisible on every screen and their past session
+              // data was never moved to the trash -- while the menu's own
+              // tooltip said they had been deleted.
+              const paKeyForDel = pa._linkKey || pa.title || pa.name;
+              const family = [pa, ..._delSubs];
+              for (const member of family) {
+                const at = acts.indexOf(member);
+                if (at >= 0) acts.splice(at, 1);
+              }
+              acts.forEach((a, i) => a.order = i);
               target.predefinedActivities = acts;
               await saveTarget();
-              try {
-                await softDeleteActivityAcrossSessions(
-                  _groupForTargetEdit ? "group" : "student",
-                  _groupForTargetEdit ? _groupForTargetEdit.id   : student.id,
-                  _groupForTargetEdit ? _groupForTargetEdit.name : student.name,
-                  target.name, pa.name, pa.parentActivity || null
-                );
-              } catch (err) {
-                console.error("Failed to move activity to trash:", err);
-                alert("Activity removed from config, but failed to move past session data to trash:\n" + err.message);
+              for (const member of family) {
+                try {
+                  await softDeleteActivityAcrossSessions(
+                    editingGroup ? "group" : "student",
+                    editingGroup ? editingGroup.id   : student.id,
+                    editingGroup ? editingGroup.name : student.name,
+                    target.name, member.name,
+                    member === pa ? (pa.parentActivity || null) : paKeyForDel
+                  );
+                } catch (err) {
+                  console.error("Failed to move activity to trash:", err);
+                  alert("Removed from the list, but its past session data could not be moved to the trash:\n" + err.message);
+                }
               }
               renderTargetManageContent(student, target);
             });
@@ -23794,8 +25081,8 @@ function renderTargetManageContent(student, target) {
       btn.disabled = true; btn.textContent = "Checking…";
       let affectedSessions = [];
       try {
-        const allSessions = _groupForTargetEdit
-          ? await getAllSessionsForGroup(_groupForTargetEdit.id)
+        const allSessions = editingGroup
+          ? await getAllSessionsForGroup(editingGroup.id)
           : await getAllSessionsForStudent(student.id);
         affectedSessions = allSessions.filter(s => {
           const sActs = s.activities || {}; const sRems = s.remarks || {};
@@ -23852,7 +25139,7 @@ function renderTargetManageContent(student, target) {
       // one began: it then appeared, unfilled, in every session since.
       // The session's own date rather than today, so a sub added while writing up
       // an earlier session belongs to that session.
-      const _newSubDate = _groupForTargetEdit
+      const _newSubDate = editingGroup
         ? (state.groupSessionData?.date || todayDateStr())
         : (state.sessionData?.date || todayDateStr());
       const newSub = { id: subId, title: "", name: "", parentActivity: paKey, order: 0, activeFrom: _newSubDate, createdOn: todayDateStr() };
@@ -23939,8 +25226,8 @@ function renderTargetManageContent(student, target) {
             pickBtn.textContent = "Checking…";
             let affectedSessions = [];
             try {
-              const allSessions = _groupForTargetEdit
-                ? await getAllSessionsForGroup(_groupForTargetEdit.id)
+              const allSessions = editingGroup
+                ? await getAllSessionsForGroup(editingGroup.id)
                 : await getAllSessionsForStudent(student.id);
               affectedSessions = allSessions.filter(s => {
                 const sActs = s.activities || {}; const sRems = s.remarks || {};
@@ -24050,7 +25337,7 @@ function renderTargetManageContent(student, target) {
         const origText = btn.textContent;
         btn.disabled = true; btn.textContent = "Checking…";
         let result = { date: null, subName: null };
-        try { result = await maGetLastDataDate(_groupForTargetEdit || student, target, pa, !!_groupForTargetEdit); }
+        try { result = await maGetLastDataDate(editingGroup || student, target, pa, !!editingGroup); }
         finally { btn.disabled = false; btn.textContent = origText; }
         return result;
       };
@@ -24203,8 +25490,8 @@ function renderTargetManageContent(student, target) {
       btn.disabled = true; btn.textContent = "Checking…";
       let latestDate = null;
       try {
-        const allSessions = _groupForTargetEdit
-          ? await getAllSessionsForGroup(_groupForTargetEdit.id)
+        const allSessions = editingGroup
+          ? await getAllSessionsForGroup(editingGroup.id)
           : await getAllSessionsForStudent(student.id);
         const paName = pa.title || pa.name;
         const paParent = pa.parentActivity || null;
@@ -24351,8 +25638,8 @@ function renderTargetManageContent(student, target) {
     let affected = 0;
     let affectedSessions = [];
     try {
-      const allSessions = _groupForTargetEdit
-        ? await getAllSessionsForGroup(_groupForTargetEdit.id)
+      const allSessions = editingGroup
+        ? await getAllSessionsForGroup(editingGroup.id)
         : await getAllSessionsForStudent(student.id);
       const paPA2 = pa.parentActivity || null;
         affectedSessions = allSessions.filter(s =>
@@ -24417,9 +25704,9 @@ function renderTargetManageContent(student, target) {
           await saveTarget();
           try {
             await softDeleteActivityAcrossSessions(
-              _groupForTargetEdit ? "group" : "student",
-              _groupForTargetEdit ? _groupForTargetEdit.id   : student.id,
-              _groupForTargetEdit ? _groupForTargetEdit.name : student.name,
+              editingGroup ? "group" : "student",
+              editingGroup ? editingGroup.id   : student.id,
+              editingGroup ? editingGroup.name : student.name,
               target.name, pa.name, pa.parentActivity || null
             );
           } catch (err) {
@@ -24541,7 +25828,7 @@ function renderTargetManageContent(student, target) {
       // Told to whoever asked for it. Recorded on the entity being edited, which
       // for a group target is the group rather than the student standing in for
       // it here.
-      noteApproval(_groupForTargetEdit || student, proposer, currentUser()?.id);
+      noteApproval(editingGroup || student, proposer, currentUser()?.id);
       target.predefinedActivities = acts;
       await saveTarget().catch(() => {});
       renderTargetManageContent(student, target);
@@ -24591,7 +25878,7 @@ function renderTargetManageContent(student, target) {
 
   $("btn-mn-add-act").addEventListener("click", () => {
     const btn = $("btn-mn-add-act"); if (btn) btn.disabled = true;
-    const _newActDate = _groupForTargetEdit ? (state.groupSessionData?.date || todayDateStr()) : (state.sessionData?.date || todayDateStr());
+    const _newActDate = editingGroup ? (state.groupSessionData?.date || todayDateStr()) : (state.sessionData?.date || todayDateStr());
     // Opened straight away: a brand new activity has nothing to read and every
     // field still to fill in.
     const _newAct = { id: cfgId("a"), name: "", order: acts.length, createdOn: todayDateStr(), activeFrom: _newActDate };
@@ -24634,7 +25921,7 @@ function renderTargetManageContent(student, target) {
    */
   $("btn-mn-add-parent").addEventListener("click", () => {
     const btn = $("btn-mn-add-parent"); if (btn) btn.disabled = true;
-    const _newDate = _groupForTargetEdit
+    const _newDate = editingGroup
       ? (state.groupSessionData?.date || todayDateStr())
       : (state.sessionData?.date || todayDateStr());
     const linkKey = cfgId("pk");
@@ -24647,20 +25934,34 @@ function renderTargetManageContent(student, target) {
       order: acts.length + 1, createdOn: todayDateStr(), activeFrom: _newDate,
     };
     if (proposesOnly()) { markAsProposal(parent); markAsProposal(sub); }
+    // Open the parent's panel on the way out of the render, the same as
+    // "+ Add Activity" does.
+    //
+    // The title field lives inside the card's collapsed body, so it is
+    // hidden until that body is moved into the panel. Focusing it before
+    // then did nothing at all: the list scrolled, no field took the caret,
+    // and adding a parent looked like it had not worked.
+    _mnPanelOpenAfterRender = parent.id;
     acts.push(parent, sub);
     acts.forEach((a2, i) => { a2.order = i; });
     target.predefinedActivities = acts;
     renderTargetManageContent(student, target);
     // Straight into the parent's title. It is the one field that must be filled
     // before the modal will close, and it is what the sub-activities hang off.
-    requestAnimationFrame(() => {
-      const input = $(`mn-act-title-${acts.length - 2}`);
-      if (input) {
-        input.focus();
-        input.classList.add("input-bg-blink");
-        input.addEventListener("animationend", () => input.classList.remove("input-bg-blink"), { once: true });
-      }
-    });
+    //
+    // Found by the parent's OWN id, not by counting back from the end of the
+    // list. For an assistant both new rows are proposals, so the drawn list is
+    // mergePendingForEdit's copy and the last two entries are not necessarily
+    // these two -- the field was never found, nothing took focus, and adding a
+    // parent looked like it had done nothing but scroll.
+    // Once the panel has it, put the caret in the title.
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      const input = document.querySelector("#mn-act-panel-overlay .mn-act-title-input");
+      if (!input) return;
+      input.focus();
+      input.classList.add("input-bg-blink");
+      input.addEventListener("animationend", () => input.classList.remove("input-bg-blink"), { once: true });
+    }));
     saveTarget().catch(() => {});
   });
 
@@ -24669,7 +25970,7 @@ function renderTargetManageContent(student, target) {
     // The session's date, not null. A note added today belongs to today, the
     // same as an activity added today; a null start meant it was treated as
     // having been there since the beginning.
-    const _newNoteDate = _groupForTargetEdit
+    const _newNoteDate = editingGroup
       ? (state.groupSessionData?.date || todayDateStr())
       : (state.sessionData?.date || todayDateStr());
     const _newNote = { id: cfgId("n"), isNote: true, text: "", order: acts.length, activeFrom: _newNoteDate };
@@ -24704,8 +26005,8 @@ function renderTargetManageContent(student, target) {
       let affected = 0;
       let affectedSessions = [];
       try {
-        const allSessions = _groupForTargetEdit
-          ? await getAllSessionsForGroup(_groupForTargetEdit.id)
+        const allSessions = editingGroup
+          ? await getAllSessionsForGroup(editingGroup.id)
           : await getAllSessionsForStudent(student.id);
         const paPA = subAct.parentActivity || null;
         affectedSessions = allSessions.filter(s => {
@@ -24741,9 +26042,9 @@ function renderTargetManageContent(student, target) {
         await saveTarget();
         try {
           await softDeleteActivityAcrossSessions(
-            _groupForTargetEdit ? "group" : "student",
-            _groupForTargetEdit ? _groupForTargetEdit.id   : student.id,
-            _groupForTargetEdit ? _groupForTargetEdit.name : student.name,
+            editingGroup ? "group" : "student",
+            editingGroup ? editingGroup.id   : student.id,
+            editingGroup ? editingGroup.name : student.name,
             target.name, subAct.name, subAct.parentActivity || null
           );
         } catch (err) {
@@ -24811,8 +26112,8 @@ function renderTargetManageContent(student, target) {
   // for a group. Pick the query that matches the entity actually being edited.
   const getSessionsCached = () => {
     if (!_sessionsPromise) {
-      _sessionsPromise = _groupForTargetEdit
-        ? getAllSessionsForGroup(_groupForTargetEdit.id)
+      _sessionsPromise = editingGroup
+        ? getAllSessionsForGroup(editingGroup.id)
         : getAllSessionsForStudent(student.id);
     }
     return _sessionsPromise;
@@ -25605,7 +26906,6 @@ function renderTargetManageContent(student, target) {
     });
   });
 
-  $("btn-mn-done-target").addEventListener("click", closeManageModal);
 
   $("btn-mn-del-target")?.addEventListener("click", async () => {
     const typed1 = prompt(`This will permanently delete "${target.name}" and ALL its session data across every date.\n\nType DELETE to confirm:`);
@@ -25614,9 +26914,9 @@ function renderTargetManageContent(student, target) {
     if (typed2 !== "DELETE") return;
     student.targets = student.targets.filter(t => t.id !== target.id);
     student.targets.forEach((t, i) => t.order = i);
-    if (_groupForTargetEdit) {
-      await saveGroup(_groupForTargetEdit);
-      await deleteGroupTargetDataFromSessions(_groupForTargetEdit.id, target.name);
+    if (editingGroup) {
+      await saveGroup(editingGroup);
+      await deleteGroupTargetDataFromSessions(editingGroup.id, target.name);
     } else {
       await saveStudent(student);
       await deleteTargetDataFromSessions(student.id, target.name);
@@ -26132,6 +27432,7 @@ function renderTemplateManageContent(template) {
   // See renderTargetManageContent — relocate before listeners are bound.
   mnRegroupInactiveCards($("manage-modal-body"), acts);
   mnInitActivityCollapse($("manage-modal-body"), acts);
+  attachRichEditors($("manage-modal-body"));
   wireAssistantMenuLock($("manage-modal-body"), acts);
   applyAssistantReadOnly($("manage-modal-body"), acts);
   $("manage-modal-body").querySelectorAll(".admin-list-item textarea").forEach(autoResizeTextarea);
@@ -26271,11 +27572,16 @@ function renderTemplateManageContent(template) {
     btn.addEventListener("click", () => {
       const field = $(btn.dataset.inputId);
       if (!field) return;
+      const rich = field._richTwin;
       if (btn.classList.contains("btn-fmt-bullet")) {
-        toggleBulletSelection(field);
-      } else {
-        wrapTextareaSelection(field, btn.classList.contains("btn-fmt-bold") ? "*" : "_");
+        if (rich) richToggleBullet(rich); else toggleBulletSelection(field);
+        return;
       }
+      if (rich) {
+        richToggle(rich, btn.classList.contains("btn-fmt-bold") ? "bold" : "underline");
+        return;
+      }
+      wrapTextareaSelection(field, btn.classList.contains("btn-fmt-bold") ? "*" : "_");
     });
   });
 
@@ -27280,7 +28586,9 @@ function renderGroupSessionHeader(data) {
 function populateGroupTargetDropdown(targets) {
   const sel = $("group-target-select");
   if (!sel) return;
-  const sorted = sortTargetsByOrder(targets).filter(t => !t.discontinuedOn);
+  // Same as the individual screen: judged against the session's own date.
+  const _grpSessDate = state.groupSessionData?.date || todayDateStr();
+  const sorted = sortTargetsByOrder(targets).filter(t => targetActiveOn(t, _grpSessDate));
   // Rewriting the options closes an open menu, so the list is left alone while
   // the user is reading it. Everything below still runs: skipping the whole
   // function here would leave the Edit Target button unwired.
@@ -27639,9 +28947,15 @@ function buildGroupItemsByActivity(target, data, attendees, _grpFilterPaSet = nu
   const allPas = target.predefinedActivities || [];
 
   // Pre-compute sub-activities per parent (group sessions: ignore activeFrom date)
+  //
+  // A row with no name and no details is skipped, the same as the individual
+  // screen does. One can exist for a while now -- adding a parent creates a
+  // blank sub-activity that has to survive until it is filled in -- and it
+  // must never reach this screen, where it would be an empty line in front of
+  // a client. The individual screen already checked; this one did not.
   const grpSubsByParent = new Map();
   for (const pa of allPas) {
-    if (pa.parentActivity && !pa.isCompleted && !pa.isArchived && !pa.isStopped && !pa.masteredOn && !pa.discontinuedOn) {
+    if (pa.parentActivity && (pa.title || pa.name || "").trim() && !pa.isCompleted && !pa.isArchived && !pa.isStopped && !pa.masteredOn && !pa.discontinuedOn) {
       if (!grpSubsByParent.has(pa.parentActivity)) grpSubsByParent.set(pa.parentActivity, []);
       grpSubsByParent.get(pa.parentActivity).push(pa);
     }
@@ -27815,7 +29129,7 @@ function buildGroupItemsByActivity(target, data, attendees, _grpFilterPaSet = nu
         groupHtml += `<div style="border:1px solid var(--border);border-left:5px solid var(--primary);background:var(--white);border-top:1px solid var(--border);border-radius:${subRadius};overflow:hidden">
           <div style="padding:.4rem .6rem;display:flex;align-items:center;gap:.45rem">
             ${_subDot}<span style="flex-shrink:0;background:#dbeafe;color:#1e40af;border-radius:.4rem;padding:.12rem .5rem;font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em;white-space:nowrap">Subactivity</span>
-            <span style="font-size:.85rem;font-weight:700;color:#374151"><span style="color:#1e40af">${letters[si]})</span> ${escHtml(sub.title || sub.name)}</span>${inactiveReasonBadge(sub)}
+            <span style="font-size:.85rem;font-weight:700;color:#374151"><span style="color:#1e40af">${letters[si]})</span> ${inactiveReasonBadge(sub)}${paDisplayHtml(sub)}</span>
             ${_subCreatedDate ? `<span style="font-size:.75rem;color:#9ca3af;white-space:nowrap;margin-left:auto">Created: ${fmtPeriodDate(_subCreatedDate)}</span>` : ""}
             ${sub.id ? `<button class="btn-icon btn-grp-edit-pencil" contenteditable="false" data-pa-id="${escHtml(sub.id)}" title="Edit in Edit Target" style="font-size:.85rem;opacity:.55;line-height:1">✏️</button>` : ""}
           </div>
@@ -29159,8 +30473,24 @@ function renderGroupSessionsForMonth(group, month, monthSessions, byMonth, sessi
 }
 
 // ── Group manage modal ───────────────────────────────────────
-function openGroupManageModal(group, target = null, scrollToPaId = null) {
-  mnDetachPanel(true); _mnPanelHold = false; _mnPanelSnapshot = null;   // never inherit a panel from the last target
+function openGroupManageModal(group, target = null, scrollToPaId = null, _lockHeld = false) {
+  if (target && !_lockHeld) {
+    mnOpenWhenFree(group, target, true, () =>
+      openGroupManageModal(group, target, scrollToPaId, true));
+    return;
+  }
+  // Opening the screen is when blank rows left behind by a closed tab go.
+  _mnSweepOnOpen = true;
+  if (target) mnWatchWhileEditing(group, true);
+  // never inherit a panel from the last target
+  //
+  // _mnPanelSaveWanted was missed here. It is what tells the window it
+  // has work that has not been written, and a window that was left by the
+  // back arrow rather than by Done carried it into the NEXT window --
+  // which then treated the very first copy the database handed it as
+  // somebody else's change.
+  mnDetachPanel(true); _mnPanelHold = false; _mnPanelSnapshot = null;
+  _mnPanelSaveWanted = false;
   $("manage-modal").classList.remove("hidden");
   if (target) {
     _groupForTargetEdit = group;

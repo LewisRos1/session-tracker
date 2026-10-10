@@ -1522,6 +1522,49 @@ input.field-input::placeholder {
 
 .modal-close:hover { background: var(--bg); color: var(--text); }
 
+/* One way out, not two.
+
+   Edit Target had a full-width Done at the bottom AND an X at the top, and
+   it was never clear which one meant "keep what I typed". There is one now,
+   and it says what it does. */
+/* The idle countdown, beside Done. Said quietly: it is a note, not a
+   warning, and a clock counting down at someone while they work is its own
+   small stress. Tabular figures so the width does not jitter each second. */
+/* An approved row, seen by an assistant. The whole row refuses the click and
+   says who can change it, so the cursor should say so before the click.
+   The kebab and the mastered/discontinued toggles still work, so they keep
+   a pointer. */
+.mn-locked-row, .mn-locked-row * { cursor: not-allowed !important; }
+.mn-locked-row .mn-inact-toggle,
+.mn-locked-row .mn-kebab-btn,
+.mn-locked-row .mn-sub-kebab-wrap,
+.mn-locked-row .mn-sub-kebab-wrap * { cursor: pointer !important; }
+
+.mn-lock-countdown {
+  /* The header spreads its children apart, so without this the note lands in
+     the middle of the bar instead of against the button it belongs to. */
+  margin-left: auto;
+  font-size: .78rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  margin-right: .6rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.modal-close-done {
+  background: var(--primary);
+  color: #fff;
+  border: none;
+  font-size: .92rem;
+  font-weight: 700;
+  letter-spacing: .01em;
+  padding: .42rem 1.3rem;
+  border-radius: .5rem;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.modal-close-done:hover { background: var(--primary-dark); color: #fff; }
+
 .score-buttons {
   display: flex;
   flex-direction: column;
@@ -4629,9 +4672,34 @@ button.wf-pill:hover { filter: brightness(.93); }
    Padding every child pushed the chip, the title and the kebab around
    individually, which is what sent the row's own layout to pieces. */
 .mn-pending-card {
+  --pending-strip: 14rem;
   position: relative;
-  padding-right: 14rem !important;
+  padding-right: var(--pending-strip) !important;
   box-sizing: border-box;
+}
+/* A proposed PARENT holds its sub-activities inside its own card, and each
+   of those rows is a proposal with an approval tag of its own. The strip is
+   therefore reserved twice over them: once by the parent and again by the
+   row, so a sub-activity ended about 240px short of the card it sits in and
+   its tag sat well left of the parent's.
+
+   The list takes the parent's strip back. Each row still reserves its own,
+   so the two tags line up down the right-hand edge. */
+.mn-act-card.mn-pending-card > .mn-sub-compact-list {
+  margin-right: calc(-1 * var(--pending-strip));
+}
+/* ...but not while the Approve / Reject column is on screen.
+
+   That column is about 102px tall against a 58px title row, so it reaches
+   down the right-hand side and over the sub-activities. Taking the strip
+   back there put the sub-activity's own tag and buttons underneath the
+   parent's, one set of buttons on top of the other.
+
+   So the strip is only reclaimed for the short, tag-only column that
+   everyone else sees. A reviewer keeps the inset, which is what holds the
+   two button columns apart. */
+.mn-act-card.mn-pending-card.mn-pending-decide > .mn-sub-compact-list {
+  margin-right: 0;
 }
 /* Two columns. The tag and both buttons live in the first, so they share a
    left edge and a width; the kebab sits in the second, level with the tag and
@@ -4681,7 +4749,18 @@ button.wf-pill:hover { filter: brightness(.93); }
    which not every browser this runs on understands. Only when the buttons are
    actually there: with just the tag, the reserved height would be empty
    space. */
+/* Even with only the tag showing, a proposed sub-activity row has to be tall
+   enough to hold it: the column starts .55rem down and is a line tall, so a
+   plain one-line row left the tag a few pixels below its own border. */
+.mn-sub-compact.mn-pending-card { min-height: 3.05rem; }
 .mn-pending-card.mn-pending-decide { min-height: 8.1rem; }
+/* A sub-activity whose parent has not been approved yet explains why its own
+   Approve is greyed out, and that explanation sits above the buttons, so the
+   column does not fit the 8.1rem a plain one needs and the Reject button
+   dropped through the bottom of the row. Measured against the rendered
+   column: the note wraps to two lines, which comes to just under 9.9rem
+   with the offset at the top and a little room underneath. */
+.mn-pending-card.mn-pending-decide.mn-pending-blocked { min-height: 9.9rem; }
 .mn-pending-foot .mn-pending-hint { max-width: none; white-space: normal; text-align: center; }
 
 /* Same size as the title it sits under, with a gap above so the two read as
@@ -4712,7 +4791,9 @@ button.wf-pill:hover { filter: brightness(.93); }
 
 @media (max-width: 760px) {
   /* No room for a column beside the text, so it goes back under it. */
-  .mn-pending-card { padding-right: .6rem !important; }
+  /* The variable goes with it, which cancels the claw-back above: with no
+     strip reserved there is nothing for the sub-activity list to take back. */
+  .mn-pending-card { --pending-strip: .6rem; padding-right: .6rem !important; }
   .mn-pending-foot {
     position: static;
     width: 100%;
@@ -4737,6 +4818,7 @@ button.wf-pill:hover { filter: brightness(.93); }
   padding: .5rem .75rem;
   margin: 0 0 .75rem;
 }
+
 .mn-pending-banner-count {
   font-size: .95rem;
   font-weight: 700;
@@ -4855,10 +4937,30 @@ button.wf-pill:hover { filter: brightness(.93); }
   border: 1.5px solid var(--border);
   border-radius: var(--radius-sm);
   box-shadow: 0 8px 24px rgba(0,0,0,.18);
-  max-height: 17rem;
+  /* Ten rows at a time. Seven fitted before, which on a student with a dozen
+     targets left the list looking like the whole list -- people went looking
+     for the missing ones rather than scrolling. Capped against the viewport so
+     it cannot run off the bottom of a short screen. */
+  max-height: min(26rem, 60vh);
   overflow-y: auto;
   padding: .25rem;
+  /* Firefox */
+  scrollbar-width: auto;
+  scrollbar-color: #9ca3af #f3f4f6;
 }
+/* A scrollbar that says there is more. The thin default sat almost invisible
+   against the white list, which is what made the list look complete. */
+.tc-list::-webkit-scrollbar { width: 12px; }
+.tc-list::-webkit-scrollbar-track {
+  background: #f3f4f6;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+.tc-list::-webkit-scrollbar-thumb {
+  background: #9ca3af;
+  border-radius: 6px;
+  border: 2px solid #f3f4f6;
+}
+.tc-list::-webkit-scrollbar-thumb:hover { background: #6b7280; }
 .tc-list[hidden] { display: none; }
 .tc-opt {
   display: flex;
@@ -5014,6 +5116,21 @@ button.wf-pill:hover { filter: brightness(.93); }
 }
 .pw-eye:hover { opacity: .7; }
 .pw-eye.is-on { opacity: 1; }
+/* The eye is drawn, not an emoji: Windows renders the emoji as a dark
+   shaded eyeball, and the boss found it unsettling on a sign-in box. Thin
+   even stroke and no fill, the way Windows draws its own. */
+.pw-eye svg {
+  display: block;
+  width: 1.15rem;
+  height: 1.15rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+/* Held down: the pupil fills in, so it is clear the password is showing. */
+.pw-eye.is-on svg circle { fill: currentColor; stroke: none; }
 /* Room for it, so a long password never runs underneath. */
 .float-field input#login-pw-input { padding-right: 2.4rem !important; }
 
@@ -5023,3 +5140,46 @@ button.wf-pill:hover { filter: brightness(.93); }
 .mn-act-clickable input,
 .mn-act-clickable textarea,
 .mn-act-clickable select { cursor: auto; }
+
+/* ── Details boxes that show their formatting ─────────────── */
+/* The textarea is still there and still the thing that gets saved; it is only
+   out of sight. Not display:none, because a field that is not laid out cannot
+   be measured or scrolled to. */
+.mn-rich-hidden {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  border: 0 !important;
+  overflow: hidden !important;
+  clip: rect(0 0 0 0) !important;
+  white-space: nowrap !important;
+}
+/* Matches .admin-input, so swapping one for the other is invisible. */
+.mn-rich {
+  width: 100%;
+  box-sizing: border-box;
+  padding: .55rem .75rem;
+  border: none;
+  font-size: .93rem;
+  font-family: var(--font);
+  line-height: 1.45;
+  color: var(--text);
+  background: var(--bg);
+  outline: none;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  min-height: 1.45em;
+  cursor: text;
+}
+.mn-rich:focus { background: var(--white); }
+/* contenteditable has no placeholder of its own. */
+.mn-rich:empty::before {
+  content: attr(data-placeholder);
+  color: var(--text-muted);
+  pointer-events: none;
+}
+.mn-rich b, .mn-rich strong { font-weight: 700; }
+.mn-rich u { text-decoration: underline; }
+.mn-rich.mn-locked-field { cursor: not-allowed !important; }
