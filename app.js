@@ -226,7 +226,7 @@ function versionLineText() {
   return `Made by Lewis · Version ${APP_VERSION}`;
 }
 
-const APP_VERSION = "2220";
+const APP_VERSION = "2227";
 
 // Debug helpers — call from F12 console
 // -1) Recover multiple-choice options wiped by the v2072-and-earlier panel bug:
@@ -2277,7 +2277,41 @@ document.addEventListener("DOMContentLoaded", async () => {
  * Change the string to do it again. Each browser clears itself once and
  * remembers that it has, so it is a single sign-out and not a loop.
  */
-const SESSION_EPOCH = "2026-10-08-named-accounts";
+/**
+ * The Monday of the week we are in, as YYYY-MM-DD.
+ *
+ * Monday starts the week, so Sunday belongs to the week just gone rather
+ * than the one about to start. getDay() calls Sunday 0, hence the shift.
+ *
+ * Read from the device clock, so everyone rolls over at their own midnight.
+ * The whole team is in one place, so that is the same midnight for all of
+ * them, and a laptop with the wrong date only signs its own user out.
+ */
+function weekStartStamp(now = new Date()) {
+  const d = new Date(now);
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+  const two = n => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())}`;
+}
+
+/**
+ * Everyone signs in again at the start of each week.
+ *
+ * Lewis asked for this so that nobody forgets their own password: a session
+ * that never ends is a password never typed, and the first time it is needed
+ * is the worst time to find out it has been forgotten.
+ *
+ * The week is part of the string, so it changes by itself every Monday and
+ * each browser signs itself out once when it next opens. Nobody is working
+ * at midnight, and a sign-out mid-screen would be a far worse thing to do
+ * than wait, so this only happens on opening the app.
+ *
+ * The named-accounts part stays in front: a browser that has still not been
+ * signed out for that change gets it now, and keeping it documents what the
+ * string is for. Add another piece to force an extra sign-out at any time.
+ */
+const SESSION_EPOCH = "2026-10-08-named-accounts|week-" + weekStartStamp();
 const SESSION_EPOCH_KEY = "sessionEpoch";
 const sessionEpochStale = () => localStorage.getItem(SESSION_EPOCH_KEY) !== SESSION_EPOCH;
 const markSessionEpoch  = () => localStorage.setItem(SESSION_EPOCH_KEY, SESSION_EPOCH);
@@ -3150,13 +3184,13 @@ function renderTodoTiles(results, filterInst = null) {
     if (inst.id === "nigel" && isParticipant && !checks["p1_nigel"]) tasks.push("Enter Data");
     if (inst.id === "daisy" && !ws.daisyOnly) {
       ws.p3Ids.filter(id => ws.p1Done(id) && !ws.p2EffDone(id)).forEach(id => {
-        tasks.push("Check " + (INSTRUCTORS.find(i => i.id === id) || { name: id }).name[0] + "1");
+        tasks.push(`Check #1 (${instructorName(id)})`);
       });
     }
     if (inst.id !== "daisy" && isParticipant && ws.p2EffDone(inst.id) && !ws.noCorr(inst.id) && !ws.p3Done(inst.id)) tasks.push("Revision");
     if (inst.id === "daisy" && !ws.daisyOnly) {
       ws.p3Ids.filter(id => ws.p3Done(id) && !ws.p4CheckDone(id)).forEach(id => {
-        tasks.push("Check " + (INSTRUCTORS.find(i => i.id === id) || { name: id }).name[0] + "2");
+        tasks.push(`Check #2 (${instructorName(id)})`);
       });
     }
     if (inst.id === "nigel" && ws.ready && !ws.p4Done && !isMonthly) tasks.push("Export");
@@ -3278,13 +3312,13 @@ function renderTodoTiles(results, filterInst = null) {
       if (inst.id === "nigel" && isParticipant && !checks["p1_nigel"]) tasks.push("Enter Data");
       if (inst.id === "daisy" && !ws.daisyOnly) {
         ws.p3Ids.filter(id => ws.p1Done(id) && !ws.p2EffDone(id)).forEach(id => {
-          tasks.push("Check " + (INSTRUCTORS.find(i => i.id === id) || { name: id }).name[0] + "1");
+          tasks.push(`Check #1 (${instructorName(id)})`);
         });
       }
       if (inst.id !== "daisy" && isParticipant && ws.p2EffDone(inst.id) && !ws.noCorr(inst.id) && !ws.p3Done(inst.id)) tasks.push("Revision");
       if (inst.id === "daisy" && !ws.daisyOnly) {
         ws.p3Ids.filter(id => ws.p3Done(id) && !ws.p4CheckDone(id)).forEach(id => {
-          tasks.push("Check " + (INSTRUCTORS.find(i => i.id === id) || { name: id }).name[0] + "2");
+          tasks.push(`Check #2 (${instructorName(id)})`);
         });
       }
       if (inst.id === "nigel" && ws.ready && !ws.p4Done && !isMonthly) tasks.push("Export");
@@ -15131,9 +15165,22 @@ let _grpSigningName      = "";
 let _stickyNoteSessionId      = null;
 let _stickyNoteIsGroup        = false;
 let _stickyNoteInstructorId   = null; // which instructor's corrections are shown
+/**
+ * The order the rows are in, settled when the note is opened.
+ *
+ * Whatever is waiting on the person reading goes to the top, so Ms. Daisy can
+ * work straight down the list. Settled ONCE and then kept: the note redraws on
+ * every keystroke and on every change from another device, and re-sorting
+ * there would pull a row out from under whoever was typing in it the instant
+ * they changed its status.
+ */
+let _snoteOrder = null;
 let _noteDebounce           = null;
 let _focusNewRow            = false;
 let _phase3Error            = null; // error string shown in Phase 3 node, auto-clears
+// Its own, so a refusal from Ms. Daisy's phase does not appear under
+// somebody else's. Approving the corrections is asked for in Phase 4 now.
+let _phase4Error            = null; // the same, for Phase 4
 const _textareaDebounce     = new Map();
 
 /**
@@ -15808,23 +15855,70 @@ function showWorkflowToast(msg) {
 }
 
 /**
- * The three statuses as people say them, rather than as they are stored.
+ * A correction is one conversation going back and forth, not two opinions.
  *
- * "", "fixed" and "rejected" are what Firestore holds and are not changed
- * here: renaming the stored values would strand every correction already
- * written. Only the words on screen change, and a blank circle is now a
- * labelled choice, because an empty cell said nothing about whether anyone had
- * looked at the row.
+ * It was a single box anyone could set to Undone, Corrected or Still Wrong,
+ * which said what had been decided but never who was holding the row. Lewis
+ * asked for a second column -- one for Ms. Daisy, one for whoever is being
+ * corrected -- and noticed himself that hers would have to drive theirs. Two
+ * boxes that always agree are one box, and two that can disagree ("approved"
+ * beside "undone") leave nobody able to say what is true. So it is one box
+ * that names whose turn it is.
+ *
+ * `turn` is who the row is waiting on, which is what the button outside
+ * counts. `who` is whose choice the state is to make: Done belongs to the
+ * person doing the fixing, Approved to Ms. Daisy, and Needs Revision to
+ * both, so she can send a row back.
+ *
+ * The STORED values are untouched. "" and "fixed" already exist in Firestore
+ * and renaming them would strand every correction ever written.
+ * "fixed" in particular still means finished -- every phase in the workflow
+ * asks whether a row is "fixed" -- so a session completed last month stays
+ * completed and Phase 3 does not reopen behind anybody. The new middle state
+ * needed a new value of its own, and that is "done": the work is done, the
+ * checking is not.
  */
 const CORRECTION_STATUSES = [
-  { value: "",         label: "Undone",      cls: "snote-status--empty"    },
-  { value: "fixed",    label: "Corrected",   cls: "snote-status--fixed"    },
-  { value: "rejected", label: "Still Wrong", cls: "snote-status--rejected" },
+  { value: "",      label: "Needs Revision", turn: "them",  who: "both",  cls: "snote-status--empty"   },
+  { value: "done",  label: "Done",           turn: "daisy", who: "them",  cls: "snote-status--waiting" },
+  { value: "fixed", label: "Approved",       turn: null,    who: "daisy", cls: "snote-status--fixed"   },
 ];
 
-// Returns null | "fixed" | "rejected" for a correction entry.
+/** Whether the person signed in may put a row into this state. */
+const mayPickCorrection = o =>
+  o.who === "both" || (o.who === "daisy") === canSignOffCorrections();
+
+/**
+ * "rejected" is retired.
+ *
+ * It said "Still wrong, fix again", which is the same thing as Needs
+ * Revision: the row is back with the person being corrected. Two words for
+ * one state only made the dropdown longer. Rows written before this still
+ * hold it, so they are read as Needs Revision and quietly take the new value
+ * the next time anybody touches them. Nothing has to be migrated.
+ */
+const normaliseCorrection = v => (v === "rejected" ? "" : (v || ""));
+
+/** The row for a stored value, falling back to the first (Needs Revision). */
+const correctionState = v =>
+  CORRECTION_STATUSES.find(o => o.value === normaliseCorrection(v)) || CORRECTION_STATUSES[0];
+
+/**
+ * Is the person signed in Ms. Daisy, for the purpose of signing work off?
+ *
+ * Lewis counts too. He is the one who has to put things right when the app
+ * gets it wrong, and locking him out of a dropdown helps nobody. Anyone the
+ * app does not recognise gets the cautious half.
+ */
+const canSignOffCorrections = () => ["daisy", "lewis"].includes(currentUser()?.id);
+
+/** Whose turn a row is on: "them", "daisy", or null when it is finished. */
+const correctionTurn = c => correctionState(getCmtStatus(c)).turn;
+
+// Returns null | "" | "done" | "fixed" for a correction entry. Older rows can
+// still say "rejected"; normaliseCorrection reads that as Needs Revision.
 function getCmtStatus(c) {
-  if (c.fixStatus) return c.fixStatus;  // new field ("fixed" | "rejected")
+  if (c.fixStatus) return c.fixStatus;  // "done" | "fixed" | legacy "rejected"
   if (c.fixedByName) return "fixed";    // backward compat
   return null;
 }
@@ -15875,10 +15969,26 @@ function getWorkflowState(data) {
     const a = c.assignedTo;
     return !a || a.length === 0 || a.includes(id);
   });
-  const allFixedFor = id => {
-    const mine = commentsFor(id);
-    return mine.length === 0 || mine.every(([, c]) => getCmtStatus(c) === "fixed");
-  };
+  /**
+   * Phase 3 is the instructor's own phase, Phase 4 is Ms. Daisy's, so they
+   * ask different questions.
+   *
+   * Both used to ask whether every row was Approved, which meant Rayhanah
+   * could mark her whole list Done, see "0 to fix" on her own button, and
+   * still be unable to tick Phase 3 -- because it was waiting on a decision
+   * that was not hers to make. Phase 4, the one that IS Ms. Daisy's, did not
+   * look at the corrections at all.
+   */
+  const notDoneFor     = id => commentsFor(id).filter(([, c]) => {
+    const st = normaliseCorrection(getCmtStatus(c));
+    return st !== "done" && st !== "fixed";
+  });
+  const notApprovedFor = id => commentsFor(id)
+    .filter(([, c]) => normaliseCorrection(getCmtStatus(c)) !== "fixed");
+  /** Phase 3: the instructor has dealt with every row. */
+  const allDoneFor     = id => notDoneFor(id).length === 0;
+  /** Phase 4: Ms. Daisy has approved every row. */
+  const allFixedFor    = id => notApprovedFor(id).length === 0;
   const allFixed = comments.length > 0 && comments.every(([, c]) => getCmtStatus(c) === "fixed");
 
   // ── No-corrections per instructor ─────────────────────────────
@@ -15958,7 +16068,7 @@ function getWorkflowState(data) {
     p2CheckRaw, p2CheckDone, p2CheckStale, p2EffDone, p2CheckAt, allP2Done,
     p4CheckRaw, p4CheckDone, allP4Done,
     p4Check, p4Done,
-    comments, commentsFor, allFixedFor,
+    comments, commentsFor, allFixedFor, allDoneFor, notDoneFor, notApprovedFor,
     commentsForPerson, allFixedForPerson,
     allFixed, noComments,
     ready, revisionDone, daisyOnly,
@@ -16143,6 +16253,7 @@ function renderCheckedByStripHtml(data, confirmRole, isGroup = false) {
   const p4Node = `<div class="wf-node wf-node--${p4State}">
     <div class="wf-node-label">Phase 4: Check #2</div>
     <div class="wf-node-body">${p4Body}</div>
+    ${_phase4Error ? `<div class="wf-error-msg">${escHtml(_phase4Error)}</div>` : ""}
   </div>`;
 
   // ── Phase 5: Export (Nigel) ───────────────────────────────────
@@ -16185,9 +16296,17 @@ function renderCheckedByStripHtml(data, confirmRole, isGroup = false) {
           // clears a row. An empty list and a fully corrected one both read
           // "0 left"; the green says which kind of nothing it is.
           const left = idComments.filter(([, c]) => getCmtStatus(c) !== "fixed").length;
+          // The number is what is waiting on the person reading it, so Ms.
+          // Daisy does not have to open the note to find out she is holding
+          // something. The colour still answers the other question -- whether
+          // the list is finished AT ALL -- so "0 to check" can sit on red
+          // while the fixing is still going on.
+          const mine = canSignOffCorrections() ? "daisy" : "them";
+          const yours = idComments.filter(([, c]) => correctionTurn(c) === mine).length;
+          const word  = mine === "daisy" ? "to check" : "to fix";
           const colorCls = left === 0 ? " wf-note-btn--green" : " wf-note-btn--red";
           return `<button class="wf-note-btn${colorCls}" data-action="open-note" data-inst-id="${escHtml(id)}">
-            📝 List of Corrections – ${escHtml(name)} (${left} left)
+            📝 List of Corrections – ${escHtml(name)} (${left === 0 ? "all approved" : `${yours} ${word}`})
           </button>`;
         }).join("")}
   </div>`;
@@ -16428,10 +16547,10 @@ async function handleCheckedByClick(e, isGroup) {
       const ws     = getWorkflowState(data);
       const id     = role.slice(3);
       const newDone = !ws.p3Done(id);
-      if (newDone && !ws.allFixedFor(id)) {
-        const notFixed = ws.commentsFor(id).filter(([, c]) => getCmtStatus(c) !== "fixed");
-        const nRemain = notFixed.length;
-        _phase3Error = `⚠ ${nRemain} task${nRemain === 1 ? "" : "s"} remain${nRemain === 1 ? "s" : ""} in the "List of Corrections – ${instName(id)}". Tick ${nRemain === 1 ? "it" : "them"} (✓) to complete this phase.`;
+      if (newDone && !ws.allDoneFor(id)) {
+        const n = ws.notDoneFor(id).length;
+        _phase4Error = null;
+        _phase3Error = `⚠ ${n} item${n === 1 ? "" : "s"} in the "List of Corrections – ${instName(id)}" ${n === 1 ? "is" : "are"} still Needs Revision. Set ${n === 1 ? "it" : "them"} to Done to complete this phase.`;
         rerender();
         return true;
       }
@@ -16452,6 +16571,17 @@ async function handleCheckedByClick(e, isGroup) {
     } else if (role.startsWith("p4_check_")) {
       const id  = role.slice("p4_check_".length);
       const ws  = getWorkflowState(data);
+      // Ms. Daisy's phase, so this is where approving the corrections is
+      // asked for. Only on the way IN: unticking has to stay possible, or a
+      // mistaken tick could never be taken back.
+      if (!ws.p4CheckDone(id) && !ws.allFixedFor(id)) {
+        const n = ws.notApprovedFor(id).length;
+        _phase3Error = null;
+        _phase4Error = `⚠ ${n} item${n === 1 ? "" : "s"} in the "List of Corrections – ${instName(id)}" ${n === 1 ? "is" : "are"} not Approved yet. Approve ${n === 1 ? "it" : "them"} to complete this phase.`;
+        rerender();
+        return true;
+      }
+      _phase4Error = null;
       const checks = { ...(data?.checks || {}) };
       try {
         if (!ws.p4CheckDone(id)) {
@@ -16493,9 +16623,34 @@ function renderStickyNoteContent(data, isGroup) {
 
   const ws  = getWorkflowState(data);
   // Filter comments to the open instructor
-  const visible = _stickyNoteInstructorId
+  let visible = _stickyNoteInstructorId
     ? ws.commentsFor(_stickyNoteInstructorId)
     : ws.comments;
+
+  // Yours first, then anything still going, then what is finished. Worked out
+  // once per opening and remembered, so the list cannot reshuffle mid-edit.
+  const mine = canSignOffCorrections() ? "daisy" : "them";
+  if (!_snoteOrder) {
+    const rank = ([, c]) => {
+      const turn = correctionTurn(c);
+      if (turn === mine) return 0;
+      if (turn === null) return 2;     // approved, nothing left to do
+      return 1;                        // waiting on the other person
+    };
+    _snoteOrder = visible
+      .map((row, i) => ({ row, i }))
+      .sort((a, b) => rank(a.row) - rank(b.row) || a.i - b.i)
+      .map(({ row }) => row[0]);
+  }
+  {
+    const at = new Map(_snoteOrder.map((id, i) => [id, i]));
+    // A row added since the note opened has no place yet, so it goes last.
+    visible = visible
+      .map((row, i) => ({ row, i }))
+      .sort((a, b) => (at.has(a.row[0]) ? at.get(a.row[0]) : 1e9 + a.i)
+                    - (at.has(b.row[0]) ? at.get(b.row[0]) : 1e9 + b.i))
+      .map(({ row }) => row);
+  }
 
   // Preserve scroll position
   const scrollEl    = tbody.closest(".snote-list-scroll");
@@ -16512,15 +16667,44 @@ function renderStickyNoteContent(data, isGroup) {
   } else {
     tbody.innerHTML = visible.map(([id, c], i) => {
       const text = (focusedCmtId === id && liveText !== null) ? liveText : (c.text || "");
-      const st = getCmtStatus(c) || "";
-      const stCls = (CORRECTION_STATUSES.find(o => o.value === st) || CORRECTION_STATUSES[0]).cls;
-      const rowCls = st === "fixed" ? " snote-row--done" : st === "rejected" ? " snote-row--rejected" : "";
-      const opts = CORRECTION_STATUSES.map(o =>
-        `<option value="${o.value}"${o.value === st ? " selected" : ""}>${escHtml(o.label)}</option>`).join("");
+      const st = normaliseCorrection(getCmtStatus(c));
+      const state = correctionState(st);
+      const stCls = state.cls;
+      const rowCls = st === "fixed" ? " snote-row--done"
+        : st === "done" ? " snote-row--waiting" : "";
+      // Each person sees their own two choices.
+      //
+      //   Nigel / Rayhanah   Needs Revision, Done
+      //   Ms. Daisy          Needs Revision, Approved
+      //
+      // Approved is hers because nobody signs off their own work. Done is
+      // theirs because saying the work is finished is their statement to
+      // make, not hers. Needs Revision belongs to both, and is how she sends
+      // a row back.
+      //
+      // The state the row is actually in is always listed, or the box would
+      // show the wrong thing -- but greyed out when it is not this person's
+      // to choose, so it reads as information rather than an option.
+      // Greyed out says you cannot, not why. Hovering says why.
+      const whoMayPick = o => o.who === "daisy"
+        ? "Only Ms. Daisy can approve."
+        : `Only ${instructorName(_stickyNoteInstructorId) || "the instructor"} can set this to ${o.label}.`;
+      const opts = CORRECTION_STATUSES
+        .filter(o => mayPickCorrection(o) || o.value === st)
+        .map(o => mayPickCorrection(o)
+          ? `<option value="${o.value}"${o.value === st ? " selected" : ""}>${escHtml(o.label)}</option>`
+          : `<option value="${o.value}"${o.value === st ? " selected" : ""} disabled`
+            + ` title="${escHtml(whoMayPick(o))}">${escHtml(o.label)}</option>`)
+        .join("");
+      // A tooltip on an <option> is not shown by every browser, so the box
+      // itself carries the same sentence as a fallback.
+      const lockedNote = CORRECTION_STATUSES
+        .filter(o => !mayPickCorrection(o))
+        .map(whoMayPick).join(" ");
       return `<tr class="snote-row${rowCls}">
         <td class="snote-no">${i + 1}</td>
         <td class="snote-text"><textarea class="snote-textarea" data-cmt-id="${id}" rows="1" placeholder="Type here…">${escHtml(text)}</textarea></td>
-        <td class="snote-tick"><select class="snote-status-sel ${stCls}" data-cmt-id="${id}">${opts}</select></td>
+        <td class="snote-tick"><select class="snote-status-sel ${stCls}" data-cmt-id="${id}"${lockedNote ? ` title="${escHtml(lockedNote)}"` : ""}>${opts}</select></td>
         <td class="snote-del"><button class="snote-del-btn" data-cmt-id="${id}" title="Delete row">🗑</button></td>
       </tr>`;
     }).join("");
@@ -16554,6 +16738,7 @@ function openStickyNote(sessionId, isGroup, data, instructorId = null) {
   _stickyNoteSessionId    = sessionId;
   _stickyNoteIsGroup      = !!isGroup;
   _stickyNoteInstructorId = instructorId || null;
+  _snoteOrder = null;      // settle the order again for this opening
   const el = document.getElementById("sticky-note");
   if (!el) return;
   el.style.width   = "";
