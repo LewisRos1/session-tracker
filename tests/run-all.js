@@ -36,6 +36,9 @@ results.push(await run("Everyone signs in again each Monday (no browser)",
 results.push(await run("List of Corrections: three states, Ms. Daisy approves (no browser)",
   ["run", "--allow-read", "tests/corrections-status.test.js"]));
 
+results.push(await run("AI Translator: swapping text inside a .docx (no browser)",
+  ["run", "--allow-read", "tests/docx-text-swap.test.js"]));
+
 results.push(await run("the app starts in a real browser",
   ["run", "-A", "tests/browser/smoke.test.js", HARNESS]));
 
@@ -59,6 +62,15 @@ results.push(await run("A window must not ask about an earlier window",
 
 results.push(await run("The Undo button is actually visible",
   ["run", "-A", "tests/browser/sticky-note-undo.test.js", HARNESS]));
+
+results.push(await run("AI Translator: the screen and what it tells the model",
+  ["run", "-A", "tests/browser/ai-translator.test.js", HARNESS]));
+
+results.push(await run("The Student Database at half a screen",
+  ["run", "-A", "tests/browser/student-database-layout.test.js", HARNESS]));
+
+results.push(await run("The kebab menu on a short screen",
+  ["run", "-A", "tests/browser/kebab-menu-position.test.js", HARNESS]));
 
 results.push(await run("What an assistant may and may not touch",
   ["run", "-A", "tests/browser/assistant-readonly.test.js", HARNESS]));

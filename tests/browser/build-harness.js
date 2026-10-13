@@ -370,6 +370,11 @@ const exposed = [
   // test had it running until it turned out to be the one calling the
   // refresh with no guards at all.
   "watchConfigForOpenSession",
+  // The AI Translator screen, and the pieces its tests drive directly.
+  "openAiTranslateScreen", "renderAiTranslateBody", "translateInstructions",
+  "openStudentRegistryScreen",
+  "translateChunks", "translateChunkPrompt", "translateParseReply",
+  "renderStudentDatabaseButton",
 ];
 let shim = `
 
