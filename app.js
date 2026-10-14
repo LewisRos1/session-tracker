@@ -227,7 +227,7 @@ function versionLineText() {
   return `Made by Lewis · Version ${APP_VERSION}`;
 }
 
-const APP_VERSION = "2245";
+const APP_VERSION = "2248";
 
 // Debug helpers — call from F12 console
 // -1) Recover multiple-choice options wiped by the v2072-and-earlier panel bug:
@@ -6565,6 +6565,41 @@ function hyrDrawActivityBreakdown(targetName, activities, period, year) {
   return canvas.toDataURL("image/png").split(",")[1];
 }
 
+/**
+ * What each direction looks like, everywhere it is shown.
+ *
+ * The overview chart had these colours and the per-target line charts drew
+ * the same three words in flat grey, so the same fact was green on one page
+ * and grey on the next. One map now, read by both.
+ */
+const HYR_DIRECTION = {
+  Improving: { icon: "↑", color: "#16a34a" },
+  Declining: { icon: "↓", color: "#dc2626" },
+  Stable:    { icon: "→", color: "#6b7280" },
+};
+const hyrDirectionOf = (delta) => delta > 8 ? "Improving" : delta < -8 ? "Declining" : "Stable";
+
+/**
+ * Whether the chart being drawn right now is a Chinese one.
+ *
+ * The charts are drawn by the same code either way, so rather than thread a
+ * language through every one of them this is set for the length of a single
+ * redraw. Fixed words ask chartWord for themselves; a word with no Chinese
+ * of its own comes back as it went in.
+ */
+let _chartZh = false;
+const chartWord = (en) => (_chartZh && CHART_FIXED_ZH[en]) ? CHART_FIXED_ZH[en] : en;
+/** The same, named for where it reads best: Improving, Declining, Stable. */
+const chartStatusWord = chartWord;
+/**
+ * A date range, or a single month, written the Chinese way while a Chinese
+ * chart is being drawn.
+ *
+ * The months are not in the fixed word list because they are not whole
+ * phrases -- they arrive stuck to a year, or as a range with a dash.
+ */
+const chartPeriod = (label) => (_chartZh ? periodLabelZh(label) : label);
+
 function hyrDrawLineChart(targetName, labels, values, period, year, tStart, tEnd, delta, direction) {
   const SCALE = 2;
   const W = 580, H = 330;
@@ -6592,7 +6627,12 @@ function hyrDrawLineChart(targetName, labels, values, period, year, tStart, tEnd
     ? `${allPts[0].label} ${_lcFirst.y} - ${_lcR.endShort} ${_lcR.endY}`
     : _lcR.shortLabel;
   ctx.fillStyle = "#1f2937"; ctx.font = "bold 16px sans-serif"; ctx.textAlign = "center";
-  ctx.fillText(`${(targetName || "").trim()} (${rangeLabel})`, W / 2, 24);
+  // The brackets are the Chinese ones on a Chinese chart. A half-width ")"
+  // beside Chinese text is what put a number on a line of its own before.
+  const _lcName = (targetName || "").trim();
+  ctx.fillText(_chartZh
+    ? `${_lcName}（${periodLabelZh(rangeLabel)}）`
+    : `${_lcName} (${rangeLabel})`, W / 2, 24);
 
   // Fixed 0–100 Y range; Y-axis labels hidden (data point labels carry the values)
   const toY = v => PAD.top + cH * (1 - v / 100);
@@ -6652,9 +6692,10 @@ function hyrDrawLineChart(targetName, labels, values, period, year, tStart, tEnd
   // Trend annotation subtitle — use pre-computed delta/direction if available
   const dispDelta = delta ?? Math.round(tStartVal !== tEndVal ? tEndVal - tStartVal : ys[ys.length-1] - ys[0]);
   const dispDir   = direction ?? (dispDelta > 8 ? "Improving" : dispDelta < -8 ? "Declining" : "Stable");
-  const icon   = dispDir === "Improving" ? "↑" : dispDir === "Declining" ? "↓" : "→";
-  ctx.fillStyle = "#6b7280"; ctx.font = "italic 16px sans-serif"; ctx.textAlign = "center";
-  ctx.fillText(`${icon} ${dispDir}`, W / 2, 42);
+  const dirStyle = HYR_DIRECTION[dispDir] || HYR_DIRECTION.Stable;
+  const icon   = dirStyle.icon;
+  ctx.fillStyle = dirStyle.color; ctx.font = "italic 16px sans-serif"; ctx.textAlign = "center";
+  ctx.fillText(`${icon} ${chartStatusWord(dispDir)}`, W / 2, 42);
 
   // Data line — skip nulls, don't connect across gaps
   ctx.strokeStyle = "#4472c4"; ctx.lineWidth = 2.5;
@@ -6677,7 +6718,7 @@ function hyrDrawLineChart(targetName, labels, values, period, year, tStart, tEnd
 
   // Month labels on X-axis — all months including empty positions
   ctx.fillStyle = "#374151"; ctx.font = "14px sans-serif"; ctx.textAlign = "center";
-  allPts.forEach(p => ctx.fillText(p.label, toX(p.i), PAD.top + cH + 16));
+  allPts.forEach(p => ctx.fillText(chartPeriod(p.label), toX(p.i), PAD.top + cH + 16));
 
   // Thin border around entire canvas
   ctx.strokeStyle = "#000000"; ctx.lineWidth = 1;
@@ -6707,9 +6748,9 @@ function hyrDrawOverviewChartB(chartTrendRows, title) {
   ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, W, H);
   if (title) { ctx.fillStyle = "#111827"; ctx.font = "bold 19px sans-serif"; ctx.textAlign = "center"; ctx.fillText(title, W / 2, 30); }
   ctx.save(); ctx.fillStyle = "#374151"; ctx.font = "bold 17px sans-serif"; ctx.textAlign = "center";
-  ctx.translate(42, PAD_TOP + TOP_H / 2); ctx.rotate(-Math.PI / 2); ctx.fillText("Overall Performance (%)", 0, 0); ctx.restore();
+  ctx.translate(42, PAD_TOP + TOP_H / 2); ctx.rotate(-Math.PI / 2); ctx.fillText(chartWord("Overall Performance (%)"), 0, 0); ctx.restore();
   ctx.save(); ctx.fillStyle = "#374151"; ctx.font = "bold 17px sans-serif"; ctx.textAlign = "center";
-  ctx.translate(42, BTM_Y0 + BTM_H / 2); ctx.rotate(-Math.PI / 2); ctx.fillText("Net Change (points)", 0, 0); ctx.restore();
+  ctx.translate(42, BTM_Y0 + BTM_H / 2); ctx.rotate(-Math.PI / 2); ctx.fillText(chartWord("Net Change (points)"), 0, 0); ctx.restore();
   for (const tick of [0, 20, 40, 60, 80, 100]) {
     const y = TOP_BTM_Y - (tick / 100) * TOP_H;
     ctx.strokeStyle = tick === 0 ? "#9ca3af" : "#e5e7eb"; ctx.lineWidth = 1;
@@ -6810,9 +6851,9 @@ function hyrDrawOverviewChartC(chartTrendRows, title) {
 
   // Column headers: Activity | Overall Progress (%) | Status
   ctx.fillStyle = "#374151"; ctx.font = "bold 15px sans-serif"; ctx.textAlign = "center";
-  ctx.fillText("Activity", NAME_W / 2, PAD_TOP + 18);
-  ctx.fillText("Overall Progress (%)", PERF_X + (PERF_W + PAD_VAL) / 2, PAD_TOP + 18);
-  ctx.fillText("Status", STATUS_CENTER_X, PAD_TOP + 18);
+  ctx.fillText(chartWord("Activity"), NAME_W / 2, PAD_TOP + 18);
+  ctx.fillText(chartWord("Overall Progress (%)"), PERF_X + (PERF_W + PAD_VAL) / 2, PAD_TOP + 18);
+  ctx.fillText(chartWord("Status"), STATUS_CENTER_X, PAD_TOP + 18);
 
   // Light gridlines at 25, 50, 75, 100 only (0% is covered by the bold Activity separator)
   [25, 50, 75, 100].forEach(v => {
@@ -6868,9 +6909,11 @@ function hyrDrawOverviewChartC(chartTrendRows, title) {
     // Status column: ±8 threshold
     const delta = r.delta ?? (r.tEnd - r.tStart);
     let statusText, statusColor;
-    if      (delta > 8)  { statusText = "↑ Improving"; statusColor = "#16a34a"; }
-    else if (delta < -8) { statusText = "↓ Declining"; statusColor = "#dc2626"; }
-    else                 { statusText = "→ Stable";    statusColor = "#6b7280"; }
+    // From the shared map, so a target that is Improving looks the same here
+    // as it does on its own line chart further down the report.
+    const dirName = hyrDirectionOf(delta);
+    statusText  = `${HYR_DIRECTION[dirName].icon} ${chartStatusWord(dirName)}`;
+    statusColor = HYR_DIRECTION[dirName].color;
     ctx.font = "15px sans-serif"; ctx.fillStyle = statusColor; ctx.textAlign = "center";
     ctx.fillText(statusText, STATUS_CENTER_X, cy + 6);
 
@@ -7146,7 +7189,15 @@ async function hyrDownloadWord(student, period, year, trendRows, categorized, pa
       const _wValues = r.values.slice(_wordGlobalFirstIdx);
       const lb64 = hyrDrawLineChart(r.name, _wLabels, _wValues, period, year, r.tStart, r.tEnd, r.delta, r.direction);
       if (lb64) paras.push(new Paragraph({
-        children: [new ImageRun({ data: b64ToUint8(lb64), transformation: { width: 540, height: 280 }, type: "png", outline: REPORT_CHART_BORDER })],
+        children: [new ImageRun({ data: b64ToUint8(lb64),
+          transformation: { width: 540, height: 280 }, type: "png", outline: REPORT_CHART_BORDER,
+          // Drawn at a fixed size in the document whatever shape the canvas
+          // is, so this one is never resized when it is drawn again.
+          altText: { name: "Target Progress", title: "", description: chartDataTag({
+            kind: "line", target: r.name, labels: _wLabels, values: _wValues,
+            period, year, tStart: r.tStart, tEnd: r.tEnd, delta: r.delta,
+            direction: r.direction,
+          }) } })],
         alignment: AlignmentType.CENTER, spacing: { after: 100 }
       }));
       paras.push(...obsParas(hyrPickObs(parsed[obsKey], r.name)));
@@ -7294,7 +7345,13 @@ async function hyrDownloadWord(student, period, year, trendRows, categorized, pa
     const ovDocW = 600;
     const ovH = Math.round(ovDocW * ovResult.height / ovNativeW);
     paragraphs.push(new Paragraph({
-      children: [new ImageRun({ data: b64ToUint8(ovResult.base64), transformation: { width: ovDocW, height: ovH }, type: "png", outline: REPORT_CHART_BORDER })],
+      children: [new ImageRun({ data: b64ToUint8(ovResult.base64),
+        transformation: { width: ovDocW, height: ovH }, type: "png", outline: REPORT_CHART_BORDER,
+        altText: { name: "Progress Overview", title: "", description: chartDataTag({
+          kind: "overview", baseW: ovNativeW, title: ovTitle,
+          titleZh: `${student.name}（${periodLabelZh(`${firstMonthName.slice(0, 3)} ${R.startY} - ${R.endShort} ${R.endY}`)}）`,
+          rows: chartTrendRows.map(r => ({ name: r.name, delta: r.delta, tStart: r.tStart, tEnd: r.tEnd })),
+        }) } })],
       alignment: AlignmentType.CENTER, spacing: { after: 60 }
     }));
   }
@@ -7882,7 +7939,7 @@ function assessmentDrawDayChart(scored, days, title) {
   ctx.fillText("Score (%)", 0, 0);
   ctx.restore();
   ctx.font = `bold ${F_BODY}px Arial`; ctx.fillStyle = "#111827"; ctx.textAlign = "center";
-  ctx.fillText("Target", W / 2, base + drop + Math.round(F_BODY * 0.9));
+  ctx.fillText(chartWord("Target"), W / 2, base + drop + Math.round(F_BODY * 0.9));
 
   ctx.font = `${F_BODY}px Arial`;
   const BOX = F_BODY, G = Math.round(F_BODY * 0.5), SP = Math.round(F_BODY * 1.4);
@@ -7965,7 +8022,7 @@ function assessmentDrawAvgChart(scored, title) {
   ctx.fillText("Score (%)", 0, 0);
   ctx.restore();
   ctx.font = `bold ${F_BODY}px Arial`; ctx.fillStyle = "#111827"; ctx.textAlign = "center";
-  ctx.fillText("Target", W / 2, base + drop + Math.round(F_BODY * 0.9));
+  ctx.fillText(chartWord("Target"), W / 2, base + drop + Math.round(F_BODY * 0.9));
 
   return { base64: canvas.toDataURL("image/png").split(",")[1], width: W, height: H };
 }
@@ -9215,8 +9272,8 @@ function monthlyDrawScoreBarChart(rows) {
   // Column headings
   ctx.fillStyle = "#f3f4f6"; ctx.fillRect(0, 0, W, HDR_H);
   ctx.fillStyle = "#374151"; ctx.font = `bold ${FONT_PX}px Arial`;
-  ctx.textAlign = "right"; ctx.fillText("Target", PAD_L - 14, HDR_H - 13);
-  ctx.textAlign = "center"; ctx.fillText("Score", PAD_L + plotW / 2, HDR_H - 13);
+  ctx.textAlign = "right"; ctx.fillText(chartWord("Target"), PAD_L - 14, HDR_H - 13);
+  ctx.textAlign = "center"; ctx.fillText(chartWord("Score"), PAD_L + plotW / 2, HDR_H - 13);
   ctx.strokeStyle = "#d1d5db"; ctx.lineWidth = 1;
   ctx.beginPath(); ctx.moveTo(0, HDR_H + 0.5); ctx.lineTo(W, HDR_H + 0.5); ctx.stroke();
 
@@ -9636,7 +9693,12 @@ async function monthlyDownloadWord(student, year, month, monthName, sessionCount
     const dispW = 620;
     summaryParas.push(new Paragraph({
       children: [new ImageRun({ data: b64ToUint8(barChart.base64),
-        transformation: { width: dispW, height: Math.round(dispW * barChart.height / barChart.width) }, type: "png", outline: REPORT_CHART_BORDER })],
+        transformation: { width: dispW, height: Math.round(dispW * barChart.height / barChart.width) },
+        type: "png", outline: REPORT_CHART_BORDER,
+        altText: { name: "Scores", title: "", description: chartDataTag({
+          kind: "monthlyBars", baseW: barChart.width,
+          rows: scoreRows.map(r => ({ ...r })),
+        }) } })],
       alignment: AlignmentType.CENTER, spacing: { before: 80, after: 140 }
     }));
   } else {
@@ -16767,6 +16829,7 @@ function chartPhrases(spec) {
     if (row?.isSectionHeader) { if (row.label) out.push(row.label); }
     else if (row?.name) out.push(row.name);
   }
+  for (const row of spec?.rows || []) if (row?.name) out.push(row.name);
   return out;
 }
 
@@ -16775,18 +16838,27 @@ function chartPhrases(spec) {
  *
  * Fixed, so they are written here rather than translated: they are the same
  * on every chart in every report, and paying to translate them again each
- * time would be daft.
+ * time would be daft. The arrows are left as they are -- an arrow means the
+ * same thing in both languages.
  */
 const CHART_FIXED_ZH = {
   "Activity": "活动",
+  "Target": "目标",
+  "Score": "分数",
+  "Status": "状态",
   "Overall Performance (%)": "整体表现（%）",
+  "Overall Progress (%)": "整体进展（%）",
+  "Net Change (points)": "净变化（分）",
   "Duration": "持续时间",
   "(Months)": "（月）",
   "Progress": "进展",
+  "Improving": "进步中",
+  // Not 退步中. Accurate, but blunt for a parent reading about their own
+  // child; 表现下降 says the same thing without the edge.
+  "Declining": "表现下降",
+  "Stable": "稳定",
   "Start of Term/Trendline": "学期初／趋势线",
   "End of Term/Trendline": "学期末／趋势线",
-  "Page": "第",
-  "of": "页，共",
 };
 
 const MONTHS_ZH = {
@@ -16796,7 +16868,16 @@ const MONTHS_ZH = {
 
 /** "Jan 2026 - Jun 2026" into Chinese, leaving the years alone. */
 function periodLabelZh(label) {
-  return String(label || "").replace(/\b([A-Z][a-z]{2})\b/g, (m) => MONTHS_ZH[m] || m);
+  return String(label || "")
+    // The year comes first in Chinese: "Jan 2026" is written "2026年1月",
+    // not "1月 2026".
+    .replace(/\b([A-Z][a-z]{2})\s+(\d{4})\b/g,
+      (whole, mon, yr) => MONTHS_ZH[mon] ? `${yr}年${MONTHS_ZH[mon]}` : whole)
+    // A month standing on its own still becomes a Chinese one.
+    .replace(/\b([A-Z][a-z]{2})\b/g, (m) => MONTHS_ZH[m] || m)
+    // An en dash with no spaces round it, which is how a date range is
+    // written in Chinese.
+    .replace(/\s*[-–]\s*/g, "–");
 }
 
 /**
@@ -16808,28 +16889,65 @@ function periodLabelZh(label) {
  * from the heading above it.
  */
 function chartTitleZh(spec, zh) {
-  const num = /^(\s*\d+\)\s*)/.exec(spec.title || "");
+  const num = /^(\s*)(\d+)\)\s*/.exec(spec.title || "");
   const page = /\[Page (\d+) of (\d+)\]\s*$/.exec(spec.title || "");
-  return (num ? num[1] : "")
+  // Full-width brackets and a colon rather than a hyphen: the colon is what
+  // separates a name from what follows it in Chinese, and a hyphen between
+  // two Chinese phrases reads as a join rather than a break.
+  return (num ? `${num[2]}）` : "")
     + (zh(spec.target) || spec.target)
-    + " - " + CHART_FIXED_ZH["Progress"]
+    + "：" + CHART_FIXED_ZH["Progress"]
     + "（" + periodLabelZh(spec.range) + "）"
     + (page ? `［第${page[1]}页，共${page[2]}页］` : "");
 }
 
-/** The same chart, drawn again with Chinese on it. */
+/**
+ * The same chart, drawn again with Chinese on it.
+ *
+ * One function per kind of chart, chosen by what the tag says it is. A kind
+ * this code does not know is refused rather than guessed at, so a chart
+ * added later and not taught here is left in English instead of mangled.
+ */
 function redrawChartZh(spec, zh) {
-  const data = (spec.data || []).map(row => row?.isSectionHeader
-    ? { ...row, label: zh(row.label) || row.label }
-    : { ...row, name: zh(row.name) || row.name });
-  return renderActivityBreakdownChart(
-    zh(spec.target) || spec.target,
-    data,
-    periodLabelZh(spec.range),
-    chartTitleZh(spec, zh),
-    false,
-    (spec.legend || []).map(l => CHART_FIXED_ZH[l] || l),
-  );
+  _chartZh = true;
+  try { return redrawChartInner(spec, zh); }
+  finally { _chartZh = false; }   // always, or an English report would come out Chinese
+}
+
+function redrawChartInner(spec, zh) {
+  const name = (s) => zh(s) || s;
+  const fixed = (s) => CHART_FIXED_ZH[s] || s;
+
+  if (spec?.kind === "overview") {
+    // Status is drawn from the numbers, so the words are swapped by giving
+    // the drawing code Chinese ones rather than by editing the picture.
+    const rows = (spec.rows || []).map(r => ({ ...r, name: name(r.name) }));
+    return hyrDrawOverviewChartC(rows, spec.titleZh || spec.title);
+  }
+
+  if (spec?.kind === "line") {
+    return { base64: hyrDrawLineChart(
+      name(spec.target), spec.labels, spec.values, spec.period, spec.year,
+      spec.tStart, spec.tEnd, spec.delta, spec.direction),
+      height: spec.baseH, width: spec.baseW, fixedSize: true };
+  }
+
+  if (spec?.kind === "monthlyBars") {
+    const rows = (spec.rows || []).map(r => ({ ...r, name: name(r.name) }));
+    return monthlyDrawScoreBarChart(rows);
+  }
+
+  if (spec?.kind === "breakdown" || !spec?.kind) {
+    const data = (spec.data || []).map(row => row?.isSectionHeader
+      ? { ...row, label: name(row.label) }
+      : { ...row, name: name(row.name) });
+    return renderActivityBreakdownChart(
+      name(spec.target), data, periodLabelZh(spec.range),
+      chartTitleZh(spec, zh), false, (spec.legend || []).map(fixed),
+      { activity: fixed("Activity"), performance: fixed("Overall Performance (%)"),
+        duration: fixed("Duration"), months: fixed("(Months)") });
+  }
+  return null;
 }
 
 /**
@@ -17214,9 +17332,15 @@ async function translateDocxFile(file, student, onProgress, signal) {
       // The bytes of the picture are replaced, so the drawing keeps the same
       // relationship and nothing else in the document has to change.
       zip.file(media, drawn.base64, { base64: true });
-      xml = xml.slice(0, pic.start)
-        + resizeDrawingToChart(pic.block, drawn.height)
-        + xml.slice(pic.end);
+      // Each kind of chart is drawn on a canvas of its own width, so the
+      // slot is worked out against THAT rather than one number for all of
+      // them. The line charts go in at a fixed size whatever shape the
+      // canvas is, so those are left exactly as they are.
+      const block = (drawn.fixedSize || !drawn.height)
+        ? pic.block
+        : resizeDrawingToChart(pic.block, drawn.height,
+            drawn.width || pic.spec.baseW || 760);
+      xml = xml.slice(0, pic.start) + block + xml.slice(pic.end);
       chartsDone++;
     }
     rewritten.set(name, xml);

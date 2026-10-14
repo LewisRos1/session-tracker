@@ -172,6 +172,148 @@ try {
     Math.abs(swap.cyAfter - Math.round(swap.cxAfter * swap.cnHeight / 760)) <= 1,
     `height ${swap.cyAfter}, expected ${Math.round(swap.cxAfter * swap.cnHeight / 760)}`);
 
+  // ── the other three kinds of chart ───────────────────────────────────
+  // The report has four. Only the Activity Breakdown was handled at first,
+  // and saying "the last English thing" about it was wrong.
+  r.section("every kind of chart can be drawn again");
+  const kinds = await page.eval(`(() => {
+    const zh = { "FEDC 2": "学习目标二", "Self-Regulation": "自我调节" };
+    const lookup = (k) => zh[k] || null;
+    const out = {};
+    const draw = (name, spec) => {
+      try {
+        const en = window.__app.redrawChartZh(spec, () => null);
+        const cn = window.__app.redrawChartZh(spec, lookup);
+        out[name] = { drew: !!(en?.base64 && cn?.base64), differs: en?.base64 !== cn?.base64,
+                      height: cn?.height || 0, fixedSize: !!cn?.fixedSize };
+      } catch (e) { out[name] = { error: e.message }; }
+    };
+    draw("overview", { kind: "overview", baseW: 700, title: "Caden (Jan 2026 - Jun 2026 Progress)",
+      titleZh: "Caden（Jan 2026 - Jun 2026）",
+      rows: [{ name: "FEDC 2", delta: 12, tStart: 70, tEnd: 82 },
+             { name: "Self-Regulation", delta: -10, tStart: 80, tEnd: 70 }] });
+    draw("line", { kind: "line", target: "FEDC 2", labels: ["Jan", "Feb", "Mar"],
+      values: [70, 75, 82], period: "h1", year: 2026, tStart: 70, tEnd: 82,
+      delta: 12, direction: "Improving" });
+    draw("monthlyBars", { kind: "monthlyBars", baseW: 700,
+      rows: [{ name: "FEDC 2", score: 82 }, { name: "Self-Regulation", score: 64 }] });
+    draw("unknown", { kind: "something-added-later" });
+    return out;
+  })()`, 90000);
+
+  for (const k of ["overview", "line", "monthlyBars"]) {
+    r.ok(`${k}: drew in both languages`, kinds[k]?.drew === true, JSON.stringify(kinds[k]));
+    r.ok(`${k}: the Chinese one is a different picture`, kinds[k]?.differs === true,
+      JSON.stringify(kinds[k]));
+  }
+  r.ok("a line chart is marked fixed size, so its slot is left alone",
+    kinds.line?.fixedSize === true, JSON.stringify(kinds.line));
+  r.ok("a kind this code does not know is refused, not guessed at",
+    kinds.unknown?.drew === false || !!kinds.unknown?.error === false,
+    JSON.stringify(kinds.unknown));
+
+  r.section("the words those charts carry");
+  const phrases = await page.eval(`(() => ({
+    overview: window.__app.chartPhrases({ kind: "overview",
+      rows: [{ name: "FEDC 2" }, { name: "Self-Regulation" }] }),
+    monthly: window.__app.chartPhrases({ kind: "monthlyBars", rows: [{ name: "FEDC 2" }] }),
+    line: window.__app.chartPhrases({ kind: "line", target: "FEDC 2" }),
+  }))()`);
+  r.check("the overview asks for every target on it", phrases.overview, ["FEDC 2", "Self-Regulation"]);
+  r.check("so does the monthly chart", phrases.monthly, ["FEDC 2"]);
+  r.check("and a line chart asks for its own target", phrases.line, ["FEDC 2"]);
+
+  // ── the direction words ──────────────────────────────────────────────
+  // The overview chart coloured these and the line charts drew the same
+  // three words in flat grey, so the same fact was green on one page and
+  // grey on the next.
+  r.section("Improving, Declining and Stable look the same wherever they appear");
+  const dirs = await page.eval(`(() => {
+    const m = window.__app.HYR_DIRECTION;
+    const of = window.__app.hyrDirectionOf;
+    return { map: m, up: of(20), down: of(-20), flat: of(0), edgeUp: of(8), edgeDown: of(-8) };
+  })()`);
+  r.check("improving is green", dirs.map?.Improving?.color, "#16a34a");
+  r.check("declining is red", dirs.map?.Declining?.color, "#dc2626");
+  r.check("stable is grey", dirs.map?.Stable?.color, "#6b7280");
+  r.check("and the arrows match the words",
+    [dirs.map?.Improving?.icon, dirs.map?.Declining?.icon, dirs.map?.Stable?.icon],
+    ["↑", "↓", "→"]);
+  r.section("and the line between them");
+  r.check("a clear rise is improving", dirs.up, "Improving");
+  r.check("a clear fall is declining", dirs.down, "Declining");
+  r.check("no real movement is stable", dirs.flat, "Stable");
+  r.check("exactly 8 is still stable, not improving", dirs.edgeUp, "Stable");
+  r.check("and minus 8 is still stable", dirs.edgeDown, "Stable");
+
+  // The overview chart's colours were only half the job: the line chart
+  // picked its colour from the same map but was handed an already-translated
+  // word, so the lookup missed and every Chinese line chart came out grey.
+  // Asking whether the picture "differs" never caught that, so this watches
+  // what is actually painted onto the canvas.
+  r.section("what a Chinese line chart actually paints");
+  const painted = await page.eval(`(() => {
+    const spec = { kind: "line", target: "FEDC 2", labels: ["Jan", "Feb", "Mar"],
+      values: [70, 75, 82], period: "h1", year: 2026, tStart: 70, tEnd: 82,
+      delta: 12, direction: "Improving" };
+    const zh = (k) => ({ "FEDC 2": "学习目标二" })[k] || null;
+    const proto = CanvasRenderingContext2D.prototype;
+    const orig = proto.fillText;
+    const grab = (draw) => {
+      const calls = [];
+      proto.fillText = function (t) { calls.push({ text: String(t), fill: String(this.fillStyle) }); return orig.apply(this, arguments); };
+      try { draw(); } finally { proto.fillText = orig; }
+      return calls;
+    };
+    // The Chinese chart, and the ordinary English one drawn the way a normal
+    // report draws it -- not through the translator.
+    const cn = grab(() => window.__app.redrawChartZh(spec, zh));
+    const en = grab(() => window.__app.hyrDrawLineChart(spec.target, spec.labels,
+      spec.values, spec.period, spec.year, spec.tStart, spec.tEnd, spec.delta, spec.direction));
+    // The overview chart is the one whose colours the boss pointed at.
+    const ov = grab(() => window.__app.redrawChartZh({ kind: "overview", baseW: 700,
+      title: "Caden", titleZh: "Caden",
+      rows: [{ name: "FEDC 2", delta: 12, tStart: 70, tEnd: 82 }] }, zh));
+    const find = (calls, needle) => calls.find(c => c.text.indexOf(needle) >= 0) || null;
+    const months = (calls) => calls
+      .filter(c => ["Jan", "Feb", "Mar", "Jun", "Dec"].some(m => c.text.indexOf(m) >= 0))
+      .map(c => c.text);
+    return {
+      cnStatus: find(cn, "进步中"),
+      ovStatus: find(ov, "进步中"),
+      enStatus: find(en, "Improving"),
+      cnTitle: (find(cn, "学习目标二") || {}).text || "",
+      cnMonths: months(cn),
+      enTitle: (find(en, "FEDC 2") || {}).text || "",
+      enMonths: months(en),
+    };
+  })()`, 90000);
+
+  r.ok("the Chinese chart says the Chinese word for Improving",
+    !!painted.cnStatus, JSON.stringify(painted.cnStatus));
+  r.check("and paints it green, not grey", painted.cnStatus?.fill, "#16a34a");
+  r.check("the same green the overview chart paints the same word",
+    painted.ovStatus?.fill, painted.cnStatus?.fill);
+  r.check("and the English chart was always that green", painted.enStatus?.fill, "#16a34a");
+  r.ok("the title carries Chinese months, not English ones",
+    painted.cnTitle.indexOf("2026年1月") >= 0, painted.cnTitle);
+  r.check("and no English month is left anywhere on it", painted.cnMonths, []);
+  r.ok("while the English chart still reads in English",
+    painted.enTitle.indexOf("Jan 2026") >= 0, painted.enTitle);
+  r.ok("with its own month labels intact", painted.enMonths.length >= 3,
+    JSON.stringify(painted.enMonths));
+
+  r.section("the fixed chart words only turn Chinese while a Chinese chart is drawn");
+  const words = await page.eval(`(() => {
+    const before = window.__app.chartWord("Status");
+    let during = null;
+    window.__app.redrawChartZh({ kind: "monthlyBars", baseW: 700,
+      rows: [{ name: "x", score: 50 }] }, () => { during = window.__app.chartWord("Status"); return null; });
+    return { before, during, after: window.__app.chartWord("Status") };
+  })()`);
+  r.check("English before", words.before, "Status");
+  r.check("English again afterwards, so a normal report is unaffected", words.after, "Status");
+
   r.section("console");
   const noise = page.consoleLines.filter(l => l.level === "error");
   r.ok("no console errors", noise.length === 0,
