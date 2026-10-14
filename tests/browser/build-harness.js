@@ -207,6 +207,14 @@ const SPLIT_FOR_WRITE = `(entity) => {
 // A real counter, not a recorder: the app compares it against zero.
 behaving.writesInFlight = `() => globalThis.__harness.inFlight || 0`;
 
+// The shared list of translated names. Kept in memory for the run, so a
+// test can watch what gets written to it without a database.
+behaving.loadTranslationTerms = `async () => ({ ...(globalThis.__terms || {}) })`;
+behaving.saveTranslationTerms = `async (terms) => {
+  globalThis.__terms = { ...terms };
+  globalThis.__harness.log("saveTranslationTerms", [structuredClone(terms)]);
+}`;
+
 behaving.WRITE_TAB_ID = `"tab-" + Math.random().toString(36).slice(2) + "-" + Date.now()`;
 
 behaving.saveStudent = `async (student) => {
@@ -373,6 +381,11 @@ const exposed = [
   // The AI Translator screen, and the pieces its tests drive directly.
   "openAiTranslateScreen", "renderAiTranslateBody", "translateInstructions",
   "openStudentRegistryScreen",
+  "aiPillShow", "aiPillHide", "trPill", "trPillHide",
+  // The chart redraw, so a test can run it against a real canvas and a
+  // real zip rather than only its pure parts.
+  "redrawChartZh", "findChartPictures", "chartMediaPath",
+  "resizeDrawingToChart", "chartDataTag", "chartPhrases",
   // So a test can build a real Word report and look inside it, rather
   // than guessing at the XML the app actually produces.
   "exportStudentSingleSessionWord",

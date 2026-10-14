@@ -75,16 +75,18 @@ service cloud.firestore {
     }
 
     // ── App-wide settings ────────────────────────────────────
-    // Two documents only: the half-year report prompt, and the trial score
-    // scale. Naming them stops anything else being written into this space.
+    // Three documents only: the half-year report prompt, the trial score
+    // scale, and the list of names that have been translated into Chinese.
+    // Naming them stops anything else being written into this space.
     //
-    // Both are reached through Score Settings and the AI prompt editor, which
-    // are already locked to main teachers in the app, so the rule says out loud
-    // what the screens already do. One scale decides every score in the app and
-    // one prompt decides what goes into every report.
+    // All three are reached through screens already locked to main teachers
+    // in the app, so the rule says out loud what the screens already do. One
+    // scale decides every score in the app, one prompt decides what goes into
+    // every report, and the term list decides the wording of every Chinese
+    // report that leaves the building.
     match /config/{docId} {
       allow read: if signedIn();
-      allow write: if isMainTeacher() && docId in ['halfYearReport', 'scoring'];
+      allow write: if isMainTeacher() && docId in ['halfYearReport', 'scoring', 'translationTerms'];
     }
 
     // ── Supporting collections ───────────────────────────────
