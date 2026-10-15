@@ -227,7 +227,7 @@ function versionLineText() {
   return `Made by Lewis · Version ${APP_VERSION}`;
 }
 
-const APP_VERSION = "2257";
+const APP_VERSION = "2261";
 
 // Debug helpers — call from F12 console
 // -1) Recover multiple-choice options wiped by the v2072-and-earlier panel bug:
@@ -3468,6 +3468,70 @@ function openStudentRegistryScreen(opts = {}) {
 // brackets can never go missing because someone forgot to type them. Older
 // notes were typed with brackets already, so strip any wrapping pair first
 // rather than migrating the data or ending up with "((EIP))".
+/**
+ * Whether a remark holds anything a person typed or scored.
+ *
+ * Used to decide how loudly to warn before a delete, and to decide what is
+ * worth keeping in the trash. Those two disagreed: the warning counted a
+ * select score and a note, the trash copy did not, so a remark holding only
+ * one of those was deleted with no way back.
+ */
+function remarkHasData(r) {
+  if (!r) return false;
+  return (r.text || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim().length > 0
+    || (r.masteryNote || "").trim().length > 0
+    || (r.trials || []).some(t => t !== null && t !== -1)
+    || (r.optionScore !== undefined && r.optionScore !== null);
+}
+
+/**
+ * The other activities in this target that a record of this name could
+ * equally have come from.
+ *
+ * Two activities may share a name on purpose -- a Behaviour Chart has an
+ * "Antecedent" under each behaviour -- so the name alone never says which
+ * one a record belongs to.
+ */
+function rivalActivities(allActs, act, recName, paPA) {
+  return (allActs || []).filter(o =>
+    o && o !== act && !o.isHeading && !o.isMaintainHeading && !o.isNote && !o.isExportNote &&
+    (!act?.id || o.id !== act.id) &&
+    ((o.name && recName === o.name) || (o.title && recName === o.title)) &&
+    ((o.parentActivity || null) === (paPA ?? null)));
+}
+
+/**
+ * The records in one session that belong to one activity.
+ *
+ * By id wherever there is one. A record written since activities carried an
+ * id says outright which one it belongs to, and matching on the word instead
+ * is what let a newly added "Antecedent" claim 96 sessions of another
+ * activity's data and offer to delete the lot.
+ *
+ * An older record carries only a name. It is claimed only when nothing else
+ * could have written it: every activity that shares the name was created
+ * after that session happened. Two possible owners means the record is left
+ * alone rather than guessed at.
+ */
+function recordIdsForActivity(sActs, spec, allActs, targetName, sessionDate) {
+  const paPA = spec.paPA ?? null;
+  return Object.entries(sActs || {}).filter(([, a]) => {
+    if (a.targetName !== targetName) return false;
+    if (paPA === null ? !!a.parentActivity : a.parentActivity !== paPA) return false;
+    if (!((spec.name && a.activityName === spec.name) || (spec.title && a.activityName === spec.title))) return false;
+    if (a.configId) return !!spec.id && a.configId === spec.id;
+    return rivalActivities(allActs, spec, a.activityName, paPA)
+      .every(o => o.created && sessionDate && o.created > sessionDate);
+  }).map(([id]) => id);
+}
+
+/** Whether one session holds data for this activity. */
+function sessionHasActivityData(s, spec, allActs, targetName) {
+  const ids = recordIdsForActivity(s.activities, spec, allActs, targetName, s.date || "");
+  const rems = s.remarks || {};
+  return ids.some(actId => Object.values(rems).some(r => r.activityId === actId && remarkHasData(r)));
+}
+
 function noteBare(note) {
   return (note || "").trim().replace(/^\(([\s\S]*)\)$/, "$1").trim();
 }
@@ -4271,7 +4335,9 @@ function renderDataIntegrityReport() {
         await softDeleteActivityAcrossSessions(
           f.isGroup ? "group" : "student",
           f.entityId, f.who,
-          f.targetName, f.orphanName
+          f.targetName, f.orphanName, undefined,
+          // An orphan has no entry in the config, so there is no id to go on.
+          { anyOwner: true }
         );
         f.deleted = true;
         renderDataIntegrityReport();
@@ -12057,7 +12123,8 @@ function paIsWritten(pa, target, parentName = null) {
     const _d = state.sessionData?.date || todayDateStr();
     if (_d >= (pa.maintainedAt || "2026-08-21")) return true;
   }
-  const actData = findActivityByName(target.name, pa.title || pa.name, parentName, pa.id);
+  const actData = findActivityByName(target.name, pa.title || pa.name, parentName, pa.id,
+    target.predefinedActivities);
   if (!actData) return false;
   const stripH = t => (t || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim();
   return getRemarksForActivity(actData.id).some(r =>
@@ -12264,7 +12331,8 @@ function renderFedcTarget(target, _filterPaSet = null, _sectionOnly = false) {
         </div>
       </div>`;
       children.forEach((sub, si) => {
-        let subActData = findActivityByName(target.name, sub.title || sub.name, pa.title || pa.name, sub.id);
+        let subActData = findActivityByName(target.name, sub.title || sub.name, pa.title || pa.name, sub.id,
+          target.predefinedActivities);
         // Root cause of the alternating-display bug: a real data record (Record A, no
         // configId — created before configIds existed) coexists with an auto-fill
         // placeholder (Record B, has configId). findActivityByName always returns Record B
@@ -12379,7 +12447,8 @@ function renderFedcTarget(target, _filterPaSet = null, _sectionOnly = false) {
     }
 
     const pendingKey = pa.name || pa.title;
-    const actData    = findActivityByName(target.name, pa.name || pa.title, null, pa.id);
+    const actData    = findActivityByName(target.name, pa.name || pa.title, null, pa.id,
+      target.predefinedActivities);
     // Claim unlinked records in local state immediately so the next same-named predefined
     // activity in the loop can't find and share the same Firestore record.
     // Also persist the configId to Firestore so future session opens can find this
@@ -14281,7 +14350,8 @@ function attachTargetListeners(target) {
         // waiting produced a second remark. Nothing is awaited before the render
         // now, so there is nothing to click twice.
         if (paName) {
-          const existing = findActivityByName(target.name, paName, btn.dataset.paParent || null, btn.dataset.cfgId || null);
+          const existing = findActivityByName(target.name, paName, btn.dataset.paParent || null,
+            btn.dataset.cfgId || null, target.predefinedActivities);
           if (existing) {
             actId = existing.id;
             if (btn.dataset.cfgId && !existing.configId) {
@@ -14974,8 +15044,9 @@ async function cleanupEmptyEntries(sessionId, data, targetName, target = null, i
   }
 }
 
-async function ensureFedcActivity(targetName, activityName, order, parentActivity = null, configId = null) {
-  const existing = findActivityByName(targetName, activityName, parentActivity, configId);
+async function ensureFedcActivity(targetName, activityName, order, parentActivity = null, configId = null, cfgActs = null) {
+  const existing = findActivityByName(targetName, activityName, parentActivity, configId,
+    cfgActs || activitiesOfTarget(targetName));
   if (existing) {
     // Persist configId to Firestore for any unlinked record adopted by name so future
     // lookups use exact matching and same-named activities stop sharing Firestore data.
@@ -24352,10 +24423,29 @@ function mnRowKindPlural(a, acts) {
  */
 function placeKebabMenu(btn, menu) {
   const GAP = 8;
+  unliftKebabCards();
+  menu.classList.remove("mn-km-scrolls");
+  // Back to absolute by name, not by clearing it: the menu is created with
+  // position:absolute in its own style attribute, so clearing the property
+  // makes it static and it drops into the page.
+  menu.style.position = "absolute";
   menu.style.top = "100%";
   menu.style.bottom = "auto";
-  menu.style.maxHeight = "";
-  menu.style.overflowY = "";
+  menu.style.right = "0";
+  // Put back by name, never cleared. The menu carries z-index and
+  // overflow:hidden in its own style attribute, and clearing a longhand
+  // takes it out of the shorthand: overflow-x hidden with overflow-y unset
+  // computes to auto, which is a scrollbar nobody asked for.
+  menu.style.zIndex = "100";
+  menu.style.maxHeight = "none";
+  menu.style.overflowY = "hidden";
+
+  // A card with a Waiting for Approval strip gives that strip its own layer,
+  // and a later card's strip paints over an earlier card's open menu. The
+  // card holding the open one is lifted above its neighbours while it is up.
+  for (const sel of [".mn-pending-foot", ".mn-act-card"]) {
+    btn.closest(sel)?.classList.add("mn-km-lifted");
+  }
 
   const b = btn.getBoundingClientRect();
   const header = document.querySelector("#manage-modal .modal-header");
@@ -24367,9 +24457,32 @@ function placeKebabMenu(btn, menu) {
   if (height <= below) return;
   if (height <= above) { menu.style.top = "auto"; menu.style.bottom = "100%"; return; }
 
-  if (above > below) { menu.style.top = "auto"; menu.style.bottom = "100%"; }
-  menu.style.maxHeight = Math.max(120, Math.floor(Math.max(above, below))) + "px";
+  // Neither side has room where it hangs. Rather than scroll a list of eight
+  // things -- the boss hunting for Delete Activity in a 120px window was how
+  // this came back -- it is taken off the card and put against the window,
+  // where the whole band between the modal header and the bottom is free.
+  const band = window.innerHeight - ceiling - GAP * 2;
+  menu.style.position = "fixed";
+  menu.style.zIndex = "1000";
+  menu.style.right = Math.max(GAP, Math.round(window.innerWidth - b.right)) + "px";
+  if (height <= band) {
+    menu.style.top = Math.round(Math.min(
+      Math.max(ceiling + GAP, b.bottom + GAP),
+      window.innerHeight - GAP - height)) + "px";
+    return;
+  }
+  // Taller than the window itself. It has to scroll, so the bar is made
+  // plain to see rather than left as a hairline.
+  menu.style.top = Math.round(ceiling + GAP) + "px";
+  menu.style.maxHeight = Math.floor(band) + "px";
   menu.style.overflowY = "auto";
+  menu.classList.add("mn-km-scrolls");
+}
+
+/** Put every card back on its own layer once no menu is open above it. */
+function unliftKebabCards() {
+  document.querySelectorAll(".mn-km-lifted")
+    .forEach(el => el.classList.remove("mn-km-lifted"));
 }
 
 function mnRowKindName(a, acts) {
@@ -26306,32 +26419,11 @@ function renderTargetManageContent(student, target) {
           ? await getAllSessionsForGroup(editingGroup.id)
           : await getAllSessionsForStudent(student.id);
         const paKey = item._linkKey || item.title || item.name;
-        const toCheck = [{ name: item.name, title: item.title, paPA: item.parentActivity || null }];
+        const toCheck = [{ name: item.name, title: item.title, paPA: item.parentActivity || null, id: item.id }];
         (acts || []).filter(a => a.parentActivity === paKey && !a.isHeading && !a.isNote && !a.isExportNote)
-          .forEach(sub => toCheck.push({ name: sub.name, title: sub.title, paPA: paKey }));
-        const _tmpRx = /\(temp(orary)?\)$/i;
-        affectedSessions = allSessions.filter(s => {
-          const sActs = s.activities || {}; const sRems = s.remarks || {};
-          const hit = toCheck.some(({ name, title, paPA }) => {
-            const matchIds = Object.entries(sActs).filter(([, a]) => {
-              if (a.targetName !== target.name) return false;
-              const isTemp = _tmpRx.test(a.activityName);
-              const nameOk = (name && a.activityName === name) || (title && a.activityName === title);
-              if (!nameOk && !isTemp) return false;
-              if (isTemp) return false;
-              return (paPA === null ? !a.parentActivity : a.parentActivity === paPA);
-            }).map(([id]) => id);
-            return matchIds.some(actId => Object.values(sRems).some(r =>
-              r.activityId === actId && (
-                (r.text || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim().length > 0 ||
-                (r.masteryNote || "").trim().length > 0 ||
-                (r.trials || []).some(t => t !== null && t !== -1) ||
-                (r.optionScore !== undefined && r.optionScore !== null)
-              )
-            ));
-          });
-          return hit;
-        });
+          .forEach(sub => toCheck.push({ name: sub.name, title: sub.title, paPA: paKey, id: sub.id }));
+        affectedSessions = allSessions.filter(s =>
+          toCheck.some(spec => sessionHasActivityData(s, spec, acts, target.name)));
         affected = affectedSessions.length;
       } catch { affected = -1; }
       btn.disabled = false;
@@ -26401,7 +26493,10 @@ function renderTargetManageContent(student, target) {
               editingGroup ? "group" : "student",
               editingGroup ? editingGroup.id   : student.id,
               editingGroup ? editingGroup.name : student.name,
-              target.name, item.name, item.parentActivity || null
+              target.name, item.name, item.parentActivity || null,
+              { configId: item.id,
+                rivalsCreated: rivalActivities(acts, item, item.name, item.parentActivity || null)
+                  .map(o => o.created || "") }
             );
           } catch (err) {
             console.error("Failed to move activity to trash:", err);
@@ -26451,6 +26546,7 @@ function renderTargetManageContent(student, target) {
       const menu = $(`mn-km-${idx}`);
       const wasHidden = menu.style.display !== "block";
       $("manage-modal-body").querySelectorAll(".mn-kebab-menu, .mn-sub-kebab-menu, .mn-inactive-km").forEach(m => m.style.display = "none");
+      unliftKebabCards();
       if (wasHidden) {
         menu.style.display = "block";
         // Say up front whether this activity can take sub-activities.
@@ -26478,6 +26574,7 @@ function renderTargetManageContent(student, target) {
       const menu = btn.nextElementSibling;
       const wasHidden = menu.style.display !== "block";
       $("manage-modal-body").querySelectorAll(".mn-kebab-menu, .mn-sub-kebab-menu, .mn-inactive-km").forEach(m => m.style.display = "none");
+      unliftKebabCards();
       if (wasHidden) {
         menu.style.display = "block";
         placeKebabMenu(btn, menu);
@@ -26605,29 +26702,10 @@ function renderTargetManageContent(student, target) {
               : await getAllSessionsForStudent(student.id);
             // Include sub-activities when checking a parent activity
             const paKey = pa._linkKey || pa.title || pa.name;
-            const toCheck = [{ name: pa.name, title: pa.title, paPA: pa.parentActivity || null }];
-            _delSubs.forEach(sub => toCheck.push({ name: sub.name, title: sub.title, paPA: paKey }));
-            const _tmpRx2 = /\(temp(orary)?\)$/i;
-            affectedSessions = allSessions.filter(s => {
-              const sActs = s.activities || {}; const sRems = s.remarks || {};
-              return toCheck.some(({ name, title, paPA }) => {
-                const matchIds = Object.entries(sActs).filter(([, a]) => {
-                  if (a.targetName !== target.name) return false;
-                  const isTemp = _tmpRx2.test(a.activityName);
-                  if (isTemp) return false;
-                  if (!((name && a.activityName === name) || (title && a.activityName === title))) return false;
-                  return (paPA === null ? !a.parentActivity : a.parentActivity === paPA);
-                }).map(([id]) => id);
-                return matchIds.some(actId => Object.values(sRems).some(r =>
-                  r.activityId === actId && (
-                    (r.text || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim().length > 0 ||
-                    (r.masteryNote || "").trim().length > 0 ||
-                    (r.trials || []).some(t => t !== null && t !== -1) ||
-                    (r.optionScore !== undefined && r.optionScore !== null)
-                  )
-                ));
-              });
-            });
+            const toCheck = [{ name: pa.name, title: pa.title, paPA: pa.parentActivity || null, id: pa.id }];
+            _delSubs.forEach(sub => toCheck.push({ name: sub.name, title: sub.title, paPA: paKey, id: sub.id }));
+            affectedSessions = allSessions.filter(s =>
+              toCheck.some(spec => sessionHasActivityData(s, spec, acts, target.name)));
             affected = affectedSessions.length;
           } catch { affected = -1; }
           btn.disabled = false;
@@ -26707,7 +26785,11 @@ function renderTargetManageContent(student, target) {
                     editingGroup ? editingGroup.id   : student.id,
                     editingGroup ? editingGroup.name : student.name,
                     target.name, member.name,
-                    member === pa ? (pa.parentActivity || null) : paKeyForDel
+                    member === pa ? (pa.parentActivity || null) : paKeyForDel,
+                    { configId: member.id,
+                      rivalsCreated: rivalActivities(acts, member, member.name,
+                        member === pa ? (pa.parentActivity || null) : paKeyForDel)
+                        .map(o => o.created || "") }
                   );
                 } catch (err) {
                   console.error("Failed to move activity to trash:", err);
@@ -26736,24 +26818,8 @@ function renderTargetManageContent(student, target) {
         const allSessions = editingGroup
           ? await getAllSessionsForGroup(editingGroup.id)
           : await getAllSessionsForStudent(student.id);
-        affectedSessions = allSessions.filter(s => {
-          const sActs = s.activities || {}; const sRems = s.remarks || {};
-          const matchIds = Object.entries(sActs).filter(([, a]) => {
-            if (a.targetName !== target.name || a.parentActivity) return false;
-            // If this session record already has a configId from a *different* predefined
-            // activity, exclude it — it's an orphan from a deleted/recreated activity
-            // with the same name, not data for the current one.
-            if (a.configId && act.id && a.configId !== act.id) return false;
-            return (act.name && a.activityName === act.name) || (act.title && a.activityName === act.title);
-          }).map(([id]) => id);
-          return matchIds.some(actId => Object.values(sRems).some(r =>
-            r.activityId === actId && (
-              (r.text || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim().length > 0 ||
-              (r.masteryNote || "").trim().length > 0 ||
-              (r.trials || []).some(t => t !== null && t !== -1) || (r.optionScore !== undefined && r.optionScore !== null)
-            )
-          ));
-        });
+        affectedSessions = allSessions.filter(s => sessionHasActivityData(s,
+          { name: act.name, title: act.title, paPA: null, id: act.id }, acts, target.name));
       } catch (err) {
         btn.disabled = false; btn.textContent = origText;
         return;
@@ -26881,22 +26947,8 @@ function renderTargetManageContent(student, target) {
               const allSessions = editingGroup
                 ? await getAllSessionsForGroup(editingGroup.id)
                 : await getAllSessionsForStudent(student.id);
-              affectedSessions = allSessions.filter(s => {
-                const sActs = s.activities || {}; const sRems = s.remarks || {};
-                const matchIds = Object.entries(sActs).filter(([, a]) =>
-                  a.targetName === target.name &&
-                  ((chosen.name && a.activityName === chosen.name) || (chosen.title && a.activityName === chosen.title)) &&
-                  !a.parentActivity
-                ).map(([id]) => id);
-                return matchIds.some(actId => Object.values(sRems).some(r =>
-                  r.activityId === actId && (
-                    (r.text || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim().length > 0 ||
-                    (r.masteryNote || "").trim().length > 0 ||
-                    (r.trials || []).some(t => t !== null && t !== -1) ||
-                    (r.optionScore !== undefined && r.optionScore !== null)
-                  )
-                ));
-              });
+              affectedSessions = allSessions.filter(s => sessionHasActivityData(s,
+                { name: chosen.name, title: chosen.title, paPA: null, id: chosen.id }, acts, target.name));
             } catch (err) {
               showPicker(`<div style="background:#fef2f2;border:1px solid #fca5a5;border-radius:.4rem;padding:.5rem .7rem;font-size:.82rem;color:#dc2626;margin-bottom:.6rem">Error checking session data: ${escHtml(err.message)}</div>`);
               return;
@@ -27296,11 +27348,9 @@ function renderTargetManageContent(student, target) {
         : await getAllSessionsForStudent(student.id);
       const paPA2 = pa.parentActivity || null;
         affectedSessions = allSessions.filter(s =>
-          Object.values(s.activities || {}).some(a =>
-            a.targetName === target.name && a.activityName === pa.name &&
-            (paPA2 === null ? !a.parentActivity : a.parentActivity === paPA2)
-          )
-        );
+          recordIdsForActivity(s.activities,
+            { name: pa.name, title: pa.title, paPA: paPA2, id: pa.id },
+            acts, target.name, s.date || "").length > 0);
         affected = affectedSessions.length;
       } catch { affected = -1; }
       btn.disabled = false;
@@ -27360,7 +27410,10 @@ function renderTargetManageContent(student, target) {
               editingGroup ? "group" : "student",
               editingGroup ? editingGroup.id   : student.id,
               editingGroup ? editingGroup.name : student.name,
-              target.name, pa.name, pa.parentActivity || null
+              target.name, pa.name, pa.parentActivity || null,
+              { configId: pa.id,
+                rivalsCreated: rivalActivities(acts, pa, pa.name, pa.parentActivity || null)
+                  .map(o => o.created || "") }
             );
           } catch (err) {
             console.error("Failed to move activity to trash:", err);
@@ -27467,17 +27520,18 @@ function renderTargetManageContent(student, target) {
       delete a.proposedBy;
       delete a.proposedAt;
 
-      // It starts the day it is approved, not the day it was asked for.
+      // Its dates are left exactly as proposed.
       //
-      // Proposed on the 7th and approved on the 9th, it did not exist on the
-      // 7th or the 8th: it was in nobody's session and nobody could write
-      // against it. Dating it back makes it look unfilled for days it was never
-      // part of. Today's real date, not the open session's -- the approval
-      // happens now, whatever day is being written up.
-      const approvedOn = todayDateStr();
-      if (a.createdOn !== undefined) a.createdOn = approvedOn;
-      // A section heading's activeFrom is deliberately null and stays that way.
-      if (a.activeFrom) a.activeFrom = approvedOn;
+      // This used to be re-dated to the day of approval, on the reasoning that
+      // an activity approved on the 9th did not exist on the 7th. That reads
+      // well and is wrong in practice: an assistant proposes an activity while
+      // writing up a session, so it already carries that session's date, and
+      // re-dating it took the activity out of the very session she added it
+      // for. Proposed on the 12th, it belongs to the 12th onwards, whenever
+      // Ms. Daisy gets to it.
+      //
+      // The cost, which is the lesser one: a session between the proposal and
+      // the approval now shows the activity with nothing filled in.
       // Told to whoever asked for it. Recorded on the entity being edited, which
       // for a group target is the group rather than the student standing in for
       // it here.
@@ -27662,22 +27716,8 @@ function renderTargetManageContent(student, target) {
           ? await getAllSessionsForGroup(editingGroup.id)
           : await getAllSessionsForStudent(student.id);
         const paPA = subAct.parentActivity || null;
-        affectedSessions = allSessions.filter(s => {
-          const sActs = s.activities || {}; const sRems = s.remarks || {};
-          const matchIds = Object.entries(sActs).filter(([, a]) => {
-            if (a.targetName !== target.name) return false;
-            if (a.activityName !== subAct.name && a.activityName !== subAct.title) return false;
-            return paPA === null ? !a.parentActivity : a.parentActivity === paPA;
-          }).map(([id]) => id);
-          return matchIds.some(actId => Object.values(sRems).some(r =>
-            r.activityId === actId && (
-              (r.text || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim().length > 0 ||
-              (r.masteryNote || "").trim().length > 0 ||
-              (r.trials || []).some(t => t !== null && t !== -1) ||
-              (r.optionScore !== undefined && r.optionScore !== null)
-            )
-          ));
-        });
+        affectedSessions = allSessions.filter(s => sessionHasActivityData(s,
+          { name: subAct.name, title: subAct.title, paPA, id: subAct.id }, acts, target.name));
         affected = affectedSessions.length;
       } catch { affected = -1; }
       btn.disabled = false;
@@ -27698,7 +27738,10 @@ function renderTargetManageContent(student, target) {
             editingGroup ? "group" : "student",
             editingGroup ? editingGroup.id   : student.id,
             editingGroup ? editingGroup.name : student.name,
-            target.name, subAct.name, subAct.parentActivity || null
+            target.name, subAct.name, subAct.parentActivity || null,
+            { configId: subAct.id,
+              rivalsCreated: rivalActivities(acts, subAct, subAct.name, subAct.parentActivity || null)
+                .map(o => o.created || "") }
           );
         } catch (err) {
           console.error("Failed to move sub-activity to trash:", err);
@@ -32372,9 +32415,34 @@ function getRemarksForActivity(actId) {
     .map(([id, r]) => ({ id, ...r }));
 }
 
-function findActivityByName(targetName, activityName, parentActivity = null, configId = null) {
+/**
+ * The configured activities of a target, found by its name.
+ *
+ * For the callers that only know the name. Whichever of the two the screen
+ * is on, a student or a group, only one of them is open at a time.
+ */
+function activitiesOfTarget(targetName) {
+  const holders = [state.currentGroup, state.currentStudent];
+  for (const h of holders) {
+    const t = (h?.targets || []).find(x => x.name === targetName);
+    if (t) return t.predefinedActivities || [];
+  }
+  return null;
+}
+
+function findActivityByName(targetName, activityName, parentActivity = null, configId = null, cfgActs = null) {
   const entries = Object.entries(state.sessionData?.activities || {});
   const byName = ([, a]) => a.targetName === targetName && a.activityName === activityName;
+  /**
+   * Already belongs to a different activity that is still in the target.
+   *
+   * Two activities share a name all the time -- a Behaviour Chart has an
+   * "Antecedent" under each behaviour. The second one must not pick up the
+   * first one's record, or a remark typed under one appears under both and
+   * typing under the other overwrites it.
+   */
+  const ownedByALiveSibling = (a) => !!a.configId && a.configId !== configId
+    && (cfgActs || []).some(o => o && o.id === a.configId);
   // Exact configId match wins over everything (handles same-named activities at any level)
   if (configId) {
     const exact = entries.find(([, a]) => a.configId === configId && a.targetName === targetName);
@@ -32404,7 +32472,11 @@ function findActivityByName(targetName, activityName, parentActivity = null, con
     // predefined activity was re-saved with a new ID). The View/Edit screen matches by
     // name and finds it; Start Session was silently blocked here. Only adopt when the
     // name match is unambiguous — exactly one top-level candidate with that activity name.
-    const staleCands = entries.filter(e => byName(e) && !e[1].parentActivity);
+    // A record whose owner is gone from the config can be picked up by name.
+    // One whose owner is still there cannot, however few candidates there are:
+    // that is somebody else's data.
+    const staleCands = entries.filter(e =>
+      byName(e) && !e[1].parentActivity && !ownedByALiveSibling(e[1]));
     return staleCands.length === 1 ? { id: staleCands[0][0], ...staleCands[0][1] } : null;
   }
   if (parentActivity) {
@@ -32421,8 +32493,9 @@ function findActivityByName(targetName, activityName, parentActivity = null, con
     }
     return null;
   }
-  // Top-level: only match records with no parentActivity set
-  const top = entries.find(e => byName(e) && !e[1].parentActivity);
+  // Top-level: only match records with no parentActivity set, and never one
+  // another activity in this target already owns.
+  const top = entries.find(e => byName(e) && !e[1].parentActivity && !ownedByALiveSibling(e[1]));
   return top ? { id: top[0], ...top[1] } : null;
 }
 
