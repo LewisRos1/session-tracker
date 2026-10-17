@@ -227,7 +227,7 @@ function versionLineText() {
   return `Made by Lewis · Version ${APP_VERSION}`;
 }
 
-const APP_VERSION = "2262";
+const APP_VERSION = "2268";
 
 // Debug helpers — call from F12 console
 // -1) Recover multiple-choice options wiped by the v2072-and-earlier panel bug:
@@ -6003,6 +6003,7 @@ async function hyrCollectData(student, period, year, excludedActivities = new Se
     lines.push(`=== TARGET: ${tName} ===`);
     // Raw trial values are meaningless without the scale they were scored on.
     lines.push(`Each trial is scored out of ${target.maxPoints || 3}.`);
+    { const d = discontinuedFactLine(target, "target"); if (d) lines.push(d); }
 
     // Monthly averages
     const chartLabels = [];
@@ -7145,7 +7146,11 @@ async function hyrDownloadWord(student, period, year, trendRows, categorized, pa
   // failing on the destructure below with "cannot read Document of undefined".
   if (!(await ensureDocx())) throw new Error("The Word library did not load, so the document could not be built. Check your connection and try again.");
   const firstName   = student.preferredName || student.name.split(" ")[0];
-  const activeTargets = (student.targets || []).filter(t => !t.isArchived && !t.isStopped);
+  // A target stopped part way through still belongs to the months it was
+  // worked on. trendRows already says which ones have data in this period.
+  const _worked = new Set((trendRows || []).filter(r => !r.noData).map(r => r.name));
+  const activeTargets = (student.targets || []).filter(t =>
+    (!t.isArchived && !t.isStopped) || _worked.has(t.name));
   const n = activeTargets.length;
   const tNames = activeTargets.map(t => t.name);
   const targetList = n <= 1 ? (tNames[0] || "") : tNames.slice(0, -1).join(", ") + " and " + tNames[n - 1];
@@ -7564,7 +7569,9 @@ async function hyrDownloadWord(student, period, year, trendRows, categorized, pa
   }
 
   const appendixParas = [];
-  const appendixTargets = (student.targets || []).filter(t => !t.isArchived && !t.isStopped && breakdownData[t.name]?.length);
+  // Needing breakdown data is the only condition that matters: a stopped
+  // target with data in these months gets its chart like any other.
+  const appendixTargets = (student.targets || []).filter(t => breakdownData[t.name]?.length);
   if (appendixTargets.length || hyrMastered.length) {
     appendixParas.push(mkPara(`Section ${nextSectionNum + 1}: Appendix`, { heading: HeadingLevel.HEADING_1, before: 560, after: 160, size: 32, bold: true }));
 
@@ -7627,7 +7634,7 @@ async function hyrDownloadWord(student, period, year, trendRows, categorized, pa
             // Deeper grey than the repeating header row, so a band is never
             // mistaken for a header after a page break.
             cells.push(new TableCell({
-              columnSpan: 2, width: { size: 6300, type: WidthType.DXA },
+              columnSpan: 2, width: { size: 6100, type: WidthType.DXA },
               verticalAlign: VerticalAlign.CENTER, shading: { fill: "e5e7eb" },
               margins: { top: 80, bottom: 80, left: 150, right: 150 },
               children: [new Paragraph({ children: [new TextRun({ text: d.heading, bold: true, size: 20 })], spacing: { before: 60, after: 60 } })]
@@ -7637,7 +7644,7 @@ async function hyrDownloadWord(student, period, year, trendRows, categorized, pa
           }
           const m = d.m;
           cells.push(new TableCell({
-            width: { size: 4900, type: WidthType.DXA }, verticalAlign: VerticalAlign.CENTER,
+            width: { size: 4700, type: WidthType.DXA }, verticalAlign: VerticalAlign.CENTER,
             margins: { top: 100, bottom: 100, left: 150, right: 150 },
             children: [new Paragraph({
               children: [new TextRun({ text: m.activity, size: 22 })].concat(
@@ -7781,7 +7788,7 @@ const ASSESS_AVG_COLOR  = "#0f766e";
  * here match the spreadsheet rather than drifting from it.
  */
 function assessmentCollect(student, sessions, excludedActivities) {
-  const targets = (student.targets || []).filter(t => !t.isArchived && !t.isStopped);
+  const targets = targetsCoveringPeriod(student.targets, sessions);
   const days = [...sessions]
     .sort((a, b) => String(a.date).localeCompare(String(b.date)))
     .map(s => ({ date: s.date, label: fmtPeriodDate(s.date), sess: s }));
@@ -7831,6 +7838,7 @@ function assessmentCollect(student, sessions, excludedActivities) {
 
     lines.push(`=== TARGET: ${t.name} ===`);
     lines.push(`Each trial is scored out of ${t.maxPoints || 3}.`);
+    { const d = discontinuedFactLine(t, "target"); if (d) lines.push(d); }
     lines.push(avg === null
       ? "This target is observation-only and carries no numeric score."
       : `Average across the assessment: ${avg}%${days.map((d, i) => avgs[i] === null ? "" : `\n  ${d.label}: ${avgs[i]}%`).join("")}`);
@@ -8746,7 +8754,11 @@ async function monthlyGenerate() {
     const collected = monthlyCollectData(effectiveStudent, year, month, allSessions, excludedActivities, sessionType);
     const { threeMonthData, miniData, aiData, sessionCount, threeMonthPeriodLabel, oneMonthPeriodLabel } = collected;
 
-    const activeTargets = (effectiveStudent.targets || []).filter(t => !t.isArchived && !t.isStopped);
+    const activeTargets = targetsCoveringPeriod(effectiveStudent.targets,
+      (allSessions || []).filter(s => {
+        const [y, m] = String(s.date || "").split("-").map(Number);
+        return y === year && m === month;
+      }));
     const excludedList = excludedActivities.size > 0
       ? [...excludedActivities].map(k => { const [t, a] = k.split("|"); return `  - ${a} (under target: ${t})`; }).join("\n")
       : null;
@@ -9042,9 +9054,37 @@ function monthlyComputeTrend(values) {
   return delta > 8 ? "up" : delta < -8 ? "down" : "stable";
 }
 
+/**
+ * The targets a report for this period should cover.
+ *
+ * A target stopped in April was still being worked on in February, and a
+ * February report that leaves it out is simply wrong -- the sessions
+ * happened. A parent reading a Jan to June report would see a line stop in
+ * April with no explanation, or not see the target at all.
+ *
+ * Kept if it is still live, or if anything at all was recorded against it
+ * during the period. A target stopped last year with nothing in these
+ * months stays out, so old work does not pile up in every report.
+ */
+function targetsCoveringPeriod(targets, sessions) {
+  const worked = new Set();
+  for (const sess of sessions || []) {
+    for (const a of Object.values(sess?.activities || {})) {
+      if (a?.targetName) worked.add(a.targetName);
+    }
+    for (const t of sess?.targetsSnapshot || []) if (t?.name) worked.add(t.name);
+  }
+  return (targets || []).filter(t =>
+    t && ((!t.isArchived && !t.isStopped) || worked.has(t.name)));
+}
+
 function monthlyCollectData(student, year, month, allSessions, excludedActivities = new Set(), sessionType = "individual") {
   const ABBRS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-  const activeTargets = (student.targets || []).filter(t => !t.isArchived && !t.isStopped);
+  const _monthSessions = (allSessions || []).filter(s => {
+    const [y, m] = String(s.date || "").split("-").map(Number);
+    return y === year && m === month;
+  });
+  const activeTargets = targetsCoveringPeriod(student.targets, _monthSessions);
 
   const _filterGroupSess = sessionType === "group"
     ? sess => {
@@ -9114,6 +9154,7 @@ function monthlyCollectData(student, year, month, allSessions, excludedActivitie
     // AI data: per-target context lines
     const lines = [];
     lines.push(`Each trial is scored out of ${target.maxPoints || 3}.`);
+    { const d = discontinuedFactLine(target, "target"); if (d) lines.push(d); }
     lines.push(`Past 3 months (${tLabels.join(", ")}): ${tAvgs.map(v => v !== null ? v + "%" : "no data").join(", ")}`);
     lines.push(`Last month (${lastMonthLabel}): ${lastMonthAvg !== null ? lastMonthAvg + "%" : "no data"}`);
     lines.push(`This month (${thisMonthLabel}): ${thisMonthAvg !== null ? thisMonthAvg + "%" : "no data"}`);
@@ -9385,10 +9426,13 @@ function monthlyDrawScoreBarChart(rows) {
 
   // Legend along the bottom. The bar colour encodes a band, and without this a
   // parent sees green and blue bars with no way to know what separates them.
+  // Through chartWord like every other word on a chart. These three were
+  // written straight onto the canvas, so they stayed English under a chart
+  // whose headings had all been swapped.
   const legend = [
-    { c: "#16a34a", t: "80% and above" },
-    { c: "#eab308", t: "50% to 79%" },
-    { c: "#dc2626", t: "Below 50%" }
+    { c: "#16a34a", t: chartWord("80% and above") },
+    { c: "#eab308", t: chartWord("50% to 79%") },
+    { c: "#dc2626", t: chartWord("Below 50%") }
   ];
   ctx.font = `${FONT_PX}px Arial`;
   ctx.textAlign = "left";
@@ -9849,7 +9893,7 @@ async function monthlyDownloadWord(student, year, month, monthName, sessionCount
           // Deeper grey than the repeating header row, so a band is never
           // mistaken for a header after a page break.
           cells.push(new TableCell({
-            columnSpan: 2, width: { size: 6300, type: WidthType.DXA },
+            columnSpan: 2, width: { size: 6100, type: WidthType.DXA },
             verticalAlign: VerticalAlign.CENTER, shading: { fill: "e5e7eb" },
             margins: { top: 80, bottom: 80, left: 150, right: 150 },
             children: [new Paragraph({ children: [new TextRun({ text: d.heading, bold: true, size: 20 })], spacing: { before: 60, after: 60 } })]
@@ -9859,7 +9903,7 @@ async function monthlyDownloadWord(student, year, month, monthName, sessionCount
         }
         const m = d.m;
         cells.push(new TableCell({
-          width: { size: 4900, type: WidthType.DXA }, verticalAlign: VerticalAlign.CENTER,
+          width: { size: 4700, type: WidthType.DXA }, verticalAlign: VerticalAlign.CENTER,
           margins: { top: 100, bottom: 100, left: 150, right: 150 },
           children: [new Paragraph({
             children: [new TextRun({ text: m.activity, size: 22 })].concat(
@@ -10212,6 +10256,42 @@ async function maGetLastDataDate(entity, target, pa, isGroup = false) {
 }
 
 function maIsMastered(pa)   { return !!(pa.masteredOn || pa.inactiveReason === 'mastered'); }
+/**
+ * Store a discontinue reason, or take it off.
+ *
+ * Optional by design: targets and activities stopped before this box existed
+ * have none, and an empty box means none rather than an empty string sitting
+ * in the record and printing as a blank line in a report.
+ */
+/**
+ * What to tell the model about something that was stopped.
+ *
+ * Background, not a subject. An earlier version told it to mention this
+ * where it helps, and a rule phrased that way gets followed every time: the
+ * reports would have filled up with discontinuing, and read differently
+ * from the ones the boss has already signed off. It is here so that a
+ * reader left wondering why a line stops can be answered, and for nothing
+ * else. Where no reason was recorded it says so, rather than leaving one to
+ * be invented.
+ */
+function discontinuedFactLine(item, what) {
+  if (!item?.discontinuedOn) return "";
+  const why = String(item.discontinuedReason || "").trim();
+  return `BACKGROUND, not a topic to write about: this ${what} was `
+    + `discontinued on ${fmtPeriodDate(item.discontinuedOn)}`
+    + (why ? `, reason given: ${why}` : ", with no reason recorded")
+    + ". Most reports should not mention this at all. Bring it up only if the"
+    + " reader would otherwise be left wondering why the data stops part way"
+    + " through, and then in a few words, not a paragraph. It is never a"
+    + " failure or a lack of progress.";
+}
+
+function setDiscontinuedReason(item, reason) {
+  const t = String(reason || "").trim();
+  if (t) item.discontinuedReason = t;
+  else delete item.discontinuedReason;
+}
+
 function maIsDiscont(pa)    { return !!(pa.discontinuedOn || pa.inactiveReason === 'discontinued') && !maIsMastered(pa); }
 function maIsMaintained(pa) { return !!pa.maintained; }
 function maIsActive(pa)     { return !maIsMastered(pa) && !maIsDiscont(pa) && !maIsMaintained(pa); }
@@ -17012,6 +17092,9 @@ const CHART_FIXED_ZH = {
   // The English means the start of the term, or the start of the trendline.
   // "学期初／趋势线" lost that: it reads as the start of term, and then
   // separately a trendline. The point has to be said on both halves.
+  "80% and above": "80% 及以上",
+  "50% to 79%": "50% 至 79%",
+  "Below 50%": "低于 50%",
   "Start of Term/Trendline": "学期初／趋势线起点",
   "End of Term/Trendline": "学期末／趋势线终点",
 };
@@ -17187,6 +17270,14 @@ async function chartMediaPath(zip, partName, rid) {
 let _trStudentId = null;
 /** True while a translation is running, so a second one cannot start. */
 let _trBusy = false;
+/**
+ * The running translation, so it can be stopped.
+ *
+ * translateDocxFile already took a signal and checked it between batches;
+ * nothing ever made one, so there was no way to stop a long report once it
+ * had started.
+ */
+let _trAbort = null;
 /** The last thing the translator said, so going back does not lose it. */
 let _trLastStatus = "";
 
@@ -17213,6 +17304,10 @@ const TRANSLATE_GLOSSARY = [
   ["Date of Report", "报告日期"],
   ["Progress", "进展"],
   ["Strengths", "优势"],
+  // Not 我们仍在努力的方面, which is about the staff trying. This is about
+  // what the child is building.
+  ["What we're still working on", "正在培养的能力"],
+  ["What we are still working on", "正在培养的能力"],
   ["Recommendations", "建议"],
   ["Target", "目标"],
   ["Target Behaviour", "目标行为"],
@@ -17534,6 +17629,11 @@ async function translateDocxFile(file, student, onProgress, signal) {
   const rewritten = new Map();
   parts.forEach((part, i) =>
     rewritten.set(part.name, applyDocxText(part.xml, part.paragraphs, translations[i])));
+  // Before the font pass, so the note is given the Chinese font and the
+  // line-breaking rules along with everything else.
+  if (rewritten.has("word/document.xml")) {
+    rewritten.set("word/document.xml", addTranslatedNote(rewritten.get("word/document.xml")));
+  }
 
   // ── the charts ───────────────────────────────────────────────────────
   // Found again in the rewritten text rather than reused from before it: the
@@ -17760,17 +17860,26 @@ async function startTranslation(file, student) {
   drop?.classList.add("tr-drop--busy");
 
   const show = (html) => { _trLastStatus = html; if (status) status.innerHTML = html; };
-  show(`<div class="tr-running">Reading <strong>${escHtml(file.name)}</strong>…</div>`);
+  _trAbort = new AbortController();
+  // The box is redrawn on every progress tick, so the button is caught on
+  // the box rather than wired to each one as it is made.
+  const running = (what) => show(`<div class="tr-running">${what}<button type="button" class="tr-cancel" id="tr-cancel-btn">Stop</button></div>`);
+  running(`Reading <strong>${escHtml(file.name)}</strong>…`);
   trPill("Reading the file…", null, 0);
+  status?.addEventListener("click", e => {
+    if (!e.target.closest(".tr-cancel")) return;
+    _trAbort?.abort();
+    show(`<div class="tr-running">Stopping…</div>`);
+  });
 
   try {
     // A percentage, not "batch 4 of 10". Batches are how the work is cut
     // up for the model; nobody using this has any reason to know that.
     const { blob, softFailures, chartsDone, chartsSkipped } = await translateDocxFile(file, student, (done, total) => {
       const pct = total ? (done / total) * 100 : 0;
-      show(`<div class="tr-running">Translating…</div>`);
+      running(`Translating…`);
       trPill("Translating into Chinese…", null, pct);
-    });
+    }, _trAbort.signal);
     translateDownload(blob, file.name);
     // Left on screen like the report's, so it is still there when she comes
     // back to the tab. It stacks under any other notice rather than over it.
@@ -17790,11 +17899,21 @@ async function startTranslation(file, student) {
         : "")
       + `</div>`);
   } catch (err) {
-    trPill("The translation failed. Nothing was downloaded.", "fail");
-    console.error("translate:", err);
-    show(`<div class="tr-failed"><strong>Nothing was downloaded.</strong><br>${escHtml(err.message)}</div>`);
+    // Stopping on purpose is not a failure and should not be dressed as
+    // one: the word "failed" next to something you chose to do reads as
+    // a fault of yours.
+    const stopped = /^stopped\.?$/i.test(err?.message || "") || err?.name === "AbortError";
+    if (stopped) {
+      trPill("Stopped. Nothing was downloaded.", "fail");
+      show(`<div class="tr-failed"><strong>Stopped.</strong><br>Nothing was downloaded, and your original file is untouched.</div>`);
+    } else {
+      trPill("The translation failed. Nothing was downloaded.", "fail");
+      console.error("translate:", err);
+      show(`<div class="tr-failed"><strong>Nothing was downloaded.</strong><br>${escHtml(err.message)}</div>`);
+    }
   } finally {
     _trBusy = false;
+    _trAbort = null;
     drop?.classList.remove("tr-drop--busy");
   }
 }
@@ -17935,10 +18054,52 @@ function joinWrappedLines(text) {
  *
  * A run that was only spacing is left exactly as it was.
  */
+/**
+ * Keep a Chinese date from breaking in the wrong place.
+ *
+ * "2026年 8月 18日" in a narrow table cell broke after the month, leaving
+ * "2026年 8月" on one line and "18日" on the next. The day is tied to its
+ * month with a non-breaking space, so the line breaks after the year
+ * instead, which is how Lewis wants it read.
+ */
+/** The note at the top of every translated report. */
+const TRANSLATED_NOTE_ZH = "本报告根据英文原文翻译而成。由于中英文表达方式有所不同，部分内容的措辞可能会略有差异。如果您对报告中的内容有任何疑问，欢迎随时与孩子的指导老师联系，我们很乐意为您进一步说明。";
+
+/**
+ * Say, once and up front, that this is a translation.
+ *
+ * A parent who reads a phrase that sounds odd should know why before they
+ * read it, not after. At the top of the first page rather than the end: at
+ * the end it is an apology, at the top it is an invitation to ask. Small
+ * and grey, so it is plainly a note and not part of the report.
+ *
+ * On every translated report, with nothing to tick. A box that has to be
+ * remembered is missing from the one report that needed it.
+ */
+function addTranslatedNote(xml) {
+  const out = String(xml);
+  if (out.includes(TRANSLATED_NOTE_ZH)) return out;   // translated twice
+  const open = out.indexOf("<w:body>");
+  if (open < 0) return out;
+  const at = open + "<w:body>".length;
+  const para =
+    `<w:p><w:pPr><w:jc w:val="both"/><w:spacing w:after="240"/></w:pPr>`
+    + `<w:r><w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman"/>`
+    + `<w:i/><w:iCs/><w:sz w:val="18"/><w:szCs w:val="18"/><w:color w:val="6B7280"/></w:rPr>`
+    + `<w:t xml:space="preserve">${xmlEscape(TRANSLATED_NOTE_ZH)}</w:t></w:r></w:p>`;
+  return out.slice(0, at) + para + out.slice(at);
+}
+
+function tieChineseDate(text) {
+  return String(text).replace(
+    /(\d{4}年)[ \u00A0]*(\d{1,2}月)[ \u00A0]+(\d{1,2}日)/g,
+    "$1 $2\u00A0$3");
+}
+
 function keepRunSpacing(original, translated) {
   const was = String(original);
   if (!was.trim()) return was;
-  const text = joinWrappedLines(translated).trim();
+  const text = tieChineseDate(joinWrappedLines(translated).trim());
   // A space next to Chinese is not a gap, it is somewhere Word is allowed to
   // break the line. A "Strength:" line is written as a bold run and then a
   // run starting with a space, and Word broke it there, leaving 优势： alone
@@ -22180,7 +22341,15 @@ function showAutoDateConfirm({ message, confirmLabel }) {
   });
 }
 
-function showDatePickerOverlay({ heading, infoHtml, minDate, defaultDate, confirmLabel, dateLabel = "activity" }) {
+/**
+ * Pick a date, and for a discontinue, say why.
+ *
+ * The reason is optional on purpose: plenty of targets were stopped long
+ * before there was a box to type one in, and it can be filled in later.
+ * Callers that ask for it get { date, reason }; the rest still get the date
+ * on its own, so nothing that only wants a date had to change.
+ */
+function showDatePickerOverlay({ heading, infoHtml, minDate, defaultDate, confirmLabel, dateLabel = "activity", withReason = false, reasonValue = "" }) {
   return new Promise(resolve => {
     const overlay = document.createElement("div");
     overlay.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;display:flex;align-items:center;justify-content:center;padding:1rem";
@@ -22196,6 +22365,12 @@ function showDatePickerOverlay({ heading, infoHtml, minDate, defaultDate, confir
         <input type="date" id="dp-date-inp" value="${def}" min="${min}" style="position:absolute;inset:0;width:100%;height:100%;border:none;background:transparent;opacity:0;outline:none;cursor:pointer;box-sizing:border-box">
         <div id="dp-date-display" style="padding:.5rem .7rem;font-size:.95rem;color:#111;pointer-events:none;display:flex;align-items:center"><span id="dp-date-text">${defFormatted}</span><span style="margin-left:auto;padding-left:.5rem;font-size:1rem;color:#6b7280">🗓</span></div>
       </div>
+      ${withReason ? `
+      <label style="font-size:.82rem;font-weight:600;color:#374151;display:block;margin-bottom:.35rem">
+        Why? <span style="font-weight:400;color:#6b7280">(optional &mdash; shown in reports)</span>
+      </label>
+      <textarea id="dp-reason-inp" rows="2" placeholder="e.g. met in daily routine, moved into another target"
+        style="width:100%;box-sizing:border-box;padding:.5rem .7rem;border:1.5px solid #d1d5db;border-radius:.4rem;font-size:.9rem;font-family:inherit;resize:vertical;margin-bottom:1rem">${escHtml(reasonValue || "")}</textarea>` : ""}
       <div style="display:flex;gap:.6rem;justify-content:flex-end">
         <button class="dp-cancel" style="padding:.5rem 1rem;border:1px solid #d1d5db;border-radius:.4rem;background:#fff;cursor:pointer;font-size:.9rem">Cancel</button>
         <button class="dp-confirm" style="padding:.5rem 1rem;border:none;border-radius:.4rem;background:var(--primary);color:#fff;cursor:pointer;font-size:.9rem;font-weight:600">${confirmLabel}</button>
@@ -22209,7 +22384,8 @@ function showDatePickerOverlay({ heading, infoHtml, minDate, defaultDate, confir
     overlay.querySelector(".dp-cancel").addEventListener("click", () => finish(null));
     overlay.querySelector(".dp-confirm").addEventListener("click", () => {
       if (!inp.value || inp.value < min) { inp.style.borderColor = "#dc2626"; return; }
-      finish(inp.value);
+      const reason = (overlay.querySelector("#dp-reason-inp")?.value || "").trim();
+      finish(withReason ? { date: inp.value, reason } : inp.value);
     });
     const onKey = e => { if (e.key === "Escape") finish(null); };
     document.addEventListener("keydown", onKey);
@@ -23050,17 +23226,20 @@ async function handleDiscontinueTarget(entity, target, isGroup) {
     ? `<strong>"${escHtml(target.name)}"</strong> stays visible up to and including this date, and all past session data is preserved.<br><br>The last recorded session for this target was on <strong>${fmtPeriodDate(lastDate)}</strong>. So, the earliest you can discontinue is <strong>${fmtPeriodDate(minDate)}</strong>. This target will stop showing from <strong>${fmtPeriodDate(addOneDay(minDate))}</strong> onwards.`
     : `<strong>"${escHtml(target.name)}"</strong> will be hidden from the session dropdown from this date onwards. All past session data is preserved and will still appear in exports.<br><br>No previous session data was found for this target.`;
 
-  const pickedDate = await showDatePickerOverlay({
+  const picked = await showDatePickerOverlay({
     heading: '🛑 Discontinue Target',
     infoHtml,
     minDate,
     defaultDate: minDate,
     confirmLabel: 'Confirm 🛑',
-    dateLabel: 'target'
+    dateLabel: 'target',
+    withReason: true,
+    reasonValue: target.discontinuedReason || ''
   });
-  if (!pickedDate) return;
+  if (!picked) return;
 
-  target.discontinuedOn = pickedDate;
+  target.discontinuedOn = picked.date;
+  setDiscontinuedReason(target, picked.reason);
   const si = isGroup
     ? state.groups.findIndex(g => g.id === entity.id)
     : state.students.findIndex(s => s.id === entity.id);
@@ -26007,6 +26186,17 @@ function renderTargetManageContent(student, target) {
               <textarea class="admin-input mn-act-details-input" id="mn-act-details-${globalIdx}" data-idx="${globalIdx}" rows="2" placeholder="Enter Text Here" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block;resize:none">${escHtml(bulletifyForEditing(a.name || ''))}</textarea>
             </div>
           </div>`}
+          <div class="mn-disc-reason-field">
+            <div style="font-size:.85rem;font-weight:700;color:#b91c1c;margin-bottom:.2rem">
+              🚩 Why this was discontinued
+              <span style="font-weight:400;color:#6b7280">(optional &mdash; used in reports)</span>
+            </div>
+            <div style="border:1px solid #fca5a5;border-radius:.45rem;overflow:hidden;background:#fef2f2">
+              <textarea class="admin-input mn-disc-reason-input" id="mn-disc-reason-${globalIdx}"
+                data-idx="${globalIdx}" rows="2" placeholder="e.g. met in daily routine, moved into another target"
+                style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block;resize:none;background:transparent">${escHtml(a.discontinuedReason || '')}</textarea>
+            </div>
+          </div>
         </div>
         <div style="display:flex;flex-direction:column;align-items:flex-end;gap:.3rem;flex-shrink:0">
           <div style="display:flex;flex-direction:column;align-items:flex-end;gap:.2rem">
@@ -26353,6 +26543,27 @@ function renderTargetManageContent(student, target) {
       });
     }
 
+    // Why it was discontinued. Only inside the panel, so a long reason
+    // cannot crowd out the activity's own title on the row.
+    const discReasonInput = $(`mn-disc-reason-${idx}`);
+    if (discReasonInput) {
+      const resizeR = () => { discReasonInput.style.height = "auto"; discReasonInput.style.height = discReasonInput.scrollHeight + "px"; };
+      resizeR();
+      let drTimer;
+      discReasonInput.addEventListener("input", () => {
+        resizeR();
+        setDiscontinuedReason(a, discReasonInput.value);
+        clearTimeout(drTimer);
+        drTimer = setTimeout(async () => { await saveTarget(); }, 800);
+      });
+      discReasonInput.addEventListener("blur", async () => {
+        if (discReasonInput.value.trim() === (a.discontinuedReason || "")) return;
+        setDiscontinuedReason(a, discReasonInput.value);
+        await saveTarget();
+        flashSaved(discReasonInput);
+      });
+    }
+
     const maintainRemarkInput = $(`mn-act-mremark-${idx}`);
     if (maintainRemarkInput) {
       const resize = () => { maintainRemarkInput.style.height = "auto"; maintainRemarkInput.style.height = maintainRemarkInput.scrollHeight + "px"; };
@@ -26398,6 +26609,10 @@ function renderTargetManageContent(student, target) {
       const idx = Number(btn.dataset.idx);
       const item = acts[idx];
       if (!item) return;
+      // A panel open over this list holds back every write, and keeps a
+      // snapshot Discard Changes can restore from. Closed first, or the
+      // delete writes nothing and the row comes back on the next draw.
+      if (_mnPanelOpen) await mnPanelSave();
 
       // Non-activity rows (headings, internal notes) — simple confirm, no data check needed
       if (item.isHeading || item.isMaintainHeading || item.isNote || item.isExportNote) {
@@ -26620,12 +26835,16 @@ function renderTargetManageContent(student, target) {
           : (_subCreated && minDate === _subCreated
             ? `No previous session data was found for <strong>"${subDisplayName}"</strong>. Defaulting to <strong>${fmtPeriodDate(_subCreated)}</strong>, the date this sub-activity was created.`
             : `No previous session data was found for <strong>"${subDisplayName}"</strong>.`);
-        const pickedDate = await showDatePickerOverlay({
+        const _picked = await showDatePickerOverlay({
           heading: action === 'master' ? '⭐ Mark Sub-activity as Mastered' : '🚩 Discontinue Sub-activity',
           infoHtml, minDate, defaultDate: minDate,
-          confirmLabel: action === 'master' ? 'Confirm ⭐' : 'Confirm 🚩'
+          confirmLabel: action === 'master' ? 'Confirm ⭐' : 'Confirm 🚩',
+          withReason: action !== 'master',
+          reasonValue: sub.discontinuedReason || ''
         });
-        if (!pickedDate) return;
+        if (!_picked) return;
+        const pickedDate = typeof _picked === "string" ? _picked : _picked.date;
+        if (action !== 'master') setDiscontinuedReason(sub, _picked.reason);
         if (action === 'master') {
           delete sub.maintained; delete sub.activityColor; delete sub.maintainedAt;
           delete sub.discontinuedOn; delete sub.isArchived; delete sub.isStopped; delete sub.inactiveReason;
@@ -26685,6 +26904,13 @@ function renderTargetManageContent(student, target) {
       // asks for a date. The branches for color_white/gray/blue/red, master and
       // stop were left behind by that move and nothing could reach them.
       if (action === "delete") {
+        // An open panel holds back every write, so the delete took the
+        // activity out of the list in memory, wrote nothing, and the next
+        // draw put it back: press Delete, type the word, nothing happens,
+        // press it again and it goes. The panel also keeps a snapshot that
+        // Discard Changes restores from, which would bring a deleted
+        // activity back later. Closed first, committing whatever was typed.
+        if (_mnPanelOpen) await mnPanelSave();
         if (pa.isNote || pa.isExportNote) {
           if (!confirm(`Delete this note?`)) return;
           const actIdx = acts.indexOf(pa);
@@ -27087,13 +27313,17 @@ function renderTargetManageContent(student, target) {
         const restrictionText = action === 'master'
           ? 'The earliest you can mark this as mastered is'
           : 'The earliest you can discontinue this activity is';
-        const pickedDate = await showDatePickerOverlay({
+        const _picked = await showDatePickerOverlay({
           heading: action === 'master' ? '⭐ Mark as Mastered' : '🚩 Discontinue Activity',
           infoHtml: _buildInfo(latestDate, minDate, latestSubName, restrictionText),
           minDate, defaultDate: minDate,
-          confirmLabel: action === 'master' ? 'Confirm ⭐' : 'Confirm 🚩'
+          confirmLabel: action === 'master' ? 'Confirm ⭐' : 'Confirm 🚩',
+          withReason: action !== 'master',
+          reasonValue: pa.discontinuedReason || ''
         });
-        if (!pickedDate) return;
+        if (!_picked) return;
+        const pickedDate = typeof _picked === "string" ? _picked : _picked.date;
+        if (action !== 'master') setDiscontinuedReason(pa, _picked.reason);
         if (action === 'master') {
           delete pa.maintained; delete pa.activityColor; delete pa.maintainedAt;
           delete pa.discontinuedOn; delete pa.isArchived; delete pa.isStopped; delete pa.inactiveReason;
@@ -27236,14 +27466,19 @@ function renderTargetManageContent(student, target) {
         ? `The last recorded session for <strong>"${_paName}"</strong> was on <strong>${fmtPeriodDate(latestDate)}</strong>. The earliest you can set this date is <strong>${fmtPeriodDate(minDate)}</strong>. This activity will stop showing from <strong>${fmtPeriodDate(addOneDay(minDate))}</strong> onwards.`
         : `No previous session data was found for <strong>"${_paName}"</strong>.`;
       const current = type === "mastered" ? pa.masteredOn : pa.discontinuedOn;
-      const pickedDate = await showDatePickerOverlay({
+      // Where an activity stopped before there was a reason box gets one.
+      const picked = await showDatePickerOverlay({
         heading: type === "mastered" ? "📅 Change Mastered Date" : "📅 Change Discontinued Date",
         infoHtml,
         minDate,
         defaultDate: current || minDate,
-        confirmLabel: "Save Date"
+        confirmLabel: "Save Date",
+        withReason: type !== "mastered",
+        reasonValue: pa.discontinuedReason || ""
       });
-      if (!pickedDate) return;
+      if (!picked) return;
+      const pickedDate = typeof picked === "string" ? picked : picked.date;
+      if (type !== "mastered") setDiscontinuedReason(pa, picked.reason);
       if (type === "mastered") pa.masteredOn = pickedDate;
       else pa.discontinuedOn = pickedDate;
       await saveTarget();
@@ -27710,6 +27945,10 @@ function renderTargetManageContent(student, target) {
       const idx = Number(btn.dataset.idx);
       const subAct = acts[idx];
       if (!subAct) return;
+      // A panel open over this list holds back every write, and keeps a
+      // snapshot Discard Changes can restore from. Closed first, or the
+      // delete writes nothing and the row comes back on the next draw.
+      if (_mnPanelOpen) await mnPanelSave();
 
       btn.disabled = true;
       btn.textContent = "⏳";

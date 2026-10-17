@@ -4,7 +4,13 @@
 //
 // Exits non-zero if anything fails, so it can gate a deploy.
 
-const HARNESS = ".harness";   // throwaway; rebuilt on every run
+// Throwaway, rebuilt on every run, and named after this process.
+//
+// Two runs at once used to share one folder: the second rebuilt it while
+// the first was reading it, and eighteen suites failed with "harness-meta
+// not found". That looked exactly like the app being broken, twice, and
+// cost more time than the tests it was running.
+const HARNESS = `.harness-${Deno.pid}`;
 
 const run = async (label, cmd) => {
   console.log(`\n${"=".repeat(60)}\n${label}\n${"=".repeat(60)}`);
@@ -35,6 +41,12 @@ results.push(await run("Everyone signs in again each Monday (no browser)",
 
 results.push(await run("List of Corrections: three states, Ms. Daisy approves (no browser)",
   ["run", "--allow-read", "tests/corrections-status.test.js"]));
+
+results.push(await run("Why something was discontinued (no browser)",
+  ["run", "--allow-read", "tests/discontinue-reason.test.js"]));
+
+results.push(await run("Which targets a report for a period covers (no browser)",
+  ["run", "--allow-read", "tests/report-period-targets.test.js"]));
 
 results.push(await run("Which session records belong to which activity (no browser)",
   ["run", "--allow-read", "tests/activity-identity.test.js"]));
@@ -98,6 +110,9 @@ results.push(await run("Two people in two browsers at once",
 
 results.push(await run("An approved activity keeps the date it was proposed for",
   ["run", "-A", "tests/browser/approval-keeps-date.test.js", HARNESS]));
+
+results.push(await run("Deleting an activity with its panel open",
+  ["run", "-A", "tests/browser/delete-after-refresh.test.js", HARNESS]));
 
 results.push(await run("Two activities with the same name, in a real browser",
   ["run", "-A", "tests/browser/same-name-activities.test.js", HARNESS]));
