@@ -148,6 +148,28 @@ try {
   r.ok("and the rule about split lines", /SAME tags with the SAME numbers/.test(ins),
     "nothing tells it to keep the tags");
 
+  // The prompt was rewritten to Lewis's spec in v2276. The machinery above
+  // still has to be in it; these are the new style rules it brought in.
+  r.ok("the worked examples teach the style, not just the rule",
+    ins.includes("这说明他越来越能准确地找出相同的图片")
+    && ins.includes("他可能正开始学习独立完成日常穿脱衣物的部分步骤")
+    && ins.includes("他正慢慢学会在同伴加入时主动与对方击掌互动"),
+    "a worked example is missing");
+  r.ok("a hedge may not harden into a fact", /Keep hedges as hedges/.test(ins),
+    "nothing protects \"suggests\" and \"may\"");
+  // Lewis asked for short explanations of technical terms. Unfenced, that
+  // is a licence to add claims the English never made.
+  r.ok("explaining a term is allowed", /EXPLAINING A TECHNICAL TERM/.test(ins),
+    "the section is missing");
+  r.ok("but only where the English explained it too",
+    /Mirror the English, exactly/.test(ins)
+    && /do not explain it either/.test(ins)
+    && /must say the same amount/.test(ins),
+    "the explanation rule is not tied to the English");
+  r.ok("and never repeats the sentence in brackets",
+    /bracket that only says the sentence again/.test(ins),
+    "nothing stops a redundant bracket");
+
   // ── batching and reading the answer ──────────────────────────────────
   r.section("batching, and reading the answer back");
   const batched = await page.eval(`(() => {
