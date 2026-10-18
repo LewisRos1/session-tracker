@@ -227,7 +227,7 @@ function versionLineText() {
   return `Made by Lewis · Version ${APP_VERSION}`;
 }
 
-const APP_VERSION = "2278";
+const APP_VERSION = "2280";
 
 // Debug helpers — call from F12 console
 // -1) Recover multiple-choice options wiped by the v2072-and-earlier panel bug:
@@ -17368,6 +17368,10 @@ const TRANSLATE_GLOSSARY = [
   ["intervention", "干预"],
   ["occupational therapy", "职能治疗"],
   ["therapist", "治疗师"],
+  // The reports say "instructor" far more often than "teacher", and the
+  // model was rendering it 指导员 in one paragraph and 老师 in the next.
+  ["instructor", "老师"],
+  ["teacher", "老师"],
   ["emotional responses", "情绪反应"],
   ["distress", "情绪困扰"],
   ["frustration", "挫折感"],
@@ -17462,6 +17466,7 @@ Some lines arrive split into pieces, like <s1>Calming Himself</s1><s2>: he neede
 
 WORD LIST
 Use exactly these, every time they appear. Consistency between reports matters more than variety. Anything NOT on this list should be worded in whatever way reads most naturally.
+The adult who works with the child is always 老师, whether the English calls them an instructor or a teacher. Never 指导员, never 导师, never 辅导员. Use 老师 every single time, so a parent never wonders whether two different people are meant.
 ${TRANSLATE_GLOSSARY.map(([en, zh]) => `    ${en} = ${zh}`).join("\n")}
 
 BEFORE YOU ANSWER
@@ -18245,11 +18250,21 @@ function setChineseFonts(xml) {
   // A report written by the app carries none of these, so Word was left to
   // its own defaults and broke the Chinese wherever the margin fell, which
   // put "，" at the start of a line. They belong at the front of the
-  // paragraph defaults: the order of these elements is fixed, and all four
-  // come before <w:spacing>, which is already in there.
+  // paragraph defaults: the order of these elements is fixed, and all of
+  // them come before <w:spacing>, which is already in there.
+  //
+  // <w:wordWrap w:val="0"/> is the one that is about ENGLISH. Turning the
+  // document Chinese switches Word to East Asian line breaking, which may
+  // break a line between any two characters -- including two letters in the
+  // middle of an English word. The translated-from-English note under the
+  // title came out as "repor / t" and "clarific / ation", and so would the
+  // English inside a target name like 模仿（Imitation）. Setting it to 0 says
+  // a Latin word stays whole. It goes between kinsoku and overflowPunct,
+  // because the format fixes the order of these elements.
   out = out.replace(/<w:pPrDefault><w:pPr>(?!<w:kinsoku\/>)/,
     (whole) => whole +
-      "<w:kinsoku/><w:overflowPunct/><w:autoSpaceDE/><w:autoSpaceDN/>");
+      "<w:kinsoku/><w:wordWrap w:val=\"0\"/><w:overflowPunct/>"
+      + "<w:autoSpaceDE/><w:autoSpaceDN/>");
   return out;
 }
 
