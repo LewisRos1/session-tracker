@@ -45,6 +45,9 @@ results.push(await run("List of Corrections: three states, Ms. Daisy approves (n
 results.push(await run("Why something was discontinued (no browser)",
   ["run", "--allow-read", "tests/discontinue-reason.test.js"]));
 
+results.push(await run("Blank rows swept out of an activity list (no browser)",
+  ["run", "-A", "tests/sweep-blank-acts.test.js"]));
+
 results.push(await run("Which targets a report for a period covers (no browser)",
   ["run", "--allow-read", "tests/report-period-targets.test.js"]));
 
@@ -117,8 +120,35 @@ results.push(await run("An approved activity keeps the date it was proposed for"
 results.push(await run("Deleting an activity with its panel open",
   ["run", "-A", "tests/browser/delete-after-refresh.test.js", HARNESS]));
 
+results.push(await run("Maintain repaints the row",
+  ["run", "-A", "tests/browser/maintain-repaints.test.js", HARNESS]));
+
+results.push(await run("Status tags in the exports",
+  ["run", "-A", "tests/status-tags.test.js"]));
+
+results.push(await run("Maintained for months, then mastered",
+  ["run", "-A", "tests/browser/maintained-then-mastered.test.js", HARNESS]));
+
+results.push(await run("A note's dates, and the collapsed lists",
+  ["run", "-A", "tests/browser/note-dates-and-sections.test.js", HARNESS]));
+
+results.push(await run("Moving an activity under a parent",
+  ["run", "-A", "tests/browser/move-under-parent.test.js", HARNESS]));
+
+results.push(await run("A sub-activity's kebab menu",
+  ["run", "-A", "tests/browser/sub-kebab-reachable.test.js", HARNESS]));
+
 results.push(await run("Two activities with the same name, in a real browser",
   ["run", "-A", "tests/browser/same-name-activities.test.js", HARNESS]));
+
+results.push(await run("Duplicate activity names: refused, and allowed",
+  ["run", "-A", "tests/browser/duplicate-activity-names.test.js", HARNESS]));
+
+results.push(await run("Sub-activities in the View table",
+  ["run", "-A", "tests/browser/view-sub-indent.test.js", HARNESS]));
+
+results.push(await run("Dark mode: the theme, and the exports it must not touch",
+  ["run", "-A", "tests/browser/dark-mode.test.js", HARNESS]));
 
 results.push(await run("Start Session screens: what they print",
   ["run", "-A", "tests/browser/session-screen-display.test.js", HARNESS]));

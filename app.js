@@ -227,7 +227,7 @@ function versionLineText() {
   return `Made by Lewis · Version ${APP_VERSION}`;
 }
 
-const APP_VERSION = "2298";
+const APP_VERSION = "2319";
 
 // Debug helpers — call from F12 console
 // -1) Recover multiple-choice options wiped by the v2072-and-earlier panel bug:
@@ -1339,15 +1339,15 @@ function showInstructorPickerStep(onConfirm, preSelected = [], onBack = null, da
   $("session-picker-title").textContent = "Instructors";
   $("session-picker-list").innerHTML = `
     <div style="padding:1.5rem 1.25rem;display:flex;flex-direction:column;align-items:center">
-      <p style="margin:0 0 .35rem;font-weight:600;color:#374151;text-align:center">Who is facilitating this session?</p>
-      ${dateStr ? `<p style="margin:0 0 1.25rem;font-size:.9rem;color:#6b7280;text-align:center">${escHtml(dateStr)}</p>` : `<div style="margin-bottom:1.25rem"></div>`}
+      <p style="margin:0 0 .35rem;font-weight:600;color:var(--c-374151);text-align:center">Who is facilitating this session?</p>
+      ${dateStr ? `<p style="margin:0 0 1.25rem;font-size:.9rem;color:var(--c-6b7280);text-align:center">${escHtml(dateStr)}</p>` : `<div style="margin-bottom:1.25rem"></div>`}
       <div style="width:100%;max-width:320px">
         ${INSTRUCTORS.map(inst => `
-          <label style="display:flex;align-items:center;justify-content:center;gap:.85rem;padding:.75rem 0;cursor:pointer;font-size:1rem;border-bottom:1px solid #f3f4f6">
+          <label style="display:flex;align-items:center;justify-content:center;gap:.85rem;padding:.75rem 0;cursor:pointer;font-size:1rem;border-bottom:1px solid var(--c-f3f4f6)">
             <input type="checkbox" class="inst-check" value="${inst.id}"
               ${preSelected.includes(inst.id) ? "checked" : ""}
-              style="width:1.2rem;height:1.2rem;accent-color:#3b82f6;cursor:pointer;flex-shrink:0">
-            <span style="color:#1f2937;width:7rem">${escHtml(inst.name)}</span>
+              style="width:1.2rem;height:1.2rem;accent-color:var(--c-3b82f6);cursor:pointer;flex-shrink:0">
+            <span style="color:var(--c-1f2937);width:7rem">${escHtml(inst.name)}</span>
           </label>`).join("")}
       </div>
       <div style="display:flex;gap:.75rem;margin-top:1.5rem;width:100%">
@@ -1362,6 +1362,51 @@ function showInstructorPickerStep(onConfirm, preSelected = [], onBack = null, da
   });
 }
 
+
+// ─── APPEARANCE (light / dark) ───────────────────────────────
+//
+// On the device, not on the account. Lewis asked for it that way: the
+// office PC can be dark while the same person's phone stays light.
+//
+// The whole theme is the token block at the top of styles.css. Nothing here
+// knows a single colour; it sets one attribute and the stylesheet does the
+// rest. Charts are untouched by design -- every one is drawn on a detached
+// canvas for Word or Excel and never appears on a screen.
+const THEME_KEY = "st-theme";
+
+function currentTheme() {
+  try { return localStorage.getItem(THEME_KEY) === "dark" ? "dark" : "light"; }
+  catch (e) { return "light"; }
+}
+
+function applyTheme(mode) {
+  const dark = mode === "dark";
+  document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
+  // The browser paints the address bar and the task switcher from this, so
+  // leaving it indigo puts a bright band above a dark page.
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute("content", dark ? "#2f3137" : "#6366f1");
+  try { localStorage.setItem(THEME_KEY, dark ? "dark" : "light"); }
+  catch (e) { /* blocked storage: it still applies for this visit */ }
+  // Both words stay on screen; the one in use is the one marked pressed,
+  // which is what fills it in.
+  document.querySelectorAll(".theme-opt").forEach(opt => {
+    const mine = opt.dataset.theme === (dark ? "dark" : "light");
+    opt.setAttribute("aria-pressed", String(mine));
+    opt.title = mine ? "Already in this mode"
+      : `Switch to ${opt.dataset.theme} mode`;
+  });
+}
+
+// Delegated, so it keeps working through any re-render of the header.
+document.addEventListener("click", e => {
+  const opt = e.target.closest(".theme-opt");
+  if (opt) applyTheme(opt.dataset.theme);
+});
+
+// The attribute is already set by the inline script in the head; this is for
+// the meta colour and the switch itself, which do not exist that early.
+applyTheme(currentTheme());
 
 // ─── SCORE SETTINGS SCREEN ───────────────────────────────────
 // What each trial mark is worth. One scale for the whole site, stored in
@@ -1571,9 +1616,9 @@ function showLockOverPanel(bodyHtml) {
   const overlay = document.createElement("div");
   overlay.dataset.lockOverlay = "1";
   overlay.style.cssText = "position:absolute;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:flex-start;justify-content:center;padding-top:2rem;z-index:300;border-radius:.75rem;overflow-y:auto";
-  overlay.innerHTML = `<div style="background:#fff;padding:1.5rem 1.25rem;border-radius:.75rem;width:min(320px,92%);box-shadow:0 4px 24px rgba(0,0,0,.25);display:flex;flex-direction:column;align-items:center;gap:.9rem;margin-bottom:1rem">
+  overlay.innerHTML = `<div style="background:var(--c-ffffff);padding:1.5rem 1.25rem;border-radius:.75rem;width:min(320px,92%);box-shadow:0 4px 24px rgba(0,0,0,.25);display:flex;flex-direction:column;align-items:center;gap:.9rem;margin-bottom:1rem">
       <div style="font-size:2rem;line-height:1">🔒</div>
-      <div style="font-size:.9rem;color:#111;text-align:center;line-height:1.55">${bodyHtml}</div>
+      <div style="font-size:.9rem;color:var(--c-111111);text-align:center;line-height:1.55">${bodyHtml}</div>
       <button class="btn-primary-sm" data-lock-ok style="padding:.5rem 1.75rem">OK</button>
     </div>`;
   panelEl.appendChild(overlay);
@@ -1770,6 +1815,8 @@ let _actStartPickerIdx    = null;
 let _actStartPickerActs   = null;
 let _actStartPickerStudent = null;
 let _actStartPickerTarget  = null;
+// Which end of the period the sheet is setting: "activeFrom" or "activeTo".
+let _actStartPickerField   = "activeFrom";
 
 // Tracks in-flight rename-propagation operations so the manage modal can show
 // "Syncing history…" while they run, and warn the boss if one fails silently.
@@ -1788,7 +1835,7 @@ function _propagationEnd(ok) {
     const ai = $("manage-autosave-indicator");
     if (ai) {
       ai.textContent = "⚠ Sync failed — run Data Integrity Check";
-      ai.style.color = "#dc2626";
+      ai.style.color = "var(--c-dc2626)";
       setTimeout(() => { if (ai.textContent.startsWith("⚠")) { ai.textContent = ""; ai.style.color = ""; } }, 9000);
     }
   }
@@ -2081,7 +2128,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   // Register SW immediately — don't wait for Firebase so updates are never blocked.
   registerServiceWorker();
   setupStickyNote();
-  $("btn-ai-report-back").addEventListener("click", showHome);
+  $("btn-ai-report-back").addEventListener("click", showHome);
   $("btn-ai-translate-back").addEventListener("click", showHome);
 
   // Nothing stored means Firebase has no session to restore either, so go
@@ -2939,7 +2986,7 @@ function renderStudentDatabaseButton() {
   const container = $("student-database-button");
   if (!container) return;
   container.innerHTML = `<div class="info-btn-row">
-    <button class="export-btn export-btn-all" id="btn-open-student-registry" style="margin-bottom:0">Student Database</button>
+    <button class="export-btn" id="btn-open-student-registry">Student Database</button>
     <button class="export-btn" id="btn-open-ai-report">AI Report Generator</button>
     <!-- Shown to everyone, like the AI Report Generator beside it. An
          assistant clicking it gets the same "Locked." panel: the screen
@@ -2976,7 +3023,7 @@ function renderTodoHomeSection() {
         style="display:flex;align-items:center;gap:.5rem;margin-bottom:0">
         <span>${escHtml(inst.name)}</span>
         <span class="todo-home-badge" data-id="${inst.id}"
-          style="background:#d1d5db;color:#6b7280;border-radius:999px;min-width:20px;height:20px;
+          style="background:var(--c-d1d5db);color:var(--c-6b7280);border-radius:999px;min-width:20px;height:20px;
                  display:flex;align-items:center;justify-content:center;font-size:.72rem;
                  font-weight:700;padding:0 5px;flex-shrink:0">…</span>
       </button>`).join("")}
@@ -3022,8 +3069,8 @@ async function loadTodoHomeCounts() {
       const badge = document.querySelector(`.todo-home-badge[data-id="${inst.id}"]`);
       if (badge) {
         badge.textContent = total;
-        badge.style.background = total > 0 ? "#3b82f6" : "#d1d5db";
-        badge.style.color      = total > 0 ? "#fff"    : "#6b7280";
+        badge.style.background = total > 0 ? "var(--badge-bg)" : "var(--c-d1d5db)";
+        badge.style.color      = total > 0 ? "var(--badge-fg)" : "var(--c-6b7280)";
       }
     } catch { /* silently skip this instructor if query fails */ }
   });
@@ -3136,15 +3183,15 @@ function showTodoSessionChoice(dateStr, sid, isGrp, subject) {
   const overlay = document.createElement("div");
   overlay.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;display:flex;align-items:flex-end;justify-content:center";
   overlay.innerHTML = `
-    <div style="background:#fff;border-radius:16px 16px 0 0;width:100%;max-width:520px;padding:1.25rem 1.25rem calc(1.25rem + env(safe-area-inset-bottom))">
+    <div style="background:var(--c-ffffff);border-radius:16px 16px 0 0;width:100%;max-width:520px;padding:1.25rem 1.25rem calc(1.25rem + env(safe-area-inset-bottom))">
       <div style="font-size:.82rem;font-weight:600;color:var(--text-muted);margin-bottom:1rem;text-transform:uppercase;letter-spacing:.05em">${escHtml(subject.name)}</div>
-      <button id="tsc-start" style="display:flex;align-items:center;gap:.75rem;width:100%;padding:.85rem 1rem;border:1.5px solid #e5e7eb;border-radius:10px;background:#fff;cursor:pointer;text-align:left;margin-bottom:.6rem">
+      <button id="tsc-start" style="display:flex;align-items:center;gap:.75rem;width:100%;padding:.85rem 1rem;border:1.5px solid var(--c-e5e7eb);border-radius:10px;background:var(--c-ffffff);cursor:pointer;text-align:left;margin-bottom:.6rem">
         <span style="font-size:1.3rem">▶️</span>
-        <div style="font-weight:600;font-size:1.05rem;color:#1f2937">Start Session</div>
+        <div style="font-weight:600;font-size:1.05rem;color:var(--c-1f2937)">Start Session</div>
       </button>
-      <button id="tsc-view" style="display:flex;align-items:center;gap:.75rem;width:100%;padding:.85rem 1rem;border:1.5px solid #e5e7eb;border-radius:10px;background:#fff;cursor:pointer;text-align:left;margin-bottom:.6rem">
+      <button id="tsc-view" style="display:flex;align-items:center;gap:.75rem;width:100%;padding:.85rem 1rem;border:1.5px solid var(--c-e5e7eb);border-radius:10px;background:var(--c-ffffff);cursor:pointer;text-align:left;margin-bottom:.6rem">
         <span style="font-size:1.3rem">🗂️</span>
-        <div style="font-weight:600;font-size:1.05rem;color:#1f2937">View / Edit Past Session</div>
+        <div style="font-weight:600;font-size:1.05rem;color:var(--c-1f2937)">View / Edit Past Session</div>
       </button>
       <button id="tsc-cancel" style="width:100%;padding:.7rem;border:none;background:transparent;cursor:pointer;color:var(--text-muted);font-size:.9rem">Cancel</button>
     </div>`;
@@ -3207,18 +3254,18 @@ function renderTodoTiles(results, filterInst = null) {
     if (inst.id === "nigel" && ws.ready && !ws.p4Done && !isMonthly) tasks.push("Export");
 
     const pillStyle = t => t === "Enter Data"
-      ? "background:#eff6ff;color:#1d4ed8"
+      ? "background:var(--c-eff6ff);color:var(--c-1d4ed8)"
       : t === "Export"
-        ? "background:#f0fdf4;color:#15803d"
-        : "background:#fff7ed;color:#c2410c";
+        ? "background:var(--c-f0fdf4);color:var(--c-15803d)"
+        : "background:var(--c-fff7ed);color:var(--c-c2410c)";
 
     return `<button class="todo-session-row"
         data-session-id="${s.id}"
         data-subject-id="${escHtml(subjectId)}"
         data-is-group="${isGroup}"
         data-session-date="${escHtml(s.date || "")}"
-        style="display:flex;flex-direction:column;align-items:flex-start;width:100%;padding:.65rem .9rem;border:none;border-top:1px solid #f3f4f6;background:transparent;cursor:pointer;text-align:left">
-      <span style="font-size:.88rem;font-weight:600;color:#1f2937">${escHtml(name)}</span>
+        style="display:flex;flex-direction:column;align-items:flex-start;width:100%;padding:.65rem .9rem;border:none;border-top:1px solid var(--c-f3f4f6);background:transparent;cursor:pointer;text-align:left">
+      <span style="font-size:.88rem;font-weight:600;color:var(--c-1f2937)">${escHtml(name)}</span>
       <span style="display:flex;align-items:center;gap:.4rem;margin-top:.15rem;flex-wrap:wrap">
         <span style="font-size:.78rem;color:var(--text-muted)">${escHtml(dateStr)}</span>
         ${tasks.map(t => `<span style="font-size:.8rem;font-weight:600;padding:.15rem .55rem;border-radius:999px;${pillStyle(t)}">${escHtml(t)}</span>`).join("")}
@@ -3334,18 +3381,18 @@ function renderTodoTiles(results, filterInst = null) {
       }
       if (inst.id === "nigel" && ws.ready && !ws.p4Done && !isMonthly) tasks.push("Export");
       const pillStyle = t => t === "Enter Data"
-        ? "background:#eff6ff;color:#1d4ed8"
-        : t === "Export" ? "background:#f0fdf4;color:#15803d" : "background:#fff7ed;color:#c2410c";
+        ? "background:var(--c-eff6ff);color:var(--c-1d4ed8)"
+        : t === "Export" ? "background:var(--c-f0fdf4);color:var(--c-15803d)" : "background:var(--c-fff7ed);color:var(--c-c2410c)";
       return `<div class="todo-flat-card" data-session-id="${s.id}" data-subject-id="${escHtml(subjectId)}" data-is-group="${isGroup}" data-session-date="${escHtml(s.date || "")}"
-          style="border:1.5px solid #e5e7eb;border-radius:12px;background:#fff;margin-bottom:.65rem;cursor:pointer;display:flex;align-items:center;justify-content:space-between;padding:.9rem 1rem;box-shadow:0 1px 3px rgba(0,0,0,.06);gap:.75rem">
+          style="border:1.5px solid var(--c-e5e7eb);border-radius:12px;background:var(--c-ffffff);margin-bottom:.65rem;cursor:pointer;display:flex;align-items:center;justify-content:space-between;padding:.9rem 1rem;box-shadow:0 1px 3px rgba(0,0,0,.06);gap:.75rem">
         <div style="min-width:0">
-          <div style="font-size:1.05rem;font-weight:600;color:#1f2937">${escHtml(name)}</div>
+          <div style="font-size:1.05rem;font-weight:600;color:var(--c-1f2937)">${escHtml(name)}</div>
           <div style="display:flex;align-items:center;gap:.4rem;margin-top:.2rem;flex-wrap:wrap">
             <span style="font-size:.9rem;color:var(--text-muted)">${escHtml(dateStr)}</span>
             ${tasks.map(t => `<span style="font-size:.92rem;font-weight:600;padding:.15rem .55rem;border-radius:999px;${pillStyle(t)}">${escHtml(t)}</span>`).join("")}
           </div>
         </div>
-        <span style="color:#9ca3af;font-size:1.4rem;flex-shrink:0">›</span>
+        <span style="color:var(--c-9ca3af);font-size:1.4rem;flex-shrink:0">›</span>
       </div>`;
     };
 
@@ -3392,14 +3439,14 @@ function renderTodoTiles(results, filterInst = null) {
           const hasPending = pending.length + approvalRows + noticeRows > 0;
           const sorted = [...pending].sort((a, b) => (a.date || "").localeCompare(b.date || ""));
           return `
-          <div class="todo-col" style="border:1.5px solid #e5e7eb;border-radius:14px;overflow:hidden;background:#fff;box-shadow:0 1px 4px rgba(0,0,0,.06)">
+          <div class="todo-col" style="border:1.5px solid var(--c-e5e7eb);border-radius:14px;overflow:hidden;background:var(--c-ffffff);box-shadow:0 1px 4px rgba(0,0,0,.06)">
             <button class="todo-col-header" data-id="${inst.id}"
-              style="display:flex;align-items:center;justify-content:space-between;width:100%;padding:.9rem 1rem;border:none;background:#f9fafb;cursor:${hasPending ? "pointer" : "default"};text-align:left">
+              style="display:flex;align-items:center;justify-content:space-between;width:100%;padding:.9rem 1rem;border:none;background:var(--c-f9fafb);cursor:${hasPending ? "pointer" : "default"};text-align:left">
               <div style="display:flex;align-items:center;gap:.5rem">
-                <span style="font-weight:700;font-size:.95rem;color:#1f2937">${escHtml(inst.name)}</span>
-                <span style="background:${hasPending ? '#3b82f6' : '#d1d5db'};color:${hasPending ? '#fff' : '#6b7280'};border-radius:999px;min-width:20px;height:20px;display:flex;align-items:center;justify-content:center;font-size:.72rem;font-weight:700;padding:0 5px;flex-shrink:0">${pending.length + approvalRows + noticeRows}</span>
+                <span style="font-weight:700;font-size:.95rem;color:var(--c-1f2937)">${escHtml(inst.name)}</span>
+                <span style="background:${hasPending ? 'var(--badge-bg)' : 'var(--c-d1d5db)'};color:${hasPending ? 'var(--badge-fg)' : 'var(--c-6b7280)'};border-radius:999px;min-width:20px;height:20px;display:flex;align-items:center;justify-content:center;font-size:.72rem;font-weight:700;padding:0 5px;flex-shrink:0">${pending.length + approvalRows + noticeRows}</span>
               </div>
-              ${hasPending ? `<span class="todo-chevron" style="color:#6b7280;font-size:1.5rem;line-height:1;transition:transform .2s;transform:rotate(-90deg)">▾</span>` : ""}
+              ${hasPending ? `<span class="todo-chevron" style="color:var(--c-6b7280);font-size:1.5rem;line-height:1;transition:transform .2s;transform:rotate(-90deg)">▾</span>` : ""}
             </button>
             <div class="todo-col-body" data-id="${inst.id}" style="display:none">
               ${noticeHtml(inst)}
@@ -3584,11 +3631,11 @@ function studentFileLabel(s) {
 // than free text: a typo would silently put the wrong pronouns in a document
 // that goes to a parent. Clicking cycles male → female → unset.
 const GENDER_STYLE = {
-  male:   { label: "Male",   bg: "#dbeafe", fg: "#1d4ed8", bd: "#93c5fd" },
-  female: { label: "Female", bg: "#fce7f3", fg: "#be185d", bd: "#f9a8d4" },
+  male:   { label: "Male",   bg: "var(--c-dbeafe)", fg: "var(--c-1d4ed8)", bd: "var(--c-93c5fd)" },
+  female: { label: "Female", bg: "var(--c-fce7f3)", fg: "var(--c-be185d)", bd: "var(--c-f9a8d4)" },
   // Unset says what to do rather than showing a dash: a report cannot be
   // generated until this is filled in, so it should not look optional.
-  "":     { label: "Click to set gender", bg: "#fef3c7", fg: "#b45309", bd: "#fcd34d" }
+  "":     { label: "Click to set gender", bg: "var(--c-fef3c7)", fg: "var(--c-b45309)", bd: "var(--c-fcd34d)" }
 };
 
 // A dropdown rather than a pill: a select is obviously changeable, where a
@@ -3715,12 +3762,12 @@ async function renderStudentRegistryBody({ highlightAdd = false } = {}) {
                     style="width:100%;text-align:center" />
                 </td>
                 <td style="text-align:center" onclick="event.stopPropagation()">
-                  ${(() => { const m = s.exportDuration === "monthly"; return `<select class="db-export-dur-select admin-input" data-id="${escHtml(s.id)}" style="width:100%;text-align:center;font-size:.82rem;font-weight:600;cursor:pointer;background:${m ? "#f3f4f6" : "#dbeafe"};color:${m ? "#6b7280" : "#1d4ed8"};border-color:${m ? "#d1d5db" : "#93c5fd"}"><option value="monthly"${m ? " selected" : ""}>Monthly</option><option value="every_session"${m ? "" : " selected"}>Every Session</option></select>`; })()}
+                  ${(() => { const m = s.exportDuration === "monthly"; return `<select class="db-export-dur-select admin-input" data-id="${escHtml(s.id)}" style="width:100%;text-align:center;font-size:.82rem;font-weight:600;cursor:pointer;background:${m ? "var(--c-f3f4f6)" : "var(--c-dbeafe)"};color:${m ? "var(--c-6b7280)" : "var(--c-1d4ed8)"};border-color:${m ? "var(--c-d1d5db)" : "var(--c-93c5fd)"}"><option value="monthly"${m ? " selected" : ""}>Monthly</option><option value="every_session"${m ? "" : " selected"}>Every Session</option></select>`; })()}
                 </td>
                 <td class="reg-indiv-num" data-id="${escHtml(s.id)}" title="Click to renumber this student's sessions" style="text-align:center;cursor:pointer;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:3px">…</td>
                 <td style="text-align:center" onclick="event.stopPropagation()">
                   <button class="db-del-student" data-id="${escHtml(s.id)}" title="Delete this student"
-                    style="background:none;border:none;cursor:pointer;font-size:1rem;line-height:1;padding:.3rem;color:#dc2626">🗑</button>
+                    style="background:none;border:none;cursor:pointer;font-size:1rem;line-height:1;padding:.3rem;color:var(--c-dc2626)">🗑</button>
                 </td>
               </tr>`).join("")}
           </tbody>
@@ -3840,9 +3887,9 @@ async function renderStudentRegistryBody({ highlightAdd = false } = {}) {
       if (!s) return;
       s.exportDuration = sel.value;
       const m = sel.value === "monthly";
-      sel.style.background  = m ? "#f3f4f6" : "#dbeafe";
-      sel.style.color       = m ? "#6b7280" : "#1d4ed8";
-      sel.style.borderColor = m ? "#d1d5db" : "#93c5fd";
+      sel.style.background  = m ? "var(--c-f3f4f6)" : "var(--c-dbeafe)";
+      sel.style.color       = m ? "var(--c-6b7280)" : "var(--c-1d4ed8)";
+      sel.style.borderColor = m ? "var(--c-d1d5db)" : "var(--c-93c5fd)";
       await saveStudent(s);
     });
   });
@@ -4207,7 +4254,7 @@ function renderDataIntegrityReport() {
       <h3 style="margin:.5rem 0">Orphaned target names — target renamed but history not updated (${orphanTgtsOpen.length})</h3>
       <p style="color:var(--text-muted);font-size:.85rem;margin-bottom:.5rem">These sessions have data stored under a target name that no longer exists — most likely from a target rename where the background sync didn't finish before the page was closed. "Re-link" migrates the data to the matching current target so it becomes visible again.</p>
       ${orphanTgtsOpen.length === 0 ? `<p style="color:var(--text-muted);font-size:.85rem">None found.</p>` : orphanTgtsOpen.map(f => `
-        <div style="border:2px solid #fca5a5;border-radius:8px;padding:.75rem;margin-bottom:.75rem;background:#fef2f2">
+        <div style="border:2px solid var(--c-fca5a5);border-radius:8px;padding:.75rem;margin-bottom:.75rem;background:var(--c-fef2f2)">
           <div><strong>${escHtml(f.who)}</strong></div>
           <div style="margin-top:.3rem">Orphaned target: <strong>${escHtml(f.orphanTargetName)}</strong></div>
           <div style="margin-top:.3rem">Best match: <strong>${escHtml(f.bestMatch || "(no match)")}</strong> <span style="color:var(--text-muted);font-size:.85rem">(${Math.round(f.bestSim * 100)}% similarity)</span></div>
@@ -4217,7 +4264,7 @@ function renderDataIntegrityReport() {
       `).join("")}
 
       ${orphanTgtsFixed.length === 0 ? "" : `
-        <h3 style="margin:1.5rem 0 .5rem;color:#16a34a">Orphaned targets re-linked just now (${orphanTgtsFixed.length})</h3>
+        <h3 style="margin:1.5rem 0 .5rem;color:var(--c-16a34a)">Orphaned targets re-linked just now (${orphanTgtsFixed.length})</h3>
         ${orphanTgtsFixed.map(f => `<div style="padding:.4rem 0;border-bottom:1px solid var(--border);font-size:.85rem">${escHtml(f.who)}: "${escHtml(f.orphanTargetName)}" → "${escHtml(f.bestMatch)}"</div>`).join("")}
       `}
 
@@ -4233,7 +4280,7 @@ function renderDataIntegrityReport() {
       `).join("")}
 
       ${dupesMerged.length === 0 ? "" : `
-        <h3 style="margin:1.5rem 0 .5rem;color:#16a34a">Duplicates merged just now (${dupesMerged.length})</h3>
+        <h3 style="margin:1.5rem 0 .5rem;color:var(--c-16a34a)">Duplicates merged just now (${dupesMerged.length})</h3>
         ${dupesMerged.map(d => `<div style="padding:.4rem 0;border-bottom:1px solid var(--border);font-size:.85rem">${escHtml(d.who)} — ${escHtml(d.targetName)} — ${escHtml(d.sessionDate)}: "${escHtml(d.activityName)}"</div>`).join("")}
       `}
 
@@ -4250,7 +4297,7 @@ function renderDataIntegrityReport() {
       `).join("")}
 
       ${merged.length === 0 ? "" : `
-        <h3 style="margin:1.5rem 0 .5rem;color:#16a34a">Merged just now (${merged.length})</h3>
+        <h3 style="margin:1.5rem 0 .5rem;color:var(--c-16a34a)">Merged just now (${merged.length})</h3>
         ${merged.map(f => `<div style="padding:.4rem 0;border-bottom:1px solid var(--border);font-size:.85rem">${escHtml(f.who)} — ${escHtml(f.targetName)}: "${escHtml(f.orphanName)}" → "${escHtml(f.bestMatch)}"</div>`).join("")}
       `}
 
@@ -4271,7 +4318,7 @@ function renderDataIntegrityReport() {
       </details>`}
 
       ${(() => { const deleted = findings.filter(f => f.deleted); return deleted.length === 0 ? "" : `
-        <h3 style="margin:1.5rem 0 .5rem;color:#dc2626">Permanently deleted just now (${deleted.length})</h3>
+        <h3 style="margin:1.5rem 0 .5rem;color:var(--c-dc2626)">Permanently deleted just now (${deleted.length})</h3>
         ${deleted.map(f => `<div style="padding:.4rem 0;border-bottom:1px solid var(--border);font-size:.85rem">${escHtml(f.who)} — ${escHtml(f.targetName)}: "${escHtml(f.orphanName)}"</div>`).join("")}
       `; })()}
     </div>`;
@@ -4522,7 +4569,7 @@ function renderExportButtons() {
 
   exportAllContainer.innerHTML = `
     <div style="display:flex;gap:.6rem;flex-wrap:wrap">
-      <button class="export-btn export-btn-all" id="btn-export-all-trials">Backup All Excel (ZIP)</button>
+      <button class="export-btn" id="btn-export-all-trials">Backup All Excel (ZIP)</button>
       <button class="export-btn" id="btn-data-integrity-check">🔍 Run Data Integrity Check</button>
       <button class="export-btn" id="btn-recently-deleted">🗑️ Recently Deleted (30 days)</button>
       <button class="export-btn" id="btn-hyr-settings">✏️ Prompt for AI Report</button>
@@ -4897,14 +4944,14 @@ function renderHalfYearReportsSection() {
 
   const MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 
-  const labelStyle = `width:110px;font-weight:600;font-size:.9rem;color:#374151;flex-shrink:0`;
+  const labelStyle = `width:110px;font-weight:600;font-size:.9rem;color:var(--c-374151);flex-shrink:0`;
   const rowStyle   = `display:flex;gap:.75rem;align-items:center`;
 
   container.innerHTML = `
     <div style="display:flex;flex-direction:column;gap:.55rem">
       <div style="${rowStyle}">
         <span style="${labelStyle}">Student</span>
-        <select id="hyr-student-select" class="admin-input" style="flex:1;min-width:0;background:#fff;font-family:inherit;font-size:1rem">
+        <select id="hyr-student-select" class="admin-input" style="flex:1;min-width:0;background:var(--c-ffffff);font-family:inherit;font-size:1rem">
           <option value="">— Select —</option>
           ${students.map(s => `<option value="${escHtml(s.id)}">${escHtml(studentLabel(s))}</option>`).join("")}
         </select>
@@ -4912,12 +4959,12 @@ function renderHalfYearReportsSection() {
       </div>
       <div id="hyr-row-session-type" style="display:none;gap:.75rem;align-items:center">
         <span style="${labelStyle}">Session Type</span>
-        <select id="hyr-session-type-select" class="admin-input" style="flex:1;min-width:0;background:#fff;font-family:inherit;font-size:1rem"></select>
+        <select id="hyr-session-type-select" class="admin-input" style="flex:1;min-width:0;background:var(--c-ffffff);font-family:inherit;font-size:1rem"></select>
       </div>
-      <div id="hyr-session-counts" style="display:none;max-width:480px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;padding:.85rem 1.1rem"></div>
+      <div id="hyr-session-counts" style="display:none;max-width:480px;background:var(--c-f9fafb);border:1px solid var(--c-e5e7eb);border-radius:10px;padding:.85rem 1.1rem"></div>
       <div id="hyr-row-type" style="display:none;gap:.75rem;align-items:center">
         <span style="${labelStyle}">Report Type</span>
-        <select id="hyr-type-select" class="admin-input" style="flex:1;min-width:0;background:#fff;font-family:inherit;font-size:1rem">
+        <select id="hyr-type-select" class="admin-input" style="flex:1;min-width:0;background:var(--c-ffffff);font-family:inherit;font-size:1rem">
           <option value="">— Select —</option>
           <option value="halfyear">Half Year (Jan to Jun / Jul to Dec)</option>
           <option value="custom">Custom Months (Uses Half Year Report Format)</option>
@@ -4927,24 +4974,24 @@ function renderHalfYearReportsSection() {
       </div>
       <div id="hyr-row-period" style="display:none;gap:.75rem;align-items:center">
         <span id="hyr-period-label" style="${labelStyle}">Semester</span>
-        <select id="hyr-period-select" class="admin-input" style="flex:1;min-width:0;background:#fff;font-family:inherit;font-size:1rem"></select>
-        <span id="hyr-period-to" style="display:none;font-size:.9rem;font-weight:600;color:#374151;flex-shrink:0">to</span>
-        <select id="hyr-period-select-2" class="admin-input" style="display:none;flex:1;min-width:0;background:#fff;font-family:inherit;font-size:1rem"></select>
+        <select id="hyr-period-select" class="admin-input" style="flex:1;min-width:0;background:var(--c-ffffff);font-family:inherit;font-size:1rem"></select>
+        <span id="hyr-period-to" style="display:none;font-size:.9rem;font-weight:600;color:var(--c-374151);flex-shrink:0">to</span>
+        <select id="hyr-period-select-2" class="admin-input" style="display:none;flex:1;min-width:0;background:var(--c-ffffff);font-family:inherit;font-size:1rem"></select>
         <button id="hyr-btn-generate" class="btn-add-section"
           style="font-size:.9rem;padding:.45rem 1.1rem;min-height:38px;white-space:nowrap;flex-shrink:0">
           Generate Report
         </button>
       </div>
       <div id="hyr-progress" style="display:none">
-        <div style="background:#e5e7eb;border-radius:99px;height:6px;overflow:hidden">
+        <div style="background:var(--c-e5e7eb);border-radius:99px;height:6px;overflow:hidden">
           <div id="hyr-progress-bar" style="height:100%;background:var(--primary);width:0%;transition:width .5s ease"></div>
         </div>
         <div id="hyr-progress-label" style="font-size:.82rem;color:var(--text-muted);margin-top:.45rem;text-align:center"></div>
       </div>
       <div id="hyr-cost-line" style="display:none;font-size:.78rem;color:var(--text-main);text-align:right;margin-top:.1rem;line-height:1.5"></div>
-      <div id="hyr-activity-filter" class="hyr-excl-pulse" style="display:none;background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;padding:1rem 1.1rem">
-        <div style="font-size:.875rem;font-weight:600;color:#374151;margin-bottom:.25rem">Select the activities you want to <span style="text-decoration:underline;font-weight:800">EXCLUDE</span> from this report:</div>
-        <div style="font-size:.78rem;color:#6b7280;margin-bottom:.8rem;font-weight:400">Excluded activities are left out of the appendix, and the AI is told to ignore them completely — it will not mention, analyse, or draw conclusions from them.</div>
+      <div id="hyr-activity-filter" class="hyr-excl-pulse" style="display:none;background:var(--c-f9fafb);border:1px solid var(--c-e5e7eb);border-radius:10px;padding:1rem 1.1rem">
+        <div style="font-size:.875rem;font-weight:600;color:var(--c-374151);margin-bottom:.25rem">Select the activities you want to <span style="text-decoration:underline;font-weight:800">EXCLUDE</span> from this report:</div>
+        <div style="font-size:.78rem;color:var(--c-6b7280);margin-bottom:.8rem;font-weight:400">Excluded activities are left out of the appendix, and the AI is told to ignore them completely — it will not mention, analyse, or draw conclusions from them.</div>
         <div id="hyr-act-filter-list" style="display:flex;flex-direction:column;gap:1.1rem"></div>
       </div>
     </div>`;
@@ -4958,7 +5005,7 @@ function renderHalfYearReportsSection() {
     const _rb = $("hyr-btn-generate");
     if (_rb) {
       _rb.textContent = "✕ Cancel";
-      _rb.style.cssText += ";background:#fee2e2;color:#dc2626;border-color:#ef4444";
+      _rb.style.cssText += ";background:var(--c-fee2e2);color:var(--c-dc2626);border-color:var(--c-ef4444)";
     }
   }
 
@@ -5003,22 +5050,22 @@ function renderHalfYearReportsSection() {
     const rows = buckets.map(b => {
       const low = b.n > 0 && b.n <= 2;
       const bar = b.n === 0 ? ""
-        : `<div style="height:100%;width:${Math.max(4, Math.round(b.n / max * 100))}%;background:${low ? "#f59e0b" : "var(--primary)"};border-radius:99px"></div>`;
+        : `<div style="height:100%;width:${Math.max(4, Math.round(b.n / max * 100))}%;background:${low ? "var(--c-f59e0b)" : "var(--primary)"};border-radius:99px"></div>`;
       return `<div style="display:flex;align-items:center;gap:.55rem;font-size:.8rem">
-          <span style="width:76px;flex-shrink:0;color:#6b7280">${b.label}</span>
-          <div style="flex:1;min-width:40px;height:9px;background:#eceef1;border-radius:99px;overflow:hidden">${bar}</div>
-          <span style="width:20px;text-align:right;font-weight:600;color:${b.n ? "#111827" : "#c8cbd0"}">${b.n}</span>
-          <span style="width:30px;font-size:.7rem;font-weight:600;color:#b45309">${low ? "Low" : ""}</span>
+          <span style="width:76px;flex-shrink:0;color:var(--c-6b7280)">${b.label}</span>
+          <div style="flex:1;min-width:40px;height:9px;background:var(--c-eceef1);border-radius:99px;overflow:hidden">${bar}</div>
+          <span style="width:20px;text-align:right;font-weight:600;color:${b.n ? "var(--c-111827)" : "var(--c-c8cbd0)"}">${b.n}</span>
+          <span style="width:30px;font-size:.7rem;font-weight:600;color:var(--c-b45309)">${low ? "Low" : ""}</span>
         </div>`;
     }).join("");
 
     el.innerHTML = `
-      <div style="font-size:.875rem;font-weight:600;color:#374151;margin-bottom:.65rem">
+      <div style="font-size:.875rem;font-weight:600;color:var(--c-374151);margin-bottom:.65rem">
         No. of sessions recorded
-        <span style="font-weight:400;color:#6b7280">(last 12 months)</span>
+        <span style="font-weight:400;color:var(--c-6b7280)">(last 12 months)</span>
       </div>
       <div style="display:flex;flex-direction:column;gap:.3rem">${rows}</div>
-      <div style="font-size:.75rem;color:#6b7280;margin-top:.65rem">${total} session${total === 1 ? "" : "s"} in total</div>`;
+      <div style="font-size:.75rem;color:var(--c-6b7280);margin-top:.65rem">${total} session${total === 1 ? "" : "s"} in total</div>`;
     el.style.display = "";
   };
 
@@ -5263,9 +5310,9 @@ function hyrSaveExcluded(studentId, periodVal) {
 function hyrApplyCbState(btn, excluded) {
   btn.dataset.excluded    = excluded ? "true" : "false";
   btn.textContent         = excluded ? "✕" : "";
-  btn.style.background    = excluded ? "#fee2e2" : "#fff";
-  btn.style.borderColor   = excluded ? "#ef4444" : "#d1d5db";
-  btn.style.color         = excluded ? "#ef4444" : "transparent";
+  btn.style.background    = excluded ? "var(--c-fee2e2)" : "var(--c-ffffff)";
+  btn.style.borderColor   = excluded ? "var(--c-ef4444)" : "var(--c-d1d5db)";
+  btn.style.color         = excluded ? "var(--c-ef4444)" : "transparent";
 }
 
 function hyrPopulateActivityFilter(student, studentId, periodVal) {
@@ -5286,15 +5333,15 @@ function hyrPopulateActivityFilter(student, studentId, periodVal) {
     const group = document.createElement("div");
     const stripMk = s => (s || "").replace(/\*_(.+?)_\*/g, "$1").replace(/_\*(.+?)\*_/g, "$1").replace(/\*(.+?)\*/g, "$1").replace(/_(.+?)_/g, "$1");
     group.innerHTML = `
-      <div style="font-size:.8rem;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.05em;margin-bottom:.45rem">${escHtml(stripMk(target.name))}</div>
+      <div style="font-size:.8rem;font-weight:700;color:var(--c-6b7280);text-transform:uppercase;letter-spacing:.05em;margin-bottom:.45rem">${escHtml(stripMk(target.name))}</div>
       <div style="display:flex;flex-direction:column;gap:.3rem">
         ${acts.map(pa => {
           const paKey = escHtml(pa.title || pa.name);
           const paLabel = escHtml(stripMk(pa.title || pa.name));
-          return `<label style="display:flex;align-items:center;gap:.6rem;cursor:pointer;font-size:.875rem;color:#374151">
+          return `<label style="display:flex;align-items:center;gap:.6rem;cursor:pointer;font-size:.875rem;color:var(--c-374151)">
             <button class="hyr-act-cb" data-excluded="false"
               data-target="${escHtml(target.name)}" data-activity="${paKey}"
-              style="width:22px;height:22px;border:2px solid #d1d5db;border-radius:5px;background:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;flex-shrink:0;padding:0;color:transparent;transition:all .15s"></button>
+              style="width:22px;height:22px;border:2px solid var(--c-d1d5db);border-radius:5px;background:var(--c-ffffff);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;flex-shrink:0;padding:0;color:transparent;transition:all .15s"></button>
             <span>${paLabel}</span>
           </label>`;
         }).join("")}
@@ -5639,7 +5686,7 @@ RECOMMENDATIONS:
     inCancelMode = true;
     btn.disabled = false;
     btn.textContent = "✕ Cancel";
-    btn.style.cssText += ";background:#fee2e2;color:#dc2626;border-color:#ef4444";
+    btn.style.cssText += ";background:var(--c-fee2e2);color:var(--c-dc2626);border-color:var(--c-ef4444)";
 
     // Await the request (has been running for ~2.5s already)
     const data = await fetchPromise;
@@ -8330,7 +8377,7 @@ ${collected.text}
     inCancelMode = true;
     btn.disabled = false;
     btn.textContent = "✕ Cancel";
-    btn.style.cssText += ";background:#fee2e2;color:#dc2626;border-color:#ef4444";
+    btn.style.cssText += ";background:var(--c-fee2e2);color:var(--c-dc2626);border-color:var(--c-ef4444)";
 
     const data = await fetchPromise;
     _hyrAbortController = null;
@@ -8990,7 +9037,7 @@ ${(aiData[t.name] || []).join("\n")}`;
     inCancelMode = true;
     btn.disabled = false;
     btn.textContent = "✕ Cancel";
-    btn.style.cssText += ";background:#fee2e2;color:#dc2626;border-color:#ef4444";
+    btn.style.cssText += ";background:var(--c-fee2e2);color:var(--c-dc2626);border-color:var(--c-ef4444)";
 
     const data = await fetchPromise;
     _hyrAbortController = null;
@@ -10044,7 +10091,7 @@ async function hyrShowPromptEditor() {
           This is the exact prompt sent to Claude every time a report is generated. The section in brackets is inserted automatically when you exclude activities from the appendix.
         </div>
         <textarea class="admin-input" rows="22" readonly
-          style="font-family:monospace;font-size:.78rem;resize:vertical;background:#f9fafb;color:#374151;cursor:default"
+          style="font-family:monospace;font-size:.78rem;resize:vertical;background:var(--c-f9fafb);color:var(--c-374151);cursor:default"
         >${escHtml(HYR_DEFAULT_PROMPT + dynamicBlock)}</textarea>
       </div>
     </div>`;
@@ -10058,7 +10105,7 @@ async function renderRecentlyDeleted() {
   let items;
   try { items = await getTrashItems(); }
   catch (err) {
-    $("manage-modal-body").innerHTML = `<p style="padding:1rem;color:#dc2626">Failed to load trash: ${escHtml(err.message)}<br><br>Make sure the Firestore rules include access to the <code>trash</code> collection.</p>`;
+    $("manage-modal-body").innerHTML = `<p style="padding:1rem;color:var(--c-dc2626)">Failed to load trash: ${escHtml(err.message)}<br><br>Make sure the Firestore rules include access to the <code>trash</code> collection.</p>`;
     return;
   }
 
@@ -10075,12 +10122,12 @@ async function renderRecentlyDeleted() {
     const dateStr     = deletedDate.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
     const sessionWord = item.sessionCount === 1 ? "session" : "sessions";
     return `
-      <div style="border:1px solid #e5e7eb;border-radius:.6rem;padding:.9rem 1rem;margin:.6rem .75rem">
+      <div style="border:1px solid var(--c-e5e7eb);border-radius:.6rem;padding:.9rem 1rem;margin:.6rem .75rem">
         <div style="font-size:.8rem;color:var(--text-muted);margin-bottom:.25rem">${escHtml(item.entityName)} · ${escHtml(item.targetName)}</div>
         <div style="font-weight:600;font-size:.9rem;margin-bottom:.35rem">${escHtml(item.activityName)}</div>
         <div style="font-size:.8rem;color:var(--text-muted);margin-bottom:.6rem">
           ${item.sessionCount} ${sessionWord} of data · deleted ${dateStr} ·
-          <span style="color:${daysLeft <= 3 ? "#dc2626" : "#6b7280"}">${daysLeft} day${daysLeft !== 1 ? "s" : ""} left</span>
+          <span style="color:${daysLeft <= 3 ? "var(--c-dc2626)" : "var(--c-6b7280)"}">${daysLeft} day${daysLeft !== 1 ? "s" : ""} left</span>
         </div>
         <div style="display:flex;gap:.5rem">
           <button class="btn-primary-sm btn-trash-restore" data-idx="${i}" style="flex:1">↩ Restore</button>
@@ -10121,14 +10168,14 @@ async function renderRecentlyDeleted() {
       const overlay = document.createElement("div");
       overlay.dataset.delOverlay = "1";
       overlay.style.cssText = "position:absolute;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:200;border-radius:.75rem";
-      overlay.innerHTML = `<div style="background:#fff;padding:1.25rem 1.25rem 1rem;border-radius:.75rem;width:min(280px,90%);box-shadow:0 4px 24px rgba(0,0,0,.25)">
-        <p style="font-size:.85rem;margin:0 0 .5rem;color:#111;font-weight:600">⚠️ Permanently delete <span style="color:#dc2626">${item.sessionCount} session${item.sessionCount !== 1 ? "s" : ""}</span> of data for "${escHtml(item.activityName)}"? This cannot be undone.</p>
-        <p style="font-size:.8rem;margin:0 0 .6rem;color:#6b7280">Type <strong>${confirmWord}</strong> to confirm:</p>
+      overlay.innerHTML = `<div style="background:var(--c-ffffff);padding:1.25rem 1.25rem 1rem;border-radius:.75rem;width:min(280px,90%);box-shadow:0 4px 24px rgba(0,0,0,.25)">
+        <p style="font-size:.85rem;margin:0 0 .5rem;color:var(--c-111111);font-weight:600">⚠️ Permanently delete <span style="color:var(--c-dc2626)">${item.sessionCount} session${item.sessionCount !== 1 ? "s" : ""}</span> of data for "${escHtml(item.activityName)}"? This cannot be undone.</p>
+        <p style="font-size:.8rem;margin:0 0 .6rem;color:var(--c-6b7280)">Type <strong>${confirmWord}</strong> to confirm:</p>
         <input id="del-type-input" type="text" autocomplete="off" inputmode="numeric"
-          style="width:100%;box-sizing:border-box;padding:.45rem .6rem;border:2px solid #d1d5db;border-radius:.4rem;font-size:1.1rem;text-align:center;outline:none;margin-bottom:.75rem" placeholder="${confirmWord}">
+          style="width:100%;box-sizing:border-box;padding:.45rem .6rem;border:2px solid var(--c-d1d5db);border-radius:.4rem;font-size:1.1rem;text-align:center;outline:none;margin-bottom:.75rem" placeholder="${confirmWord}">
         <div style="display:flex;gap:.5rem">
-          <button id="del-type-cancel" style="flex:1;padding:.45rem;border:1px solid #d1d5db;border-radius:.4rem;background:#f9fafb;cursor:pointer;font-size:.85rem">Cancel</button>
-          <button id="del-type-ok" disabled style="flex:1;padding:.45rem;border:none;border-radius:.4rem;background:#dc2626;color:#fff;cursor:pointer;font-size:.85rem;opacity:.4">Delete Forever</button>
+          <button id="del-type-cancel" style="flex:1;padding:.45rem;border:1px solid var(--c-d1d5db);border-radius:.4rem;background:var(--c-f9fafb);cursor:pointer;font-size:.85rem">Cancel</button>
+          <button id="del-type-ok" disabled style="flex:1;padding:.45rem;border:none;border-radius:.4rem;background:var(--c-dc2626);color:var(--c-onaccent);cursor:pointer;font-size:.85rem;opacity:.4">Delete Forever</button>
         </div>
       </div>`;
       const modalSheet = $("manage-modal").querySelector(".modal-sheet");
@@ -10234,9 +10281,16 @@ async function maGetLastDataDate(entity, target, pa, isGroup = false) {
           const rTrials = (r.trials || []).some(t => t !== null && t !== -1);
           const rOpt = r.optionScore !== undefined && r.optionScore !== null;
           const rSel = (r.selectedOptions || []).length > 0;
-          // "Maintain" alone (auto-fill or written during a maintained period) is not
-          // real therapy data — never count it for last-data-date purposes.
-          if ((rText === "Maintain" || rNote === "Maintain") && !rTrials && !rOpt && !rSel) return false;
+          // A bare "Maintain" counts, and has to.
+          //
+          // It used to be skipped here as "not real therapy data", which is
+          // true of the therapy and false of what this date is for. The date
+          // is the floor on mastering and discontinuing, and anything dated
+          // after that floor stops being shown: isActivityActive hides the
+          // row, and the Word session note leaves the activity out entirely.
+          // So skipping them put the floor back before months of "Maintain"
+          // remarks and hid the lot. They are data, they are on the page, and
+          // the activity has to stay visible up to the last of them.
           return rText.length > 0 || rNote.length > 0 || rTrials || rOpt || rSel;
         }));
       })
@@ -10341,7 +10395,7 @@ function renderManageActivityScreen(entity) {
   const body = $("manage-activity-body");
   if (!body) return;
   const targets = (entity.targets || []).filter(t => !t.archived);
-  if (!targets.length) { body.innerHTML = `<div style="padding:1rem;color:#9ca3af;font-style:italic">No targets found.</div>`; return; }
+  if (!targets.length) { body.innerHTML = `<div style="padding:1rem;color:var(--c-9ca3af);font-style:italic">No targets found.</div>`; return; }
   if (_maSelectedTargetIdx >= targets.length) _maSelectedTargetIdx = 0;
 
   const target = targets[_maSelectedTargetIdx];
@@ -10372,16 +10426,16 @@ function renderManageActivityScreen(entity) {
     if (repaired) (_maIsGroup ? saveGroup(entity) : saveStudent(entity)).catch(() => {});
   }
 
-  let html = `<div style="margin-top:1.5rem;border:1.5px solid #fca5a5;border-radius:.6rem;padding:1rem 1.2rem;background:#fff5f5">
-    <div style="font-size:.75rem;font-weight:700;color:#dc2626;text-transform:uppercase;letter-spacing:.07em;margin-bottom:.3rem">⚠️ Danger Zone</div>
-    <div style="font-size:.82rem;color:#6b7280;margin-bottom:.55rem">Permanently deletes this target and <strong style="color:#374151">all</strong> its session data across every date. This cannot be undone.</div>
-    <div id="ma-danger-sessions" style="margin-bottom:.75rem;font-size:.82rem;color:#9ca3af">Loading session data…</div>
-    <button id="btn-ma-delete-target" style="width:100%;padding:.6rem;background:#dc2626;color:#fff;border:none;border-radius:.4rem;cursor:pointer;font-size:.875rem;font-weight:600">🗑️ Delete Target</button>
+  let html = `<div style="margin-top:1.5rem;border:1.5px solid var(--c-fca5a5);border-radius:.6rem;padding:1rem 1.2rem;background:var(--c-fff5f5)">
+    <div style="font-size:.75rem;font-weight:700;color:var(--c-dc2626);text-transform:uppercase;letter-spacing:.07em;margin-bottom:.3rem">⚠️ Danger Zone</div>
+    <div style="font-size:.82rem;color:var(--c-6b7280);margin-bottom:.55rem">Permanently deletes this target and <strong style="color:var(--c-374151)">all</strong> its session data across every date. This cannot be undone.</div>
+    <div id="ma-danger-sessions" style="margin-bottom:.75rem;font-size:.82rem;color:var(--c-9ca3af)">Loading session data…</div>
+    <button id="btn-ma-delete-target" style="width:100%;padding:.6rem;background:var(--c-dc2626);color:var(--c-onaccent);border:none;border-radius:.4rem;cursor:pointer;font-size:.875rem;font-weight:600">🗑️ Delete Target</button>
   </div>`;
 
   const isDiscontinued = !!target.discontinuedOn;
   const discBadge = isDiscontinued
-    ? `<div style="font-size:.8rem;color:#dc2626;font-weight:600;padding:.2rem .1rem .4rem;display:flex;align-items:center;gap:.35rem">
+    ? `<div style="font-size:.8rem;color:var(--c-dc2626);font-weight:600;padding:.2rem .1rem .4rem;display:flex;align-items:center;gap:.35rem">
         🛑 Discontinued on ${fmtPeriodDate(target.discontinuedOn)} — hidden from ${fmtPeriodDate(addOneDay(target.discontinuedOn))} onwards
       </div>`
     : '';
@@ -10391,7 +10445,7 @@ function renderManageActivityScreen(entity) {
       ${targets.map((t, i) => `<option value="${i}"${i === _maSelectedTargetIdx ? ' selected' : ''}>${t.discontinuedOn ? '🛑 ' : ''}${escHtml(t.name)}</option>`).join('')}
     </select>
     <button id="btn-ma-rearrange-inline" class="btn-manage-targets">↕️ Rearrange Targets</button>
-    <button id="btn-ma-discontinue-target" class="btn-manage-targets" style="${isDiscontinued ? 'background:#d1fae5;color:#065f46;border-color:#6ee7b7' : 'background:#fff0f0;color:#dc2626;border-color:#fca5a5'}">${isDiscontinued ? '✅ Restore Target' : '🛑 Discontinue Target'}</button>
+    <button id="btn-ma-discontinue-target" class="btn-manage-targets" style="${isDiscontinued ? 'background:var(--c-d1fae5);color:var(--c-065f46);border-color:var(--c-6ee7b7)' : 'background:var(--c-fff0f0);color:var(--c-dc2626);border-color:var(--c-fca5a5)'}">${isDiscontinued ? '✅ Restore Target' : '🛑 Discontinue Target'}</button>
   </div>${discBadge}`;
 
   body.innerHTML = dropHtml + html;
@@ -10422,12 +10476,12 @@ function renderManageActivityScreen(entity) {
     const total  = withData.length;
     _dangerSessionCount = total;
     if (total === 0) {
-      el.innerHTML = `<span style="color:#9ca3af;font-style:italic">No session data recorded for this target yet.</span>`;
+      el.innerHTML = `<span style="color:var(--c-9ca3af);font-style:italic">No session data recorded for this target yet.</span>`;
     } else {
-      el.innerHTML = `<div style="color:#6b7280;margin-bottom:.3rem">Last ${Math.min(total, 5)} session${recent.length !== 1 ? 's' : ''} with data${total > 5 ? ` (of ${total} total)` : ''}:</div>
-        <ul style="margin:.15rem 0 0 1.1rem;padding:0;color:#374151;line-height:1.75">
+      el.innerHTML = `<div style="color:var(--c-6b7280);margin-bottom:.3rem">Last ${Math.min(total, 5)} session${recent.length !== 1 ? 's' : ''} with data${total > 5 ? ` (of ${total} total)` : ''}:</div>
+        <ul style="margin:.15rem 0 0 1.1rem;padding:0;color:var(--c-374151);line-height:1.75">
           ${recent.map(s => `<li>${fmtPeriodDate(s.date)}${s.number ? ` — Session ${s.number}` : ''}</li>`).join('')}
-          ${total > 5 ? `<li style="color:#9ca3af;font-style:italic">…and ${total - 5} more</li>` : ''}
+          ${total > 5 ? `<li style="color:var(--c-9ca3af);font-style:italic">…and ${total - 5} more</li>` : ''}
         </ul>`;
     }
   }).catch(() => {
@@ -11961,13 +12015,13 @@ function populateTargetDropdown(targets) {
       $("session-picker-title").textContent = "Edit Instructors";
       $("session-picker-list").innerHTML = `
         <div style="padding:1.5rem 1.25rem;display:flex;flex-direction:column;align-items:center">
-          <p style="margin:0 0 1.25rem;font-weight:600;color:#374151;text-align:center">Who is facilitating this session?</p>
+          <p style="margin:0 0 1.25rem;font-weight:600;color:var(--c-374151);text-align:center">Who is facilitating this session?</p>
           <div style="width:100%;max-width:320px">
             ${INSTRUCTORS.map(inst => `
-              <label style="display:flex;align-items:center;justify-content:center;gap:.85rem;padding:.75rem 0;cursor:pointer;font-size:1rem;border-bottom:1px solid #f3f4f6">
+              <label style="display:flex;align-items:center;justify-content:center;gap:.85rem;padding:.75rem 0;cursor:pointer;font-size:1rem;border-bottom:1px solid var(--c-f3f4f6)">
                 <input type="checkbox" class="inst-edit-check" value="${inst.id}"${curParticipants.includes(inst.id) ? " checked" : ""}
-                  style="width:1.2rem;height:1.2rem;accent-color:#3b82f6;cursor:pointer;flex-shrink:0">
-                <span style="color:#1f2937;width:7rem">${escHtml(inst.name)}</span>
+                  style="width:1.2rem;height:1.2rem;accent-color:var(--c-3b82f6);cursor:pointer;flex-shrink:0">
+                <span style="color:var(--c-1f2937);width:7rem">${escHtml(inst.name)}</span>
               </label>`).join("")}
           </div>
           <button class="btn-inst-save export-btn" style="margin-top:1.5rem;width:100%;padding:.85rem;font-size:1rem;text-align:center">Save</button>
@@ -12316,12 +12370,17 @@ function renderFedcTarget(target, _filterPaSet = null, _sectionOnly = false) {
       const _noteNp = noteParts(pa);
       if (_noteNp.title || _noteNp.details) {
         const noteTag = pa.isExportNote
-          ? `<div style="font-size:.82rem;color:#c2410c;margin-bottom:.25rem">📄 Included in Word export</div>`
-          : `<div style="font-size:.82rem;color:#9a3412;margin-bottom:.25rem">🔒 This note is for ZORA's use only. Excluded from Word report</div>`;
-        html += `<div class="entry-block" contenteditable="false" style="border-left:4px solid #f59e0b;">
+          ? `<div style="font-size:.82rem;color:var(--c-c2410c);margin-bottom:.25rem">📄 Included in Word export</div>`
+          : `<div style="font-size:.82rem;color:var(--c-9a3412);margin-bottom:.25rem">🔒 This note is for ZORA's use only. Excluded from Word report</div>`;
+        // Dated like every activity row above it. A note is the one thing
+        // on this screen that did not say when it started, so there was no
+        // way to tell an old standing note from one added this week.
+        const _noteCreated = pa.activeFrom || pa.createdOn;
+        html += `<div class="entry-block" contenteditable="false" style="border-left:4px solid var(--c-f59e0b);">
           <div class="entry-field">
-            <span class="field-label" style="color:#b45309">Note</span>
+            <span class="field-label" style="color:var(--c-b45309)">Note</span>
             <div style="flex:1;font-size:.93rem;font-weight:600">${noteTag}<div style="white-space:pre-wrap">${noteBodyHtml(pa)}</div></div>
+            ${_noteCreated ? `<span style="font-size:.75rem;color:var(--c-9ca3af);white-space:nowrap;flex-shrink:0;align-self:flex-start">Created: ${fmtPeriodDate(_noteCreated)}</span>` : ""}
           </div>
         </div>`;
       }
@@ -12334,9 +12393,9 @@ function renderFedcTarget(target, _filterPaSet = null, _sectionOnly = false) {
       const isGray  = pa.headingColor === "gray" || pa.isMaintainHeading;
       const isGreen = pa.headingColor === "green";
       html += isGray
-        ? `<div class="activity-group-heading" contenteditable="false" style="background:#9ca3af;border-color:#6b7280;color:#ffffff">${escHtml(pa.name || "")}</div>`
+        ? `<div class="activity-group-heading" contenteditable="false" style="background:var(--c-9ca3af);border-color:var(--c-6b7280);color:var(--c-onaccent)">${escHtml(pa.name || "")}</div>`
         : isGreen
-        ? `<div class="activity-group-heading" contenteditable="false" style="background:#a9d18e;border-color:#70ad47;color:#1a4731">${escHtml(pa.name || "")}</div>`
+        ? `<div class="activity-group-heading" contenteditable="false" style="background:var(--c-a9d18e);border-color:var(--c-70ad47);color:var(--c-1a4731)">${escHtml(pa.name || "")}</div>`
         : `<div class="activity-group-heading" contenteditable="false">${escHtml(pa.name || "")}</div>`;
       return;
     }
@@ -12350,8 +12409,8 @@ function renderFedcTarget(target, _filterPaSet = null, _sectionOnly = false) {
     if (_filterPaSet && !_filterPaSet.has(pa)) return;
     const writtenDot = _filterPaSet
       ? (paIsWritten(pa, target)
-        ? `<span style="display:inline-flex;align-items:center;justify-content:center;width:17px;height:17px;border-radius:50%;background:#22c55e;color:#fff;font-size:.6rem;font-weight:900;margin-right:.3rem;flex-shrink:0;align-self:flex-start;margin-top:.35rem">✓</span>`
-        : `<span style="display:inline-flex;align-items:center;justify-content:center;width:17px;height:17px;border-radius:50%;border:2px solid #d1d5db;margin-right:.3rem;flex-shrink:0;align-self:flex-start;margin-top:.35rem"></span>`)
+        ? `<span style="display:inline-flex;align-items:center;justify-content:center;width:17px;height:17px;border-radius:50%;background:var(--c-22c55e);color:var(--c-onaccent);font-size:.6rem;font-weight:900;margin-right:.3rem;flex-shrink:0;align-self:flex-start;margin-top:.35rem">✓</span>`
+        : `<span style="display:inline-flex;align-items:center;justify-content:center;width:17px;height:17px;border-radius:50%;border:2px solid var(--c-d1d5db);margin-right:.3rem;flex-shrink:0;align-self:flex-start;margin-top:.35rem"></span>`)
       : '';
     // Fixed remark activity — shown read-only with color block styling
     // pa.maintained supersedes the old fixedRemark/isMaintain flags — treat as free text.
@@ -12361,18 +12420,18 @@ function renderFedcTarget(target, _filterPaSet = null, _sectionOnly = false) {
       const isGrayFixed  = pa.isMaintain || pa.activityColor === "gray";
       const isGreenFixed = pa.activityColor === "green";
       const fixedStyle   = isGreenFixed
-        ? 'style="background:#e2efda;border:1px solid #a9d18e;border-left:4px solid #70ad47"'
+        ? 'style="background:var(--c-e2efda);border:1px solid var(--c-a9d18e);border-left:4px solid var(--c-70ad47)"'
         : isGrayFixed
-        ? 'style="background:#f3f4f6;border:1px solid #e5e7eb;border-left:4px solid #d1d5db"'
+        ? 'style="background:var(--c-f3f4f6);border:1px solid var(--c-e5e7eb);border-left:4px solid var(--c-d1d5db)"'
         : '';
       html += `<div class="entry-block entry-block-predefined" ${fixedStyle}>
         <div class="entry-field" contenteditable="false">
           <span class="field-label">Activity</span>
-          <span class="field-value-fixed">${inactiveReasonBadge(pa)}<span style="color:#6b7280;font-weight:600;margin-right:.2rem">${actNum})</span>${paDisplayHtml(pa)}</span>
+          <span class="field-value-fixed">${inactiveReasonBadge(pa)}<span style="color:var(--c-6b7280);font-weight:600;margin-right:.2rem">${actNum})</span>${paDisplayHtml(pa)}</span>
         </div>
         <div class="entry-field" contenteditable="false">
           <span class="field-label">Remark</span>
-          <span class="field-value-fixed" style="white-space:pre-wrap;color:#111827">${formatActivityMarkup(fixedText)}</span>
+          <span class="field-value-fixed" style="white-space:pre-wrap;color:var(--c-111827)">${formatActivityMarkup(fixedText)}</span>
         </div>
       </div>`;
       return;
@@ -12395,11 +12454,11 @@ function renderFedcTarget(target, _filterPaSet = null, _sectionOnly = false) {
     if (children.length === 0) {
       const _ep = emptyParentInfo(pa, allPas);
       if (_ep) {
-        html += `<div class="entry-block" contenteditable="false" style="border:1px solid var(--border);border-left:5px solid var(--primary);background:var(--white);box-shadow:var(--shadow)">
+        html += `<div class="entry-block" contenteditable="false" style="border:1px solid var(--border);border-left:5px solid var(--primary-accent);background:var(--white);box-shadow:var(--shadow)">
           <div class="entry-field" contenteditable="false">
             <span class="field-label">Activity</span>
-            <span class="field-value-fixed"><span style="color:#6b7280;font-weight:600;margin-right:.2rem">${actNum})</span>${paDisplayHtml(pa, true)}</span>
-            ${pa.activeFrom ? `<span style="font-size:.75rem;color:#9ca3af;white-space:nowrap;flex-shrink:0;align-self:flex-start">Created: ${fmtPeriodDate(pa.activeFrom)}</span>` : ""}
+            <span class="field-value-fixed"><span style="color:var(--c-6b7280);font-weight:600;margin-right:.2rem">${actNum})</span>${paDisplayHtml(pa, true)}</span>
+            ${pa.activeFrom ? `<span style="font-size:.75rem;color:var(--c-9ca3af);white-space:nowrap;flex-shrink:0;align-self:flex-start">Created: ${fmtPeriodDate(pa.activeFrom)}</span>` : ""}
           </div>
           <div class="empty-parent-note" contenteditable="false">${escHtml(_ep.awaitingApproval ? PARENT_PENDING_NOTE(_ep.count) : EMPTY_PARENT_NOTE)}</div>
         </div>`;
@@ -12409,16 +12468,16 @@ function renderFedcTarget(target, _filterPaSet = null, _sectionOnly = false) {
     if (children.length > 0) {
       const isGrayP  = pa.activityColor === "gray" || pa.isMaintainLive || pa.maintained;
       const isGreenP = pa.activityColor === "green";
-      const pBorder  = isGreenP ? 'border:1px solid #a9d18e;border-left:4px solid #70ad47;background:#e2efda;'
-                     : isGrayP  ? 'border:1px solid #e5e7eb;border-left:4px solid #d1d5db;background:#f3f4f6;'
-                     : 'border:1px solid var(--border);border-left:5px solid var(--primary);background:var(--white);';
+      const pBorder  = isGreenP ? 'border:1px solid var(--c-a9d18e);border-left:4px solid var(--c-70ad47);background:var(--c-e2efda);'
+                     : isGrayP  ? 'border:1px solid var(--c-e5e7eb);border-left:4px solid var(--c-d1d5db);background:var(--c-f3f4f6);'
+                     : 'border:1px solid var(--border);border-left:5px solid var(--primary-accent);background:var(--white);';
       html += `<div style="display:flex;flex-direction:column;gap:0">`;
       html += `<div class="entry-block" style="${pBorder}border-radius:var(--radius) var(--radius) 0 0;border-bottom:none;box-shadow:var(--shadow)">
         <div class="entry-field" contenteditable="false">
           <span class="field-label">Activity</span>
-          <span class="field-value-fixed">${inactiveReasonBadge(pa)}<span style="color:#6b7280;font-weight:600;margin-right:.2rem">${actNum})</span>${paDisplayHtml(pa, true)}</span>
+          <span class="field-value-fixed">${inactiveReasonBadge(pa)}<span style="color:var(--c-6b7280);font-weight:600;margin-right:.2rem">${actNum})</span>${paDisplayHtml(pa, true)}</span>
           <div style="display:flex;align-items:center;gap:.35rem;flex-shrink:0;align-self:flex-start">
-            ${pa.activeFrom ? `<span style="font-size:.75rem;color:#9ca3af;white-space:nowrap">Created: ${fmtPeriodDate(pa.activeFrom)}</span>` : ""}
+            ${pa.activeFrom ? `<span style="font-size:.75rem;color:var(--c-9ca3af);white-space:nowrap">Created: ${fmtPeriodDate(pa.activeFrom)}</span>` : ""}
             ${pa.id ? `<button class="btn-icon btn-edit-activity-pencil" contenteditable="false" data-pa-id="${escHtml(pa.id)}" title="Edit in Edit Target" style="font-size:.85rem;opacity:.55;line-height:1">✏️</button>` : ""}
           </div>
         </div>
@@ -12500,21 +12559,21 @@ function renderFedcTarget(target, _filterPaSet = null, _sectionOnly = false) {
         const subRadius  = isLast ? '0 0 var(--radius) var(--radius)' : '0';
         const subWrittenDot = _filterPaSet
           ? (paIsWritten(sub, target, pa.title || pa.name)
-            ? `<span style="display:inline-flex;align-items:center;justify-content:center;width:17px;height:17px;border-radius:50%;background:#22c55e;color:#fff;font-size:.6rem;font-weight:900;margin-right:.3rem;flex-shrink:0;align-self:flex-start;margin-top:.45rem">✓</span>`
-            : `<span style="display:inline-flex;align-items:center;justify-content:center;width:17px;height:17px;border-radius:50%;border:2px solid #d1d5db;margin-right:.3rem;flex-shrink:0;align-self:flex-start;margin-top:.45rem"></span>`)
+            ? `<span style="display:inline-flex;align-items:center;justify-content:center;width:17px;height:17px;border-radius:50%;background:var(--c-22c55e);color:var(--c-onaccent);font-size:.6rem;font-weight:900;margin-right:.3rem;flex-shrink:0;align-self:flex-start;margin-top:.45rem">✓</span>`
+            : `<span style="display:inline-flex;align-items:center;justify-content:center;width:17px;height:17px;border-radius:50%;border:2px solid var(--c-d1d5db);margin-right:.3rem;flex-shrink:0;align-self:flex-start;margin-top:.45rem"></span>`)
           : '';
-        html += `<div class="entry-block" style="border:1px solid var(--border);border-left:5px solid var(--primary);background:var(--white);border-top:1px solid var(--border);border-radius:${subRadius};box-shadow:var(--shadow)">
+        html += `<div class="entry-block" style="border:1px solid var(--border);border-left:5px solid var(--primary-accent);background:var(--white);border-top:1px solid var(--border);border-radius:${subRadius};box-shadow:var(--shadow)">
           <div class="entry-field" contenteditable="false">
-            ${subWrittenDot}<span style="flex-shrink:0;align-self:flex-start;margin-top:.45rem;display:inline-block;background:#dbeafe;color:#1e40af;border-radius:.4rem;padding:.12rem .5rem;font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em;white-space:nowrap">Subactivity</span>
-            <span class="field-value-fixed"><span style="color:#1e40af;font-weight:700;margin-right:.25rem">${subLabel})</span>${inactiveReasonBadge(sub)}${paDisplayHtml(sub)}</span>
-            ${sub.activeFrom ? `<span style="font-size:.75rem;color:#9ca3af;white-space:nowrap;flex-shrink:0;align-self:flex-start;margin-top:.45rem">Created: ${fmtPeriodDate(sub.activeFrom)}</span>` : ""}
+            ${subWrittenDot}<span style="flex-shrink:0;align-self:flex-start;margin-top:.45rem;display:inline-block;background:var(--c-dbeafe);color:var(--c-1e40af);border-radius:.4rem;padding:.12rem .5rem;font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em;white-space:nowrap">Subactivity</span>
+            <span class="field-value-fixed"><span style="color:var(--c-1e40af);font-weight:700;margin-right:.25rem">${subLabel})</span>${inactiveReasonBadge(sub)}${paDisplayHtml(sub)}</span>
+            ${sub.activeFrom ? `<span style="font-size:.75rem;color:var(--c-9ca3af);white-space:nowrap;flex-shrink:0;align-self:flex-start;margin-top:.45rem">Created: ${fmtPeriodDate(sub.activeFrom)}</span>` : ""}
             ${sub.id ? `<button class="btn-icon btn-edit-activity-pencil" contenteditable="false" data-pa-id="${escHtml(sub.id)}" title="Edit in Edit Target" style="font-size:.85rem;opacity:.55;line-height:1">✏️</button>` : ""}
           </div>`;
         const _subNoOpts = (sub.remarkHasNote || sub.optionsMulti) && parseOpts(getActivityInlineOptions(sub)).length === 0;
         if (_subNoOpts) {
           html += `<div class="entry-field" contenteditable="false">
             <span class="field-label">${sub.optionsMulti ? "CHECKBOXES" : "MULTIPLE CHOICE"}</span>
-            <span style="color:#9ca3af;font-style:italic;font-size:.88rem">&lt;Please Add Options in Edit Target&gt;</span>
+            <span style="color:var(--c-9ca3af);font-style:italic;font-size:.88rem">&lt;Please Add Options in Edit Target&gt;</span>
           </div>`;
         } else {
         for (const rem of subRemarks) {
@@ -12558,15 +12617,15 @@ function renderFedcTarget(target, _filterPaSet = null, _sectionOnly = false) {
 
     const isGrayActivity  = pa.activityColor === "gray" || pa.isMaintainLive || pa.maintained;
     const isGreenActivity = pa.activityColor === "green";
-    const activityStyle = isGrayActivity  ? ' style="background:#f3f4f6;border:1px solid #e5e7eb;border-left:4px solid #d1d5db"'
-                        : isGreenActivity ? ' style="background:#e2efda;border:1px solid #a9d18e;border-left:4px solid #70ad47"'
+    const activityStyle = isGrayActivity  ? ' style="background:var(--c-f3f4f6);border:1px solid var(--c-e5e7eb);border-left:4px solid var(--c-d1d5db)"'
+                        : isGreenActivity ? ' style="background:var(--c-e2efda);border:1px solid var(--c-a9d18e);border-left:4px solid var(--c-70ad47)"'
                         : '';
     html += `<div class="entry-block entry-block-predefined"${activityStyle}>
       <div class="entry-field" contenteditable="false">
         ${writtenDot}<span class="field-label">Activity</span>
-        <span class="field-value-fixed">${inactiveReasonBadge(pa)}<span style="color:#6b7280;font-weight:600;margin-right:.2rem">${actNum})</span>${paDisplayHtml(pa, true)}</span>
+        <span class="field-value-fixed">${inactiveReasonBadge(pa)}<span style="color:var(--c-6b7280);font-weight:600;margin-right:.2rem">${actNum})</span>${paDisplayHtml(pa, true)}</span>
         <div style="display:flex;align-items:center;gap:.35rem;flex-shrink:0;align-self:flex-start">
-          ${pa.activeFrom ? `<span style="font-size:.75rem;color:#9ca3af;white-space:nowrap">Created: ${fmtPeriodDate(pa.activeFrom)}</span>` : ""}
+          ${pa.activeFrom ? `<span style="font-size:.75rem;color:var(--c-9ca3af);white-space:nowrap">Created: ${fmtPeriodDate(pa.activeFrom)}</span>` : ""}
           ${pa.id ? `<button class="btn-icon btn-edit-activity-pencil" contenteditable="false" data-pa-id="${escHtml(pa.id)}" title="Edit in Edit Target" style="font-size:.85rem;opacity:.55;line-height:1">✏️</button>` : ""}
         </div>
       </div>`;
@@ -12600,7 +12659,7 @@ function renderFedcTarget(target, _filterPaSet = null, _sectionOnly = false) {
       if (_paNoOpts) {
         html += `<div class="entry-field" contenteditable="false">
           <span class="field-label">${pa.optionsMulti ? "CHECKBOXES" : "MULTIPLE CHOICE"}</span>
-          <span style="color:#9ca3af;font-style:italic;font-size:.88rem">&lt;Please Add Options in Edit Target&gt;</span>
+          <span style="color:var(--c-9ca3af);font-style:italic;font-size:.88rem">&lt;Please Add Options in Edit Target&gt;</span>
         </div>`;
       } else {
       for (const rem of remarks) {
@@ -12713,9 +12772,9 @@ function renderFedcTarget(target, _filterPaSet = null, _sectionOnly = false) {
       return renderInactiveStatusSection({ label, color, pas, orphanGroups, allPas, dateHeader, totalCount });
     };
     html += `<div style="margin-top:.4rem">
-      ${renderSection('Mastered Activities', '#059669', masteredPas, 'mastered', 'Mastered On')}
-      ${renderSection('Discontinued Activities', '#dc2626', discontinuedPas, 'discontinued', 'Discontinued On')}
-      ${renderSection('Inactive Activities', '#6b7280', otherPas, 'other', 'Date')}
+      ${renderSection('Mastered Activities', 'var(--c-059669)', masteredPas, 'mastered', 'Mastered On')}
+      ${renderSection('Discontinued Activities', 'var(--c-dc2626)', discontinuedPas, 'discontinued', 'Discontinued On')}
+      ${renderSection('Inactive Activities', 'var(--c-6b7280)', otherPas, 'other', 'Date')}
     </div>`;
   }
   } // end if (!_sectionOnly)
@@ -12781,7 +12840,7 @@ function renderFedcTargetWithSidebar(target, allPas, subActsByParent, sessionDat
     // _sectionOnly=true skips extras/inactive — those are rendered once at the end
     const secContent = renderFedcTarget(target, sectionPaSet, true);
     allSectionsHtml += `<div class="sec-scroll-section" data-sec-anchor="${i}" style="display:flex;flex-direction:column;gap:.85rem">
-      <div contenteditable="false" style="font-size:1.43rem;font-weight:700;color:#374151;padding-bottom:.5rem;border-bottom:2px solid #e5e7eb">${escHtml(section.name)}</div>
+      <div contenteditable="false" style="font-size:1.43rem;font-weight:700;color:var(--c-374151);padding-bottom:.5rem;border-bottom:2px solid var(--c-e5e7eb)">${escHtml(section.name)}</div>
       ${secContent}
     </div>`;
   });
@@ -12791,10 +12850,10 @@ function renderFedcTargetWithSidebar(target, allPas, subActsByParent, sessionDat
 
   if (_sidebarCollapsed) {
     return `<div class="sec-layout" contenteditable="false" style="display:flex;flex-direction:column;gap:0">
-      <div contenteditable="false" style="display:flex;align-items:center;gap:.6rem;padding:.3rem 0 .5rem;margin-bottom:.4rem;border-bottom:1px solid #e5e7eb">
-        <button class="sec-toggle-btn" contenteditable="false" title="Show sections" onmousedown="event.preventDefault()" style="background:none;border:1.5px solid var(--primary);border-radius:.4rem;cursor:pointer;font-size:1.21rem;color:var(--primary);padding:.2rem .4rem;line-height:1;flex-shrink:0">☰</button>
-        <span style="font-size:.9rem;font-weight:700;color:#374151;white-space:nowrap">${totalWritten} of ${totalActs} written</span>
-        <div style="flex:1;background:#e5e7eb;border-radius:9999px;height:4px;max-width:100px">
+      <div contenteditable="false" style="display:flex;align-items:center;gap:.6rem;padding:.3rem 0 .5rem;margin-bottom:.4rem;border-bottom:1px solid var(--c-e5e7eb)">
+        <button class="sec-toggle-btn" contenteditable="false" title="Show sections" onmousedown="event.preventDefault()" style="background:none;border:1.5px solid var(--primary-accent);border-radius:.4rem;cursor:pointer;font-size:1.21rem;color:var(--primary-accent);padding:.2rem .4rem;line-height:1;flex-shrink:0">☰</button>
+        <span style="font-size:.9rem;font-weight:700;color:var(--c-374151);white-space:nowrap">${totalWritten} of ${totalActs} written</span>
+        <div style="flex:1;background:var(--c-e5e7eb);border-radius:9999px;height:4px;max-width:100px">
           <div style="background:var(--primary);height:100%;width:${pct}%;border-radius:9999px"></div>
         </div>
       </div>
@@ -12809,13 +12868,13 @@ function renderFedcTargetWithSidebar(target, allPas, subActsByParent, sessionDat
   // from the session-body → target-content → sec-layout chain, allowing sec-main
   // to scroll independently. This is more reliable than position:sticky inside
   // an overflow:hidden ancestor (.screen { overflow:hidden } breaks sticky).
-  let sidebarFixedHtml = `<div style="padding:.5rem .9rem .45rem;border-bottom:1px solid #e5e7eb;display:flex;align-items:center;justify-content:space-between;flex-shrink:0">
-    <span style="font-size:.7rem;text-transform:uppercase;letter-spacing:.05em;color:#9ca3af;font-weight:600">Menu</span>
-    <button class="sec-toggle-btn" contenteditable="false" title="Hide sections" style="background:none;border:none;cursor:pointer;font-size:1.3rem;color:#9ca3af;line-height:1;padding:.05rem .2rem;flex-shrink:0">×</button>
+  let sidebarFixedHtml = `<div style="padding:.5rem .9rem .45rem;border-bottom:1px solid var(--c-e5e7eb);display:flex;align-items:center;justify-content:space-between;flex-shrink:0">
+    <span style="font-size:.7rem;text-transform:uppercase;letter-spacing:.05em;color:var(--c-9ca3af);font-weight:600">Menu</span>
+    <button class="sec-toggle-btn" contenteditable="false" title="Hide sections" style="background:none;border:none;cursor:pointer;font-size:1.3rem;color:var(--c-9ca3af);line-height:1;padding:.05rem .2rem;flex-shrink:0">×</button>
   </div>
-  <div style="padding:.6rem .9rem .5rem;border-bottom:1px solid #e5e7eb;flex-shrink:0">
-    <div style="font-size:.88rem;font-weight:700;color:#111827;margin-bottom:.35rem">${totalWritten} of ${totalActs} written</div>
-    <div style="background:#e5e7eb;border-radius:9999px;height:5px"><div style="background:var(--primary);height:100%;width:${pct}%;border-radius:9999px"></div></div>
+  <div style="padding:.6rem .9rem .5rem;border-bottom:1px solid var(--c-e5e7eb);flex-shrink:0">
+    <div style="font-size:.88rem;font-weight:700;color:var(--c-111827);margin-bottom:.35rem">${totalWritten} of ${totalActs} written</div>
+    <div style="background:var(--c-e5e7eb);border-radius:9999px;height:5px"><div style="background:var(--primary);height:100%;width:${pct}%;border-radius:9999px"></div></div>
   </div>`;
 
   let sidebarNavHtml = '';
@@ -12823,9 +12882,9 @@ function renderFedcTargetWithSidebar(target, allPas, subActsByParent, sessionDat
     // First section active initially; scroll listener updates dynamically
     const isAct = i === 0;
     sidebarNavHtml += `<button class="sec-nav-btn" data-sec-idx="${i}" contenteditable="false" onmousedown="event.preventDefault()"
-      style="width:100%;text-align:left;padding:.6rem .9rem;border:none;border-bottom:1px solid #f3f4f6;cursor:pointer;background:${isAct ? 'var(--primary-light)' : 'transparent'};border-left:3px solid ${isAct ? 'var(--primary)' : 'transparent'};border-radius:0">
-      <div style="font-size:.82rem;font-weight:${isAct ? '700' : '500'};color:${isAct ? 'var(--primary-dark)' : '#374151'};word-break:break-word;line-height:1.3">${escHtml(grp.name)}</div>
-      <div style="font-size:.72rem;color:#9ca3af;margin-top:.15rem">${written}/${total}</div>
+      style="width:100%;text-align:left;padding:.6rem .9rem;border:none;border-bottom:1px solid var(--c-f3f4f6);cursor:pointer;background:${isAct ? 'var(--primary-light)' : 'transparent'};border-left:3px solid ${isAct ? 'var(--primary)' : 'transparent'};border-radius:0">
+      <div style="font-size:.82rem;font-weight:${isAct ? '700' : '500'};color:${isAct ? 'var(--primary-dark)' : 'var(--c-374151)'};word-break:break-word;line-height:1.3">${escHtml(grp.name)}</div>
+      <div style="font-size:.72rem;color:var(--c-9ca3af);margin-top:.15rem">${written}/${total}</div>
     </button>`;
   });
 
@@ -12833,7 +12892,7 @@ function renderFedcTargetWithSidebar(target, allPas, subActsByParent, sessionDat
   // sec-sidebar: flex-column with pinned top and scrollable nav list
   // sec-main: flex:1 + overflow-y:auto — the actual scroll container for section content
   return `<div class="sec-layout" style="display:flex;gap:0;align-items:stretch;flex:1;min-height:0">
-    <div class="sec-sidebar" contenteditable="false" style="width:190px;flex-shrink:0;border-right:1px solid #e5e7eb;background:#fafafa;display:flex;flex-direction:column;min-height:0;overflow:hidden">
+    <div class="sec-sidebar" contenteditable="false" style="width:190px;flex-shrink:0;border-right:1px solid var(--c-e5e7eb);background:var(--c-fafafa);display:flex;flex-direction:column;min-height:0;overflow:hidden">
       ${sidebarFixedHtml}
       <div style="flex:1;overflow-y:auto">${sidebarNavHtml}</div>
     </div>
@@ -12919,22 +12978,22 @@ function renderInactiveStatusSection({ label, color, pas, orphanGroups, allPas, 
   if (pas.length === 0 && orphanGroups.length === 0) return '';
 
   const _cellBase   = 'padding:.32rem .5rem;border:1px solid #000;vertical-align:top';
-  const _numCell    = `${_cellBase};font-size:.78rem;font-weight:700;color:#6b7280;white-space:nowrap;width:2.6rem;text-align:center`;
-  const _subNumCell = `${_cellBase};font-size:.78rem;font-weight:700;color:#0369a1;white-space:nowrap;text-align:center`;
+  const _numCell    = `${_cellBase};font-size:.78rem;font-weight:700;color:var(--c-6b7280);white-space:nowrap;width:2.6rem;text-align:center`;
+  const _subNumCell = `${_cellBase};font-size:.78rem;font-weight:700;color:var(--c-0369a1);white-space:nowrap;text-align:center`;
   const _nameCell   = `${_cellBase};font-size:.88rem;line-height:1.45;white-space:pre-wrap;word-break:break-word`;
   const _dateCell   = `${_cellBase};font-size:.78rem;white-space:nowrap;text-align:center;width:7.5rem`;
 
   const dateText = pa => {
-    if (pa.masteredOn)     return `<span style="color:#059669;font-weight:600">${fmtPeriodDate(pa.masteredOn)}</span>`;
-    if (pa.discontinuedOn) return `<span style="color:#dc2626;font-weight:600">${fmtPeriodDate(pa.discontinuedOn)}</span>`;
+    if (pa.masteredOn)     return `<span style="color:var(--c-059669);font-weight:600">${fmtPeriodDate(pa.masteredOn)}</span>`;
+    if (pa.discontinuedOn) return `<span style="color:var(--c-dc2626);font-weight:600">${fmtPeriodDate(pa.discontinuedOn)}</span>`;
     // Inactive Activities have neither date - that is what puts them in that
     // bucket. Show the active-period boundary that makes them inactive instead
     // of an empty dash, so the column says why rather than nothing.
-    if (pa.activeTo)   return `<span style="color:#6b7280">Until ${fmtPeriodDate(pa.activeTo)}</span>`;
-    if (pa.activeFrom) return `<span style="color:#6b7280">From ${fmtPeriodDate(pa.activeFrom)}</span>`;
-    return `<span style="color:#d1d5db">—</span>`;
+    if (pa.activeTo)   return `<span style="color:var(--c-6b7280)">Until ${fmtPeriodDate(pa.activeTo)}</span>`;
+    if (pa.activeFrom) return `<span style="color:var(--c-6b7280)">From ${fmtPeriodDate(pa.activeFrom)}</span>`;
+    return `<span style="color:var(--c-d1d5db)">—</span>`;
   };
-  const nameOf = pa => paDisplayHtml(pa, true) || `<em style="color:#9ca3af;font-size:.85rem">Untitled</em>`;
+  const nameOf = pa => paDisplayHtml(pa, true) || `<em style="color:var(--c-9ca3af);font-size:.85rem">Untitled</em>`;
 
   // A sub-activity's name is indented so the table shows at a glance which rows
   // belong to the parent above them, the way the lettering already implies.
@@ -12961,7 +13020,7 @@ function renderInactiveStatusSection({ label, color, pas, orphanGroups, allPas, 
     }
   }
 
-  const sectionBand = title => `<tr><td colspan="3" style="${_cellBase};background:#eef2ff;font-size:.82rem;font-weight:700;color:#3730a3">${escHtml(title)}</td></tr>`;
+  const sectionBand = title => `<tr><td colspan="3" style="${_cellBase};background:var(--c-eef2ff);font-size:.82rem;font-weight:700;color:var(--c-3730a3)">${escHtml(title)}</td></tr>`;
 
   // Numbering runs straight through the whole list, section headings included:
   // a heading groups the rows visually, it does not restart the count.
@@ -12986,7 +13045,7 @@ function renderInactiveStatusSection({ label, color, pas, orphanGroups, allPas, 
         : `<tr>
             <td style="${_numCell}">${topNum})</td>
             <td style="${_nameCell}">${nameOf(pa)}</td>
-            <td style="${_dateCell}"><span style="color:#d1d5db">—</span></td>
+            <td style="${_dateCell}"><span style="color:var(--c-d1d5db)">—</span></td>
           </tr>${subRows(subs)}`;
     }).join('');
     return (g.heading ? sectionBand(g.heading) : '') + body;
@@ -13008,13 +13067,13 @@ function renderInactiveStatusSection({ label, color, pas, orphanGroups, allPas, 
     return `${band}<tr>
         <td style="${_numCell}">${orphanNum})</td>
         <td style="${_nameCell}">${parentName}</td>
-        <td style="${_dateCell}"><span style="color:#d1d5db">—</span></td>
+        <td style="${_dateCell}"><span style="color:var(--c-d1d5db)">—</span></td>
       </tr>${subRows(subs)}`;
   }).join('');
 
-  const _th = 'padding:.3rem .5rem;font-size:.72rem;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:.02em;border:1px solid #000;background:#f3f4f6;text-align:center;vertical-align:middle';
+  const _th = 'padding:.3rem .5rem;font-size:.72rem;font-weight:700;color:var(--c-374151);text-transform:uppercase;letter-spacing:.02em;border:1px solid #000;background:var(--c-f3f4f6);text-align:center;vertical-align:middle';
   return `<div style="margin-top:.5rem">
-    <button class="btn-inactive-toggle" contenteditable="false" style="display:flex;align-items:center;gap:.4rem;width:100%;padding:.4rem .6rem;background:none;border:1px dashed #d1d5db;border-radius:.4rem;cursor:pointer;font-size:.8rem;color:${color};text-align:left">
+    <button class="btn-inactive-toggle" contenteditable="false" style="display:flex;align-items:center;gap:.4rem;width:100%;padding:.4rem .6rem;background:none;border:1px dashed var(--c-d1d5db);border-radius:.4rem;cursor:pointer;font-size:.8rem;color:${color};text-align:left">
       <span class="inactive-chevron" style="font-size:.7rem">▶</span> ${label} (${totalCount})
     </button>
     <div class="inactive-list" style="display:none;flex-direction:column;margin-top:.35rem">
@@ -13082,7 +13141,7 @@ function renderExtraActivitiesSection(target) {
         <span class="field-label" contenteditable="false" style="padding-top:.3rem">Activity</span>
         <div style="flex:1;display:flex;flex-direction:column;gap:.3rem">
           <div style="display:flex;align-items:center;gap:.4rem">
-            <span style="font-size:.76rem;color:#9ca3af;flex-shrink:0;min-width:3rem">Title</span>
+            <span style="font-size:.76rem;color:var(--c-9ca3af);flex-shrink:0;min-width:3rem">Title</span>
             <input type="text" class="field-input activity-title-input"
               data-act-id="${escHtml(act.id)}"
               data-saved-html="${escHtml(act.activityTitle || '')}"
@@ -13097,7 +13156,7 @@ function renderExtraActivitiesSection(target) {
             </label>
           </div>
           <div style="display:flex;align-items:center;gap:.4rem">
-            <span style="font-size:.76rem;color:#9ca3af;flex-shrink:0;min-width:3rem">Details</span>
+            <span style="font-size:.76rem;color:var(--c-9ca3af);flex-shrink:0;min-width:3rem">Details</span>
             <input type="text" class="field-input activity-name-input"
               data-act-id="${escHtml(act.id)}"
               data-original="${escHtml(act.activityName)}"
@@ -13128,7 +13187,7 @@ function renderExtraActivitiesSection(target) {
         <span class="field-label" contenteditable="false" style="padding-top:.3rem">Activity</span>
         <div style="flex:1;display:flex;flex-direction:column;gap:.3rem">
           <div style="display:flex;align-items:center;gap:.4rem">
-            <span style="font-size:.76rem;color:#9ca3af;flex-shrink:0;min-width:3rem">Title</span>
+            <span style="font-size:.76rem;color:var(--c-9ca3af);flex-shrink:0;min-width:3rem">Title</span>
             <input type="text" class="field-input pending-activity-name-input"
               data-act-id="${escHtml(_pendingNewActivity.actId)}"
               placeholder="Chart / report label"
@@ -13142,7 +13201,7 @@ function renderExtraActivitiesSection(target) {
             </label>
           </div>
           <div style="display:flex;align-items:center;gap:.4rem">
-            <span style="font-size:.76rem;color:#9ca3af;flex-shrink:0;min-width:3rem">Details</span>
+            <span style="font-size:.76rem;color:var(--c-9ca3af);flex-shrink:0;min-width:3rem">Details</span>
             <input type="text" class="field-input pending-activity-details-input"
               data-act-id="${escHtml(_pendingNewActivity.actId)}"
               placeholder="Description (optional)"
@@ -13150,7 +13209,7 @@ function renderExtraActivitiesSection(target) {
           </div>
           <div style="display:flex;gap:.4rem;justify-content:flex-end">
             <button class="btn-confirm-pending-activity" contenteditable="false"
-              style="padding:.25rem .6rem;background:#6366f1;color:#fff;border:none;border-radius:.35rem;cursor:pointer;font-size:.82rem;font-weight:600"
+              style="padding:.25rem .6rem;background:var(--c-6366f1);color:var(--c-onaccent);border:none;border-radius:.35rem;cursor:pointer;font-size:.82rem;font-weight:600"
               title="Save activity">Done</button>
             <button class="btn-icon btn-cancel-pending-activity" contenteditable="false"
               title="Cancel">✕</button>
@@ -13165,7 +13224,7 @@ function renderExtraActivitiesSection(target) {
     // Small bottom margin only — .target-content now carries the padding that
     // keeps the last element clear of the window edge, so a big margin here just
     // opened a gap between this button and the Mastered/Discontinued sections.
-    html += `<button class="btn-add-session-activity" style="display:block;margin-top:.6rem;margin-bottom:.6rem;padding:.55rem .9rem;background:transparent;border:1.5px dashed #a5b4fc;border-radius:.5rem;cursor:pointer;font-size:.85rem;color:#6366f1;margin-left:auto;margin-right:auto" contenteditable="false">+ Add Activity (only for this session, not saved to the target permanently)</button>`;
+    html += `<button class="btn-add-session-activity" style="display:block;margin-top:.6rem;margin-bottom:.6rem;padding:.55rem .9rem;background:transparent;border:1.5px dashed var(--c-a5b4fc);border-radius:.5rem;cursor:pointer;font-size:.85rem;color:var(--primary-accent);margin-left:auto;margin-right:auto" contenteditable="false">+ Add Activity (only for this session, not saved to the target permanently)</button>`;
   }
   return html;
 }
@@ -13396,7 +13455,7 @@ function paDisplayHtml(pa, showPlaceholder = false, titleOnly = false) {
       ? `<span style="font-weight:700;text-decoration:underline">${titleHtml}</span>`
       : titleHtml;
   } else if (showPlaceholder) {
-    html = `<span style="font-style:italic;color:#9ca3af;font-size:.85rem">&lt;Please give this activity a title in Edit Target&gt;</span>`;
+    html = `<span style="font-style:italic;color:var(--c-9ca3af);font-size:.85rem">&lt;Please give this activity a title in Edit Target&gt;</span>`;
   }
   // Edit Target's collapsed header wants the title alone: the details are right
   // there in the card once it is opened, and repeating them made the header two
@@ -13905,7 +13964,7 @@ function renderRemarkFields(rem, target, inlineOptions = null, sentenceStarter =
     const parsed = parseManualScore(currentVal);
     const parsedPct  = parsed !== null ? Math.round(parsed * 10) / 10 : null;
     const parsedHintText = parsedPct !== null ? `= ${parsedPct}%` : "";
-    const parsedHint = `<span class="manual-score-hint" data-rem-id="${rem.id}" style="font-size:.93rem;font-family:inherit;color:#9ca3af;margin-left:.5rem;white-space:nowrap;align-self:center${parsedPct === null ? ";display:none" : ""}">${escHtml(parsedHintText)}</span>`;
+    const parsedHint = `<span class="manual-score-hint" data-rem-id="${rem.id}" style="font-size:.93rem;font-family:inherit;color:var(--c-9ca3af);margin-left:.5rem;white-space:nowrap;align-self:center${parsedPct === null ? ";display:none" : ""}">${escHtml(parsedHintText)}</span>`;
     const msNoteField = noteCapable
       ? `<div class="entry-field entry-note-field" data-rem-id="${rem.id}">
           <span class="field-label" contenteditable="false">Remark</span>
@@ -13953,7 +14012,7 @@ function renderRemarkFields(rem, target, inlineOptions = null, sentenceStarter =
         <div class="trials-row">
           <div class="trials-badges"></div>
           <button class="btn-primary-sm btn-trial-not-required" disabled
-            style="background:#e5e7eb;color:#9ca3af;border-color:#e5e7eb;cursor:default;box-shadow:none">+ Trial (Not Required)</button>
+            style="background:var(--c-e5e7eb);color:var(--c-9ca3af);border-color:var(--c-e5e7eb);cursor:default;box-shadow:none">+ Trial (Not Required)</button>
         </div>
       </div>`
     : `<div class="entry-field" contenteditable="false">
@@ -13979,7 +14038,7 @@ function renderRemarkFields(rem, target, inlineOptions = null, sentenceStarter =
             for (const [, r] of Object.entries(state.sessionData.remarks || {})) {
               if (r.activityId !== oid) continue;
               const txt = (r.text || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim();
-              if (txt && !opts.includes(txt)) return `<div style="font-size:.78rem;color:#9ca3af;margin-top:.3rem;font-style:italic">Old data: ${escHtml(txt)}</div>`;
+              if (txt && !opts.includes(txt)) return `<div style="font-size:.78rem;color:var(--c-9ca3af);margin-top:.3rem;font-style:italic">Old data: ${escHtml(txt)}</div>`;
             }
           }
         }
@@ -13988,9 +14047,9 @@ function renderRemarkFields(rem, target, inlineOptions = null, sentenceStarter =
       if (multiSelect) {
         const sel = remText.split(", ").map(s => s.trim()).filter(Boolean);
         const gone = sel.filter(s => !opts.includes(s));
-        return gone.length ? `<div style="font-size:.78rem;color:#9ca3af;margin-top:.3rem;font-style:italic">Old data: ${escHtml(gone.join(", "))}</div>` : "";
+        return gone.length ? `<div style="font-size:.78rem;color:var(--c-9ca3af);margin-top:.3rem;font-style:italic">Old data: ${escHtml(gone.join(", "))}</div>` : "";
       }
-      return !opts.includes(remText) ? `<div style="font-size:.78rem;color:#9ca3af;margin-top:.3rem;font-style:italic">Old data: ${escHtml(remText)}</div>` : "";
+      return !opts.includes(remText) ? `<div style="font-size:.78rem;color:var(--c-9ca3af);margin-top:.3rem;font-style:italic">Old data: ${escHtml(remText)}</div>` : "";
     })();
     if (multiSelect) {
       const sel = (remText || "").split(", ").map(s => s.trim()).filter(Boolean);
@@ -14053,7 +14112,7 @@ function renderRemarkFields(rem, target, inlineOptions = null, sentenceStarter =
     noteField = _existingNote
       ? `<div class="entry-field">
           <span class="field-label" contenteditable="false">Remark</span>
-          <div style="font-size:.78rem;color:#9ca3af;font-style:italic">Old data: ${escHtml(_existingNote)}</div>
+          <div style="font-size:.78rem;color:var(--c-9ca3af);font-style:italic">Old data: ${escHtml(_existingNote)}</div>
         </div>`
       : "";
   }
@@ -14208,7 +14267,7 @@ function attachTargetListeners(target) {
         const nameDiv = navBtn.querySelector("div:first-child");
         if (nameDiv) {
           nameDiv.style.fontWeight = isActive ? '700' : '500';
-          nameDiv.style.color = isActive ? 'var(--primary-dark)' : '#374151';
+          nameDiv.style.color = isActive ? 'var(--primary-dark)' : 'var(--c-374151)';
         }
       });
     };
@@ -14705,7 +14764,7 @@ function attachTargetListeners(target) {
   c.querySelectorAll(".remark-text-input[data-manual-score='1']").forEach(input => {
     const _msHint = () => c.querySelector(`.manual-score-hint[data-rem-id="${input.dataset.remId}"]`);
     const _msSetHint = (hint, pct) => {
-      if (pct !== null) { hint.textContent = `= ${pct}%`; hint.style.display = ""; hint.style.color = "#9ca3af"; }
+      if (pct !== null) { hint.textContent = `= ${pct}%`; hint.style.display = ""; hint.style.color = "var(--c-9ca3af)"; }
       else              { hint.textContent = ""; hint.style.display = "none"; hint.style.color = ""; }
     };
     const _msUpdateAvgChip = (rawVal) => {
@@ -15007,7 +15066,10 @@ async function autoFillMaintainedRemarks(student, sessionId, selectedTargetName 
     const bucket = (selectedTargetName === null || target.name === selectedTargetName)
       ? currentFill : bgFill;
     for (const pa of (target.predefinedActivities || [])) {
-      if (!pa.maintained || pa.isHeading || pa.isNote || pa.isExportNote || pa.isMaintainHeading || (!pa.name && !pa.title) || pa.parentActivity) continue;
+      // Finished activities are skipped. The maintained flag now survives
+      // mastering and discontinuing, and without this it would keep
+      // auto-filling "Maintain" into sessions after that date.
+      if (!pa.maintained || pa.masteredOn || pa.discontinuedOn || pa.isHeading || pa.isNote || pa.isExportNote || pa.isMaintainHeading || (!pa.name && !pa.title) || pa.parentActivity) continue;
       // Non-Notes-Only activities (checkbox/MC/manual score) show their real UI via
       // autoFillStructuredRemarks; only Notes-Only gets a "Maintain" text remark here.
       if (getActivityInlineOptions(pa) || pa.optionsMulti || pa.manualScore) continue;
@@ -15919,9 +15981,9 @@ function showEditTargetLock(msg) {
   const overlay = document.createElement("div");
   overlay.dataset.lockOverlay = "1";
   overlay.style.cssText = "position:absolute;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:flex-start;justify-content:center;padding-top:2rem;z-index:400;border-radius:.75rem;overflow-y:auto";
-  overlay.innerHTML = `<div style="background:#fff;padding:1.5rem 1.25rem;border-radius:.75rem;width:min(320px,92%);box-shadow:0 4px 24px rgba(0,0,0,.25);display:flex;flex-direction:column;align-items:center;gap:.9rem;margin-bottom:1rem">
+  overlay.innerHTML = `<div style="background:var(--c-ffffff);padding:1.5rem 1.25rem;border-radius:.75rem;width:min(320px,92%);box-shadow:0 4px 24px rgba(0,0,0,.25);display:flex;flex-direction:column;align-items:center;gap:.9rem;margin-bottom:1rem">
       <div style="font-size:2rem;line-height:1">🔒</div>
-      <div style="font-size:.9rem;color:#111;text-align:center;line-height:1.55">${escHtml(msg)}</div>
+      <div style="font-size:.9rem;color:var(--c-111111);text-align:center;line-height:1.55">${escHtml(msg)}</div>
       <button class="btn-primary-sm" data-lock-ok style="padding:.5rem 1.75rem">OK</button>
     </div>`;
   host.appendChild(overlay);
@@ -16451,8 +16513,8 @@ function renderCheckedByStripHtml(data, confirmRole, isGroup = false) {
 
   const arrow = `<div class="wf-arrow" aria-hidden="true">
     <svg width="32" height="24" viewBox="0 0 32 24" fill="none">
-      <line x1="0" y1="12" x2="22" y2="12" stroke="#9ca3af" stroke-width="2"/>
-      <polygon points="19,6 32,12 19,18" fill="#9ca3af"/>
+      <line x1="0" y1="12" x2="22" y2="12" stroke="var(--c-9ca3af)" stroke-width="2"/>
+      <polygon points="19,6 32,12 19,18" fill="var(--c-9ca3af)"/>
     </svg>
   </div>`;
 
@@ -16479,7 +16541,7 @@ function renderCheckedByStripHtml(data, confirmRole, isGroup = false) {
   };
 
   const editInstBtn = `<button class="wf-pill wf-pill--edit-inst" data-action="edit-instructors"
-    style="margin-top:.4rem;font-size:.78rem;padding:.2rem .65rem;background:#eff6ff;color:#3b82f6;border:1px solid #bfdbfe;border-radius:6px;cursor:pointer">✏ Edit Instructors</button>`;
+    style="margin-top:.4rem;font-size:.78rem;padding:.2rem .65rem;background:var(--c-eff6ff);color:var(--c-3b82f6);border:1px solid var(--c-bfdbfe);border-radius:6px;cursor:pointer">✏ Edit Instructors</button>`;
 
   const p1State = ws.allP1Done ? "done" : "pending";
   const p1Body  = ws.p1Ids.length === 0
@@ -16737,13 +16799,13 @@ async function handleCheckedByClick(e, isGroup) {
     $("session-picker-title").textContent = "Edit Instructors";
     $("session-picker-list").innerHTML = `
       <div style="padding:1.5rem 1.25rem;display:flex;flex-direction:column;align-items:center">
-        <p style="margin:0 0 1.25rem;font-weight:600;color:#374151;text-align:center">Who is facilitating this session?</p>
+        <p style="margin:0 0 1.25rem;font-weight:600;color:var(--c-374151);text-align:center">Who is facilitating this session?</p>
         <div style="width:100%;max-width:320px">
           ${INSTRUCTORS.map(inst => `
-            <label style="display:flex;align-items:center;justify-content:center;gap:.85rem;padding:.75rem 0;cursor:pointer;font-size:1rem;border-bottom:1px solid #f3f4f6">
+            <label style="display:flex;align-items:center;justify-content:center;gap:.85rem;padding:.75rem 0;cursor:pointer;font-size:1rem;border-bottom:1px solid var(--c-f3f4f6)">
               <input type="checkbox" class="inst-edit-check" value="${inst.id}"${curParticipants.includes(inst.id) ? " checked" : ""}
-                style="width:1.2rem;height:1.2rem;accent-color:#3b82f6;cursor:pointer;flex-shrink:0">
-              <span style="color:#1f2937;width:7rem">${escHtml(inst.name)}</span>
+                style="width:1.2rem;height:1.2rem;accent-color:var(--c-3b82f6);cursor:pointer;flex-shrink:0">
+              <span style="color:var(--c-1f2937);width:7rem">${escHtml(inst.name)}</span>
             </label>`).join("")}
         </div>
         <button class="btn-inst-save export-btn" style="margin-top:1.5rem;width:100%;padding:.85rem;font-size:1rem;text-align:center">Save</button>
@@ -17711,7 +17773,7 @@ async function translateDocxFile(file, student, onProgress, signal) {
     }
   }
 
-  onProgress?.(1, 1);
+  onProgress?.(1, 1);
 
   // The words first.
   const rewritten = new Map();
@@ -18646,7 +18708,7 @@ function setChineseLineBreaks(xml) {
     "<w:compat>" + lists + "</w:compat></w:settings>");
 }
 
-/**
+/**
  * The parts of a .docx that hold words a reader sees.
  *
  * Headers and footers are separate files inside the zip and are easy to
@@ -19191,15 +19253,15 @@ function buildTargetViewTable(target, data) {
           .forEach(([id]) => matchedIds.add(id));
         const _paMastered = pa.masteredOn || (pa.inactiveReason === 'mastered' ? "2026-06-30" : null);
         const _paMaintBadge = pa.maintained
-          ? `<span style="font-size:.72rem;color:#6b7280;font-weight:600;white-space:nowrap">(🆗 Maintained${pa.maintainedAt ? ` on ${fmtPeriodDate(pa.maintainedAt)}` : ''})</span> `
+          ? `<span style="font-size:.72rem;color:var(--c-6b7280);font-weight:600;white-space:nowrap">(🆗 Maintained${pa.maintainedAt ? ` on ${fmtPeriodDate(pa.maintainedAt)}` : ''})</span> `
           : '';
         const paBadge = _paMaintBadge + (pa.discontinuedOn
-          ? `<span style="font-size:.72rem;color:#dc2626;font-weight:600;white-space:nowrap">(🚩 ${fmtPeriodDate(pa.discontinuedOn)})</span> `
+          ? `<span style="font-size:.72rem;color:var(--c-dc2626);font-weight:600;white-space:nowrap">(🚩 ${fmtPeriodDate(pa.discontinuedOn)})</span> `
           : _paMastered
-          ? `<span style="font-size:.72rem;color:#059669;font-weight:600;white-space:nowrap">(⭐ ${fmtPeriodDate(_paMastered)})</span> `
+          ? `<span style="font-size:.72rem;color:var(--c-059669);font-weight:600;white-space:nowrap">(⭐ ${fmtPeriodDate(_paMastered)})</span> `
           : '');
-        rows += `<tr style="background:#f3f4f6">
-          <td class="vcol-no" contenteditable="false" style="color:#6b7280">${displayNo}</td>
+        rows += `<tr style="background:var(--c-f3f4f6)">
+          <td class="vcol-no" contenteditable="false" style="color:var(--c-6b7280)">${displayNo}</td>
           <td class="vcol-act" colspan="5" contenteditable="false" style="font-weight:600">${paBadge}${paDisplayHtml(pa)}</td>
         </tr>`;
         continue;
@@ -19212,13 +19274,16 @@ function buildTargetViewTable(target, data) {
         const fixedText = pa.fixedRemark ?? pa.maintainRemark ?? "";
         const isGrayFixed = pa.activityColor === "gray" || !!pa.isMaintainLive;
         const isGreenFixed = pa.activityColor === "green";
-        rows += `<tr${isGrayFixed ? ' class="view-gray-row"' : isGreenFixed ? ' class="view-green-row"' : ' style="background:#f9fafb"'}>
+        // A sub-activity gets the rail that marks it as belonging to the row
+        // above. The colour classes stay exactly as they were; vrow-sub only
+        // ever adds to them.
+        rows += `<tr class="${isSub ? "vrow-sub " : ""}${isGrayFixed ? "view-gray-row" : isGreenFixed ? "view-green-row" : ""}"${isGrayFixed || isGreenFixed ? "" : ' style="background:var(--c-f9fafb)"'}>
           <td class="vcol-no" contenteditable="false">${displayNo}</td>
           <td class="vcol-act" contenteditable="false">${paDisplayHtml(pa)}</td>
-          <td class="vcol-rem" contenteditable="false" style="color:#374151;cursor:pointer;white-space:pre-wrap"
+          <td class="vcol-rem" contenteditable="false" style="color:var(--c-374151);cursor:pointer;white-space:pre-wrap"
             onclick="alert('This is a Fixed Remark — the text is set in Edit Target and cannot be changed here.')"
-            title="Fixed Remark — click for info">${formatActivityMarkup(fixedText) || "<span style='color:#9ca3af;font-style:italic'>No remark set</span>"}</td>
-          <td class="vcol-trials" contenteditable="false"><span class="view-fixed-remark-label" style="color:#9ca3af;font-style:italic">Fixed Remark</span></td>
+            title="Fixed Remark — click for info">${formatActivityMarkup(fixedText) || "<span style='color:var(--c-9ca3af);font-style:italic'>No remark set</span>"}</td>
+          <td class="vcol-trials" contenteditable="false"><span class="view-fixed-remark-label" style="color:var(--c-9ca3af);font-style:italic">Fixed Remark</span></td>
           <td class="vcol-total" contenteditable="false">&nbsp;</td>
           <td class="vcol-score" contenteditable="false">&nbsp;</td>
         </tr>`;
@@ -19430,12 +19495,12 @@ function viewActivityRows(no, actName, actId, data, target, isPredefined = true,
   const _maintained     = !!(paEntry?.maintained   || parentEntry?.maintained);
   const _maintainedAt   = paEntry?.maintainedAt || parentEntry?.maintainedAt || null;
   const _maintBadge = _maintained
-    ? `<span style="font-size:.72rem;color:#6b7280;font-weight:600;white-space:nowrap">(🆗 Maintained${_maintainedAt ? ` on ${fmtPeriodDate(_maintainedAt)}` : ''})</span> `
+    ? `<span style="font-size:.72rem;color:var(--c-6b7280);font-weight:600;white-space:nowrap">(🆗 Maintained${_maintainedAt ? ` on ${fmtPeriodDate(_maintainedAt)}` : ''})</span> `
     : '';
   const statusBadge = _maintBadge + (_discontinuedOn
-    ? `<span style="font-size:.72rem;color:#dc2626;font-weight:600;white-space:nowrap">(🚩 ${fmtPeriodDate(_discontinuedOn)})</span> `
+    ? `<span style="font-size:.72rem;color:var(--c-dc2626);font-weight:600;white-space:nowrap">(🚩 ${fmtPeriodDate(_discontinuedOn)})</span> `
     : _masteredOn
-    ? `<span style="font-size:.72rem;color:#059669;font-weight:600;white-space:nowrap">(⭐ ${fmtPeriodDate(_masteredOn)})</span> `
+    ? `<span style="font-size:.72rem;color:var(--c-059669);font-weight:600;white-space:nowrap">(⭐ ${fmtPeriodDate(_masteredOn)})</span> `
     : '');
 
   const actCell = isPredefined
@@ -19453,7 +19518,13 @@ function viewActivityRows(no, actName, actId, data, target, isPredefined = true,
   const remarkHasNote   = paEntry ? !!(paEntry.remarkHasNote || inlineOptions || paEntry.manualScore) : false;
   const isGrayAct       = isPredefined && (_maintained || paEntry?.activityColor === "gray" || paEntry?.isMaintainLive);
   const isGreenAct      = isPredefined && paEntry?.activityColor === "green";
-  const rowClass        = isGrayAct ? "view-gray-row" : isGreenAct ? "view-green-row" : "";
+  // A sub-activity carries the rail that ties it to the row above. Added
+  // here rather than at each <tr>, because six of them read this one
+  // string and they would have drifted apart one at a time.
+  const isSubRow        = !!(paConfig?.parentActivity || paEntry?.parentActivity
+                            || data.activities?.[actId]?.parentActivity);
+  const colourClass     = isGrayAct ? "view-gray-row" : isGreenAct ? "view-green-row" : "";
+  const rowClass        = ((isSubRow ? "vrow-sub " : "") + colourClass).trim();
 
   if (remarks.length === 0) {
     const opts = parseOpts(inlineOptions);
@@ -19462,7 +19533,7 @@ function viewActivityRows(no, actName, actId, data, target, isPredefined = true,
       if ((remarkHasNote || multiSelect) && !paEntry?.manualScore) {
         const _lbl = multiSelect ? "CHECKBOXES" : "MULTIPLE CHOICE";
         const _noOptsMsg = `<span class="field-label">${_lbl}</span>
-            <span style="color:#9ca3af;font-style:italic;font-size:.88rem">&lt;Please Add Options in Edit Target&gt;</span>`;
+            <span style="color:var(--c-9ca3af);font-style:italic;font-size:.88rem">&lt;Please Add Options in Edit Target&gt;</span>`;
         const _noOptsNote = remarkHasNote
           ? `<textarea class="view-mastery-note view-mastery-note-empty" rows="1"
                data-act-id="${escHtml(actId || "")}" data-act-name="${escHtml(actName)}"
@@ -19499,7 +19570,7 @@ function viewActivityRows(no, actName, actId, data, target, isPredefined = true,
         data-parent-activity="${escHtml(paConfig?.parentActivity || "")}"
         data-config-id="${escHtml(paConfig?.id || "")}">+</button>`;
       const emptyTrialsContent = paConfig?.noTrials
-        ? `<span class="view-trials-disabled" style="color:#9ca3af;font-style:italic">Trials are not required for this activity</span>`
+        ? `<span class="view-trials-disabled" style="color:var(--c-9ca3af);font-style:italic">Trials are not required for this activity</span>`
         : (addTrialBtn || "&nbsp;");
       const emptyScoreContent = "&nbsp;";
       return `<tr${rowClass ? ` class="${rowClass}"` : ""}>
@@ -19524,7 +19595,7 @@ function viewActivityRows(no, actName, actId, data, target, isPredefined = true,
       }
       return "";
     })() : "";
-    const _orphanBadge = _orphanOldText ? `<div style="font-size:.78rem;color:#9ca3af;margin-top:.25rem;font-style:italic">Old data: ${escHtml(_orphanOldText)}</div>` : "";
+    const _orphanBadge = _orphanOldText ? `<div style="font-size:.78rem;color:var(--c-9ca3af);margin-top:.25rem;font-style:italic">Old data: ${escHtml(_orphanOldText)}</div>` : "";
     let emptySelHtml;
     if (multiSelect) {
       emptySelHtml = `<div class="view-remark-multi-opts" contenteditable="false">${opts.map(opt =>
@@ -19568,7 +19639,7 @@ function viewActivityRows(no, actName, actId, data, target, isPredefined = true,
       emptyRemCell = emptySelHtml;
     }
     const emptyTrialBtn = paConfig?.noTrials
-      ? `<span class="view-trials-disabled" style="color:#9ca3af;font-style:italic">Trials are not required for this activity</span>`
+      ? `<span class="view-trials-disabled" style="color:var(--c-9ca3af);font-style:italic">Trials are not required for this activity</span>`
       : `<button class="view-add-trial-new" data-act-id="${escHtml(actId || "")}"
           data-act-name="${escHtml(actName)}" data-target-name="${escHtml(target.name)}"
           data-is-predefined="${isPredefined}"
@@ -19630,13 +19701,13 @@ function viewRemarkRow(no, actName, rem, target, inlineOptions = null, sentenceS
     const parsed = parseManualScore(currentVal);
     const parsedPct = parsed !== null ? Math.round(parsed * 10) / 10 : null;
     const hintHtml = `<span class="view-manual-score-hint" data-rem-id="${escHtml(rem.id)}"
-      style="font-size:.85rem;color:#6b7280;white-space:nowrap${parsedPct === null ? ";display:none" : ""}">${parsedPct !== null ? `= ${parsedPct}%` : ""}</span>`;
+      style="font-size:.85rem;color:var(--c-6b7280);white-space:nowrap${parsedPct === null ? ";display:none" : ""}">${parsedPct !== null ? `= ${parsedPct}%` : ""}</span>`;
     const scoreInput = `<div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;padding:.3rem .4rem .15rem">
-      <span style="font-size:.7rem;font-weight:700;color:#6b7280;letter-spacing:.05em;white-space:nowrap">MANUAL SCORE</span>
+      <span style="font-size:.7rem;font-weight:700;color:var(--c-6b7280);letter-spacing:.05em;white-space:nowrap">MANUAL SCORE</span>
       <input type="text" class="view-manual-score-input" data-rem-id="${escHtml(rem.id)}"
         data-saved-html="${escHtml(currentVal)}" value="${escHtml(currentVal)}"
         placeholder="e.g. 5/20, 25%"
-        style="width:9rem;min-width:0;border:1px solid #b0b7c3;border-radius:4px;padding:.25rem .4rem;font-size:.85rem;font-family:var(--font);background:#fff;outline:none;box-sizing:border-box">
+        style="width:9rem;min-width:0;border:1px solid var(--c-b0b7c3);border-radius:4px;padding:.25rem .4rem;font-size:.85rem;font-family:var(--font);background:var(--c-ffffff);outline:none;box-sizing:border-box">
       ${hintHtml}
     </div>`;
     const noteCell = `<textarea class="view-mastery-note" rows="1" data-rem-id="${escHtml(rem.id)}"
@@ -19674,9 +19745,9 @@ function viewRemarkRow(no, actName, rem, target, inlineOptions = null, sentenceS
       if (multiSelect) {
         const sel = remText.split(", ").map(s => s.trim()).filter(Boolean);
         const gone = sel.filter(s => !opts.includes(s));
-        return gone.length ? `<div style="font-size:.78rem;color:#9ca3af;margin-top:.25rem;font-style:italic">Old data: ${escHtml(gone.join(", "))}</div>` : "";
+        return gone.length ? `<div style="font-size:.78rem;color:var(--c-9ca3af);margin-top:.25rem;font-style:italic">Old data: ${escHtml(gone.join(", "))}</div>` : "";
       }
-      return !opts.includes(remText) ? `<div style="font-size:.78rem;color:#9ca3af;margin-top:.25rem;font-style:italic">Old data: ${escHtml(remText)}</div>` : "";
+      return !opts.includes(remText) ? `<div style="font-size:.78rem;color:var(--c-9ca3af);margin-top:.25rem;font-style:italic">Old data: ${escHtml(remText)}</div>` : "";
     })();
     if (multiSelect) {
       const sel = (remText || "").split(", ").map(s => s.trim()).filter(Boolean);
@@ -19695,7 +19766,7 @@ function viewRemarkRow(no, actName, rem, target, inlineOptions = null, sentenceS
   if ((remarkHasNote || multiSelect) && opts.length === 0) {
     const _lbl2 = multiSelect ? "CHECKBOXES" : "MULTIPLE CHOICE";
     const _msg2 = `<span class="field-label">${_lbl2}</span>
-      <span style="color:#9ca3af;font-style:italic;font-size:.88rem">&lt;Please Add Options in Edit Target&gt;</span>`;
+      <span style="color:var(--c-9ca3af);font-style:italic;font-size:.88rem">&lt;Please Add Options in Edit Target&gt;</span>`;
     const _note2 = remarkHasNote
       ? `<textarea class="view-mastery-note" rows="1" data-rem-id="${escHtml(rem.id)}"
            data-saved-html="${escHtml(rem.masteryNote || "")}"
@@ -19755,7 +19826,7 @@ function viewRemarkRow(no, actName, rem, target, inlineOptions = null, sentenceS
     <td class="vcol-no" contenteditable="false">${no !== null ? no : ""}</td>
     <td class="vcol-act" contenteditable="false">${actName !== null ? actName : ""}</td>
     <td class="vcol-rem" contenteditable="false">${remarkCell}</td>
-    <td class="vcol-trials" contenteditable="false">${noTrials ? `<span class="view-trials-disabled" style="color:#9ca3af;font-style:italic">Trials are not required for this activity</span>` : trialCells}</td>
+    <td class="vcol-trials" contenteditable="false">${noTrials ? `<span class="view-trials-disabled" style="color:var(--c-9ca3af);font-style:italic">Trials are not required for this activity</span>` : trialCells}</td>
     <td class="vcol-total" contenteditable="false">${noTrials ? "&nbsp;" : totalCell}</td>
     <td class="vcol-score" contenteditable="false">
       <div style="display:flex;align-items:center;gap:.3rem;justify-content:flex-end">
@@ -19812,7 +19883,10 @@ async function autoFillViewMaintainedRemarks(student, sessionId, data) {
   let count = 0;
   for (const target of (student.targets || [])) {
     for (const pa of (target.predefinedActivities || [])) {
-      if (!pa.maintained || pa.isHeading || pa.isNote || pa.isExportNote || pa.isMaintainHeading || (!pa.name && !pa.title) || pa.parentActivity) continue;
+      // Finished activities are skipped. The maintained flag now survives
+      // mastering and discontinuing, and without this it would keep
+      // auto-filling "Maintain" into sessions after that date.
+      if (!pa.maintained || pa.masteredOn || pa.discontinuedOn || pa.isHeading || pa.isNote || pa.isExportNote || pa.isMaintainHeading || (!pa.name && !pa.title) || pa.parentActivity) continue;
       // Non-Notes-Only activities handled by autoFillViewStructuredRemarks
       if (getActivityInlineOptions(pa) || pa.optionsMulti || pa.manualScore) continue;
       // Only auto-fill "Maintain" for sessions on or after the maintained date
@@ -19963,7 +20037,10 @@ async function autoFillViewGroupMaintainedRemarks(group, sessionId, data) {
   let count = 0;
   for (const target of (group.targets || [])) {
     for (const pa of (target.predefinedActivities || [])) {
-      if (!pa.maintained || pa.isHeading || pa.isNote || pa.isExportNote || pa.isMaintainHeading || (!pa.name && !pa.title) || pa.parentActivity) continue;
+      // Finished activities are skipped. The maintained flag now survives
+      // mastering and discontinuing, and without this it would keep
+      // auto-filling "Maintain" into sessions after that date.
+      if (!pa.maintained || pa.masteredOn || pa.discontinuedOn || pa.isHeading || pa.isNote || pa.isExportNote || pa.isMaintainHeading || (!pa.name && !pa.title) || pa.parentActivity) continue;
       // Non-Notes-Only activities handled by autoFillViewGroupStructuredRemarks
       if (getActivityInlineOptions(pa) || pa.optionsMulti || pa.manualScore) continue;
       const _maintAt = pa.maintainedAt || "2026-01-01";
@@ -21338,15 +21415,15 @@ function buildGroupTargetViewTable(target, data, attendees) {
           .forEach(([id]) => matchedIds.add(id));
         const _paGrpMastered = pa.masteredOn || (pa.inactiveReason === 'mastered' ? "2026-06-30" : null);
         const _paGrpMaintBadge = pa.maintained
-          ? `<span style="font-size:.72rem;color:#6b7280;font-weight:600;white-space:nowrap">(🆗 Maintained${pa.maintainedAt ? ` on ${fmtPeriodDate(pa.maintainedAt)}` : ''})</span> `
+          ? `<span style="font-size:.72rem;color:var(--c-6b7280);font-weight:600;white-space:nowrap">(🆗 Maintained${pa.maintainedAt ? ` on ${fmtPeriodDate(pa.maintainedAt)}` : ''})</span> `
           : '';
         const paBadgeGrp = _paGrpMaintBadge + (pa.discontinuedOn
-          ? `<span style="font-size:.72rem;color:#dc2626;font-weight:600;white-space:nowrap">(🚩 ${fmtPeriodDate(pa.discontinuedOn)})</span> `
+          ? `<span style="font-size:.72rem;color:var(--c-dc2626);font-weight:600;white-space:nowrap">(🚩 ${fmtPeriodDate(pa.discontinuedOn)})</span> `
           : _paGrpMastered
-          ? `<span style="font-size:.72rem;color:#059669;font-weight:600;white-space:nowrap">(⭐ ${fmtPeriodDate(_paGrpMastered)})</span> `
+          ? `<span style="font-size:.72rem;color:var(--c-059669);font-weight:600;white-space:nowrap">(⭐ ${fmtPeriodDate(_paGrpMastered)})</span> `
           : '');
-        rows += `<tr style="background:#f3f4f6">
-          <td class="vcol-no" contenteditable="false" style="color:#6b7280">${no}</td>
+        rows += `<tr style="background:var(--c-f3f4f6)">
+          <td class="vcol-no" contenteditable="false" style="color:var(--c-6b7280)">${no}</td>
           <td class="vcol-act" colspan="6" contenteditable="false" style="font-weight:600">${paBadgeGrp}${paDisplayHtml(pa)}</td>
         </tr>`;
         continue;
@@ -21359,11 +21436,11 @@ function buildGroupTargetViewTable(target, data, attendees) {
         const isGrayFixed = pa.activityColor === "gray" || !!pa.isMaintainLive;
         const isGreenFixed2 = pa.activityColor === "green";
         no++;
-        rows += `<tr${isGrayFixed ? ' class="view-gray-row"' : isGreenFixed2 ? ' class="view-green-row"' : ' style="background:#f9fafb"'}>
+        rows += `<tr${isGrayFixed ? ' class="view-gray-row"' : isGreenFixed2 ? ' class="view-green-row"' : ' style="background:var(--c-f9fafb)"'}>
           <td class="vcol-no" contenteditable="false">${no}</td>
           <td class="vcol-act" contenteditable="false">${paDisplayHtml(pa)}</td>
           <td class="vcol-student" contenteditable="false">—</td>
-          <td class="vcol-rem" contenteditable="false" style="color:#6b7280;white-space:pre-wrap">${formatActivityMarkup(fixedText) || "—"}</td>
+          <td class="vcol-rem" contenteditable="false" style="color:var(--c-6b7280);white-space:pre-wrap">${formatActivityMarkup(fixedText) || "—"}</td>
           <td class="vcol-trials" contenteditable="false">—</td>
           <td class="vcol-total" contenteditable="false">—</td>
           <td class="vcol-score" contenteditable="false">—</td>
@@ -21570,12 +21647,12 @@ function viewGroupActivityRows(no, actName, actId, data, target, attendees, isPr
   const _maintained     = !!(paEntry?.maintained   || parentEntry?.maintained);
   const _maintainedAt   = paEntry?.maintainedAt || parentEntry?.maintainedAt || null;
   const _maintBadge = _maintained
-    ? `<span style="font-size:.72rem;color:#6b7280;font-weight:600;white-space:nowrap">(🆗 Maintained${_maintainedAt ? ` on ${fmtPeriodDate(_maintainedAt)}` : ''})</span> `
+    ? `<span style="font-size:.72rem;color:var(--c-6b7280);font-weight:600;white-space:nowrap">(🆗 Maintained${_maintainedAt ? ` on ${fmtPeriodDate(_maintainedAt)}` : ''})</span> `
     : '';
   const statusBadge = _maintBadge + (_discontinuedOn
-    ? `<span style="font-size:.72rem;color:#dc2626;font-weight:600;white-space:nowrap">(🚩 ${fmtPeriodDate(_discontinuedOn)})</span> `
+    ? `<span style="font-size:.72rem;color:var(--c-dc2626);font-weight:600;white-space:nowrap">(🚩 ${fmtPeriodDate(_discontinuedOn)})</span> `
     : _masteredOn
-    ? `<span style="font-size:.72rem;color:#059669;font-weight:600;white-space:nowrap">(⭐ ${fmtPeriodDate(_masteredOn)})</span> `
+    ? `<span style="font-size:.72rem;color:var(--c-059669);font-weight:600;white-space:nowrap">(⭐ ${fmtPeriodDate(_masteredOn)})</span> `
     : '');
 
   const actCell = isPredefined
@@ -21596,14 +21673,20 @@ function viewGroupActivityRows(no, actName, actId, data, target, attendees, isPr
   const opts            = parseOpts(inlineOptions);
   const isGrayAct       = isPredefined && (_maintained || paEntry?.activityColor === "gray" || paEntry?.isMaintainLive);
   const isGreenAct      = isPredefined && paEntry?.activityColor === "green";
-  const rowClass        = isGrayAct ? "view-gray-row" : isGreenAct ? "view-green-row" : "";
+  // A sub-activity carries the rail that ties it to the row above. Added
+  // here rather than at each <tr>, because six of them read this one
+  // string and they would have drifted apart one at a time.
+  const isSubRow        = !!(paConfig?.parentActivity || paEntry?.parentActivity
+                            || data.activities?.[actId]?.parentActivity);
+  const colourClass     = isGrayAct ? "view-gray-row" : isGreenAct ? "view-green-row" : "";
+  const rowClass        = ((isSubRow ? "vrow-sub " : "") + colourClass).trim();
 
   if (rounds.length === 0) {
     if (opts.length === 0) {
       if ((remarkHasNote || multiSelect) && !paEntry?.manualScore) {
         const _lbl = multiSelect ? "CHECKBOXES" : "MULTIPLE CHOICE";
         const _gMsg = `<span class="field-label">${_lbl}</span>
-            <span style="color:#9ca3af;font-style:italic;font-size:.88rem">&lt;Please Add Options in Edit Target&gt;</span>`;
+            <span style="color:var(--c-9ca3af);font-style:italic;font-size:.88rem">&lt;Please Add Options in Edit Target&gt;</span>`;
         return attendees.map((studentName, idx) => {
           const _gNote = remarkHasNote
             ? `<textarea class="view-mastery-note view-mastery-note-empty" rows="1"
@@ -21644,7 +21727,7 @@ function viewGroupActivityRows(no, actName, actId, data, target, attendees, isPr
             placeholder="${_maintained && data.date >= (_maintainedAt || "2026-01-01") ? "" : "Remark…"}">${_maintained && data.date >= (_maintainedAt || "2026-01-01") ? "Maintain" : ""}</textarea>
         </td>
         <td class="vcol-trials" contenteditable="false">
-          ${paEntry?.noTrials ? `<span class="view-trials-disabled" style="color:#9ca3af;font-style:italic">Trials are not required for this activity</span>` : `<button class="view-group-add-trial-new" data-act-id="${escHtml(actId || "")}"
+          ${paEntry?.noTrials ? `<span class="view-trials-disabled" style="color:var(--c-9ca3af);font-style:italic">Trials are not required for this activity</span>` : `<button class="view-group-add-trial-new" data-act-id="${escHtml(actId || "")}"
             data-act-name="${escHtml(actName)}" data-target-name="${escHtml(target.name)}"
             data-is-predefined="${isPredefined}" data-student="${escHtml(studentName)}">+</button>`}
         </td>
@@ -21701,7 +21784,7 @@ function viewGroupActivityRows(no, actName, actId, data, target, attendees, isPr
         <td class="vcol-student" contenteditable="false">${groupAttendeeLabel(studentName)}</td>
         <td class="vcol-rem" contenteditable="false">${gRemCell}</td>
         <td class="vcol-trials" contenteditable="false">
-          ${paEntry?.noTrials ? `<span class="view-trials-disabled" style="color:#9ca3af;font-style:italic">Trials are not required for this activity</span>` : `<button class="view-group-add-trial-new" data-act-id="${escHtml(actId || "")}"
+          ${paEntry?.noTrials ? `<span class="view-trials-disabled" style="color:var(--c-9ca3af);font-style:italic">Trials are not required for this activity</span>` : `<button class="view-group-add-trial-new" data-act-id="${escHtml(actId || "")}"
             data-act-name="${escHtml(actName)}" data-target-name="${escHtml(target.name)}"
             data-is-predefined="${isPredefined}" data-student="${escHtml(studentName)}">+</button>`}
         </td>
@@ -21739,7 +21822,7 @@ function viewGroupActivityRows(no, actName, actId, data, target, attendees, isPr
                 data-student="${escHtml(entry.studentName)}"></textarea>
             </td>
             <td class="vcol-trials" contenteditable="false">
-              ${paEntry?.noTrials ? `<span class="view-trials-disabled" style="color:#9ca3af;font-style:italic">Trials are not required for this activity</span>` : `<button class="view-group-add-trial-new" data-act-id="${escHtml(actId || "")}"
+              ${paEntry?.noTrials ? `<span class="view-trials-disabled" style="color:var(--c-9ca3af);font-style:italic">Trials are not required for this activity</span>` : `<button class="view-group-add-trial-new" data-act-id="${escHtml(actId || "")}"
                 data-act-name="${escHtml(actName)}" data-target-name="${escHtml(target.name)}"
                 data-is-predefined="${isPredefined}" data-student="${escHtml(entry.studentName)}">+</button>`}
             </td>
@@ -21822,13 +21905,13 @@ function viewGroupRemarkRow(no, actName, studentName, rem, target, inlineOptions
     const parsed = parseManualScore(currentVal);
     const parsedPct = parsed !== null ? Math.round(parsed * 10) / 10 : null;
     const hintHtml = `<span class="view-manual-score-hint" data-rem-id="${escHtml(rem.id)}"
-      style="font-size:.85rem;color:#6b7280;white-space:nowrap${parsedPct === null ? ";display:none" : ""}">${parsedPct !== null ? `= ${parsedPct}%` : ""}</span>`;
+      style="font-size:.85rem;color:var(--c-6b7280);white-space:nowrap${parsedPct === null ? ";display:none" : ""}">${parsedPct !== null ? `= ${parsedPct}%` : ""}</span>`;
     const scoreInput = `<div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;padding:.3rem .4rem .15rem">
-      <span style="font-size:.7rem;font-weight:700;color:#6b7280;letter-spacing:.05em;white-space:nowrap">MANUAL SCORE</span>
+      <span style="font-size:.7rem;font-weight:700;color:var(--c-6b7280);letter-spacing:.05em;white-space:nowrap">MANUAL SCORE</span>
       <input type="text" class="view-manual-score-input" data-rem-id="${escHtml(rem.id)}"
         data-saved-html="${escHtml(currentVal)}" value="${escHtml(currentVal)}"
         placeholder="e.g. 5/20, 25%"
-        style="width:9rem;min-width:0;border:1px solid #b0b7c3;border-radius:4px;padding:.25rem .4rem;font-size:.85rem;font-family:var(--font);background:#fff;outline:none;box-sizing:border-box">
+        style="width:9rem;min-width:0;border:1px solid var(--c-b0b7c3);border-radius:4px;padding:.25rem .4rem;font-size:.85rem;font-family:var(--font);background:var(--c-ffffff);outline:none;box-sizing:border-box">
       ${hintHtml}
     </div>`;
     const noteCell = `<textarea class="view-mastery-note" rows="1" data-rem-id="${escHtml(rem.id)}"
@@ -21864,7 +21947,7 @@ function viewGroupRemarkRow(no, actName, studentName, rem, target, inlineOptions
       if ((remarkHasNote || multiSelect) && opts.length === 0) {
         const _lbl3 = multiSelect ? "CHECKBOXES" : "MULTIPLE CHOICE";
         const _msg3 = `<span class="field-label">${_lbl3}</span>
-          <span style="color:#9ca3af;font-style:italic;font-size:.88rem">&lt;Please Add Options in Edit Target&gt;</span>`;
+          <span style="color:var(--c-9ca3af);font-style:italic;font-size:.88rem">&lt;Please Add Options in Edit Target&gt;</span>`;
         const _note3 = remarkHasNote
           ? `<textarea class="view-mastery-note" rows="1" data-rem-id="${escHtml(rem.id)}"
                data-saved-html="${escHtml(rem.masteryNote || "")}"
@@ -21934,7 +22017,7 @@ function viewGroupRemarkRow(no, actName, studentName, rem, target, inlineOptions
     <td class="vcol-act" contenteditable="false">${actName !== null ? actName : ""}</td>
     <td class="vcol-student" contenteditable="false">${groupAttendeeLabel(studentName)}</td>
     ${remarkTd}
-    <td class="vcol-trials" contenteditable="false">${noTrials ? `<span class="view-trials-disabled" style="color:#9ca3af;font-style:italic">Trials are not required for this activity</span>` : trialCells}</td>
+    <td class="vcol-trials" contenteditable="false">${noTrials ? `<span class="view-trials-disabled" style="color:var(--c-9ca3af);font-style:italic">Trials are not required for this activity</span>` : trialCells}</td>
     <td class="vcol-total" contenteditable="false">${noTrials ? "&nbsp;" : totalCell}</td>
     <td class="vcol-score" contenteditable="false">
       <div style="display:flex;align-items:center;gap:.3rem;justify-content:flex-end">
@@ -22705,13 +22788,13 @@ function inactiveReasonBadge(pa) {
   const _badgeBase = "display:inline-flex;align-items:center;border-radius:.35rem;padding:.1rem .5rem;font-size:.93rem;font-weight:700;white-space:nowrap;margin-right:.4rem;vertical-align:middle;line-height:1.2";
   let badges = '';
   if (pa?.maintained)
-    badges += `<span style="${_badgeBase};background:#e5e7eb;border:1px solid #9ca3af;color:#374151">🆗 Maintained${pa.maintainedAt ? ` on ${fmtPeriodDate(pa.maintainedAt)}` : ''}</span>`;
+    badges += `<span style="${_badgeBase};background:var(--c-e5e7eb);border:1px solid var(--c-9ca3af);color:var(--c-374151)">🆗 Maintained${pa.maintainedAt ? ` on ${fmtPeriodDate(pa.maintainedAt)}` : ''}</span>`;
   const masteredDate = pa?.masteredOn || (pa?.inactiveReason === 'mastered' ? "2026-06-30" : null);
   if (masteredDate)
-    badges += `<span style="${_badgeBase};background:#d1fae5;border:1px solid #6ee7b7;color:#059669">⭐ Mastered on ${fmtPeriodDate(masteredDate)}</span>`;
+    badges += `<span style="${_badgeBase};background:var(--c-d1fae5);border:1px solid var(--c-6ee7b7);color:var(--c-059669)">⭐ Mastered on ${fmtPeriodDate(masteredDate)}</span>`;
   else if (pa?.discontinuedOn || pa?.inactiveReason === 'discontinued') {
     const label = pa?.discontinuedOn ? `🚩 Discontinued on ${fmtPeriodDate(pa.discontinuedOn)}` : '● Discontinued';
-    badges += `<span style="${_badgeBase};background:#fee2e2;border:1px solid #fca5a5;color:#dc2626">${label}</span>`;
+    badges += `<span style="${_badgeBase};background:var(--c-fee2e2);border:1px solid var(--c-fca5a5);color:var(--c-dc2626)">${label}</span>`;
   }
   return badges;
 }
@@ -22724,11 +22807,11 @@ function showAlertOverlay({ title = "⚠️ Not allowed", message, okLabel = "OK
     const overlay = document.createElement("div");
     overlay.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10001;display:flex;align-items:center;justify-content:center;padding:1rem";
     overlay.innerHTML =
-      `<div style="background:#fff;border-radius:.75rem;padding:1.35rem 1.5rem;max-width:390px;width:100%;box-shadow:0 8px 32px rgba(0,0,0,.25)">` +
-      `<div style="font-size:1rem;font-weight:700;color:#b91c1c;margin-bottom:.55rem">${title}</div>` +
-      `<div style="font-size:.92rem;color:#374151;margin-bottom:1.25rem;line-height:1.65">${message}</div>` +
+      `<div style="background:var(--c-ffffff);border-radius:.75rem;padding:1.35rem 1.5rem;max-width:390px;width:100%;box-shadow:0 8px 32px rgba(0,0,0,.25)">` +
+      `<div style="font-size:1rem;font-weight:700;color:var(--c-b91c1c);margin-bottom:.55rem">${title}</div>` +
+      `<div style="font-size:.92rem;color:var(--c-374151);margin-bottom:1.25rem;line-height:1.65">${message}</div>` +
       `<div style="display:flex;justify-content:flex-end">` +
-      `<button class="dp-ok" style="padding:.55rem 1.6rem;border:none;border-radius:.4rem;background:var(--primary);color:#fff;cursor:pointer;font-size:.9rem;font-weight:600">${okLabel}</button>` +
+      `<button class="dp-ok" style="padding:.55rem 1.6rem;border:none;border-radius:.4rem;background:var(--primary);color:var(--c-onaccent);cursor:pointer;font-size:.9rem;font-weight:600">${okLabel}</button>` +
       `</div></div>`;
     document.body.appendChild(overlay);
     const finish = () => { overlay.remove(); document.removeEventListener("keydown", onKey); resolve(); };
@@ -22744,11 +22827,11 @@ function showAutoDateConfirm({ message, confirmLabel }) {
     const overlay = document.createElement("div");
     overlay.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;display:flex;align-items:center;justify-content:center";
     overlay.innerHTML =
-      `<div style="background:#fff;border-radius:.75rem;padding:1.5rem;max-width:360px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,.22)">` +
-      `<div style="font-size:.92rem;color:#374151;margin-bottom:1.25rem;line-height:1.65">${message}</div>` +
+      `<div style="background:var(--c-ffffff);border-radius:.75rem;padding:1.5rem;max-width:360px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,.22)">` +
+      `<div style="font-size:.92rem;color:var(--c-374151);margin-bottom:1.25rem;line-height:1.65">${message}</div>` +
       `<div style="display:flex;gap:.6rem;justify-content:flex-end">` +
-      `<button class="dp-cancel" style="padding:.5rem 1rem;border:1px solid #d1d5db;border-radius:.4rem;background:#fff;cursor:pointer;font-size:.9rem">Cancel</button>` +
-      `<button class="dp-confirm" style="padding:.5rem 1rem;border:none;border-radius:.4rem;background:var(--primary);color:#fff;cursor:pointer;font-size:.9rem;font-weight:600">${confirmLabel}</button>` +
+      `<button class="dp-cancel" style="padding:.5rem 1rem;border:1px solid var(--c-d1d5db);border-radius:.4rem;background:var(--c-ffffff);cursor:pointer;font-size:.9rem">Cancel</button>` +
+      `<button class="dp-confirm" style="padding:.5rem 1rem;border:none;border-radius:.4rem;background:var(--primary);color:var(--c-onaccent);cursor:pointer;font-size:.9rem;font-weight:600">${confirmLabel}</button>` +
       `</div></div>`;
     document.body.appendChild(overlay);
     const finish = val => { overlay.remove(); document.removeEventListener("keydown", onKey); resolve(val); };
@@ -22767,41 +22850,46 @@ function showAutoDateConfirm({ message, confirmLabel }) {
  * Callers that ask for it get { date, reason }; the rest still get the date
  * on its own, so nothing that only wants a date had to change.
  */
-function showDatePickerOverlay({ heading, infoHtml, minDate, defaultDate, confirmLabel, dateLabel = "activity", withReason = false, reasonValue = "" }) {
+function showDatePickerOverlay({ heading, infoHtml, minDate, defaultDate, confirmLabel, dateLabel = "activity", changeLabel = "", withReason = false, reasonValue = "" }) {
   return new Promise(resolve => {
     const overlay = document.createElement("div");
     overlay.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;display:flex;align-items:center;justify-content:center;padding:1rem";
     const min = minDate || todayDateStr();
     const def = defaultDate && defaultDate >= min ? defaultDate : min;
     const defFormatted = fmtPeriodDate(def) || def;
-    overlay.innerHTML = `<div style="background:#fff;border-radius:.75rem;padding:1.5rem;max-width:400px;width:100%;box-shadow:0 8px 32px rgba(0,0,0,.22)">
-      <div style="font-size:.93rem;font-weight:700;color:#111;margin-bottom:.55rem">${heading}</div>
-      ${infoHtml ? `<div style="font-size:.85rem;color:#374151;margin-bottom:.9rem;line-height:1.6">${infoHtml}</div>` : ''}
-      <label style="font-size:.82rem;font-weight:600;color:#374151;display:block;margin-bottom:.35rem">Please select the final date you want this ${dateLabel} to appear.</label>
+    overlay.innerHTML = `<div style="background:var(--c-ffffff);border-radius:.75rem;padding:1.5rem;max-width:400px;width:100%;box-shadow:0 8px 32px rgba(0,0,0,.22)">
+      <div style="font-size:.93rem;font-weight:700;color:var(--c-111111);margin-bottom:.55rem">${heading}</div>
+      ${infoHtml ? `<div style="font-size:.85rem;color:var(--c-374151);margin-bottom:.9rem;line-height:1.6">${infoHtml}</div>` : ''}
+      <label style="font-size:.82rem;font-weight:600;color:var(--c-374151);display:block;margin-bottom:.35rem">${changeLabel || `Please select the final date you want this ${dateLabel} to appear.`}</label>
       <style>#dp-date-inp::-webkit-calendar-picker-indicator{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer}</style>
-      <div style="position:relative;margin-bottom:1rem;border:1.5px solid #d1d5db;border-radius:.4rem;background:#fff;cursor:pointer">
+      <div style="position:relative;margin-bottom:1rem;border:1.5px solid var(--c-d1d5db);border-radius:.4rem;background:var(--c-ffffff);cursor:pointer">
         <input type="date" id="dp-date-inp" value="${def}" min="${min}" style="position:absolute;inset:0;width:100%;height:100%;border:none;background:transparent;opacity:0;outline:none;cursor:pointer;box-sizing:border-box">
-        <div id="dp-date-display" style="padding:.5rem .7rem;font-size:.95rem;color:#111;pointer-events:none;display:flex;align-items:center"><span id="dp-date-text">${defFormatted}</span><span style="margin-left:auto;padding-left:.5rem;font-size:1rem;color:#6b7280">🗓</span></div>
+        <div id="dp-date-display" style="padding:.5rem .7rem;font-size:.95rem;color:var(--c-111111);pointer-events:none;display:flex;align-items:center"><span id="dp-date-text">${defFormatted}</span><span id="dp-date-default" style="margin-left:.35rem;color:var(--c-6b7280);font-size:.85rem">(Default)</span><span style="margin-left:auto;padding-left:.5rem;font-size:1rem;color:var(--c-6b7280)">🗓</span></div>
       </div>
       ${withReason ? `
-      <label style="font-size:.82rem;font-weight:600;color:#374151;display:block;margin-bottom:.35rem">
-        Why? <span style="font-weight:400;color:#6b7280">(optional &mdash; shown in reports)</span>
+      <label style="font-size:.82rem;font-weight:600;color:var(--c-374151);display:block;margin-bottom:.35rem">
+        Why? <span style="font-weight:400;color:var(--c-6b7280)">(optional &mdash; shown in reports when necessary)</span>
       </label>
-      <textarea id="dp-reason-inp" rows="2" placeholder="e.g. met in daily routine, moved into another target"
-        style="width:100%;box-sizing:border-box;padding:.5rem .7rem;border:1.5px solid #d1d5db;border-radius:.4rem;font-size:.9rem;font-family:inherit;resize:vertical;margin-bottom:1rem">${escHtml(reasonValue || "")}</textarea>` : ""}
+      <textarea id="dp-reason-inp" rows="2" placeholder="Enter Reason Here"
+        style="width:100%;box-sizing:border-box;padding:.5rem .7rem;border:1.5px solid var(--c-d1d5db);border-radius:.4rem;font-size:.9rem;font-family:inherit;resize:vertical;margin-bottom:1rem">${escHtml(reasonValue || "")}</textarea>` : ""}
       <div style="display:flex;gap:.6rem;justify-content:flex-end">
-        <button class="dp-cancel" style="padding:.5rem 1rem;border:1px solid #d1d5db;border-radius:.4rem;background:#fff;cursor:pointer;font-size:.9rem">Cancel</button>
-        <button class="dp-confirm" style="padding:.5rem 1rem;border:none;border-radius:.4rem;background:var(--primary);color:#fff;cursor:pointer;font-size:.9rem;font-weight:600">${confirmLabel}</button>
+        <button class="dp-cancel" style="padding:.5rem 1rem;border:1px solid var(--c-d1d5db);border-radius:.4rem;background:var(--c-ffffff);cursor:pointer;font-size:.9rem">Cancel</button>
+        <button class="dp-confirm" style="padding:.5rem 1rem;border:none;border-radius:.4rem;background:var(--primary);color:var(--c-onaccent);cursor:pointer;font-size:.9rem;font-weight:600">${confirmLabel}</button>
       </div>
     </div>`;
     document.body.appendChild(overlay);
     const inp = overlay.querySelector("#dp-date-inp");
     const dpDisplay = overlay.querySelector("#dp-date-display");
-    inp.addEventListener("input", () => { overlay.querySelector("#dp-date-text").textContent = inp.value ? (fmtPeriodDate(inp.value) || inp.value) : "Select a date"; });
+    inp.addEventListener("input", () => {
+      overlay.querySelector("#dp-date-text").textContent = inp.value ? (fmtPeriodDate(inp.value) || inp.value) : "Select a date";
+      // "(Default)" is only true until they pick something else.
+      const tag = overlay.querySelector("#dp-date-default");
+      if (tag) tag.style.display = inp.value === def ? "" : "none";
+    });
     const finish = val => { overlay.remove(); document.removeEventListener("keydown", onKey); resolve(val); };
     overlay.querySelector(".dp-cancel").addEventListener("click", () => finish(null));
     overlay.querySelector(".dp-confirm").addEventListener("click", () => {
-      if (!inp.value || inp.value < min) { inp.style.borderColor = "#dc2626"; return; }
+      if (!inp.value || inp.value < min) { inp.style.borderColor = "var(--c-dc2626)"; return; }
       const reason = (overlay.querySelector("#dp-reason-inp")?.value || "").trim();
       finish(withReason ? { date: inp.value, reason } : inp.value);
     });
@@ -22864,16 +22952,16 @@ function presetLabel(val) {
 function periodSectionHtml(activeFrom, activeTo, idx, withBorder, inactiveReason) {
   const fromLabel = activeFrom ? fmtPeriodDate(activeFrom) : '-∞';
   const toLabel   = activeTo   ? fmtPeriodDate(activeTo)   : '+∞';
-  const fromBg    = activeFrom ? '#ffffff' : '#eff6ff';
-  const toBg      = activeTo   ? '#ffffff' : '#eff6ff';
-  const fromCol   = activeFrom ? '#111827' : '#6b7280';
-  const toCol     = activeTo   ? '#111827' : '#6b7280';
-  const border    = withBorder ? 'border-bottom:1px solid #f3f4f6;' : '';
+  const fromBg    = activeFrom ? 'var(--c-ffffff)' : 'var(--c-eff6ff)';
+  const toBg      = activeTo   ? 'var(--c-ffffff)' : 'var(--c-eff6ff)';
+  const fromCol   = activeFrom ? 'var(--c-111827)' : 'var(--c-6b7280)';
+  const toCol     = activeTo   ? 'var(--c-111827)' : 'var(--c-6b7280)';
+  const border    = withBorder ? 'border-bottom:1px solid var(--c-f3f4f6);' : '';
   // Show "End Reason" dropdown only for activities (5th arg provided) when activeTo is set
   const reasonRow = (inactiveReason !== undefined && activeTo) ? `
     <div style="display:flex;align-items:center;gap:.5rem;margin-top:.35rem">
-      <span style="font-size:.78rem;color:#6b7280;white-space:nowrap">End Reason:</span>
-      <select class="mn-inactive-reason-select" data-idx="${idx}" style="flex:1;font-size:.8rem;padding:.2rem .4rem;border:1px solid #d1d5db;border-radius:.3rem;background:white;cursor:pointer">
+      <span style="font-size:.78rem;color:var(--c-6b7280);white-space:nowrap">End Reason:</span>
+      <select class="mn-inactive-reason-select" data-idx="${idx}" style="flex:1;font-size:.8rem;padding:.2rem .4rem;border:1px solid var(--c-d1d5db);border-radius:.3rem;background:var(--c-ffffff);cursor:pointer">
         <option value="">— Not specified —</option>
         <option value="mastered"${inactiveReason === 'mastered' ? ' selected' : ''}>Mastered</option>
         <option value="discontinued"${inactiveReason === 'discontinued' ? ' selected' : ''}>Discontinued</option>
@@ -22884,18 +22972,18 @@ function periodSectionHtml(activeFrom, activeTo, idx, withBorder, inactiveReason
     <div style="font-size:.84rem;color:inherit;margin-bottom:.35rem">📅 Active Period</div>
     <div style="display:flex;align-items:center;gap:.4rem">
       <div style="position:relative;flex:1;min-width:0">
-        <button class="mn-period-from-btn" data-idx="${idx}" style="width:100%;padding:.28rem .4rem;border:1px solid #d1d5db;border-radius:.3rem;background:${fromBg};cursor:pointer;font-size:.8rem;color:${fromCol};white-space:nowrap;text-align:center">${fromLabel}</button>
-        <div class="mn-period-from-panel" data-idx="${idx}" style="display:none;position:absolute;top:calc(100% + 3px);left:0;z-index:300;background:#fff;border:1px solid #e5e7eb;border-radius:.45rem;padding:.4rem;box-shadow:0 4px 14px rgba(0,0,0,.12);min-width:175px">
-          <input type="date" class="mn-period-date" data-idx="${idx}" data-which="from" value="${activeFrom||''}" style="width:100%;font-size:.8rem;border:1px solid #d1d5db;border-radius:.3rem;padding:.2rem .3rem;margin-bottom:.3rem;box-sizing:border-box">
-          <button class="mn-period-inf" data-idx="${idx}" data-which="from" style="width:100%;padding:.25rem;font-size:.78rem;border:1px solid #bfdbfe;border-radius:.3rem;background:#eff6ff;cursor:pointer;color:#1d4ed8">Clear / Set as -∞</button>
+        <button class="mn-period-from-btn" data-idx="${idx}" style="width:100%;padding:.28rem .4rem;border:1px solid var(--c-d1d5db);border-radius:.3rem;background:${fromBg};cursor:pointer;font-size:.8rem;color:${fromCol};white-space:nowrap;text-align:center">${fromLabel}</button>
+        <div class="mn-period-from-panel" data-idx="${idx}" style="display:none;position:absolute;top:calc(100% + 3px);left:0;z-index:300;background:var(--c-ffffff);border:1px solid var(--c-e5e7eb);border-radius:.45rem;padding:.4rem;box-shadow:0 4px 14px rgba(0,0,0,.12);min-width:175px">
+          <input type="date" class="mn-period-date" data-idx="${idx}" data-which="from" value="${activeFrom||''}" style="width:100%;font-size:.8rem;border:1px solid var(--c-d1d5db);border-radius:.3rem;padding:.2rem .3rem;margin-bottom:.3rem;box-sizing:border-box">
+          <button class="mn-period-inf" data-idx="${idx}" data-which="from" style="width:100%;padding:.25rem;font-size:.78rem;border:1px solid var(--c-bfdbfe);border-radius:.3rem;background:var(--c-eff6ff);cursor:pointer;color:var(--c-1d4ed8)">Clear / Set as -∞</button>
         </div>
       </div>
-      <span style="color:#9ca3af;flex-shrink:0">→</span>
+      <span style="color:var(--c-9ca3af);flex-shrink:0">→</span>
       <div style="position:relative;flex:1;min-width:0">
-        <button class="mn-period-to-btn" data-idx="${idx}" style="width:100%;padding:.28rem .4rem;border:1px solid #d1d5db;border-radius:.3rem;background:${toBg};cursor:pointer;font-size:.8rem;color:${toCol};white-space:nowrap;text-align:center">${toLabel}</button>
-        <div class="mn-period-to-panel" data-idx="${idx}" style="display:none;position:absolute;top:calc(100% + 3px);right:0;z-index:300;background:#fff;border:1px solid #e5e7eb;border-radius:.45rem;padding:.4rem;box-shadow:0 4px 14px rgba(0,0,0,.12);min-width:175px">
-          <input type="date" class="mn-period-date" data-idx="${idx}" data-which="to" value="${activeTo||''}" style="width:100%;font-size:.8rem;border:1px solid #d1d5db;border-radius:.3rem;padding:.2rem .3rem;margin-bottom:.3rem;box-sizing:border-box">
-          <button class="mn-period-inf" data-idx="${idx}" data-which="to" style="width:100%;padding:.25rem;font-size:.78rem;border:1px solid #bfdbfe;border-radius:.3rem;background:#eff6ff;cursor:pointer;color:#1d4ed8">Clear / Set as +∞</button>
+        <button class="mn-period-to-btn" data-idx="${idx}" style="width:100%;padding:.28rem .4rem;border:1px solid var(--c-d1d5db);border-radius:.3rem;background:${toBg};cursor:pointer;font-size:.8rem;color:${toCol};white-space:nowrap;text-align:center">${toLabel}</button>
+        <div class="mn-period-to-panel" data-idx="${idx}" style="display:none;position:absolute;top:calc(100% + 3px);right:0;z-index:300;background:var(--c-ffffff);border:1px solid var(--c-e5e7eb);border-radius:.45rem;padding:.4rem;box-shadow:0 4px 14px rgba(0,0,0,.12);min-width:175px">
+          <input type="date" class="mn-period-date" data-idx="${idx}" data-which="to" value="${activeTo||''}" style="width:100%;font-size:.8rem;border:1px solid var(--c-d1d5db);border-radius:.3rem;padding:.2rem .3rem;margin-bottom:.3rem;box-sizing:border-box">
+          <button class="mn-period-inf" data-idx="${idx}" data-which="to" style="width:100%;padding:.25rem;font-size:.78rem;border:1px solid var(--c-bfdbfe);border-radius:.3rem;background:var(--c-eff6ff);cursor:pointer;color:var(--c-1d4ed8)">Clear / Set as +∞</button>
         </div>
       </div>
     </div>
@@ -22904,14 +22992,27 @@ function periodSectionHtml(activeFrom, activeTo, idx, withBorder, inactiveReason
 }
 
 function actStartDateHtml(activeFrom, idx) {
-  return `<button class="mn-act-start-btn" data-idx="${idx}" style="width:100%;padding:.55rem .9rem;text-align:left;background:none;border:none;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:.84rem;color:#374151;white-space:nowrap">📅 Set Start Date</button>`;
+  return `<button class="mn-act-start-btn" data-idx="${idx}" style="width:100%;padding:.55rem .9rem;text-align:left;background:none;border:none;border-bottom:1px solid var(--c-f3f4f6);cursor:pointer;font-size:.84rem;color:var(--c-374151);white-space:nowrap">📅 Set Start Date</button>`;
 }
 
 function showActStartDatePicker() {
   const act = _actStartPickerActs?.[_actStartPickerIdx];
-  const hasExistingDate = !!act?.activeFrom;
-  const activeFrom = act?.activeFrom || todayDateStr();
-  const actName = (act?.title || act?.name || '').replace(/<[^>]*>/g, '').trim();
+  const isEnd = _actStartPickerField === "activeTo";
+  const hasExistingDate = !!(isEnd ? act?.activeTo : act?.activeFrom);
+  const activeFrom = (isEnd ? act?.activeTo : act?.activeFrom) || todayDateStr();
+  // A note keeps its words in text/noteTitle, not in title or name, so
+  // asking for those gave an empty pair of brackets: "this activity ()".
+  const isNote = !!(act?.isNote || act?.isExportNote);
+  const actWord = isNote ? "note" : "activity";
+  // A note written as one block has no title at all -- noteParts only
+  // finds one where the opening words were bolded by hand -- so its first
+  // line stands in, or the sheet would name nothing.
+  const _np = isNote ? noteParts(act || {}) : null;
+  const _noteName = _np
+    ? (_np.title || (_np.details || "").split(/\r?\n/)[0] || "").slice(0, 60)
+    : "";
+  const actName = (isNote ? _noteName
+    : (act?.title || act?.name || '')).replace(/<[^>]*>/g, '').trim();
   let overlay = document.getElementById('act-start-picker-overlay');
   if (!overlay) {
     overlay = document.createElement('div');
@@ -22919,21 +23020,21 @@ function showActStartDatePicker() {
     document.body.appendChild(overlay);
   }
   overlay.innerHTML = `<div style="position:fixed;inset:0;z-index:9000;background:rgba(0,0,0,.45);display:flex;flex-direction:column;justify-content:flex-end" id="act-start-picker-backdrop">
-    <div style="background:#fff;border-radius:1.1rem 1.1rem 0 0;padding:1.3rem 1.3rem calc(env(safe-area-inset-bottom,0px) + 1.3rem);box-shadow:0 -4px 24px rgba(0,0,0,.14)">
-      <div style="font-weight:700;font-size:1rem;color:#111827;margin-bottom:.25rem">Set Start Date</div>
-      <div style="font-size:.85rem;color:#6b7280;margin-bottom:.85rem">What date do you want this activity <strong style="color:#374151">(${escHtml(actName)})</strong> to start appearing?</div>
-      <div id="act-start-picker-err" style="display:none;font-size:.82rem;color:#dc2626;margin-bottom:.5rem;line-height:1.4;padding:.4rem .6rem;background:#fee2e2;border-radius:.4rem"></div>
-      <input type="date" id="act-start-picker-inp" value="${activeFrom}" style="width:100%;font-size:1rem;border:1.5px solid #d1d5db;border-radius:.5rem;padding:.55rem .65rem;box-sizing:border-box;margin-bottom:.85rem">
+    <div style="background:var(--c-ffffff);border-radius:1.1rem 1.1rem 0 0;padding:1.3rem 1.3rem calc(env(safe-area-inset-bottom,0px) + 1.3rem);box-shadow:0 -4px 24px rgba(0,0,0,.14)">
+      <div style="font-weight:700;font-size:1rem;color:var(--c-111827);margin-bottom:.25rem">${isEnd ? "Set End Date" : "Set Start Date"}</div>
+      <div style="font-size:.85rem;color:var(--c-6b7280);margin-bottom:.85rem">${isEnd ? "What date do you want this" : "What date do you want this"} ${actWord}${actName ? ` <strong style="color:var(--c-374151)">(${escHtml(actName)})</strong>` : ""} to ${isEnd ? "stop" : "start"} appearing?</div>
+      <div id="act-start-picker-err" style="display:none;font-size:.82rem;color:var(--c-dc2626);margin-bottom:.5rem;line-height:1.4;padding:.4rem .6rem;background:var(--c-fee2e2);border-radius:.4rem"></div>
+      <input type="date" id="act-start-picker-inp" value="${activeFrom}" style="width:100%;font-size:1rem;border:1.5px solid var(--c-d1d5db);border-radius:.5rem;padding:.55rem .65rem;box-sizing:border-box;margin-bottom:.85rem">
       <div style="display:flex;gap:.5rem">
-        ${hasExistingDate ? `<button id="act-start-picker-clear" style="flex:1;padding:.65rem;font-size:.9rem;border:1px solid #fca5a5;border-radius:.5rem;background:#fee2e2;cursor:pointer;color:#dc2626;font-weight:600">✕ Clear Date</button>` : ''}
-        <button id="act-start-picker-cancel" style="flex:1;padding:.65rem;font-size:.9rem;border:1px solid #d1d5db;border-radius:.5rem;background:#f9fafb;cursor:pointer;color:#6b7280;font-weight:600">Cancel</button>
+        ${hasExistingDate ? `<button id="act-start-picker-clear" style="flex:1;padding:.65rem;font-size:.9rem;border:1px solid var(--c-fca5a5);border-radius:.5rem;background:var(--c-fee2e2);cursor:pointer;color:var(--c-dc2626);font-weight:600">✕ ${isEnd ? "No End Date" : "Clear Date"}</button>` : ''}
+        <button id="act-start-picker-cancel" style="flex:1;padding:.65rem;font-size:.9rem;border:1px solid var(--c-d1d5db);border-radius:.5rem;background:var(--c-f9fafb);cursor:pointer;color:var(--c-6b7280);font-weight:600">Cancel</button>
       </div>
     </div>
   </div>`;
   document.getElementById('act-start-picker-backdrop').onclick = e => { if (e.target.id === 'act-start-picker-backdrop') closeActStartDatePicker(); };
   document.getElementById('act-start-picker-inp').addEventListener('change', handleActStartPickerChange);
   const clearBtn = document.getElementById('act-start-picker-clear');
-  if (clearBtn) clearBtn.addEventListener('click', async () => { closeActStartDatePicker(); await _actStartPickerSaveFn(_actStartPickerIdx, 'activeFrom', null); });
+  if (clearBtn) clearBtn.addEventListener('click', async () => { closeActStartDatePicker(); await _actStartPickerSaveFn(_actStartPickerIdx, _actStartPickerField, null); });
   document.getElementById('act-start-picker-cancel').addEventListener('click', closeActStartDatePicker);
 }
 
@@ -22951,15 +23052,25 @@ async function handleActStartPickerChange() {
   const act = _actStartPickerActs?.[_actStartPickerIdx];
   if (!act) return;
   const actName = act.title || act.name;
+  const isEnd = _actStartPickerField === "activeTo";
+  // An end date before the start date is a period with nothing in it.
+  if (isEnd && act.activeFrom && value < act.activeFrom) {
+    if (inp) inp.value = act.activeTo || "";
+    await showAlertOverlay({
+      title: "⚠️ End date is before the start date",
+      message: `This starts on <strong>${fmtPeriodDate(act.activeFrom)}</strong>, so it cannot stop before then.`
+    });
+    return;
+  }
   if (!_actStartPickerStudent && !_groupForTargetEdit) {
     closeActStartDatePicker();
-    await _actStartPickerSaveFn(_actStartPickerIdx, 'activeFrom', value);
+    await _actStartPickerSaveFn(_actStartPickerIdx, _actStartPickerField, value);
     return;
   }
   const allSessions = _groupForTargetEdit
     ? await getAllSessionsForGroup(_groupForTargetEdit.id).catch(() => [])
     : await getAllSessionsForStudent(_actStartPickerStudent.id).catch(() => []);
-  let oldestDate = null;
+  let oldestDate = null, newestDate = null;
   for (const session of allSessions) {
     const sActs = session.activities || {};
     const sRems = session.remarks || {};
@@ -22979,8 +23090,23 @@ async function handleActStartPickerChange() {
       )
     ));
     if (hasData && (!oldestDate || session.date < oldestDate)) oldestDate = session.date;
+    // The newest one matters for the other end of the period.
+    if (hasData && (!newestDate || session.date > newestDate)) newestDate = session.date;
   }
-  if (oldestDate && value > oldestDate) {
+  // Each end is fenced in by the data, from its own side: a start date
+  // after the first session with data, or an end date before the last
+  // one, would hide sessions that already have something in them.
+  if (isEnd && newestDate && value < newestDate) {
+    if (inp) inp.value = act.activeTo || "";
+    await showAlertOverlay({
+      title: "⚠️ End date is too early",
+      message: `This activity already has recorded data as recently as <strong>${fmtPeriodDate(newestDate)}</strong>. ` +
+               `Setting the end date earlier than that would hide sessions that already have data in them, ` +
+               `so the earliest end date you can choose is <strong>${fmtPeriodDate(newestDate)}</strong>.`
+    });
+    return;
+  }
+  if (!isEnd && oldestDate && value > oldestDate) {
     if (inp) inp.value = act.activeFrom || '';
     await showAlertOverlay({
       title: "⚠️ Start date is too late",
@@ -22991,12 +23117,17 @@ async function handleActStartPickerChange() {
     return;
   }
   closeActStartDatePicker();
-  await _actStartPickerSaveFn(_actStartPickerIdx, 'activeFrom', value);
+  await _actStartPickerSaveFn(_actStartPickerIdx, _actStartPickerField, value);
 }
 
 // ── Open / close ──────────────────────────────────────────────
 
 function openManageModal(student, targetOrNull, templateOrNull = null, remarkPresetOrNull = null, scrollToPaId = null, _lockHeld = false) {
+  // Opening the window is a fresh start: the Mastered and Discontinued
+  // lists are collapsed again. The set survives a re-render on purpose,
+  // so that editing a row inside one does not shut it, but it used to
+  // survive closing the window too and they came back open.
+  _mnOpenInactGroups.clear();
   // A target can only be edited by one person at a time, and that is settled
   // before the window is drawn -- see mnOpenWhenFree. `_lockHeld` is how this
   // function calls itself back once the target is ours.
@@ -23355,13 +23486,13 @@ async function closeManageModal() {
           if (!parentCard.querySelector(".mn-parent-title-err")) {
             const errMsg = document.createElement("div");
             errMsg.className = "mn-parent-title-err";
-            errMsg.style.cssText = "font-size:.78rem;color:#dc2626;margin:.25rem 0 0";
+            errMsg.style.cssText = "font-size:.78rem;color:var(--c-dc2626);margin:.25rem 0 0";
             errMsg.textContent = "Please enter an Activity Title for this parent activity.";
             titleInput.parentNode.insertBefore(errMsg, titleInput.nextSibling);
           }
           let n = 0;
           const iv = setInterval(() => {
-            titleInput.style.outline = (n % 2 === 0) ? "2px solid #dc2626" : "";
+            titleInput.style.outline = (n % 2 === 0) ? "2px solid var(--c-dc2626)" : "";
             if (++n >= 8) { clearInterval(iv); titleInput.style.outline = ""; }
           }, 130);
         }
@@ -23549,15 +23680,15 @@ function showDeleteTargetConfirm(student, target, sessionCount) {
   return new Promise(resolve => {
     const overlay = document.createElement("div");
     overlay.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;display:flex;align-items:center;justify-content:center;padding:1rem";
-    overlay.innerHTML = `<div style="background:#fff;border-radius:.75rem;padding:1.5rem;max-width:360px;width:100%;box-shadow:0 8px 32px rgba(0,0,0,.22)">
-      <div style="font-size:.93rem;font-weight:700;color:#dc2626;margin-bottom:.5rem">🗑️ Delete Target</div>
-      <div style="font-size:.85rem;color:#374151;line-height:1.5;margin-bottom:.9rem">${countLine}</div>
-      <div style="font-size:.82rem;font-weight:600;color:#374151;margin-bottom:.35rem">Type <strong>DELETE</strong> to confirm:</div>
+    overlay.innerHTML = `<div style="background:var(--c-ffffff);border-radius:.75rem;padding:1.5rem;max-width:360px;width:100%;box-shadow:0 8px 32px rgba(0,0,0,.22)">
+      <div style="font-size:.93rem;font-weight:700;color:var(--c-dc2626);margin-bottom:.5rem">🗑️ Delete Target</div>
+      <div style="font-size:.85rem;color:var(--c-374151);line-height:1.5;margin-bottom:.9rem">${countLine}</div>
+      <div style="font-size:.82rem;font-weight:600;color:var(--c-374151);margin-bottom:.35rem">Type <strong>DELETE</strong> to confirm:</div>
       <input id="del-tgt-inp" type="text" autocomplete="off"
-        style="width:100%;box-sizing:border-box;padding:.45rem .6rem;border:2px solid #d1d5db;border-radius:.4rem;font-size:1rem;text-align:center;outline:none;margin-bottom:.75rem" placeholder="DELETE">
+        style="width:100%;box-sizing:border-box;padding:.45rem .6rem;border:2px solid var(--c-d1d5db);border-radius:.4rem;font-size:1rem;text-align:center;outline:none;margin-bottom:.75rem" placeholder="DELETE">
       <div style="display:flex;gap:.5rem">
-        <button id="del-tgt-cancel" style="flex:1;padding:.5rem;border:1px solid #d1d5db;border-radius:.4rem;background:#f9fafb;cursor:pointer;font-size:.9rem">Cancel</button>
-        <button id="del-tgt-ok" disabled style="flex:1;padding:.5rem;border:none;border-radius:.4rem;background:#dc2626;color:#fff;cursor:pointer;font-size:.9rem;font-weight:600;opacity:.4">Delete Forever</button>
+        <button id="del-tgt-cancel" style="flex:1;padding:.5rem;border:1px solid var(--c-d1d5db);border-radius:.4rem;background:var(--c-f9fafb);cursor:pointer;font-size:.9rem">Cancel</button>
+        <button id="del-tgt-ok" disabled style="flex:1;padding:.5rem;border:none;border-radius:.4rem;background:var(--c-dc2626);color:var(--c-onaccent);cursor:pointer;font-size:.9rem;font-weight:600;opacity:.4">Delete Forever</button>
       </div>
     </div>`;
     document.body.appendChild(overlay);
@@ -23641,12 +23772,13 @@ async function handleDiscontinueTarget(entity, target, isGroup) {
   // depending on what it was attached to.
   const minDate = lastDate || todayDateStr();
   const infoHtml = lastDate
-    ? `<strong>"${escHtml(target.name)}"</strong> stays visible up to and including this date, and all past session data is preserved.<br><br>The last recorded session for this target was on <strong>${fmtPeriodDate(lastDate)}</strong>. So, the earliest you can discontinue is <strong>${fmtPeriodDate(minDate)}</strong>. This target will stop showing from <strong>${fmtPeriodDate(addOneDay(minDate))}</strong> onwards.`
-    : `<strong>"${escHtml(target.name)}"</strong> will be hidden from the session dropdown from this date onwards. All past session data is preserved and will still appear in exports.<br><br>No previous session data was found for this target.`;
+    ? `The latest data collected for <strong>"${escHtml(target.name)}"</strong> was on <strong>${fmtPeriodDate(lastDate)}</strong>, so the earliest you can discontinue this target is <strong>${fmtPeriodDate(minDate)}</strong>. This target will stop showing from <strong>${fmtPeriodDate(addOneDay(minDate))}</strong> onwards.<br><br>All past session data is preserved and will still appear in exports.`
+    : `No data was found for <strong>"${escHtml(target.name)}"</strong>. It will be hidden from the session dropdown from this date onwards.<br><br>All past session data is preserved and will still appear in exports.`;
 
   const picked = await showDatePickerOverlay({
     heading: '🛑 Discontinue Target',
     infoHtml,
+    changeLabel: 'If you want this target to be discontinued on another date, please select a new date:',
     minDate,
     defaultDate: minDate,
     confirmLabel: 'Confirm 🛑',
@@ -24156,8 +24288,26 @@ function initDragSort(listEl, onReorder) {
     placeholder = null;
     // Suppress the synthetic click that the browser fires at the drop position —
     // otherwise buttons (e.g. "Add Sub-activity") under the release point get clicked.
-    document.addEventListener('click', e => { e.stopPropagation(); e.preventDefault(); },
-      { capture: true, once: true });
+    //
+    // Only a click inside the panel that was dragged in, and only for a moment.
+    // Armed for any click anywhere and left armed until one arrived, it would
+    // eat whatever the person pressed next if the drop never produced a click
+    // of its own — including the OK on a dialog the drop had just raised, which
+    // is how this was found: the warning for a refused drag needed two clicks
+    // to close. A dialog is appended to the body, outside this panel, so both
+    // bounds leave what the suppressor is for untouched: the click it exists to
+    // swallow lands inside the panel, immediately.
+    const swallowRoot = scrollEl || listEl.parentElement || listEl;
+    const unswallow = () => {
+      document.removeEventListener('click', swallow, { capture: true });
+      clearTimeout(swallowTimer);
+    };
+    function swallow(e) {
+      if (swallowRoot.contains(e.target)) { e.stopPropagation(); e.preventDefault(); }
+      unswallow();
+    }
+    document.addEventListener('click', swallow, { capture: true });
+    const swallowTimer = setTimeout(unswallow, 400);
     onReorder(newOrder, Number.isFinite(movedIdx) ? movedIdx : null, anchorTop);
   };
 
@@ -24303,7 +24453,7 @@ function buildRemarkTypeControls(a, idx, maxPts = 3) {
   const isMC = type === "starter_fixed_note" || type === "starter_fixed_multi";
   const showStarter = type !== "manual_score";
   return `<div style="flex:1;display:flex;flex-direction:column;gap:.4rem;min-width:0">
-    <select class="act-preset-select mn-act-preset" data-idx="${idx}" style="border-color:#b8bcc4">
+    <select class="act-preset-select mn-act-preset" data-idx="${idx}" style="border-color:var(--c-b8bcc4)">
       <option value="">Remark Only</option>
       <option value="no_trials"${type === "no_trials" ? " selected" : ""}>Remark Only (No Trials)</option>
       <option value="manual_score"${type === "manual_score" ? " selected" : ""}>Manual Score</option>
@@ -24311,50 +24461,50 @@ function buildRemarkTypeControls(a, idx, maxPts = 3) {
       <option value="starter_fixed_multi"${type === "starter_fixed_multi" ? " selected" : ""}>Checkboxes</option>
     </select>
     <div class="mn-act-note-starter-wrap" data-idx="${idx}" style="${showStarter ? "display:flex;flex-direction:column;gap:.3rem" : "display:none"}">
-      <span style="font-size:.95rem;color:#374151;font-weight:700">Sentence Starter (for Remark)</span>
+      <span style="font-size:.95rem;color:var(--c-374151);font-weight:700">Sentence Starter (for Remark)</span>
       <input class="admin-input mn-act-note-starter-text" data-idx="${idx}"
         placeholder="Enter Text Here"
-        style="width:100%;min-width:0;box-sizing:border-box;border-color:#b8bcc4"
+        style="width:100%;min-width:0;box-sizing:border-box;border-color:var(--c-b8bcc4)"
         value="${escHtml(a.noteSentenceStarter || "")}">
     </div>
     <div class="mn-act-starter-wrap" data-idx="${idx}" style="${isMC ? "display:flex;flex-direction:column;gap:.3rem" : "display:none"}">
-      <span class="mn-act-starter-label" style="font-size:.95rem;color:#374151;font-weight:700">${type === "starter_fixed_multi" ? "Sentence Starter (for Checkboxes)" : "Sentence Starter (for Multiple Choice)"}</span>
+      <span class="mn-act-starter-label" style="font-size:.95rem;color:var(--c-374151);font-weight:700">${type === "starter_fixed_multi" ? "Sentence Starter (for Checkboxes)" : "Sentence Starter (for Multiple Choice)"}</span>
       <input class="admin-input mn-act-starter-text" data-idx="${idx}"
         placeholder="Enter Text Here"
-        style="width:100%;min-width:0;box-sizing:border-box;border-color:#b8bcc4"
+        style="width:100%;min-width:0;box-sizing:border-box;border-color:var(--c-b8bcc4)"
         value="${escHtml(a.sentenceStarter || "")}">
     </div>
     <div class="mn-opts-container" data-idx="${idx}" style="${isMC ? "" : "display:none"}">
-      <div class="mn-opts-type-label" data-idx="${idx}" style="font-size:.95rem;font-weight:700;color:#374151;margin-bottom:.28rem">${type === "starter_fixed_multi" ? "Checkboxes Options" : "Multiple Choice Options"}</div>
-      <div style="border:1px solid #b8bcc4;border-radius:.45rem;overflow:hidden;margin-bottom:.4rem">
+      <div class="mn-opts-type-label" data-idx="${idx}" style="font-size:.95rem;font-weight:700;color:var(--c-374151);margin-bottom:.28rem">${type === "starter_fixed_multi" ? "Checkboxes Options" : "Multiple Choice Options"}</div>
+      <div style="border:1px solid var(--c-b8bcc4);border-radius:.45rem;overflow:hidden;margin-bottom:.4rem">
         <div class="mn-opts-list" style="padding:.3rem .4rem .1rem">${(() => {
           const optsStr = a.inlineOptions || (a.remarkPresetId ? (state.remarkPresets.find(p=>p.id===a.remarkPresetId)?.options||[]).join("/") : "");
           const displayOpts = parseOpts(optsStr).length > 0 ? parseOpts(optsStr) : [""];
           return displayOpts.map((opt, oi) =>
             `<div class="mn-opt-row" data-idx="${oi}" style="display:flex;align-items:center;gap:.4rem;margin-bottom:.35rem">` +
-            `<span class="drag-handle" style="cursor:grab;color:#c4c9d4;font-size:1.1rem;flex-shrink:0;padding:0 .15rem;user-select:none">⠿</span>` +
+            `<span class="drag-handle" style="cursor:grab;color:var(--c-c4c9d4);font-size:1.1rem;flex-shrink:0;padding:0 .15rem;user-select:none">⠿</span>` +
             `<span class="mn-opt-num" style="display:none"></span>` +
-            `<input class="admin-input mn-opt-item" data-idx="${idx}" data-oi="${oi}" value="${escHtml(opt)}" placeholder="Enter option…" ${opt ? `readonly style="flex:1;padding:.45rem .6rem;font-size:.95rem;min-width:0;background:#f9fafb;color:#374151;cursor:default"` : `data-empty-opt="1" style="flex:1;padding:.45rem .6rem;font-size:.95rem;min-width:0"`}>` +
+            `<input class="admin-input mn-opt-item" data-idx="${idx}" data-oi="${oi}" value="${escHtml(opt)}" placeholder="Enter option…" ${opt ? `readonly style="flex:1;padding:.45rem .6rem;font-size:.95rem;min-width:0;background:var(--c-f9fafb);color:var(--c-374151);cursor:default"` : `data-empty-opt="1" style="flex:1;padding:.45rem .6rem;font-size:.95rem;min-width:0"`}>` +
             `<input class="admin-input mn-opt-score" type="number" min="0" max="${maxPts}" step="0.5" data-idx="${idx}" data-oi="${oi}" value="${escHtml(String(a.optionScores?.[opt] ?? ''))}" placeholder="Pts" style="width:3.8rem;flex-shrink:0;padding:.45rem .3rem;font-size:.9rem;text-align:center">` +
             `<button class="mn-opt-remove" data-idx="${idx}" data-oi="${oi}" data-text="${escHtml(opt)}" title="Remove option">Remove Option</button>` +
             `</div>`
           ).join("");
         })()}</div>
-        <div style="padding:.25rem .4rem .4rem;border-top:1px solid #b8bcc4">
-          <button class="mn-opt-add" data-idx="${idx}" style="font-size:.82rem;padding:.3rem .7rem;background:#f9fafb;border:1px solid #d1d5db;border-radius:.35rem;cursor:pointer;color:#374151">+ Add Option</button>
+        <div style="padding:.25rem .4rem .4rem;border-top:1px solid var(--c-b8bcc4)">
+          <button class="mn-opt-add" data-idx="${idx}" style="font-size:.82rem;padding:.3rem .7rem;background:var(--c-f9fafb);border:1px solid var(--c-d1d5db);border-radius:.35rem;cursor:pointer;color:var(--c-374151)">+ Add Option</button>
         </div>
       </div>
       ${(() => {
         const archived = a.archivedOptions || [];
         return `<div class="mn-removed-section" data-idx="${idx}" style="margin-top:.5rem${archived.length === 0 ? ";display:none" : ""}">
-          <button class="mn-removed-toggle" style="background:none;border:none;cursor:pointer;font-size:.78rem;color:#9ca3af;padding:.1rem 0;display:flex;align-items:center;gap:.25rem">
+          <button class="mn-removed-toggle" style="background:none;border:none;cursor:pointer;font-size:.78rem;color:var(--c-9ca3af);padding:.1rem 0;display:flex;align-items:center;gap:.25rem">
             <span class="mn-toggle-arrow" style="font-size:.65rem">▶</span> Removed options (${archived.length})
           </button>
-          <div class="mn-removed-list" style="display:none;margin-top:.3rem;padding:.3rem .5rem;background:#fafafa;border:1px solid #f3f4f6;border-radius:.4rem">
+          <div class="mn-removed-list" style="display:none;margin-top:.3rem;padding:.3rem .5rem;background:var(--c-fafafa);border:1px solid var(--c-f3f4f6);border-radius:.4rem">
             ${archived.map(ao =>
-              `<div class="mn-removed-row" style="display:flex;align-items:center;gap:.5rem;padding:.3rem 0;border-bottom:1px solid #f3f4f6">` +
-              `<span style="flex:1;font-size:.9rem;color:#6b7280">${escHtml(ao.text)}</span>` +
-              `<button class="mn-opt-unremove" data-idx="${idx}" data-text="${escHtml(ao.text)}" data-score="${ao.score ?? ""}" style="font-size:.78rem;padding:.25rem .55rem;color:#059669;background:none;border:1px solid #6ee7b7;border-radius:.35rem;cursor:pointer">Put Back in Options</button>` +
+              `<div class="mn-removed-row" style="display:flex;align-items:center;gap:.5rem;padding:.3rem 0;border-bottom:1px solid var(--c-f3f4f6)">` +
+              `<span style="flex:1;font-size:.9rem;color:var(--c-6b7280)">${escHtml(ao.text)}</span>` +
+              `<button class="mn-opt-unremove" data-idx="${idx}" data-text="${escHtml(ao.text)}" data-score="${ao.score ?? ""}" style="font-size:.78rem;padding:.25rem .55rem;color:var(--c-059669);background:none;border:1px solid var(--c-6ee7b7);border-radius:.35rem;cursor:pointer">Put Back in Options</button>` +
               `</div>`
             ).join("")}
           </div>
@@ -24365,33 +24515,33 @@ function buildRemarkTypeControls(a, idx, maxPts = 3) {
 }
 
 function mnSubStatusKebabHtml(sub, subIdx) {
-  const s = `width:100%;padding:.55rem .9rem;text-align:left;background:none;border:none;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:.84rem`;
+  const s = `width:100%;padding:.55rem .9rem;text-align:left;background:none;border:none;border-bottom:1px solid var(--c-f3f4f6);cursor:pointer;font-size:.84rem`;
   const btn = (action, label, extra = '') =>
     `<button class="mn-sub-km-status-btn" data-idx="${subIdx}" data-action="${action}" style="${s}${extra}">${label}</button>`;
   if (sub.maintained) {
     return btn('change-maintain-date', '📅 Change Maintained Date') +
            btn('master', '⭐ Sub-activity Mastered') +
-           btn('discontinue', '🚩 Discontinue Sub-activity', ';color:#dc2626') +
-           btn('unmaintain', '↩ Un-maintain Sub-activity', ';color:#4b5563');
+           btn('discontinue', '🚩 Discontinue Sub-activity', ';color:var(--c-dc2626)') +
+           btn('unmaintain', '↩ Un-maintain Sub-activity', ';color:var(--c-4b5563)');
   }
   return btn('master', '⭐ Sub-activity Mastered') +
-         btn('discontinue', '🚩 Discontinue Sub-activity', ';color:#dc2626') +
-         btn('maintain', '🆗 Maintain Sub-activity', ';color:#0369a1');
+         btn('discontinue', '🚩 Discontinue Sub-activity', ';color:var(--c-dc2626)') +
+         btn('maintain', '🆗 Maintain Sub-activity', ';color:var(--c-0369a1)');
 }
 
 function mnStatusKebabHtml(a, idx, isParent = false) {
-  const s = `width:100%;padding:.55rem .9rem;text-align:left;background:none;border:none;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:.84rem`;
+  const s = `width:100%;padding:.55rem .9rem;text-align:left;background:none;border:none;border-bottom:1px solid var(--c-f3f4f6);cursor:pointer;font-size:.84rem`;
   const btn = (action, label, extra = '') =>
     `<button class="mn-km-status-btn" data-idx="${idx}" data-action="${action}" style="${s}${extra}">${label}</button>`;
   if (a.maintained) {
     return btn('change-maintain-date','📅 Change Maintained Date') +
            btn('master','⭐ Activity Mastered') +
-           btn('discontinue','🚩 Discontinue Activity',';color:#dc2626') +
-           btn('unmaintain','↩ Un-maintain Activity',';color:#4b5563');
+           btn('discontinue','🚩 Discontinue Activity',';color:var(--c-dc2626)') +
+           btn('unmaintain','↩ Un-maintain Activity',';color:var(--c-4b5563)');
   }
   return btn('master','⭐ Activity Mastered') +
-         btn('discontinue','🚩 Discontinue Activity',';color:#dc2626') +
-         (!isParent ? btn('maintain','🆗 Maintain Activity',';color:#0369a1') : '');
+         btn('discontinue','🚩 Discontinue Activity',';color:var(--c-dc2626)') +
+         (!isParent ? btn('maintain','🆗 Maintain Activity',';color:var(--c-0369a1)') : '');
 }
 
 
@@ -24727,13 +24877,13 @@ function showLockedByOther(holder) {
   overlay.dataset.lockWait = "1";
   overlay.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;"
     + "align-items:center;justify-content:center;z-index:600;padding:1rem";
-  overlay.innerHTML = `<div style="background:#fff;padding:1.5rem 1.25rem;border-radius:.75rem;width:min(360px,92%);box-shadow:0 4px 24px rgba(0,0,0,.25);display:flex;flex-direction:column;align-items:center;gap:1rem;text-align:center">
+  overlay.innerHTML = `<div style="background:var(--c-ffffff);padding:1.5rem 1.25rem;border-radius:.75rem;width:min(360px,92%);box-shadow:0 4px 24px rgba(0,0,0,.25);display:flex;flex-direction:column;align-items:center;gap:1rem;text-align:center">
       <div style="font-size:2rem;line-height:1">\u{1F512}</div>
-      <div style="font-size:.95rem;color:#111;line-height:1.6">
+      <div style="font-size:.95rem;color:var(--c-111111);line-height:1.6">
         <strong>${name}</strong> is currently making changes in this target\u2019s
         \u201cEdit Target\u201d.
       </div>
-      <div style="font-size:.9rem;color:#4b5563">Please try again in a moment.</div>
+      <div style="font-size:.9rem;color:var(--c-4b5563)">Please try again in a moment.</div>
       <button class="btn-primary-sm" data-lock-ok style="padding:.5rem 2rem">OK</button>
     </div>`;
   document.body.appendChild(overlay);
@@ -24871,7 +25021,7 @@ function mnWirePanelLiveTitle(slot) {
     const raw = truncateWords(stripTitleMarkers(field.value || ""));
     const shown = raw
       ? escHtml(raw)
-      : `<span style="color:#9ca3af;font-style:italic;font-weight:500">(Untitled ${isNoteField ? "note" : "activity"})</span>`;
+      : `<span style="color:var(--c-9ca3af);font-style:italic;font-weight:500">(Untitled ${isNoteField ? "note" : "activity"})</span>`;
     if (head) head.innerHTML = shown;
     if (rowText) rowText.innerHTML = shown;
   };
@@ -24927,12 +25077,31 @@ function mnDetachPanel(discardNode = false) {
  * "+ Add Parent Activity" that was never filled in. A parent with even one
  * real sub-activity is left alone, and so is that sub-activity.
  *
+ * An activity that was only turned INTO a parent is a different matter. It
+ * is put back the way it was instead of being deleted -- see below.
+ *
  * Returns true if anything was removed.
  */
+/**
+ * What a sub-activity is called when nobody got round to naming it.
+ *
+ * Square brackets, not angle brackets. isEmptyActItem strips anything
+ * shaped like an HTML tag out of a name before deciding whether it is
+ * blank, so "<Unnamed Subactivity>" strips to nothing: the sweep would
+ * name the row and then delete it on the very next pass, and the name
+ * would read as blank wherever else it was shown. The app writes its
+ * other placeholders this way too -- [insert text], [Insert Cover Page].
+ */
+const UNNAMED_SUB = "[Unnamed Subactivity]";
+
 function sweepBlankActs(acts) {
   if (!Array.isArray(acts)) return false;
   const before = acts.length;
+  // Naming a sub-activity is a change worth saving even though the list is
+  // the same length afterwards.
+  let named = false;
   const keyOf = a => a && (a._linkKey || a.title || a.name);
+  const nameOf = a => String((a && (a.title || a.name)) || "").trim();
 
   // A parent counts as real when something under it has been filled in.
   const parentHasRealChild = parent => {
@@ -24941,12 +25110,45 @@ function sweepBlankActs(acts) {
     return acts.some(x => x !== parent && x.parentActivity === key && !isEmptyActItem(x));
   };
 
+  // ── A blank sub-activity under a NAMED parent is named, not thrown away ──
+  //
+  // "Add sub-activity" turns the activity it is pressed on into a parent, so
+  // one stray click followed by closing the window used to destroy an
+  // activity that had been in the target for months. The same went for a
+  // parent somebody had named but whose sub-activity they never filled in.
+  //
+  // A parent with NO name of its own is a different thing: that is
+  // "+ Add Parent Activity with Sub-activities" pressed and abandoned
+  // outright, and it still goes, along with whatever blank sat under it.
+  const parentOf = new Map();
+  for (const a of acts) {
+    if (!a || a.parentActivity) continue;
+    const k = keyOf(a);
+    if (k && !parentOf.has(k)) parentOf.set(k, a);
+  }
+  for (const a of acts) {
+    if (!a || !a.parentActivity || !isEmptyActItem(a)) continue;
+    const parent = parentOf.get(a.parentActivity);
+    if (!parent || !nameOf(parent)) continue;      // nameless parent: let it go
+    // Only when naming it is what saves the family. A stray blank beside a
+    // sub-activity that was really filled in is just tidied away, as it
+    // always was -- nothing is at risk there, and keeping it would leave a
+    // row to delete by hand after every misclick.
+    if (parentHasRealChild(parent)) continue;
+    // Exactly one is ever named. Naming it makes it a real sub-activity, so
+    // any further blank under the same parent takes the branch above and is
+    // tidied away -- which also means two can never end up sharing a name.
+    a.title = UNNAMED_SUB;
+    named = true;
+  }
+
   for (let i = acts.length - 1; i >= 0; i--) {
     const a = acts[i];
     if (!a) { acts.splice(i, 1); continue; }
 
     if (a.parentActivity) {
-      // A sub-activity: blank ones go.
+      // A sub-activity: blank ones go. Anything under a named parent was
+      // given a name above and is no longer blank.
       if (isEmptyActItem(a)) acts.splice(i, 1);
       continue;
     }
@@ -24956,13 +25158,13 @@ function sweepBlankActs(acts) {
 
     // Nothing real under it. It goes if it is blank itself, and it also goes
     // if it is a parent row, which cannot stand on its own -- that is the
-    // named parent whose only sub-activity was never filled in.
+    // nameless parent whose only sub-activity was never filled in.
     const isParentRow = !!a._linkKey || !!a.noRemark;
     if (isEmptyActItem(a) || isParentRow) acts.splice(i, 1);
   }
 
   if (acts.length !== before) acts.forEach((a, n) => { a.order = n; });
-  return acts.length !== before;
+  return acts.length !== before || named;
 }
 
 /**
@@ -25095,10 +25297,182 @@ function mnRowKindName(a, acts) {
   return "activity";
 }
 
+/**
+ * Two rows in one target that a person could not tell apart.
+ *
+ * Not every repeated name is a mistake. A Behaviour Chart is built as one
+ * Antecedent / Behaviours / Consequence set per behaviour, each set under its
+ * own section heading, and Leven has a Situation and a Comment under both
+ * "Social Detective" and "SSJ Diary". Those read correctly: the heading above
+ * says which one you are looking at. Every duplicate name on live is of that
+ * kind, so a blanket refusal would have outlawed the way the charts are
+ * already written.
+ *
+ * What is refused is the pair with nothing to tell them apart:
+ *
+ *   - two activities with one name under the SAME heading. Side by side,
+ *     identical, and nothing on the page says which is which.
+ *   - two sub-activities with one name under the same parent, for the same
+ *     reason.
+ *   - two PARENT activities with one name anywhere in the target, heading or
+ *     no heading. A sub-activity stores its parent as a NAME and nothing
+ *     else, so a second parent with that name takes a share of the children:
+ *     parentOwningSubs has to pick one and the other parent draws empty.
+ *     This is the bug Lewis found -- a parent called "hello" showing no
+ *     sub-activities while the session screen showed two.
+ *
+ * A finished activity does not hold its name. Hayden mastered "I can wait"
+ * and started it again months later, which is a decision, not a slip. The
+ * exception is a finished PARENT, because parentOwningSubs falls back to one
+ * when no live parent has the name.
+ *
+ * Which section a row is in is not stored on it. It comes from where the row
+ * sits in the list, the same walk the Start Session screen and the Word
+ * export use, so the answer here is the one the page shows.
+ */
+function mnNormName(s) {
+  return String(s == null ? "" : s)
+    .replace(/<[^>]*>/g, "")
+    .replace(/\*_([\s\S]+?)_\*/g, "$1")
+    .replace(/_\*([\s\S]+?)\*_/g, "$1")
+    .replace(/\*([\s\S]+?)\*/g, "$1")
+    .replace(/_([\s\S]+?)_/g, "$1")
+    .replace(/&nbsp;/g, " ")
+    .replace(/\u00a0/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+/** Which section heading each row sits under. null = above the first one. */
+function mnHeadingOf(acts) {
+  const map = new Map();
+  let current = null;
+  for (const a of (acts || [])) {
+    if (!a) continue;
+    if (a.isHeading || a.isMaintainHeading) { current = a; continue; }
+    map.set(a, current);
+  }
+  return map;
+}
+
+/** True when this row is, or is about to become, a parent of other rows. */
+function mnIsParentRow(a, acts) {
+  if (!a || a.parentActivity) return false;
+  if (a._linkKey || a.noRemark) return true;
+  const key = a.title || a.name;
+  return !!key && (acts || []).some(x => x !== a && x.parentActivity === key);
+}
+
+/** A row that has been mastered, discontinued or otherwise put away. */
+function mnIsFinishedRow(a) {
+  return !!(a && (a.masteredOn || a.discontinuedOn || a.isArchived || a.isStopped || a.isCompleted));
+}
+
+/**
+ * The row that `item` would be indistinguishable from if it were called
+ * `proposedName`, or null when the name is free. `asParent` forces the parent
+ * rule on for a row that is in the middle of becoming one.
+ */
+function mnNameConflict(acts, item, proposedName, asParent = false) {
+  const want = mnNormName(proposedName);
+  if (!want || !Array.isArray(acts)) return null;
+
+  // A heading is display text and a note is prose. Neither is matched against
+  // session data and neither owns a sub-activity, so neither can clash.
+  if (item && (item.isHeading || item.isMaintainHeading || item.isNote || item.isExportNote)) return null;
+
+  const named = a => a && a !== item
+    && !a.isHeading && !a.isMaintainHeading && !a.isNote && !a.isExportNote
+    && mnNormName(a.title || a.name) === want;
+
+  // ── a sub-activity: only its own siblings matter ──────────────────
+  if (item && item.parentActivity) {
+    return acts.find(a => named(a) && !mnIsFinishedRow(a)
+      && a.parentActivity === item.parentActivity) || null;
+  }
+
+  // ── a parent: no other top-level row anywhere may hold the name ───
+  const meParent = asParent || mnIsParentRow(item, acts);
+  const clashAnywhere = acts.find(a => named(a) && !a.parentActivity
+    && (meParent || mnIsParentRow(a, acts)));
+  if (clashAnywhere) return clashAnywhere;
+
+  // ── a plain activity: only inside the same section ────────────────
+  const headingOf = mnHeadingOf(acts);
+  const mySection = headingOf.get(item) ?? null;
+  return acts.find(a => named(a) && !a.parentActivity && !mnIsFinishedRow(a)
+    && (headingOf.get(a) ?? null) === mySection) || null;
+}
+
+/** Says who the name is already taken by, and where. */
+function mnNameClashMessage(acts, item, proposedName, clash) {
+  const plain = s => String(s == null ? "" : s).replace(/<[^>]*>/g, "").trim();
+  const shown = escHtml(plain(proposedName));
+  const kind  = mnRowKindName(clash, acts);
+  // "a activity" otherwise. Only "activity" of the words this can return
+  // starts with a vowel, but the rule is cheap and does not care.
+  const a_an  = /^[aeiou]/i.test(kind) ? "an" : "a";
+  const head  = clash.parentActivity ? null : mnHeadingOf(acts).get(clash);
+  const where = clash.parentActivity
+    ? " under the same parent activity"
+    : head ? ` in the same section (<strong>${escHtml(plain(head.title || head.name))}</strong>)`
+           : " in this target";
+  const why = (mnIsParentRow(clash, acts) || mnIsParentRow(item, acts))
+    ? "<br><br>A sub-activity finds its parent by name, so two parent activities"
+      + " with the same name would end up sharing each other's sub-activities."
+    : "";
+  return `There is already ${a_an} ${kind} called <strong>${shown}</strong>${where}.` + why;
+}
+
+/** Tells the user the name is taken. Always returns true, so callers can
+ *  write `if (clash) return mnRefuseNameClash(...)`. */
+async function mnRefuseNameClash(acts, item, proposedName, clash) {
+  await showAlertOverlay({
+    title: "\u26a0\ufe0f That name is already used",
+    message: mnNameClashMessage(acts, item, proposedName, clash),
+  });
+  return true;
+}
+
+/**
+ * Which parent a sub-activity of this name belongs to.
+ *
+ * A parent claims its children by NAME, so two parents called the same
+ * thing both matched and every sub-activity under that name was drawn
+ * twice, once under each. One of them owns them; the other owns nothing.
+ *
+ * A live parent is preferred over a finished one. Taking simply the first
+ * would hand them to a discontinued parent, which is drawn in its own
+ * section away from the list, and the sub-activities would then appear
+ * nowhere at all -- worse than seeing them twice.
+ */
+function parentOwningSubs(key, acts) {
+  if (!key || !Array.isArray(acts)) return null;
+  const sameName = acts.filter(a => a && !a.parentActivity
+    && (a._linkKey || a.title || a.name) === key);
+  const live = a => !a.masteredOn && !a.discontinuedOn && !a.isArchived
+    && !a.isStopped && !a.isCompleted;
+  return sameName.find(live) || sameName[0] || null;
+}
+
 function subActivitiesOf(pa, acts) {
   if (!pa || !Array.isArray(acts)) return [];
   const key = pa._linkKey || pa.title || pa.name;
   if (!key) return [];
+  // A sub-activity belongs to ONE parent.
+  //
+  // The key is a NAME, so two parents called the same thing both matched
+  // it and each drew a row for every sub-activity under that name. The
+  // kebab is moved into a row rather than copied, so the first set of rows
+  // took the menus and the second set had none -- which is how this was
+  // noticed. Worse, deleting the second parent offered to take the first
+  // one's sub-activities with it.
+  //
+  // The first parent with the name owns them. A later one owns nothing,
+  // which is the truth: its name is a duplicate, not a second home.
+  const owner = parentOwningSubs(key, acts);
+  if (owner && owner !== pa) return [];
   return acts.filter(a => a !== pa && a.parentActivity === key
     && !a.isHeading && !a.isNote && !a.isExportNote);
 }
@@ -25595,7 +25969,7 @@ function mnInitActivityCollapse(bodyEl, acts) {
     if (!titleTextEl.textContent.trim()) {
       const what = act && (act.isHeading || act.isMaintainHeading) ? "section heading"
                  : act && (act.isNote || act.isExportNote) ? "note" : "activity";
-      titleTextEl.innerHTML = `<span style="color:#9ca3af;font-style:italic;font-weight:500">(Untitled ${what})</span>`;
+      titleTextEl.innerHTML = `<span style="color:var(--c-9ca3af);font-style:italic;font-weight:500">(Untitled ${what})</span>`;
     }
 
     if (card.classList.contains("admin-list-item") && !card.querySelector(":scope > .mn-act-head")) {
@@ -25772,7 +26146,7 @@ function mnInitActivityCollapse(bodyEl, acts) {
       if (e.target.closest(".drag-handle")) return;   // grabbing to reorder
       if (e.target.closest(".mn-sub-kebab-wrap")) return;   // using the menu, not opening the card
       const shown = escHtml(nameOf(sub)) ||
-        `<span style="color:#9ca3af;font-style:italic;font-weight:500">(Untitled sub-activity)</span>`;
+        `<span style="color:var(--c-9ca3af);font-style:italic;font-weight:500">(Untitled sub-activity)</span>`;
       mnOpenActPanel(item, subBody, `<span class="mn-act-title-text">${shown}</span>`, keyOf(sub),
         mnRowChip("sub").outerHTML);
     });
@@ -26129,22 +26503,22 @@ function renderTargetManageContent(student, target) {
     if (a.isHeading || a.isMaintainHeading) {
       const isGray = a.headingColor === "gray" || a.isMaintainHeading;
       const isGreen = a.headingColor === "green";
-      const hdgBg = isGray ? "#9ca3af" : isGreen ? "#a9d18e" : null;
-      const hdgTextColor = isGreen ? "#1a4731" : "#ffffff";
+      const hdgBg = isGray ? "var(--c-9ca3af)" : isGreen ? "var(--c-a9d18e)" : null;
+      const hdgTextColor = isGreen ? "var(--c-1a4731)" : "var(--c-ffffff)";
       html += `<div class="admin-list-item mn-heading-item" data-idx="${idx}"${hdgBg ? ` style="background:${hdgBg}"` : ''}>
         <span class="drag-handle"${hdgBg ? ` style="color:${hdgTextColor}"` : ''}>⠿</span>
         <textarea class="admin-input mn-heading-input" id="mn-act-name-${idx}" data-idx="${idx}"
           rows="1" placeholder="Enter Section Heading" style="flex:1${hdgBg ? `;background:${hdgBg};color:${hdgTextColor}` : ""}">${escHtml(a.name || "")}</textarea>
         <div style="position:relative">
           <button class="btn-adm-del mn-heading-color-btn" data-idx="${idx}" title="Heading options" style="font-size:1.15rem;font-weight:900;min-width:36px;min-height:36px">⋮</button>
-          <div class="mn-heading-color-menu" id="mn-hkm-${idx}" style="display:none;position:absolute;right:0;top:100%;z-index:100;background:white;border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:190px;overflow:hidden">
-            <button class="mn-hkm-color-toggle" data-idx="${idx}" style="width:100%;padding:.55rem .9rem;text-align:left;background:none;border:none;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:.84rem">🎨 Change Colour</button>
-            <div class="mn-hkm-color-panel" data-idx="${idx}" style="display:none;flex-direction:column;padding:.35rem .6rem;border-bottom:1px solid #f3f4f6;gap:.2rem">
-              <button class="mn-hkm-opt" data-idx="${idx}" data-action="blue" style="padding:.35rem .6rem;background:#dbeafe;border:2px solid ${!isGray ? '#2563eb' : '#93c5fd'};border-radius:.4rem;cursor:pointer;font-size:.75rem;text-align:left">💙 Blue (Normal)</button>
-              <button class="mn-hkm-opt" data-idx="${idx}" data-action="gray" style="padding:.35rem .6rem;background:#d9d9d9;border:2px solid ${isGray ? '#6b7280' : '#bfbfbf'};border-radius:.4rem;cursor:pointer;font-size:.75rem;text-align:left">🩶 Grey (Maintain)</button>
+          <div class="mn-heading-color-menu" id="mn-hkm-${idx}" style="display:none;position:absolute;right:0;top:100%;z-index:100;background:var(--c-ffffff);border:1px solid var(--c-e5e7eb);border-radius:.5rem;box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:190px;overflow:hidden">
+            <button class="mn-hkm-color-toggle" data-idx="${idx}" style="width:100%;padding:.55rem .9rem;text-align:left;background:none;border:none;border-bottom:1px solid var(--c-f3f4f6);cursor:pointer;font-size:.84rem">🎨 Change Colour</button>
+            <div class="mn-hkm-color-panel" data-idx="${idx}" style="display:none;flex-direction:column;padding:.35rem .6rem;border-bottom:1px solid var(--c-f3f4f6);gap:.2rem">
+              <button class="mn-hkm-opt" data-idx="${idx}" data-action="blue" style="padding:.35rem .6rem;background:var(--c-dbeafe);border:2px solid ${!isGray ? 'var(--c-2563eb)' : 'var(--c-93c5fd)'};border-radius:.4rem;cursor:pointer;font-size:.75rem;text-align:left">💙 Blue (Normal)</button>
+              <button class="mn-hkm-opt" data-idx="${idx}" data-action="gray" style="padding:.35rem .6rem;background:var(--c-d9d9d9);border:2px solid ${isGray ? 'var(--c-6b7280)' : 'var(--c-bfbfbf)'};border-radius:.4rem;cursor:pointer;font-size:.75rem;text-align:left">🩶 Grey (Maintain)</button>
             </div>
             ${periodSectionHtml(a.activeFrom, a.activeTo, idx, true)}
-            <button class="mn-hkm-opt" data-idx="${idx}" data-action="delete" style="width:100%;padding:.55rem .9rem;text-align:left;background:none;border:none;cursor:pointer;font-size:.84rem;color:#dc2626">🗑️ Delete</button>
+            <button class="mn-hkm-opt" data-idx="${idx}" data-action="delete" style="width:100%;padding:.55rem .9rem;text-align:left;background:none;border:none;cursor:pointer;font-size:.84rem;color:var(--c-dc2626)">🗑️ Delete</button>
           </div>
         </div>
       </div>`;
@@ -26153,16 +26527,16 @@ function renderTargetManageContent(student, target) {
       const _editRef3    = state.sessionData?.date || todayDateStr();
       const noteInactive = !isActivityActive(a, _editRef3);
       const noteExpired  = noteInactive && !!a.activeTo && a.activeTo < _editRef3;
-      const noteBaseBg = 'background:#fffbeb;border:1px solid #f59e0b;color:#78350f';
+      const noteBaseBg = 'background:var(--c-fffbeb);border:1px solid var(--c-f59e0b);color:var(--c-78350f)';
       const noteItemStyle = noteExpired
         ? ` style="position:relative;${noteBaseBg}"`
-        : ` style="${noteBaseBg}${noteInactive ? ';opacity:0.3' : ''}"`;
-      const noteOverlay  = noteExpired ? `<div style="position:absolute;inset:0 2.5rem 0 0;background:rgba(255,255,255,.7);pointer-events:none;z-index:5;border-radius:inherit;display:flex;align-items:center;justify-content:center"><div style="pointer-events:none;background:rgba(255,255,255,.95);border:1px solid #e5e7eb;border-radius:.45rem;padding:.35rem .75rem;text-align:center;font-size:1.17rem;color:#374151;max-width:80%">⏸ This activity's period has ended — tap ⋮ on the right side to adjust the dates and bring it back.</div></div>` : '';
+        : ` style="${noteBaseBg}"`;
+      const noteOverlay  = noteExpired ? `<div style="position:absolute;inset:0 2.5rem 0 0;background:rgba(255,255,255,.7);pointer-events:none;z-index:5;border-radius:inherit;display:flex;align-items:center;justify-content:center"><div style="pointer-events:none;background:rgba(255,255,255,.95);border:1px solid var(--c-e5e7eb);border-radius:.45rem;padding:.35rem .75rem;text-align:center;font-size:1.17rem;color:var(--c-374151);max-width:80%">⏸ This note's period has ended — change its End Date above to bring it back.</div></div>` : '';
       html += `<div class="admin-list-item admin-note-item" data-idx="${idx}"${noteItemStyle}>
         <span class="drag-handle">⠿</span>
         <div style="flex:1;display:flex;flex-direction:column;gap:.25rem">
           <div style="display:flex;align-items:center;gap:.4rem;margin-bottom:.1rem">
-            <select class="mn-note-type-select" data-idx="${idx}" style="font-size:.9rem;padding:.2rem .4rem;border:1px solid #fcd34d;border-radius:.3rem;background:#fef3c7;color:#78350f;cursor:pointer">
+            <select class="mn-note-type-select" data-idx="${idx}" style="font-size:.9rem;padding:.2rem .4rem;border:1px solid var(--c-fcd34d);border-radius:.3rem;background:var(--c-fef3c7);color:var(--c-78350f);cursor:pointer">
               <option value="internal"${a.isNote ? ' selected' : ''}>🔒 This note is for ZORA's use only. Excluded from Word report</option>
               <option value="export"${a.isExportNote ? ' selected' : ''}>📄 Include in Word export</option>
             </select>
@@ -26170,12 +26544,17 @@ function renderTargetManageContent(student, target) {
           ${(() => { const _np = noteParts(a); return `
           <div style="display:flex;gap:.6rem;align-items:flex-start">
             <div style="flex-shrink:0">
-              <div style="font-size:.95rem;font-weight:700;color:#78350f;margin-bottom:.28rem">Start Date</div>
-              <button class="mn-act-start-btn" data-idx="${idx}" style="padding:.35rem .65rem;border:1.5px solid #fcd34d;border-radius:.4rem;background:#fef3c7;cursor:pointer;font-size:.95rem;color:#78350f;white-space:nowrap;display:block">📅 ${a.activeFrom ? fmtPeriodDate(a.activeFrom) : 'Set date'}</button>
+              <div style="font-size:.95rem;font-weight:700;color:var(--c-78350f);margin-bottom:.28rem">Start Date</div>
+              <button class="mn-act-start-btn" data-idx="${idx}" style="padding:.35rem .65rem;border:1.5px solid var(--c-fcd34d);border-radius:.4rem;background:var(--c-fef3c7);cursor:pointer;font-size:.95rem;color:var(--c-78350f);white-space:nowrap;display:block">📅 ${a.activeFrom ? fmtPeriodDate(a.activeFrom) : 'Set date'}</button>
+              <!-- Both ends of the period live on the row. The kebab used to
+                   carry a second copy of the start date beside the end date,
+                   so there were two places to set the same thing. -->
+              <div style="font-size:.95rem;font-weight:700;color:var(--c-78350f);margin:.45rem 0 .28rem">End Date</div>
+              <button class="mn-act-end-btn" data-idx="${idx}" style="padding:.35rem .65rem;border:1.5px solid var(--c-fcd34d);border-radius:.4rem;background:var(--c-fef3c7);cursor:pointer;font-size:.95rem;color:var(--c-78350f);white-space:nowrap;display:block">📅 ${a.activeTo ? fmtPeriodDate(a.activeTo) : 'No end date'}</button>
             </div>
             <div style="flex:1;min-width:0">
-              <div style="font-size:.95rem;font-weight:700;color:#78350f;margin-bottom:.28rem">Note Title</div>
-              <div style="border:1px solid #b8bcc4;border-radius:.45rem;overflow:hidden">
+              <div style="font-size:.95rem;font-weight:700;color:var(--c-78350f);margin-bottom:.28rem">Note Title</div>
+              <div style="border:1px solid var(--c-b8bcc4);border-radius:.45rem;overflow:hidden">
                 <textarea class="admin-input mn-note-title-input" id="mn-note-title-${idx}" data-idx="${idx}"
                   rows="1" placeholder="Enter Text Here"
                   style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block;overflow-y:hidden;resize:none">${escHtml(_np.title)}</textarea>
@@ -26183,9 +26562,9 @@ function renderTargetManageContent(student, target) {
             </div>
           </div>
           <div>
-            <div style="font-size:.95rem;font-weight:700;color:#78350f;margin-bottom:.28rem">Details</div>
-            <div style="border:1px solid #b8bcc4;border-radius:.45rem;overflow:hidden">
-              <div style="display:flex;gap:.2rem;padding:.28rem .45rem;background:#f9fafb;border-bottom:1px solid #b8bcc4">
+            <div style="font-size:.95rem;font-weight:700;color:var(--c-78350f);margin-bottom:.28rem">Details</div>
+            <div style="border:1px solid var(--c-b8bcc4);border-radius:.45rem;overflow:hidden">
+              <div style="display:flex;gap:.2rem;padding:.28rem .45rem;background:var(--c-f9fafb);border-bottom:1px solid var(--c-b8bcc4)">
                 ${formatButtonsHtml(`mn-note-details-${idx}`)}
               </div>
               <textarea class="admin-input mn-note-details-input" id="mn-note-details-${idx}" data-idx="${idx}"
@@ -26196,17 +26575,16 @@ function renderTargetManageContent(student, target) {
         </div>
         <div style="position:relative">
           <button class="btn-adm-del mn-kebab-btn" data-idx="${idx}" title="Note options" style="font-size:1.35rem;font-weight:900;min-width:36px;min-height:36px">⋮</button>
-          <div class="mn-kebab-menu" id="mn-km-${idx}" style="display:none;position:absolute;right:0;top:100%;z-index:100;background:white;border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:200px;overflow:hidden">
-            ${periodSectionHtml(a.activeFrom, a.activeTo, idx, true)}
+          <div class="mn-kebab-menu" id="mn-km-${idx}" style="display:none;position:absolute;right:0;top:100%;z-index:100;background:var(--c-ffffff);border:1px solid var(--c-e5e7eb);border-radius:.5rem;box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:200px;overflow:hidden">
             <div style="display:flex;align-items:stretch">
-              <button class="mn-km-opt" data-idx="${idx}" data-action="delete" style="flex:1;padding:.55rem .9rem;text-align:left;background:none;border:none;cursor:pointer;font-size:.84rem;color:#dc2626">🗑️ Delete Note</button>
+              <button class="mn-km-opt" data-idx="${idx}" data-action="delete" style="flex:1;padding:.55rem .9rem;text-align:left;background:none;border:none;cursor:pointer;font-size:.84rem;color:var(--c-dc2626)">🗑️ Delete Note</button>
             </div>
           </div>
         </div>
         ${noteOverlay}
       </div>`;
     } else if (a.isMaintain) {
-      html += `<div class="admin-list-item" data-idx="${idx}" style="background:#f3f4f6;border:1px solid #d1d5db">
+      html += `<div class="admin-list-item" data-idx="${idx}" style="background:var(--c-f3f4f6);border:1px solid var(--c-d1d5db)">
         <span class="drag-handle">⠿</span>
         <div style="flex:1;display:flex;flex-direction:column;gap:.3rem">
           <div style="display:flex;align-items:flex-start;gap:.3rem">
@@ -26215,7 +26593,7 @@ function renderTargetManageContent(student, target) {
               rows="1" placeholder="Activity name" style="flex:1">${escHtml(a.name || "")}</textarea>
           </div>
           <div style="display:flex;align-items:center;gap:.5rem">
-            <span style="font-size:.75rem;color:#6b7280;white-space:nowrap;font-weight:600">Fixed Remark:</span>
+            <span style="font-size:.75rem;color:var(--c-6b7280);white-space:nowrap;font-weight:600">Fixed Remark:</span>
             <textarea class="admin-input mn-maintain-remark-input" id="mn-act-mremark-${idx}" data-idx="${idx}"
               rows="1" placeholder="Read-Only Remark"
               style="flex:1;overflow-y:hidden;resize:none">${escHtml(a.maintainRemark || "")}</textarea>
@@ -26229,12 +26607,18 @@ function renderTargetManageContent(student, target) {
       manageActNo++;
 
       const _paKey = a._linkKey || a.title || a.name;
-      const subActs = _paKey ? acts.filter(a2 => a2.parentActivity === _paKey && !a2.isCompleted && !a2.isArchived && !a2.isStopped && !a2.masteredOn && !a2.discontinuedOn) : [];
+      // Only the FIRST parent with this name owns them. The key is a name,
+      // so two parents called the same thing both matched it and each drew a
+      // row for every sub-activity under that name. The kebab is moved into
+      // a row rather than copied, so the first set took the menus and the
+      // second set had none, which is how this was noticed.
+      const _paOwns = !_paKey || parentOwningSubs(_paKey, acts) === a;
+      const subActs = (_paKey && _paOwns) ? acts.filter(a2 => a2.parentActivity === _paKey && !a2.isCompleted && !a2.isArchived && !a2.isStopped && !a2.masteredOn && !a2.discontinuedOn) : [];
       const hasSubActs = subActs.length > 0;
       const _emptyParent = hasSubActs ? null : emptyParentInfo(a, acts);
       const isGray = a.activityColor === "gray" || a.isMaintainLive;
       const isGreen = a.activityColor === "green";
-      const actBaseBg   = isGray ? 'background:#f3f4f6;border:1px solid #d1d5db' : isGreen ? 'background:#e2efda;border:1px solid #a9d18e' : null;
+      const actBaseBg   = isGray ? 'background:var(--c-f3f4f6);border:1px solid var(--c-d1d5db)' : isGreen ? 'background:var(--c-e2efda);border:1px solid var(--c-a9d18e)' : null;
       const actItemStyle = actBaseBg ? ` style="${actBaseBg}"` : '';
 
       if (hasSubActs) {
@@ -26244,43 +26628,43 @@ function renderTargetManageContent(student, target) {
           const subRemarkType = buildRemarkTypeControls(sub, subIdx, target.maxPoints || 3);
           const subFixedRemarkRow = sub.maintained
             ? `<div style="display:flex;align-items:center;gap:.4rem;padding:.1rem 0 .1rem 1.6rem">
-                <span style="font-size:.78rem;color:#6b7280;font-weight:600">🆗 Maintained</span>
-                <button class="mn-undo-maintain" data-idx="${subIdx}" style="font-size:.72rem;padding:.15rem .45rem;background:#dbeafe;border:1px solid #93c5fd;border-radius:.3rem;cursor:pointer;color:#1d4ed8">↩ Undo</button>
+                <span style="font-size:.78rem;color:var(--c-6b7280);font-weight:600">🆗 Maintained</span>
+                <button class="mn-undo-maintain" data-idx="${subIdx}" style="font-size:.72rem;padding:.15rem .45rem;background:var(--c-dbeafe);border:1px solid var(--c-93c5fd);border-radius:.3rem;cursor:pointer;color:var(--c-1d4ed8)">↩ Undo</button>
               </div>`
             : "";
           const subCreatedLabel = sub.activeFrom ? fmtPeriodDate(sub.activeFrom) : '';
-          return `<div class="mn-sub-item" data-idx="${subIdx}" style="margin-left:1.25rem;display:flex;gap:.4rem;align-items:flex-start;padding:.5rem .6rem;background:#f0f9ff;border:1px solid #bae6fd;border-left:3px solid #60a5fa;border-radius:.35rem">
+          return `<div class="mn-sub-item" data-idx="${subIdx}" style="margin-left:1.25rem;display:flex;gap:.4rem;align-items:flex-start;padding:.5rem .6rem;background:var(--c-f0f9ff);border:1px solid var(--c-bae6fd);border-left:3px solid var(--c-60a5fa);border-radius:.35rem">
             <span class="drag-handle" style="flex-shrink:0;padding-top:.15rem">⠿</span>
-            <span style="font-size:.75rem;font-weight:700;color:#0369a1;flex-shrink:0;min-width:1.4rem;padding-top:.2rem">${String.fromCharCode(97 + si)})</span>
+            <span style="font-size:.75rem;font-weight:700;color:var(--c-0369a1);flex-shrink:0;min-width:1.4rem;padding-top:.2rem">${String.fromCharCode(97 + si)})</span>
             <div style="flex:1;display:flex;flex-direction:column;gap:.55rem">
               <div>
                 <div style="display:flex;gap:.4rem;align-items:flex-start">
                   <div style="flex-shrink:0">
-                    <div style="font-size:.95rem;font-weight:700;color:#374151;margin-bottom:.28rem">Start Date</div>
-                    <button class="mn-act-start-btn" data-idx="${subIdx}" style="padding:.35rem .65rem;border:1.5px solid #d1d5db;border-radius:.4rem;background:#f0f9ff;cursor:pointer;font-size:.95rem;color:#374151;white-space:nowrap;display:block">📅 ${sub.activeFrom ? fmtPeriodDate(sub.activeFrom) : 'Set date'}</button>
+                    <div style="font-size:.95rem;font-weight:700;color:var(--c-374151);margin-bottom:.28rem">Start Date</div>
+                    <button class="mn-act-start-btn" data-idx="${subIdx}" style="padding:.35rem .65rem;border:1.5px solid var(--c-d1d5db);border-radius:.4rem;background:var(--c-f0f9ff);cursor:pointer;font-size:.95rem;color:var(--c-374151);white-space:nowrap;display:block">📅 ${sub.activeFrom ? fmtPeriodDate(sub.activeFrom) : 'Set date'}</button>
                   </div>
                   <div style="flex:1">
-                    <div style="font-size:.95rem;font-weight:700;color:#374151;margin-bottom:.28rem">Sub-activity Title</div>
-                    <div style="border:1px solid #b8bcc4;border-radius:.45rem;overflow:hidden">
+                    <div style="font-size:.95rem;font-weight:700;color:var(--c-374151);margin-bottom:.28rem">Sub-activity Title</div>
+                    <div style="border:1px solid var(--c-b8bcc4);border-radius:.45rem;overflow:hidden">
                       <input type="text" class="admin-input mn-act-title-input" id="mn-act-title-${subIdx}" data-idx="${subIdx}"
                         placeholder="Enter Text Here" value="${escHtml(sub.title || '')}" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block" />
                     </div>
                   </div>
                   <div class="mn-sub-kebab-wrap" style="position:relative;align-self:flex-start;flex-shrink:0;margin-top:1.6rem">
                     <button class="btn-adm-del mn-sub-kebab-btn" data-idx="${subIdx}" title="Subactivity options" style="font-size:1.35rem;font-weight:900;min-width:36px;min-height:36px">⋮</button>
-                    <div class="mn-sub-kebab-menu" style="display:none;position:absolute;right:0;top:100%;z-index:100;background:white;border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:240px;overflow:hidden">
+                    <div class="mn-sub-kebab-menu" style="display:none;position:absolute;right:0;top:100%;z-index:100;background:var(--c-ffffff);border:1px solid var(--c-e5e7eb);border-radius:.5rem;box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:240px;overflow:hidden">
                       ${mnSubStatusKebabHtml(sub, subIdx)}
-                      <button class="mn-move-sub-act" data-idx="${subIdx}" style="width:100%;padding:.55rem .9rem;text-align:left;background:none;border:none;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:.84rem;color:#374151;white-space:nowrap">↳ Move to another Parent Activity</button>
-                      <button class="mn-make-standalone" data-idx="${subIdx}" style="width:100%;padding:.55rem .9rem;text-align:left;background:none;border:none;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:.84rem;color:#374151;white-space:nowrap">↗ Make standalone activity</button>
-                      <button class="mn-del-sub-act" data-idx="${subIdx}" style="width:100%;padding:.55rem .9rem;text-align:left;background:none;border:none;cursor:pointer;font-size:.84rem;color:#dc2626">🗑️ Delete Subactivity</button>
+                      <button class="mn-move-sub-act" data-idx="${subIdx}" style="width:100%;padding:.55rem .9rem;text-align:left;background:none;border:none;border-bottom:1px solid var(--c-f3f4f6);cursor:pointer;font-size:.84rem;color:var(--c-374151);white-space:nowrap">↳ Move to another Parent Activity</button>
+                      <button class="mn-make-standalone" data-idx="${subIdx}" style="width:100%;padding:.55rem .9rem;text-align:left;background:none;border:none;border-bottom:1px solid var(--c-f3f4f6);cursor:pointer;font-size:.84rem;color:var(--c-374151);white-space:nowrap">↗ Make standalone activity</button>
+                      <button class="mn-del-sub-act" data-idx="${subIdx}" style="width:100%;padding:.55rem .9rem;text-align:left;background:none;border:none;cursor:pointer;font-size:.84rem;color:var(--c-dc2626)">🗑️ Delete Subactivity</button>
                     </div>
                   </div>
                 </div>
               </div>
               <div>
-                <div style="font-size:.95rem;font-weight:700;color:#374151;margin-bottom:.28rem">Details</div>
-                <div style="border:1px solid #b8bcc4;border-radius:.45rem;overflow:hidden">
-                  <div style="display:flex;gap:.2rem;padding:.28rem .45rem;background:#f9fafb;border-bottom:1px solid #b8bcc4">
+                <div style="font-size:.95rem;font-weight:700;color:var(--c-374151);margin-bottom:.28rem">Details</div>
+                <div style="border:1px solid var(--c-b8bcc4);border-radius:.45rem;overflow:hidden">
+                  <div style="display:flex;gap:.2rem;padding:.28rem .45rem;background:var(--c-f9fafb);border-bottom:1px solid var(--c-b8bcc4)">
                     <button class="btn-fmt btn-fmt-bold" type="button" data-input-id="mn-act-details-${subIdx}" title="Bold (Ctrl+B)">B</button>
                     <button class="btn-fmt btn-fmt-underline" type="button" data-input-id="mn-act-details-${subIdx}" title="Underline (Ctrl+U)">U</button>
                     <button class="btn-fmt btn-fmt-bullet" type="button" data-input-id="mn-act-details-${subIdx}" title="Bullet (Ctrl+Shift+L)">•</button>
@@ -26291,7 +26675,7 @@ function renderTargetManageContent(student, target) {
               </div>
               <div class="mn-sub-act-body" data-idx="${subIdx}" style="display:flex;flex-direction:column;gap:.55rem">
                 <div>
-                  <div style="font-size:.95rem;font-weight:700;color:#374151;margin-bottom:.28rem">Type</div>
+                  <div style="font-size:.95rem;font-weight:700;color:var(--c-374151);margin-bottom:.28rem">Type</div>
                   ${subRemarkType}
                 </div>
               </div>
@@ -26310,7 +26694,7 @@ function renderTargetManageContent(student, target) {
         html += `<div class="admin-list-item" data-idx="${idx}"${actItemStyle}>
           <span class="drag-handle">⠿</span>
           <div style="flex:1;min-width:0;display:flex;gap:.5rem;align-items:flex-start">
-            <span style="font-size:.8rem;font-weight:700;color:#6b7280;flex-shrink:0;min-width:1.6rem;padding-top:.2rem">${manageActNo})</span>
+            <span style="font-size:.8rem;font-weight:700;color:var(--c-6b7280);flex-shrink:0;min-width:1.6rem;padding-top:.2rem">${manageActNo})</span>
             <div style="flex:1;min-width:0">
               <div class="mn-act-compact-title">${inactiveReasonBadge(a)}<span class="mn-act-title-text">${paPlainTitle(a)}</span></div>
               ${subActs.length ? `<div class="mn-sub-compact-list" data-parent-key="${escHtml(_paKey || "")}">${subActs.map((sub, si) =>
@@ -26319,12 +26703,12 @@ function renderTargetManageContent(student, target) {
               <div class="mn-act-body" style="display:flex;flex-direction:column;gap:.55rem">
               <div style="display:flex;gap:.6rem;align-items:flex-start">
                 <div style="flex-shrink:0">
-                  <div style="font-size:.95rem;font-weight:700;color:#374151;margin-bottom:.28rem">Start Date</div>
-                  <button class="mn-parent-start-date-btn" data-idx="${idx}" style="padding:.35rem .65rem;border:1.5px solid #b91c1c;border-radius:.4rem;background:#dc2626;cursor:not-allowed;font-size:.95rem;color:#ffffff;white-space:nowrap;display:block" title="Automatically set from earliest sub-activity">📅 ${_parentStartDate ? fmtPeriodDate(_parentStartDate) : 'No dates set'}</button>
+                  <div style="font-size:.95rem;font-weight:700;color:var(--c-374151);margin-bottom:.28rem">Start Date</div>
+                  <button class="mn-parent-start-date-btn" data-idx="${idx}" style="padding:.35rem .65rem;border:1.5px solid var(--c-b91c1c);border-radius:.4rem;background:var(--c-dc2626);cursor:not-allowed;font-size:.95rem;color:var(--c-onaccent);white-space:nowrap;display:block" title="Automatically set from earliest sub-activity">📅 ${_parentStartDate ? fmtPeriodDate(_parentStartDate) : 'No dates set'}</button>
                 </div>
                 <div style="flex:1">
-                  <div style="font-size:.95rem;font-weight:700;color:#374151;margin-bottom:.28rem">Parent Activity Title</div>
-                  <div style="border:1px solid #b8bcc4;border-radius:.45rem;overflow:hidden">
+                  <div style="font-size:.95rem;font-weight:700;color:var(--c-374151);margin-bottom:.28rem">Parent Activity Title</div>
+                  <div style="border:1px solid var(--c-b8bcc4);border-radius:.45rem;overflow:hidden">
                     <input type="text" class="admin-input mn-act-title-input" id="mn-act-title-${idx}" data-idx="${idx}"
                       placeholder="Enter Text Here" value="${escHtml(a.title || '')}" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block" />
                   </div>
@@ -26337,12 +26721,12 @@ function renderTargetManageContent(student, target) {
           </div>
           <div style="position:relative;align-self:flex-start">
             <button class="btn-adm-del mn-kebab-btn" data-idx="${idx}" title="Activity options" style="font-size:1.35rem;font-weight:900;min-width:36px;min-height:36px">⋮</button>
-            <div class="mn-kebab-menu" id="mn-km-${idx}" style="display:none;position:absolute;right:0;top:100%;z-index:100;background:white;border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:310px;overflow:hidden">
+            <div class="mn-kebab-menu" id="mn-km-${idx}" style="display:none;position:absolute;right:0;top:100%;z-index:100;background:var(--c-ffffff);border:1px solid var(--c-e5e7eb);border-radius:.5rem;box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:310px;overflow:hidden">
               ${mnStatusKebabHtml(a, idx, true)}
-              <button class="mn-km-add-sub" data-idx="${idx}" style="width:100%;padding:.55rem .9rem;text-align:left;background:none;border:none;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:.84rem;color:#374151">➕ Add sub-activity</button>
+              <button class="mn-km-add-sub" data-idx="${idx}" style="width:100%;padding:.55rem .9rem;text-align:left;background:none;border:none;border-bottom:1px solid var(--c-f3f4f6);cursor:pointer;font-size:.84rem;color:var(--c-374151)">➕ Add sub-activity</button>
               <div style="display:flex;align-items:stretch">
-                <button class="mn-km-opt" data-idx="${idx}" data-action="delete" style="flex:1;padding:.55rem .9rem;text-align:left;background:none;border:none;cursor:pointer;font-size:.84rem;color:#dc2626">${subActivitiesOf(a, acts).length ? "🗑️ Delete Parent Activity &amp; All Its Sub-activities" : "🗑️ Delete Activity"}</button>
-                <span title="${subActivitiesOf(a, acts).length ? `Deletes this parent and its ${subActivitiesOf(a, acts).length} sub-activity/ies, with all of their past session data.` : 'Permanently removes this activity and all of its session data.'}" style="padding:.55rem .5rem;cursor:default;color:#9ca3af;font-size:.8rem;display:flex;align-items:center">ⓘ</span>
+                <button class="mn-km-opt" data-idx="${idx}" data-action="delete" style="flex:1;padding:.55rem .9rem;text-align:left;background:none;border:none;cursor:pointer;font-size:.84rem;color:var(--c-dc2626)">${subActivitiesOf(a, acts).length ? "🗑️ Delete Parent Activity &amp; All Its Sub-activities" : "🗑️ Delete Activity"}</button>
+                <span title="${subActivitiesOf(a, acts).length ? `Deletes this parent and its ${subActivitiesOf(a, acts).length} sub-activity/ies, with all of their past session data.` : 'Permanently removes this activity and all of its session data.'}" style="padding:.55rem .5rem;cursor:default;color:var(--c-9ca3af);font-size:.8rem;display:flex;align-items:center">ⓘ</span>
               </div>
             </div>
           </div>
@@ -26353,7 +26737,7 @@ function renderTargetManageContent(student, target) {
         html += `<div class="admin-list-item" data-idx="${idx}"${actItemStyle}>
           <span class="drag-handle">⠿</span>
           <div style="flex:1;min-width:0;display:flex;gap:.5rem;align-items:flex-start">
-            <span style="font-size:.8rem;font-weight:700;color:#6b7280;flex-shrink:0;min-width:1.6rem;padding-top:.2rem">${manageActNo})</span>
+            <span style="font-size:.8rem;font-weight:700;color:var(--c-6b7280);flex-shrink:0;min-width:1.6rem;padding-top:.2rem">${manageActNo})</span>
             <div style="flex:1;min-width:0">
               <div class="mn-act-compact-title">${inactiveReasonBadge(a)}<span class="mn-act-title-text">${paPlainTitle(a)}</span></div>
               ${_emptyParent ? `<div class="mn-empty-parent-note">${escHtml(EMPTY_PARENT_NOTE)}
@@ -26362,21 +26746,21 @@ function renderTargetManageContent(student, target) {
               <div class="mn-act-body" style="display:flex;flex-direction:column;gap:.55rem">
               <div style="display:flex;gap:.6rem;align-items:flex-start">
                 <div style="flex-shrink:0">
-                  <div style="font-size:.95rem;font-weight:700;color:#374151;margin-bottom:.28rem">Start Date</div>
-                  <button class="mn-act-start-btn" data-idx="${idx}" style="padding:.35rem .65rem;border:1.5px solid #d1d5db;border-radius:.4rem;background:#f0f9ff;cursor:pointer;font-size:.95rem;color:#374151;white-space:nowrap;display:block">📅 ${a.activeFrom ? fmtPeriodDate(a.activeFrom) : 'Set date'}</button>
+                  <div style="font-size:.95rem;font-weight:700;color:var(--c-374151);margin-bottom:.28rem">Start Date</div>
+                  <button class="mn-act-start-btn" data-idx="${idx}" style="padding:.35rem .65rem;border:1.5px solid var(--c-d1d5db);border-radius:.4rem;background:var(--c-f0f9ff);cursor:pointer;font-size:.95rem;color:var(--c-374151);white-space:nowrap;display:block">📅 ${a.activeFrom ? fmtPeriodDate(a.activeFrom) : 'Set date'}</button>
                 </div>
                 <div style="flex:1">
-                  <div style="font-size:.95rem;font-weight:700;color:#374151;margin-bottom:.28rem">Activity Title</div>
-                  <div style="border:1px solid #b8bcc4;border-radius:.45rem;overflow:hidden">
+                  <div style="font-size:.95rem;font-weight:700;color:var(--c-374151);margin-bottom:.28rem">Activity Title</div>
+                  <div style="border:1px solid var(--c-b8bcc4);border-radius:.45rem;overflow:hidden">
                     <input type="text" class="admin-input mn-act-title-input" id="mn-act-title-${idx}" data-idx="${idx}"
                       placeholder="Enter Text Here" value="${escHtml(a.title || '')}" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block" />
                   </div>
                 </div>
               </div>
               <div>
-                <div style="font-size:.95rem;font-weight:700;color:#374151;margin-bottom:.28rem">Details</div>
-                <div style="border:1px solid #b8bcc4;border-radius:.45rem;overflow:hidden">
-                  <div style="display:flex;gap:.2rem;padding:.28rem .45rem;background:#f9fafb;border-bottom:1px solid #b8bcc4">
+                <div style="font-size:.95rem;font-weight:700;color:var(--c-374151);margin-bottom:.28rem">Details</div>
+                <div style="border:1px solid var(--c-b8bcc4);border-radius:.45rem;overflow:hidden">
+                  <div style="display:flex;gap:.2rem;padding:.28rem .45rem;background:var(--c-f9fafb);border-bottom:1px solid var(--c-b8bcc4)">
                     <button class="btn-fmt btn-fmt-bold" type="button" data-input-id="mn-act-details-${idx}" title="Bold (Ctrl+B)">B</button>
                     <button class="btn-fmt btn-fmt-underline" type="button" data-input-id="mn-act-details-${idx}" title="Underline (Ctrl+U)">U</button>
                     <button class="btn-fmt btn-fmt-bullet" type="button" data-input-id="mn-act-details-${idx}" title="Bullet (Ctrl+Shift+L)">•</button>
@@ -26386,7 +26770,7 @@ function renderTargetManageContent(student, target) {
                 </div>
               </div>
               <div>
-                <div style="font-size:.95rem;font-weight:700;color:#374151;margin-bottom:.28rem">Type</div>
+                <div style="font-size:.95rem;font-weight:700;color:var(--c-374151);margin-bottom:.28rem">Type</div>
                 ${remarkTypeSelect}
               </div>
               ${maintainedRow}
@@ -26395,20 +26779,20 @@ function renderTargetManageContent(student, target) {
           </div>
           <div style="position:relative;align-self:flex-start">
             <button class="btn-adm-del mn-kebab-btn" data-idx="${idx}" title="Activity options" style="font-size:1.35rem;font-weight:900;min-width:36px;min-height:36px">⋮</button>
-            <div class="mn-kebab-menu" id="mn-km-${idx}" style="display:none;position:absolute;right:0;top:100%;z-index:100;background:white;border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:310px;overflow:hidden">
+            <div class="mn-kebab-menu" id="mn-km-${idx}" style="display:none;position:absolute;right:0;top:100%;z-index:100;background:var(--c-ffffff);border:1px solid var(--c-e5e7eb);border-radius:.5rem;box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:310px;overflow:hidden">
               ${_emptyParent
                 // An emptied parent cannot be mastered, discontinued or
                 // maintained: those describe work, and it holds none of its own.
                 // Nor can it become a sub-activity, since it still owns the subs
                 // that were retired under it. What is left is to put it away, to
                 // refill it, or to remove it.
-                ? `<button class="mn-hide-empty-parent" data-idx="${idx}" type="button" style="width:100%;padding:.55rem .9rem;text-align:left;background:none;border:none;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:.84rem;color:#9a3412">🙈 Hide Parent Activity</button>`
+                ? `<button class="mn-hide-empty-parent" data-idx="${idx}" type="button" style="width:100%;padding:.55rem .9rem;text-align:left;background:none;border:none;border-bottom:1px solid var(--c-f3f4f6);cursor:pointer;font-size:.84rem;color:var(--c-9a3412)">🙈 Hide Parent Activity</button>`
                 : `${mnStatusKebabHtml(a, idx, false)}
-              <button class="mn-km-move-to-parent" data-idx="${idx}" style="width:100%;padding:.55rem .9rem;text-align:left;background:none;border:none;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:.84rem;color:#374151;white-space:nowrap">🔄 Move this activity under a Parent Activity</button>`}
-              <button class="mn-km-add-sub" data-idx="${idx}" style="width:100%;padding:.55rem .9rem;text-align:left;background:none;border:none;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:.84rem;color:#374151">➕ Add sub-activity</button>
+              <button class="mn-km-move-to-parent" data-idx="${idx}" style="width:100%;padding:.55rem .9rem;text-align:left;background:none;border:none;border-bottom:1px solid var(--c-f3f4f6);cursor:pointer;font-size:.84rem;color:var(--c-374151);white-space:nowrap">🔄 Move this activity under a Parent Activity</button>`}
+              <button class="mn-km-add-sub" data-idx="${idx}" style="width:100%;padding:.55rem .9rem;text-align:left;background:none;border:none;border-bottom:1px solid var(--c-f3f4f6);cursor:pointer;font-size:.84rem;color:var(--c-374151)">➕ Add sub-activity</button>
               <div style="display:flex;align-items:stretch">
-                <button class="mn-km-opt" data-idx="${idx}" data-action="delete" style="flex:1;padding:.55rem .9rem;text-align:left;background:none;border:none;cursor:pointer;font-size:.84rem;color:#dc2626">🗑️ Delete Activity</button>
-                <span title="Permanently removes this activity and all of its session data. This cannot be undone." style="padding:.55rem .5rem;cursor:default;color:#9ca3af;font-size:.8rem;display:flex;align-items:center">ⓘ</span>
+                <button class="mn-km-opt" data-idx="${idx}" data-action="delete" style="flex:1;padding:.55rem .9rem;text-align:left;background:none;border:none;cursor:pointer;font-size:.84rem;color:var(--c-dc2626)">🗑️ Delete Activity</button>
+                <span title="Permanently removes this activity and all of its session data. This cannot be undone." style="padding:.55rem .5rem;cursor:default;color:var(--c-9ca3af);font-size:.8rem;display:flex;align-items:center">ⓘ</span>
               </div>
             </div>
           </div>
@@ -26434,7 +26818,7 @@ function renderTargetManageContent(student, target) {
     const _mastTopLevelKeys  = new Set(_mastTopLevel.map(a => a.title || a.name));
     const _mastCount = _mastTopLevel.filter(a => !_mastSubParentKeys.has(a.title || a.name)).length + _mastSubs.length;
     html += `<div style="margin-top:1.25rem">
-      <button class="mn-collapsed-toggle" data-section="mastered" style="display:flex;align-items:center;gap:.5rem;background:none;border:none;cursor:pointer;width:100%;padding:.25rem 0;font-size:.85rem;font-weight:700;color:#374151">
+      <button class="mn-collapsed-toggle" data-section="mastered" style="display:flex;align-items:center;gap:.5rem;background:none;border:none;cursor:pointer;width:100%;padding:.25rem 0;font-size:.85rem;font-weight:700;color:var(--c-374151)">
         <span class="mn-toggle-arrow" style="font-size:.75rem">▶</span>
         Mastered (${_mastCount})
       </button>
@@ -26447,15 +26831,15 @@ function renderTargetManageContent(student, target) {
       html += `<div class="mn-inact-card" data-global-idx="${globalIdx}" style="margin-bottom:${myMastSubs.length ? '.1rem' : '.35rem'}">
         <div style="flex:1;display:flex;flex-direction:column;gap:.4rem">
           <div>
-            <div style="font-size:.85rem;font-weight:700;color:#374151;margin-bottom:.2rem">${acts.some(a2 => a2.parentActivity === (a.title || a.name)) ? "Parent Activity Title" : "Activity Title"}</div>
-            <div style="border:1px solid #b8bcc4;border-radius:.45rem;overflow:hidden">
+            <div style="font-size:.85rem;font-weight:700;color:var(--c-374151);margin-bottom:.2rem">${acts.some(a2 => a2.parentActivity === (a.title || a.name)) ? "Parent Activity Title" : "Activity Title"}</div>
+            <div style="border:1px solid var(--c-b8bcc4);border-radius:.45rem;overflow:hidden">
               <input type="text" class="admin-input mn-act-title-input" id="mn-act-title-${globalIdx}" data-idx="${globalIdx}" placeholder="Enter Text Here" value="${escHtml(a.title || '')}" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block" />
             </div>
           </div>
           ${acts.some(a2 => a2.parentActivity === (a.title || a.name)) ? '' : `<div>
-            <div style="font-size:.85rem;font-weight:700;color:#374151;margin-bottom:.2rem">Details</div>
-            <div style="border:1px solid #b8bcc4;border-radius:.45rem;overflow:hidden">
-              <div style="display:flex;gap:.2rem;padding:.28rem .45rem;background:#f9fafb;border-bottom:1px solid #b8bcc4">
+            <div style="font-size:.85rem;font-weight:700;color:var(--c-374151);margin-bottom:.2rem">Details</div>
+            <div style="border:1px solid var(--c-b8bcc4);border-radius:.45rem;overflow:hidden">
+              <div style="display:flex;gap:.2rem;padding:.28rem .45rem;background:var(--c-f9fafb);border-bottom:1px solid var(--c-b8bcc4)">
                 <button class="btn-fmt btn-fmt-bold" type="button" data-input-id="mn-act-details-${globalIdx}" title="Bold (Ctrl+B)">B</button>
                 <button class="btn-fmt btn-fmt-underline" type="button" data-input-id="mn-act-details-${globalIdx}" title="Underline (Ctrl+U)">U</button>
                 <button class="btn-fmt btn-fmt-bullet" type="button" data-input-id="mn-act-details-${globalIdx}" title="Bullet (Ctrl+Shift+L)">•</button>
@@ -26466,15 +26850,15 @@ function renderTargetManageContent(student, target) {
         </div>
         <div style="display:flex;flex-direction:column;align-items:flex-end;gap:.3rem;flex-shrink:0">
           <div style="display:flex;flex-direction:column;align-items:flex-end;gap:.2rem">
-            <span style="font-size:.72rem;color:#9ca3af;white-space:nowrap">${_mnCreatedLabel}</span>
+            <span style="font-size:.72rem;color:var(--c-9ca3af);white-space:nowrap">${_mnCreatedLabel}</span>
           </div>
           <div style="position:relative">
             <button class="btn-mn-inactive-kebab" data-completed-idx="${ci}" data-inactive-type="mastered" style="font-size:1.2rem;font-weight:900;min-width:28px;height:28px;border:none;background:none;cursor:pointer;padding:0 5px;border-radius:.3rem;line-height:1">⋮</button>
-            <div class="mn-inactive-km" style="display:none;position:absolute;right:0;top:100%;z-index:200;background:white;border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:210px;overflow:hidden">
-              <button class="btn-mn-change-date" data-completed-idx="${ci}" data-inactive-type="mastered" style="width:100%;padding:.5rem .85rem;text-align:left;background:none;border:none;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:.84rem;color:#374151">📅 Change Mastered Date</button>
-              <button class="btn-mn-restore" data-completed-idx="${ci}" data-inactive-type="mastered" style="width:100%;padding:.5rem .85rem;text-align:left;background:none;border:none;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:.84rem;color:#1d4ed8">↩ Restore to Active Activity</button>
-              <button class="btn-mn-switch-status" data-completed-idx="${ci}" data-from="mastered" style="width:100%;padding:.5rem .85rem;text-align:left;background:none;border:none;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:.84rem;color:#6b7280">🚩 Change to Discontinued</button>
-              <button class="btn-mn-del-mastered" data-completed-idx="${ci}" style="width:100%;padding:.5rem .85rem;text-align:left;background:none;border:none;cursor:pointer;font-size:.84rem;color:#dc2626">🗑️ Delete Activity</button>
+            <div class="mn-inactive-km" style="display:none;position:absolute;right:0;top:100%;z-index:200;background:var(--c-ffffff);border:1px solid var(--c-e5e7eb);border-radius:.5rem;box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:210px;overflow:hidden">
+              <button class="btn-mn-change-date" data-completed-idx="${ci}" data-inactive-type="mastered" style="width:100%;padding:.5rem .85rem;text-align:left;background:none;border:none;border-bottom:1px solid var(--c-f3f4f6);cursor:pointer;font-size:.84rem;color:var(--c-374151)">📅 Change Mastered Date</button>
+              <button class="btn-mn-restore" data-completed-idx="${ci}" data-inactive-type="mastered" style="width:100%;padding:.5rem .85rem;text-align:left;background:none;border:none;border-bottom:1px solid var(--c-f3f4f6);cursor:pointer;font-size:.84rem;color:var(--c-1d4ed8)">↩ Restore to Active Activity</button>
+              <button class="btn-mn-switch-status" data-completed-idx="${ci}" data-from="mastered" style="width:100%;padding:.5rem .85rem;text-align:left;background:none;border:none;border-bottom:1px solid var(--c-f3f4f6);cursor:pointer;font-size:.84rem;color:var(--c-6b7280)">🚩 Change to Discontinued</button>
+              <button class="btn-mn-del-mastered" data-completed-idx="${ci}" style="width:100%;padding:.5rem .85rem;text-align:left;background:none;border:none;cursor:pointer;font-size:.84rem;color:var(--c-dc2626)">🗑️ Delete Activity</button>
             </div>
           </div>
         </div>
@@ -26483,18 +26867,18 @@ function renderTargetManageContent(student, target) {
         const subCi = masteredActs.indexOf(sub);
         const subGlobalIdx = acts.indexOf(sub);
         html += `<div class="mn-inact-card mn-inact-card--sub" data-global-idx="${subGlobalIdx}">
-          <span style="font-size:.8rem;color:#059669;font-weight:700;flex-shrink:0;padding:.5rem .3rem 0 .55rem">${String.fromCharCode(97 + si)})</span>
+          <span style="font-size:.8rem;color:var(--c-059669);font-weight:700;flex-shrink:0;padding:.5rem .3rem 0 .55rem">${String.fromCharCode(97 + si)})</span>
           <div style="flex:1;display:flex;flex-direction:column;gap:.3rem;min-width:0">
             <div>
-              <div style="font-size:.8rem;font-weight:700;color:#374151;margin-bottom:.15rem">Sub-activity Title</div>
-              <div style="border:1px solid #b8bcc4;border-radius:.4rem;overflow:hidden">
+              <div style="font-size:.8rem;font-weight:700;color:var(--c-374151);margin-bottom:.15rem">Sub-activity Title</div>
+              <div style="border:1px solid var(--c-b8bcc4);border-radius:.4rem;overflow:hidden">
                 <input type="text" class="admin-input mn-act-title-input" id="mn-act-title-${subGlobalIdx}" data-idx="${subGlobalIdx}" placeholder="Enter Text Here" value="${escHtml(sub.title || '')}" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block" />
               </div>
             </div>
             <div>
-              <div style="font-size:.8rem;font-weight:700;color:#374151;margin-bottom:.15rem">Details</div>
-              <div style="border:1px solid #b8bcc4;border-radius:.4rem;overflow:hidden">
-                <div style="display:flex;gap:.2rem;padding:.25rem .4rem;background:#f9fafb;border-bottom:1px solid #b8bcc4">
+              <div style="font-size:.8rem;font-weight:700;color:var(--c-374151);margin-bottom:.15rem">Details</div>
+              <div style="border:1px solid var(--c-b8bcc4);border-radius:.4rem;overflow:hidden">
+                <div style="display:flex;gap:.2rem;padding:.25rem .4rem;background:var(--c-f9fafb);border-bottom:1px solid var(--c-b8bcc4)">
                   <button class="btn-fmt btn-fmt-bold" type="button" data-input-id="mn-act-details-${subGlobalIdx}" title="Bold (Ctrl+B)">B</button>
                   <button class="btn-fmt btn-fmt-underline" type="button" data-input-id="mn-act-details-${subGlobalIdx}" title="Underline (Ctrl+U)">U</button>
                   <button class="btn-fmt btn-fmt-bullet" type="button" data-input-id="mn-act-details-${subGlobalIdx}" title="Bullet (Ctrl+Shift+L)">•</button>
@@ -26505,11 +26889,11 @@ function renderTargetManageContent(student, target) {
           </div>
           <div style="display:flex;flex-direction:column;align-items:flex-end;gap:.25rem;flex-shrink:0;padding-top:.3rem">
             <div style="position:relative">
-              <button class="btn-mn-inactive-kebab" data-completed-idx="${subCi}" data-inactive-type="mastered" style="font-size:1rem;font-weight:900;min-width:22px;height:22px;border:none;background:none;cursor:pointer;padding:0 4px;border-radius:.25rem;line-height:1;color:#059669">⋮</button>
-              <div class="mn-inactive-km" style="display:none;position:absolute;right:0;top:100%;z-index:200;background:white;border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:210px;overflow:hidden">
-                <button class="btn-mn-change-date" data-completed-idx="${subCi}" data-inactive-type="mastered" style="width:100%;padding:.5rem .85rem;text-align:left;background:none;border:none;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:.84rem;color:#374151">📅 Change Mastered Date</button>
-                <button class="btn-mn-restore" data-completed-idx="${subCi}" data-inactive-type="mastered" style="width:100%;padding:.5rem .85rem;text-align:left;background:none;border:none;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:.84rem;color:#1d4ed8">↩ Restore to Active</button>
-                <button class="btn-mn-switch-status" data-completed-idx="${subCi}" data-from="mastered" style="width:100%;padding:.5rem .85rem;text-align:left;background:none;border:none;cursor:pointer;font-size:.84rem;color:#6b7280">🚩 Change to Discontinued</button>
+              <button class="btn-mn-inactive-kebab" data-completed-idx="${subCi}" data-inactive-type="mastered" style="font-size:1rem;font-weight:900;min-width:22px;height:22px;border:none;background:none;cursor:pointer;padding:0 4px;border-radius:.25rem;line-height:1;color:var(--c-059669)">⋮</button>
+              <div class="mn-inactive-km" style="display:none;position:absolute;right:0;top:100%;z-index:200;background:var(--c-ffffff);border:1px solid var(--c-e5e7eb);border-radius:.5rem;box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:210px;overflow:hidden">
+                <button class="btn-mn-change-date" data-completed-idx="${subCi}" data-inactive-type="mastered" style="width:100%;padding:.5rem .85rem;text-align:left;background:none;border:none;border-bottom:1px solid var(--c-f3f4f6);cursor:pointer;font-size:.84rem;color:var(--c-374151)">📅 Change Mastered Date</button>
+                <button class="btn-mn-restore" data-completed-idx="${subCi}" data-inactive-type="mastered" style="width:100%;padding:.5rem .85rem;text-align:left;background:none;border:none;border-bottom:1px solid var(--c-f3f4f6);cursor:pointer;font-size:.84rem;color:var(--c-1d4ed8)">↩ Restore to Active</button>
+                <button class="btn-mn-switch-status" data-completed-idx="${subCi}" data-from="mastered" style="width:100%;padding:.5rem .85rem;text-align:left;background:none;border:none;cursor:pointer;font-size:.84rem;color:var(--c-6b7280)">🚩 Change to Discontinued</button>
               </div>
             </div>
           </div>
@@ -26524,24 +26908,24 @@ function renderTargetManageContent(student, target) {
       Object.entries(_omGroups).forEach(([pk, subs]) => {
         const _omParent = acts.find(a => (a.title || a.name) === pk && !a.parentActivity);
         const _omParentTitle = _omParent ? (paDisplayHtml(_omParent, true) || escHtml(pk)) : escHtml(pk);
-        const _omParentCreated = _omParent?.activeFrom ? `<span style="font-size:.71rem;color:#9ca3af;margin-left:.4rem">Created ${fmtPeriodDate(_omParent.activeFrom)}</span>` : '';
-        html += `<div class="mn-inact-hdr" data-global-idx="${_omParent ? acts.indexOf(_omParent) : -1}" style="display:flex;align-items:center;gap:.5rem;background:#f0f9ff;border-radius:.35rem;margin-bottom:.35rem;padding:.45rem .75rem"><span class="mn-row-chip mn-row-chip--parent">Parent Activity</span><span style="font-size:.85rem;font-weight:700;color:#1e40af;flex:1;min-width:0">${_omParentTitle}</span><span style="font-size:.71rem;background:#dbeafe;color:#1d4ed8;font-weight:600;padding:.05rem .4rem;border-radius:.3rem;border:1px solid #93c5fd;white-space:nowrap;flex-shrink:0">Still Active</span>${_omParentCreated}</div>`;
+        const _omParentCreated = _omParent?.activeFrom ? `<span style="font-size:.71rem;color:var(--c-9ca3af);margin-left:.4rem">Created ${fmtPeriodDate(_omParent.activeFrom)}</span>` : '';
+        html += `<div class="mn-inact-hdr" data-global-idx="${_omParent ? acts.indexOf(_omParent) : -1}" style="display:flex;align-items:center;gap:.5rem;background:var(--c-f0f9ff);border-radius:.35rem;margin-bottom:.35rem;padding:.45rem .75rem"><span class="mn-row-chip mn-row-chip--parent">Parent Activity</span><span style="font-size:.85rem;font-weight:700;color:var(--c-1e40af);flex:1;min-width:0">${_omParentTitle}</span><span style="font-size:.71rem;background:var(--c-dbeafe);color:var(--c-1d4ed8);font-weight:600;padding:.05rem .4rem;border-radius:.3rem;border:1px solid var(--c-93c5fd);white-space:nowrap;flex-shrink:0">Still Active</span>${_omParentCreated}</div>`;
         subs.forEach((sub, si) => {
           const subCi = masteredActs.indexOf(sub);
           const subGlobalIdx = acts.indexOf(sub);
           html += `<div class="mn-inact-card mn-inact-card--sub" data-global-idx="${subGlobalIdx}">
-            <span style="font-size:.8rem;color:#059669;font-weight:700;flex-shrink:0;padding:.5rem .3rem 0 .55rem">${String.fromCharCode(97 + si)})</span>
+            <span style="font-size:.8rem;color:var(--c-059669);font-weight:700;flex-shrink:0;padding:.5rem .3rem 0 .55rem">${String.fromCharCode(97 + si)})</span>
             <div style="flex:1;display:flex;flex-direction:column;gap:.3rem;min-width:0">
               <div>
-                <div style="font-size:.8rem;font-weight:700;color:#374151;margin-bottom:.15rem">Sub-activity Title</div>
-                <div style="border:1px solid #b8bcc4;border-radius:.4rem;overflow:hidden">
+                <div style="font-size:.8rem;font-weight:700;color:var(--c-374151);margin-bottom:.15rem">Sub-activity Title</div>
+                <div style="border:1px solid var(--c-b8bcc4);border-radius:.4rem;overflow:hidden">
                   <input type="text" class="admin-input mn-act-title-input" id="mn-act-title-${subGlobalIdx}" data-idx="${subGlobalIdx}" placeholder="Enter Text Here" value="${escHtml(sub.title || '')}" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block" />
                 </div>
               </div>
               <div>
-                <div style="font-size:.8rem;font-weight:700;color:#374151;margin-bottom:.15rem">Details</div>
-                <div style="border:1px solid #b8bcc4;border-radius:.4rem;overflow:hidden">
-                  <div style="display:flex;gap:.2rem;padding:.25rem .4rem;background:#f9fafb;border-bottom:1px solid #b8bcc4">
+                <div style="font-size:.8rem;font-weight:700;color:var(--c-374151);margin-bottom:.15rem">Details</div>
+                <div style="border:1px solid var(--c-b8bcc4);border-radius:.4rem;overflow:hidden">
+                  <div style="display:flex;gap:.2rem;padding:.25rem .4rem;background:var(--c-f9fafb);border-bottom:1px solid var(--c-b8bcc4)">
                     <button class="btn-fmt btn-fmt-bold" type="button" data-input-id="mn-act-details-${subGlobalIdx}" title="Bold (Ctrl+B)">B</button>
                     <button class="btn-fmt btn-fmt-underline" type="button" data-input-id="mn-act-details-${subGlobalIdx}" title="Underline (Ctrl+U)">U</button>
                     <button class="btn-fmt btn-fmt-bullet" type="button" data-input-id="mn-act-details-${subGlobalIdx}" title="Bullet (Ctrl+Shift+L)">•</button>
@@ -26552,11 +26936,11 @@ function renderTargetManageContent(student, target) {
             </div>
             <div style="display:flex;flex-direction:column;align-items:flex-end;gap:.25rem;flex-shrink:0;padding-top:.3rem">
               <div style="position:relative">
-                <button class="btn-mn-inactive-kebab" data-completed-idx="${subCi}" data-inactive-type="mastered" style="font-size:1rem;font-weight:900;min-width:22px;height:22px;border:none;background:none;cursor:pointer;padding:0 4px;border-radius:.25rem;line-height:1;color:#059669">⋮</button>
-                <div class="mn-inactive-km" style="display:none;position:absolute;right:0;top:100%;z-index:200;background:white;border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:210px;overflow:hidden">
-                  <button class="btn-mn-change-date" data-completed-idx="${subCi}" data-inactive-type="mastered" style="width:100%;padding:.5rem .85rem;text-align:left;background:none;border:none;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:.84rem;color:#374151">📅 Change Mastered Date</button>
-                  <button class="btn-mn-restore" data-completed-idx="${subCi}" data-inactive-type="mastered" style="width:100%;padding:.5rem .85rem;text-align:left;background:none;border:none;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:.84rem;color:#1d4ed8">↩ Restore to Active</button>
-                  <button class="btn-mn-switch-status" data-completed-idx="${subCi}" data-from="mastered" style="width:100%;padding:.5rem .85rem;text-align:left;background:none;border:none;cursor:pointer;font-size:.84rem;color:#6b7280">🚩 Change to Discontinued</button>
+                <button class="btn-mn-inactive-kebab" data-completed-idx="${subCi}" data-inactive-type="mastered" style="font-size:1rem;font-weight:900;min-width:22px;height:22px;border:none;background:none;cursor:pointer;padding:0 4px;border-radius:.25rem;line-height:1;color:var(--c-059669)">⋮</button>
+                <div class="mn-inactive-km" style="display:none;position:absolute;right:0;top:100%;z-index:200;background:var(--c-ffffff);border:1px solid var(--c-e5e7eb);border-radius:.5rem;box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:210px;overflow:hidden">
+                  <button class="btn-mn-change-date" data-completed-idx="${subCi}" data-inactive-type="mastered" style="width:100%;padding:.5rem .85rem;text-align:left;background:none;border:none;border-bottom:1px solid var(--c-f3f4f6);cursor:pointer;font-size:.84rem;color:var(--c-374151)">📅 Change Mastered Date</button>
+                  <button class="btn-mn-restore" data-completed-idx="${subCi}" data-inactive-type="mastered" style="width:100%;padding:.5rem .85rem;text-align:left;background:none;border:none;border-bottom:1px solid var(--c-f3f4f6);cursor:pointer;font-size:.84rem;color:var(--c-1d4ed8)">↩ Restore to Active</button>
+                  <button class="btn-mn-switch-status" data-completed-idx="${subCi}" data-from="mastered" style="width:100%;padding:.5rem .85rem;text-align:left;background:none;border:none;cursor:pointer;font-size:.84rem;color:var(--c-6b7280)">🚩 Change to Discontinued</button>
                 </div>
               </div>
             </div>
@@ -26575,7 +26959,7 @@ function renderTargetManageContent(student, target) {
     const _discTopLevelKeys  = new Set(_discTopLevel.map(a => a.title || a.name));
     const _discCount = _discTopLevel.filter(a => !_discSubParentKeys.has(a.title || a.name)).length + _discSubs.length;
     html += `<div style="margin-top:.5rem">
-      <button class="mn-collapsed-toggle" data-section="discontinued" style="display:flex;align-items:center;gap:.5rem;background:none;border:none;cursor:pointer;width:100%;padding:.25rem 0;font-size:.85rem;font-weight:700;color:#374151">
+      <button class="mn-collapsed-toggle" data-section="discontinued" style="display:flex;align-items:center;gap:.5rem;background:none;border:none;cursor:pointer;width:100%;padding:.25rem 0;font-size:.85rem;font-weight:700;color:var(--c-374151)">
         <span class="mn-toggle-arrow" style="font-size:.75rem">▶</span>
         Discontinued (${_discCount})
       </button>
@@ -26588,15 +26972,15 @@ function renderTargetManageContent(student, target) {
       html += `<div class="mn-inact-card" data-global-idx="${globalIdx}" style="margin-bottom:${myDiscSubs.length ? '.1rem' : '.35rem'}">
         <div style="flex:1;display:flex;flex-direction:column;gap:.4rem">
           <div>
-            <div style="font-size:.85rem;font-weight:700;color:#374151;margin-bottom:.2rem">${acts.some(a2 => a2.parentActivity === (a.title || a.name)) ? "Parent Activity Title" : "Activity Title"}</div>
-            <div style="border:1px solid #b8bcc4;border-radius:.45rem;overflow:hidden">
+            <div style="font-size:.85rem;font-weight:700;color:var(--c-374151);margin-bottom:.2rem">${acts.some(a2 => a2.parentActivity === (a.title || a.name)) ? "Parent Activity Title" : "Activity Title"}</div>
+            <div style="border:1px solid var(--c-b8bcc4);border-radius:.45rem;overflow:hidden">
               <input type="text" class="admin-input mn-act-title-input" id="mn-act-title-${globalIdx}" data-idx="${globalIdx}" placeholder="Enter Text Here" value="${escHtml(a.title || '')}" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block" />
             </div>
           </div>
           ${acts.some(a2 => a2.parentActivity === (a.title || a.name)) ? '' : `<div>
-            <div style="font-size:.85rem;font-weight:700;color:#374151;margin-bottom:.2rem">Details</div>
-            <div style="border:1px solid #b8bcc4;border-radius:.45rem;overflow:hidden">
-              <div style="display:flex;gap:.2rem;padding:.28rem .45rem;background:#f9fafb;border-bottom:1px solid #b8bcc4">
+            <div style="font-size:.85rem;font-weight:700;color:var(--c-374151);margin-bottom:.2rem">Details</div>
+            <div style="border:1px solid var(--c-b8bcc4);border-radius:.45rem;overflow:hidden">
+              <div style="display:flex;gap:.2rem;padding:.28rem .45rem;background:var(--c-f9fafb);border-bottom:1px solid var(--c-b8bcc4)">
                 <button class="btn-fmt btn-fmt-bold" type="button" data-input-id="mn-act-details-${globalIdx}" title="Bold (Ctrl+B)">B</button>
                 <button class="btn-fmt btn-fmt-underline" type="button" data-input-id="mn-act-details-${globalIdx}" title="Underline (Ctrl+U)">U</button>
                 <button class="btn-fmt btn-fmt-bullet" type="button" data-input-id="mn-act-details-${globalIdx}" title="Bullet (Ctrl+Shift+L)">•</button>
@@ -26605,11 +26989,11 @@ function renderTargetManageContent(student, target) {
             </div>
           </div>`}
           <div class="mn-disc-reason-field">
-            <div style="font-size:.85rem;font-weight:700;color:#b91c1c;margin-bottom:.2rem">
+            <div style="font-size:.85rem;font-weight:700;color:var(--c-b91c1c);margin-bottom:.2rem">
               🚩 Why this was discontinued
-              <span style="font-weight:400;color:#6b7280">(optional &mdash; used in reports)</span>
+              <span style="font-weight:400;color:var(--c-6b7280)">(optional &mdash; used in reports)</span>
             </div>
-            <div style="border:1px solid #fca5a5;border-radius:.45rem;overflow:hidden;background:#fef2f2">
+            <div style="border:1px solid var(--c-fca5a5);border-radius:.45rem;overflow:hidden;background:var(--c-fef2f2)">
               <textarea class="admin-input mn-disc-reason-input" id="mn-disc-reason-${globalIdx}"
                 data-idx="${globalIdx}" rows="2" placeholder="e.g. met in daily routine, moved into another target"
                 style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block;resize:none;background:transparent">${escHtml(a.discontinuedReason || '')}</textarea>
@@ -26618,15 +27002,15 @@ function renderTargetManageContent(student, target) {
         </div>
         <div style="display:flex;flex-direction:column;align-items:flex-end;gap:.3rem;flex-shrink:0">
           <div style="display:flex;flex-direction:column;align-items:flex-end;gap:.2rem">
-            <span style="font-size:.72rem;color:#9ca3af;white-space:nowrap">${_mnCreatedLabel2}</span>
+            <span style="font-size:.72rem;color:var(--c-9ca3af);white-space:nowrap">${_mnCreatedLabel2}</span>
           </div>
           <div style="position:relative">
             <button class="btn-mn-inactive-kebab" data-completed-idx="${ci}" data-inactive-type="discontinued" style="font-size:1.2rem;font-weight:900;min-width:28px;height:28px;border:none;background:none;cursor:pointer;padding:0 5px;border-radius:.3rem;line-height:1">⋮</button>
-            <div class="mn-inactive-km" style="display:none;position:absolute;right:0;top:100%;z-index:200;background:white;border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:210px;overflow:hidden">
-              <button class="btn-mn-change-date" data-completed-idx="${ci}" data-inactive-type="discontinued" style="width:100%;padding:.5rem .85rem;text-align:left;background:none;border:none;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:.84rem;color:#374151">📅 Change Discontinued Date</button>
-              <button class="btn-mn-restore" data-completed-idx="${ci}" data-inactive-type="discontinued" style="width:100%;padding:.5rem .85rem;text-align:left;background:none;border:none;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:.84rem;color:#1d4ed8">↩ Restore to Active Activity</button>
-              <button class="btn-mn-switch-status" data-completed-idx="${ci}" data-from="discontinued" style="width:100%;padding:.5rem .85rem;text-align:left;background:none;border:none;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:.84rem;color:#059669">⭐ Change to Mastered</button>
-              <button class="btn-mn-del-discontinued" data-completed-idx="${ci}" style="width:100%;padding:.5rem .85rem;text-align:left;background:none;border:none;cursor:pointer;font-size:.84rem;color:#dc2626">🗑️ Delete Activity</button>
+            <div class="mn-inactive-km" style="display:none;position:absolute;right:0;top:100%;z-index:200;background:var(--c-ffffff);border:1px solid var(--c-e5e7eb);border-radius:.5rem;box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:210px;overflow:hidden">
+              <button class="btn-mn-change-date" data-completed-idx="${ci}" data-inactive-type="discontinued" style="width:100%;padding:.5rem .85rem;text-align:left;background:none;border:none;border-bottom:1px solid var(--c-f3f4f6);cursor:pointer;font-size:.84rem;color:var(--c-374151)">📅 Change Discontinued Date</button>
+              <button class="btn-mn-restore" data-completed-idx="${ci}" data-inactive-type="discontinued" style="width:100%;padding:.5rem .85rem;text-align:left;background:none;border:none;border-bottom:1px solid var(--c-f3f4f6);cursor:pointer;font-size:.84rem;color:var(--c-1d4ed8)">↩ Restore to Active Activity</button>
+              <button class="btn-mn-switch-status" data-completed-idx="${ci}" data-from="discontinued" style="width:100%;padding:.5rem .85rem;text-align:left;background:none;border:none;border-bottom:1px solid var(--c-f3f4f6);cursor:pointer;font-size:.84rem;color:var(--c-059669)">⭐ Change to Mastered</button>
+              <button class="btn-mn-del-discontinued" data-completed-idx="${ci}" style="width:100%;padding:.5rem .85rem;text-align:left;background:none;border:none;cursor:pointer;font-size:.84rem;color:var(--c-dc2626)">🗑️ Delete Activity</button>
             </div>
           </div>
         </div>
@@ -26634,19 +27018,19 @@ function renderTargetManageContent(student, target) {
       myDiscSubs.forEach((sub, si) => {
         const subCi = discontinuedActs.indexOf(sub);
         const subGlobalIdx = acts.indexOf(sub);
-        html += `<div style="display:flex;align-items:flex-start;gap:.4rem;background:#fff5f5;border:1px solid #fca5a5;border-left:3px solid #dc2626;border-radius:.35rem;margin-bottom:.1rem;margin-left:3rem;padding:.35rem .5rem .35rem 0">
-          <span style="font-size:.8rem;color:#dc2626;font-weight:700;flex-shrink:0;padding:.5rem .3rem 0 .55rem">${String.fromCharCode(97 + si)})</span>
+        html += `<div style="display:flex;align-items:flex-start;gap:.4rem;background:var(--c-fff5f5);border:1px solid var(--c-fca5a5);border-left:3px solid var(--c-dc2626);border-radius:.35rem;margin-bottom:.1rem;margin-left:3rem;padding:.35rem .5rem .35rem 0">
+          <span style="font-size:.8rem;color:var(--c-dc2626);font-weight:700;flex-shrink:0;padding:.5rem .3rem 0 .55rem">${String.fromCharCode(97 + si)})</span>
           <div style="flex:1;display:flex;flex-direction:column;gap:.3rem;min-width:0">
             <div>
-              <div style="font-size:.8rem;font-weight:700;color:#374151;margin-bottom:.15rem">Sub-activity Title</div>
-              <div style="border:1px solid #b8bcc4;border-radius:.4rem;overflow:hidden">
+              <div style="font-size:.8rem;font-weight:700;color:var(--c-374151);margin-bottom:.15rem">Sub-activity Title</div>
+              <div style="border:1px solid var(--c-b8bcc4);border-radius:.4rem;overflow:hidden">
                 <input type="text" class="admin-input mn-act-title-input" id="mn-act-title-${subGlobalIdx}" data-idx="${subGlobalIdx}" placeholder="Enter Text Here" value="${escHtml(sub.title || '')}" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block" />
               </div>
             </div>
             <div>
-              <div style="font-size:.8rem;font-weight:700;color:#374151;margin-bottom:.15rem">Details</div>
-              <div style="border:1px solid #b8bcc4;border-radius:.4rem;overflow:hidden">
-                <div style="display:flex;gap:.2rem;padding:.25rem .4rem;background:#f9fafb;border-bottom:1px solid #b8bcc4">
+              <div style="font-size:.8rem;font-weight:700;color:var(--c-374151);margin-bottom:.15rem">Details</div>
+              <div style="border:1px solid var(--c-b8bcc4);border-radius:.4rem;overflow:hidden">
+                <div style="display:flex;gap:.2rem;padding:.25rem .4rem;background:var(--c-f9fafb);border-bottom:1px solid var(--c-b8bcc4)">
                   <button class="btn-fmt btn-fmt-bold" type="button" data-input-id="mn-act-details-${subGlobalIdx}" title="Bold (Ctrl+B)">B</button>
                   <button class="btn-fmt btn-fmt-underline" type="button" data-input-id="mn-act-details-${subGlobalIdx}" title="Underline (Ctrl+U)">U</button>
                   <button class="btn-fmt btn-fmt-bullet" type="button" data-input-id="mn-act-details-${subGlobalIdx}" title="Bullet (Ctrl+Shift+L)">•</button>
@@ -26657,11 +27041,11 @@ function renderTargetManageContent(student, target) {
           </div>
           <div style="display:flex;flex-direction:column;align-items:flex-end;gap:.25rem;flex-shrink:0;padding-top:.3rem">
             <div style="position:relative">
-              <button class="btn-mn-inactive-kebab" data-completed-idx="${subCi}" data-inactive-type="discontinued" style="font-size:1rem;font-weight:900;min-width:22px;height:22px;border:none;background:none;cursor:pointer;padding:0 4px;border-radius:.25rem;line-height:1;color:#dc2626">⋮</button>
-              <div class="mn-inactive-km" style="display:none;position:absolute;right:0;top:100%;z-index:200;background:white;border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:210px;overflow:hidden">
-                <button class="btn-mn-change-date" data-completed-idx="${subCi}" data-inactive-type="discontinued" style="width:100%;padding:.5rem .85rem;text-align:left;background:none;border:none;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:.84rem;color:#374151">📅 Change Discontinued Date</button>
-                <button class="btn-mn-restore" data-completed-idx="${subCi}" data-inactive-type="discontinued" style="width:100%;padding:.5rem .85rem;text-align:left;background:none;border:none;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:.84rem;color:#1d4ed8">↩ Restore to Active</button>
-                <button class="btn-mn-switch-status" data-completed-idx="${subCi}" data-from="discontinued" style="width:100%;padding:.5rem .85rem;text-align:left;background:none;border:none;cursor:pointer;font-size:.84rem;color:#059669">⭐ Change to Mastered</button>
+              <button class="btn-mn-inactive-kebab" data-completed-idx="${subCi}" data-inactive-type="discontinued" style="font-size:1rem;font-weight:900;min-width:22px;height:22px;border:none;background:none;cursor:pointer;padding:0 4px;border-radius:.25rem;line-height:1;color:var(--c-dc2626)">⋮</button>
+              <div class="mn-inactive-km" style="display:none;position:absolute;right:0;top:100%;z-index:200;background:var(--c-ffffff);border:1px solid var(--c-e5e7eb);border-radius:.5rem;box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:210px;overflow:hidden">
+                <button class="btn-mn-change-date" data-completed-idx="${subCi}" data-inactive-type="discontinued" style="width:100%;padding:.5rem .85rem;text-align:left;background:none;border:none;border-bottom:1px solid var(--c-f3f4f6);cursor:pointer;font-size:.84rem;color:var(--c-374151)">📅 Change Discontinued Date</button>
+                <button class="btn-mn-restore" data-completed-idx="${subCi}" data-inactive-type="discontinued" style="width:100%;padding:.5rem .85rem;text-align:left;background:none;border:none;border-bottom:1px solid var(--c-f3f4f6);cursor:pointer;font-size:.84rem;color:var(--c-1d4ed8)">↩ Restore to Active</button>
+                <button class="btn-mn-switch-status" data-completed-idx="${subCi}" data-from="discontinued" style="width:100%;padding:.5rem .85rem;text-align:left;background:none;border:none;cursor:pointer;font-size:.84rem;color:var(--c-059669)">⭐ Change to Mastered</button>
               </div>
             </div>
           </div>
@@ -26676,24 +27060,24 @@ function renderTargetManageContent(student, target) {
       Object.entries(_odGroups).forEach(([pk, subs]) => {
         const _odParent = acts.find(a => (a.title || a.name) === pk && !a.parentActivity);
         const _odParentTitle = _odParent ? (paDisplayHtml(_odParent, true) || escHtml(pk)) : escHtml(pk);
-        const _odParentCreated = _odParent?.activeFrom ? `<span style="font-size:.71rem;color:#9ca3af;margin-left:.4rem">Created ${fmtPeriodDate(_odParent.activeFrom)}</span>` : '';
-        html += `<div class="mn-inact-hdr" data-global-idx="${_odParent ? acts.indexOf(_odParent) : -1}" style="display:flex;align-items:center;gap:.5rem;background:#f0f9ff;border-radius:.35rem;margin-bottom:.35rem;padding:.45rem .75rem"><span class="mn-row-chip mn-row-chip--parent">Parent Activity</span><span style="font-size:.85rem;font-weight:700;color:#1e40af;flex:1;min-width:0">${_odParentTitle}</span><span style="font-size:.71rem;background:#dbeafe;color:#1d4ed8;font-weight:600;padding:.05rem .4rem;border-radius:.3rem;border:1px solid #93c5fd;white-space:nowrap;flex-shrink:0">Still Active</span>${_odParentCreated}</div>`;
+        const _odParentCreated = _odParent?.activeFrom ? `<span style="font-size:.71rem;color:var(--c-9ca3af);margin-left:.4rem">Created ${fmtPeriodDate(_odParent.activeFrom)}</span>` : '';
+        html += `<div class="mn-inact-hdr" data-global-idx="${_odParent ? acts.indexOf(_odParent) : -1}" style="display:flex;align-items:center;gap:.5rem;background:var(--c-f0f9ff);border-radius:.35rem;margin-bottom:.35rem;padding:.45rem .75rem"><span class="mn-row-chip mn-row-chip--parent">Parent Activity</span><span style="font-size:.85rem;font-weight:700;color:var(--c-1e40af);flex:1;min-width:0">${_odParentTitle}</span><span style="font-size:.71rem;background:var(--c-dbeafe);color:var(--c-1d4ed8);font-weight:600;padding:.05rem .4rem;border-radius:.3rem;border:1px solid var(--c-93c5fd);white-space:nowrap;flex-shrink:0">Still Active</span>${_odParentCreated}</div>`;
         subs.forEach((sub, si) => {
           const subCi = discontinuedActs.indexOf(sub);
           const subGlobalIdx = acts.indexOf(sub);
           html += `<div class="mn-inact-card mn-inact-card--sub" data-global-idx="${subGlobalIdx}">
-            <span style="font-size:.8rem;color:#dc2626;font-weight:700;flex-shrink:0;padding:.5rem .3rem 0 .55rem">${String.fromCharCode(97 + si)})</span>
+            <span style="font-size:.8rem;color:var(--c-dc2626);font-weight:700;flex-shrink:0;padding:.5rem .3rem 0 .55rem">${String.fromCharCode(97 + si)})</span>
             <div style="flex:1;display:flex;flex-direction:column;gap:.3rem;min-width:0">
               <div>
-                <div style="font-size:.8rem;font-weight:700;color:#374151;margin-bottom:.15rem">Sub-activity Title</div>
-                <div style="border:1px solid #b8bcc4;border-radius:.4rem;overflow:hidden">
+                <div style="font-size:.8rem;font-weight:700;color:var(--c-374151);margin-bottom:.15rem">Sub-activity Title</div>
+                <div style="border:1px solid var(--c-b8bcc4);border-radius:.4rem;overflow:hidden">
                   <input type="text" class="admin-input mn-act-title-input" id="mn-act-title-${subGlobalIdx}" data-idx="${subGlobalIdx}" placeholder="Enter Text Here" value="${escHtml(sub.title || '')}" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block" />
                 </div>
               </div>
               <div>
-                <div style="font-size:.8rem;font-weight:700;color:#374151;margin-bottom:.15rem">Details</div>
-                <div style="border:1px solid #b8bcc4;border-radius:.4rem;overflow:hidden">
-                  <div style="display:flex;gap:.2rem;padding:.25rem .4rem;background:#f9fafb;border-bottom:1px solid #b8bcc4">
+                <div style="font-size:.8rem;font-weight:700;color:var(--c-374151);margin-bottom:.15rem">Details</div>
+                <div style="border:1px solid var(--c-b8bcc4);border-radius:.4rem;overflow:hidden">
+                  <div style="display:flex;gap:.2rem;padding:.25rem .4rem;background:var(--c-f9fafb);border-bottom:1px solid var(--c-b8bcc4)">
                     <button class="btn-fmt btn-fmt-bold" type="button" data-input-id="mn-act-details-${subGlobalIdx}" title="Bold (Ctrl+B)">B</button>
                     <button class="btn-fmt btn-fmt-underline" type="button" data-input-id="mn-act-details-${subGlobalIdx}" title="Underline (Ctrl+U)">U</button>
                     <button class="btn-fmt btn-fmt-bullet" type="button" data-input-id="mn-act-details-${subGlobalIdx}" title="Bullet (Ctrl+Shift+L)">•</button>
@@ -26704,11 +27088,11 @@ function renderTargetManageContent(student, target) {
             </div>
             <div style="display:flex;flex-direction:column;align-items:flex-end;gap:.25rem;flex-shrink:0;padding-top:.3rem">
               <div style="position:relative">
-                <button class="btn-mn-inactive-kebab" data-completed-idx="${subCi}" data-inactive-type="discontinued" style="font-size:1rem;font-weight:900;min-width:22px;height:22px;border:none;background:none;cursor:pointer;padding:0 4px;border-radius:.25rem;line-height:1;color:#dc2626">⋮</button>
-                <div class="mn-inactive-km" style="display:none;position:absolute;right:0;top:100%;z-index:200;background:white;border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:210px;overflow:hidden">
-                  <button class="btn-mn-change-date" data-completed-idx="${subCi}" data-inactive-type="discontinued" style="width:100%;padding:.5rem .85rem;text-align:left;background:none;border:none;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:.84rem;color:#374151">📅 Change Discontinued Date</button>
-                  <button class="btn-mn-restore" data-completed-idx="${subCi}" data-inactive-type="discontinued" style="width:100%;padding:.5rem .85rem;text-align:left;background:none;border:none;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:.84rem;color:#1d4ed8">↩ Restore to Active</button>
-                  <button class="btn-mn-switch-status" data-completed-idx="${subCi}" data-from="discontinued" style="width:100%;padding:.5rem .85rem;text-align:left;background:none;border:none;cursor:pointer;font-size:.84rem;color:#059669">⭐ Change to Mastered</button>
+                <button class="btn-mn-inactive-kebab" data-completed-idx="${subCi}" data-inactive-type="discontinued" style="font-size:1rem;font-weight:900;min-width:22px;height:22px;border:none;background:none;cursor:pointer;padding:0 4px;border-radius:.25rem;line-height:1;color:var(--c-dc2626)">⋮</button>
+                <div class="mn-inactive-km" style="display:none;position:absolute;right:0;top:100%;z-index:200;background:var(--c-ffffff);border:1px solid var(--c-e5e7eb);border-radius:.5rem;box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:210px;overflow:hidden">
+                  <button class="btn-mn-change-date" data-completed-idx="${subCi}" data-inactive-type="discontinued" style="width:100%;padding:.5rem .85rem;text-align:left;background:none;border:none;border-bottom:1px solid var(--c-f3f4f6);cursor:pointer;font-size:.84rem;color:var(--c-374151)">📅 Change Discontinued Date</button>
+                  <button class="btn-mn-restore" data-completed-idx="${subCi}" data-inactive-type="discontinued" style="width:100%;padding:.5rem .85rem;text-align:left;background:none;border:none;border-bottom:1px solid var(--c-f3f4f6);cursor:pointer;font-size:.84rem;color:var(--c-1d4ed8)">↩ Restore to Active</button>
+                  <button class="btn-mn-switch-status" data-completed-idx="${subCi}" data-from="discontinued" style="width:100%;padding:.5rem .85rem;text-align:left;background:none;border:none;cursor:pointer;font-size:.84rem;color:var(--c-059669)">⭐ Change to Mastered</button>
                 </div>
               </div>
             </div>
@@ -26802,7 +27186,38 @@ function renderTargetManageContent(student, target) {
 
   initDragSort($("mn-act-list"), async (newOrder, movedIdx, anchorTop) => {
     const moved = movedIdx != null ? acts[movedIdx] : null;
+    // mnReorderActs renumbers every row's order field as it builds the new
+    // list, so the undo below has to put those back as well as leave the array
+    // alone. Without it a refused drag left the orders describing a list that
+    // was never saved, and the next save wrote them.
+    const orderWas = acts.map(a => a && a.order);
     const result = mnReorderActs(acts, newOrder);
+    // A section heading is not stored on the row -- it is whichever heading the
+    // row has been dropped below -- so a drag is a way of changing the section
+    // an activity belongs to, and it can land one next to its own twin.
+    //
+    // The move is tested against the list it WOULD produce and then thrown
+    // away, so nothing is saved and the row springs back to where it started.
+    // Refusing the drop halfway through the gesture was the alternative, and it
+    // gives the person nothing to look at while being told what is wrong.
+    if (moved && !moved.isHeading && !moved.isMaintainHeading) {
+      const clash = mnNameConflict(result, moved, moved.title || moved.name);
+      if (clash) {
+        acts.forEach((a, i) => { if (a) a.order = orderWas[i]; });
+        renderTargetManageContent(student, target);
+        mnScrollToMovedRow(acts.indexOf(moved), anchorTop);
+        // Let go of the drop before putting a dialog in front of the person.
+        //
+        // endDrag arms a one-shot capture listener that swallows the click the
+        // browser fires at the release point, so that letting go over a button
+        // does not press it. That listener is still armed here, and the first
+        // thing this dialog wants is a click on OK -- which it ate, leaving the
+        // message on screen until it was clicked a second time.
+        await new Promise(res => setTimeout(res, 0));
+        await mnRefuseNameClash(result, moved, moved.title || moved.name, clash);
+        return;
+      }
+    }
     target.predefinedActivities = result;
     await saveTarget();
     renderTargetManageContent(student, target);
@@ -26928,6 +27343,16 @@ function renderTargetManageContent(student, target) {
       titleInput.addEventListener("blur", async () => {
         const v = titleInput.value.trim();
         if (v === (a.title || "")) return;
+        // Refused before anything is written, and the box put back to what it
+        // held. Renaming a row INTO a name that is already taken is the way
+        // most duplicates would be made now that adding one starts blank.
+        const _clash = mnNameConflict(acts, a, v);
+        if (_clash) {
+          titleInput.value = a.title || "";
+          await mnRefuseNameClash(acts, a, v, _clash);
+          titleInput.focus();
+          return;
+        }
         const oldKey = a._linkKey || a.title || a.name;
         a.title = v;
         const newKey = a.title || a.name;
@@ -26950,6 +27375,17 @@ function renderTargetManageContent(student, target) {
       detailsInput.addEventListener("blur", async () => {
         const v = detailsInput.value.trim();
         if (v === (a.name || "")) return;
+        // Details are the name whenever the title is blank, so this box can
+        // make a duplicate exactly as the title box can.
+        if (!(a.title || "").trim()) {
+          const _clashD = mnNameConflict(acts, a, v);
+          if (_clashD) {
+            detailsInput.value = a.name || "";
+            await mnRefuseNameClash(acts, a, v, _clashD);
+            detailsInput.focus();
+            return;
+          }
+        }
         const oldName = a._linkKey || a.name;
         a.name = v;
         acts.forEach(a2 => { if (a2.parentActivity === oldName) a2.parentActivity = v; });
@@ -27073,28 +27509,28 @@ function renderTargetManageContent(student, target) {
         overlay.style.cssText = "position:absolute;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:flex-start;justify-content:center;padding-top:1.25rem;z-index:200;border-radius:.75rem;overflow-y:auto";
         const _delLatest3 = [...affectedSessions].sort((a, b) => (b.date || "").localeCompare(a.date || "")).slice(0, 5);
         const sessionDateList = affectedSessions.length > 0
-          ? `<p style="font-size:.82rem;margin:.4rem 0 .35rem;color:#374151;font-weight:600">Latest ${Math.min(affectedSessions.length, 5)} Session${Math.min(affectedSessions.length, 5) !== 1 ? "s" : ""} with Data:</p>
-             <ul style="font-size:.82rem;color:#374151;margin:0 0 .7rem;padding-left:0;list-style:none;line-height:1.9">${
+          ? `<p style="font-size:.82rem;margin:.4rem 0 .35rem;color:var(--c-374151);font-weight:600">Latest ${Math.min(affectedSessions.length, 5)} Session${Math.min(affectedSessions.length, 5) !== 1 ? "s" : ""} with Data:</p>
+             <ul style="font-size:.82rem;color:var(--c-374151);margin:0 0 .7rem;padding-left:0;list-style:none;line-height:1.9">${
                _delLatest3.map(s => `<li>• Session ${escHtml(String(s.sessionNumber || s.number || "?"))} — ${escHtml(formatDateWithDay(s.date))}</li>`).join("")
-             }${affectedSessions.length > 5 ? `<li style="color:#9ca3af">  …and ${affectedSessions.length - 5} more</li>` : ''}</ul>` : "";
+             }${affectedSessions.length > 5 ? `<li style="color:var(--c-9ca3af)">  …and ${affectedSessions.length - 5} more</li>` : ''}</ul>` : "";
         const hasData = affected > 0;
-        overlay.innerHTML = `<div style="background:#fff;padding:1.25rem;border-radius:.75rem;width:min(320px,92%);box-shadow:0 4px 24px rgba(0,0,0,.25);margin-bottom:1rem">
-          <p style="font-size:.88rem;margin:0 0 .5rem;color:#111;font-weight:700">⚠️ Delete "${escHtml(item.title || item.name || 'this activity')}"?</p>
+        overlay.innerHTML = `<div style="background:var(--c-ffffff);padding:1.25rem;border-radius:.75rem;width:min(320px,92%);box-shadow:0 4px 24px rgba(0,0,0,.25);margin-bottom:1rem">
+          <p style="font-size:.88rem;margin:0 0 .5rem;color:var(--c-111111);font-weight:700">⚠️ Delete "${escHtml(item.title || item.name || 'this activity')}"?</p>
           ${hasData
-            ? `<p style="font-size:.84rem;margin:0 0 .4rem;color:#374151">This activity contains data from ${affected} session${affected !== 1 ? "s" : ""}. Deleting it will permanently remove all associated data.</p>
+            ? `<p style="font-size:.84rem;margin:0 0 .4rem;color:var(--c-374151)">This activity contains data from ${affected} session${affected !== 1 ? "s" : ""}. Deleting it will permanently remove all associated data.</p>
                ${sessionDateList}
-               <p style="font-size:.84rem;margin:0 0 .6rem;color:#374151">We recommend selecting <strong>"Mark as Discontinued"</strong> instead.</p>
-               <p style="font-size:.84rem;margin:0 0 .35rem;color:#374151">To confirm deletion, type: <strong>${confirmWord}</strong></p>
+               <p style="font-size:.84rem;margin:0 0 .6rem;color:var(--c-374151)">We recommend selecting <strong>"Mark as Discontinued"</strong> instead.</p>
+               <p style="font-size:.84rem;margin:0 0 .35rem;color:var(--c-374151)">To confirm deletion, type: <strong>${confirmWord}</strong></p>
                <input id="del-type-input" type="text" autocomplete="off" inputmode="numeric"
-                 style="width:100%;box-sizing:border-box;padding:.45rem .6rem;border:2px solid #d1d5db;border-radius:.4rem;font-size:1.1rem;text-align:center;outline:none;margin-bottom:.6rem" placeholder="${confirmWord}">`
-            : `<p style="font-size:.84rem;margin:0 0 .4rem;color:#374151">We checked all sessions — <strong>0 sessions</strong> have data for this activity.</p>
-               <p style="font-size:.84rem;margin:0 0 .35rem;color:#374151">To confirm deletion, type: <strong>DELETE</strong></p>
+                 style="width:100%;box-sizing:border-box;padding:.45rem .6rem;border:2px solid var(--c-d1d5db);border-radius:.4rem;font-size:1.1rem;text-align:center;outline:none;margin-bottom:.6rem" placeholder="${confirmWord}">`
+            : `<p style="font-size:.84rem;margin:0 0 .4rem;color:var(--c-374151)">We checked all sessions — <strong>0 sessions</strong> have data for this activity.</p>
+               <p style="font-size:.84rem;margin:0 0 .35rem;color:var(--c-374151)">To confirm deletion, type: <strong>DELETE</strong></p>
                <input id="del-type-input" type="text" autocomplete="off"
-                 style="width:100%;box-sizing:border-box;padding:.45rem .6rem;border:2px solid #d1d5db;border-radius:.4rem;font-size:1.1rem;text-align:center;outline:none;margin-bottom:.6rem" placeholder="DELETE">`
+                 style="width:100%;box-sizing:border-box;padding:.45rem .6rem;border:2px solid var(--c-d1d5db);border-radius:.4rem;font-size:1.1rem;text-align:center;outline:none;margin-bottom:.6rem" placeholder="DELETE">`
           }
           <div style="display:flex;gap:.5rem">
-            <button id="del-type-cancel" style="flex:1;padding:.45rem;border:1px solid #d1d5db;border-radius:.4rem;background:#f9fafb;cursor:pointer;font-size:.85rem">Cancel</button>
-            <button id="del-type-ok" disabled style="flex:1;padding:.45rem;border:none;border-radius:.4rem;background:#dc2626;color:#fff;cursor:pointer;font-size:.85rem;opacity:.4">Delete</button>
+            <button id="del-type-cancel" style="flex:1;padding:.45rem;border:1px solid var(--c-d1d5db);border-radius:.4rem;background:var(--c-f9fafb);cursor:pointer;font-size:.85rem">Cancel</button>
+            <button id="del-type-ok" disabled style="flex:1;padding:.45rem;border:none;border-radius:.4rem;background:var(--c-dc2626);color:var(--c-onaccent);cursor:pointer;font-size:.85rem;opacity:.4">Delete</button>
           </div>
         </div>`;
         const modalSheet = $("manage-modal").querySelector(".modal-sheet");
@@ -27170,7 +27606,7 @@ function renderTargetManageContent(student, target) {
       item.style.opacity = ".5";
       item.style.cursor = "not-allowed";
       item.innerHTML = `➕ Add sub-activity`
-        + `<div style="font-size:.74rem;font-style:italic;color:#92400e;margin-top:.15rem;white-space:normal">`
+        + `<div style="font-size:.74rem;font-style:italic;color:var(--c-92400e);margin-top:.15rem;white-space:normal">`
         + `Not available: this activity has data in ${n} session${n === 1 ? "" : "s"}, and a parent activity holds none of its own.`
         + `</div>`;
     } catch { /* leave it enabled; the click still checks properly */ }
@@ -27244,18 +27680,18 @@ function renderTargetManageContent(student, target) {
         const { date: latestDate } = await _loadLatestSub();
         const rawMin = statusChangeFloorDate(sub, latestDate);
         const minDate = (sub.maintainedAt && sub.maintainedAt > rawMin) ? sub.maintainedAt : rawMin;
-        const restrictionText = action === 'master'
-          ? 'The earliest you can mark this as mastered is'
-          : 'The earliest you can discontinue this sub-activity is';
+        const _verb = action === 'master' ? 'mastered' : 'discontinued';
+        const _doing = action === 'master' ? 'master' : 'discontinue';
         const _subCreated = sub.activeFrom || sub.createdOn;
         const infoHtml = latestDate
-          ? `The last recorded session for <strong>"${subDisplayName}"</strong> was on <strong>${fmtPeriodDate(latestDate)}</strong>. ${restrictionText} <strong>${fmtPeriodDate(minDate)}</strong>. This sub-activity will stop showing from <strong>${fmtPeriodDate(addOneDay(minDate))}</strong> onwards.`
+          ? `The latest data collected for <strong>"${subDisplayName}"</strong> was on <strong>${fmtPeriodDate(latestDate)}</strong>, so the earliest you can ${_doing} this sub-activity is <strong>${fmtPeriodDate(minDate)}</strong>. This sub-activity will stop showing from <strong>${fmtPeriodDate(addOneDay(minDate))}</strong> onwards.`
           : (_subCreated && minDate === _subCreated
-            ? `No previous session data was found for <strong>"${subDisplayName}"</strong>. Defaulting to <strong>${fmtPeriodDate(_subCreated)}</strong>, the date this sub-activity was created.`
-            : `No previous session data was found for <strong>"${subDisplayName}"</strong>.`);
+            ? `No data was found for <strong>"${subDisplayName}"</strong>. Since this sub-activity was created on <strong>${fmtPeriodDate(_subCreated)}</strong>, it will also be ${_verb} on this date too.`
+            : `No data was found for <strong>"${subDisplayName}"</strong>. The earliest you can ${_doing} this sub-activity is <strong>${fmtPeriodDate(minDate)}</strong>.`);
         const _picked = await showDatePickerOverlay({
           heading: action === 'master' ? '⭐ Mark Sub-activity as Mastered' : '🚩 Discontinue Sub-activity',
           infoHtml, minDate, defaultDate: minDate,
+          changeLabel: `If you want this sub-activity to be ${_verb} on another date, please select a new date:`,
           confirmLabel: action === 'master' ? 'Confirm ⭐' : 'Confirm 🚩',
           withReason: action !== 'master',
           reasonValue: sub.discontinuedReason || ''
@@ -27264,21 +27700,36 @@ function renderTargetManageContent(student, target) {
         const pickedDate = typeof _picked === "string" ? _picked : _picked.date;
         if (action !== 'master') setDiscontinuedReason(sub, _picked.reason);
         if (action === 'master') {
-          delete sub.maintained; delete sub.activityColor; delete sub.maintainedAt;
+          // Keeps the maintained tag and its date, drops the grey — the same
+          // as a whole activity.
+          delete sub.activityColor;
           delete sub.discontinuedOn; delete sub.isArchived; delete sub.isStopped; delete sub.inactiveReason;
           sub.masteredOn = pickedDate;
         } else {
           sub.discontinuedOn = pickedDate;
+          delete sub.activityColor;
           delete sub.masteredOn; delete sub.isCompleted; delete sub.inactiveReason;
         }
       } else if (action === 'maintain') {
         const { date: latestDate } = await _loadLatestSub();
-        const rawMin = latestDate ? addOneDay(latestDate) : todayDateStr();
+        // The same floor as a whole activity: the later of its creation date
+        // and the day after the last session with data for it.
+        const _created = sub.activeFrom || sub.createdOn;
+        const _afterLast = latestDate ? addOneDay(latestDate) : null;
+        const minMaintain = [_created, _afterLast].filter(Boolean).sort().pop() || todayDateStr();
+        const today = todayDateStr();
+        const defMaintain = today > minMaintain ? today : minMaintain;
+        const _when = defMaintain === today
+          ? `today (<strong>${fmtPeriodDate(today)}</strong>)`
+          : `<strong>${fmtPeriodDate(defMaintain)}</strong>`;
+        const _fromToday = `From ${_when} onwards, this sub-activity will automatically have a note "Maintain" for every session.`;
         const infoHtml = latestDate
-          ? `The last recorded session for <strong>"${subDisplayName}"</strong> was on <strong>${fmtPeriodDate(latestDate)}</strong>. The earliest you can maintain this sub-activity is <strong>${fmtPeriodDate(rawMin)}</strong>. From this date onwards, this sub-activity will automatically have a note "Maintain" for every session.`
-          : `No previous session data was found for <strong>"${subDisplayName}"</strong>. From this date onwards, this sub-activity will automatically have a note "Maintain" for every session.`;
+          ? `The latest data collected for <strong>"${subDisplayName}"</strong> was on <strong>${fmtPeriodDate(latestDate)}</strong>, so the earliest you can maintain this sub-activity is <strong>${fmtPeriodDate(minMaintain)}</strong>.<br><br>${_fromToday}`
+          : `No data was found for <strong>"${subDisplayName}"</strong>. ${_fromToday}`;
         const pickedDate = await showDatePickerOverlay({
-          heading: '🆗 Maintain Sub-activity', infoHtml, minDate: rawMin, defaultDate: rawMin, confirmLabel: 'Confirm 🆗'
+          heading: '🆗 Maintain Sub-activity', infoHtml, minDate: minMaintain, defaultDate: defMaintain,
+          changeLabel: 'If you want this sub-activity to be maintained on another date, please select a new date:',
+          confirmLabel: 'Confirm 🆗'
         });
         if (!pickedDate) return;
         delete sub.masteredOn; delete sub.isCompleted; delete sub.discontinuedOn; delete sub.isArchived; delete sub.isStopped; delete sub.inactiveReason;
@@ -27287,10 +27738,11 @@ function renderTargetManageContent(student, target) {
         const { date: latestDate } = await _loadLatestSub();
         const rawMin = latestDate ? addOneDay(latestDate) : todayDateStr();
         const infoHtml = latestDate
-          ? `The last recorded session for <strong>"${subDisplayName}"</strong> was on <strong>${fmtPeriodDate(latestDate)}</strong>. The earliest you can set the maintained date is <strong>${fmtPeriodDate(rawMin)}</strong>.`
-          : `No previous session data was found for <strong>"${subDisplayName}"</strong>.`;
+          ? `The latest data collected for <strong>"${subDisplayName}"</strong> was on <strong>${fmtPeriodDate(latestDate)}</strong>, so the earliest you can set the maintained date is <strong>${fmtPeriodDate(rawMin)}</strong>.`
+          : `No data was found for <strong>"${subDisplayName}"</strong>.`;
         const pickedDate = await showDatePickerOverlay({
-          heading: '📅 Change Maintained Date', infoHtml, minDate: rawMin, defaultDate: sub.maintainedAt || rawMin, confirmLabel: 'Save Date'
+          heading: '📅 Change Maintained Date', infoHtml, minDate: rawMin, defaultDate: sub.maintainedAt || rawMin,
+          changeLabel: 'If you want another date, please select a new date:', confirmLabel: 'Save Date'
         });
         if (!pickedDate) return;
         sub.maintainedAt = pickedDate;
@@ -27368,29 +27820,29 @@ function renderTargetManageContent(student, target) {
             overlay.style.cssText = "position:absolute;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:flex-start;justify-content:center;padding-top:1.25rem;z-index:200;border-radius:.75rem;overflow-y:auto";
             const _delLatest3 = [...affectedSessions].sort((a, b) => (b.date || "").localeCompare(a.date || "")).slice(0, 5);
             const sessionDateList = affectedSessions.length > 0
-              ? `<p style="font-size:.82rem;margin:.4rem 0 .35rem;color:#374151;font-weight:600">Latest ${Math.min(affectedSessions.length, 5)} Session${Math.min(affectedSessions.length, 5) !== 1 ? "s" : ""} with Data:</p>
-                 <ul style="font-size:.82rem;color:#374151;margin:0 0 .7rem;padding-left:0;list-style:none;line-height:1.9">${
+              ? `<p style="font-size:.82rem;margin:.4rem 0 .35rem;color:var(--c-374151);font-weight:600">Latest ${Math.min(affectedSessions.length, 5)} Session${Math.min(affectedSessions.length, 5) !== 1 ? "s" : ""} with Data:</p>
+                 <ul style="font-size:.82rem;color:var(--c-374151);margin:0 0 .7rem;padding-left:0;list-style:none;line-height:1.9">${
                    _delLatest3.map(s => `<li>• Session ${escHtml(String(s.sessionNumber || s.number || "?"))} — ${escHtml(formatDateWithDay(s.date))}</li>`).join("")
-                 }${affectedSessions.length > 5 ? `<li style="color:#9ca3af">  …and ${affectedSessions.length - 5} more</li>` : ''}</ul>` : "";
+                 }${affectedSessions.length > 5 ? `<li style="color:var(--c-9ca3af)">  …and ${affectedSessions.length - 5} more</li>` : ''}</ul>` : "";
             const hasData = affected > 0;
-            overlay.innerHTML = `<div style="background:#fff;padding:1.25rem;border-radius:.75rem;width:min(320px,92%);box-shadow:0 4px 24px rgba(0,0,0,.25);margin-bottom:1rem">
-              <p style="font-size:.88rem;margin:0 0 .5rem;color:#111;font-weight:700">⚠️ ${_delSubs.length ? `Delete the &quot;${escHtml(pa.title || pa.name || 'this activity')}&quot; parent activity?` : `Delete &quot;${escHtml(pa.title || pa.name || 'this activity')}&quot;?`}</p>
-              ${_delSubs.length ? `<p style="font-size:.84rem;margin:0 0 .5rem;color:#b91c1c;font-weight:600">Its ${_delSubs.length} sub-activit${_delSubs.length === 1 ? "y" : "ies"} will also get deleted. ${_delSubs.length === 1 ? "This is the sub-activity" : "These are the sub-activities"}:</p><ul style="font-size:.82rem;color:#374151;margin:0 0 .6rem;padding-left:0;list-style:none;line-height:1.8">${_delSubs.map(sb => `<li>• ${escHtml(sb.title || sb.name || "(untitled)")}</li>`).join("")}</ul>` : ""}
+            overlay.innerHTML = `<div style="background:var(--c-ffffff);padding:1.25rem;border-radius:.75rem;width:min(320px,92%);box-shadow:0 4px 24px rgba(0,0,0,.25);margin-bottom:1rem">
+              <p style="font-size:.88rem;margin:0 0 .5rem;color:var(--c-111111);font-weight:700">⚠️ ${_delSubs.length ? `Delete the &quot;${escHtml(pa.title || pa.name || 'this activity')}&quot; parent activity?` : `Delete &quot;${escHtml(pa.title || pa.name || 'this activity')}&quot;?`}</p>
+              ${_delSubs.length ? `<p style="font-size:.84rem;margin:0 0 .5rem;color:var(--c-b91c1c);font-weight:600">Its ${_delSubs.length} sub-activit${_delSubs.length === 1 ? "y" : "ies"} will also get deleted. ${_delSubs.length === 1 ? "This is the sub-activity" : "These are the sub-activities"}:</p><ul style="font-size:.82rem;color:var(--c-374151);margin:0 0 .6rem;padding-left:0;list-style:none;line-height:1.8">${_delSubs.map(sb => `<li>• ${escHtml(sb.title || sb.name || "(untitled)")}</li>`).join("")}</ul>` : ""}
               ${hasData
-                ? `<p style="font-size:.84rem;margin:0 0 .4rem;color:#374151">This activity contains data from ${affected} session${affected !== 1 ? "s" : ""}. Deleting it will permanently remove all associated data.</p>
+                ? `<p style="font-size:.84rem;margin:0 0 .4rem;color:var(--c-374151)">This activity contains data from ${affected} session${affected !== 1 ? "s" : ""}. Deleting it will permanently remove all associated data.</p>
                    ${sessionDateList}
-                   <p style="font-size:.84rem;margin:0 0 .6rem;color:#374151">${_delSubs.length ? `Instead of deleting this parent activity and all its sub-activities, we recommend selecting <strong>&quot;Mark as Discontinued&quot;</strong>.` : `We recommend selecting <strong>&quot;Mark as Discontinued&quot;</strong> instead.`} This will remove the activity from future sessions while keeping your past data intact.</p>
-                   <p style="font-size:.84rem;margin:0 0 .35rem;color:#374151">However, if you still wish to confirm deletion, type: <strong>${confirmWord}</strong></p>
+                   <p style="font-size:.84rem;margin:0 0 .6rem;color:var(--c-374151)">${_delSubs.length ? `Instead of deleting this parent activity and all its sub-activities, we recommend selecting <strong>&quot;Mark as Discontinued&quot;</strong>.` : `We recommend selecting <strong>&quot;Mark as Discontinued&quot;</strong> instead.`} This will remove the activity from future sessions while keeping your past data intact.</p>
+                   <p style="font-size:.84rem;margin:0 0 .35rem;color:var(--c-374151)">However, if you still wish to confirm deletion, type: <strong>${confirmWord}</strong></p>
                    <input id="del-type-input" type="text" autocomplete="off" inputmode="numeric"
-                     style="width:100%;box-sizing:border-box;padding:.45rem .6rem;border:2px solid #d1d5db;border-radius:.4rem;font-size:1.1rem;text-align:center;outline:none;margin-bottom:.6rem" placeholder="${confirmWord}">`
-                : `<p style="font-size:.84rem;margin:0 0 .4rem;color:#374151">We checked all sessions — <strong>0 sessions</strong> have data for this activity.</p>
-                   <p style="font-size:.84rem;margin:0 0 .35rem;color:#374151">To confirm deletion, type: <strong>DELETE</strong></p>
+                     style="width:100%;box-sizing:border-box;padding:.45rem .6rem;border:2px solid var(--c-d1d5db);border-radius:.4rem;font-size:1.1rem;text-align:center;outline:none;margin-bottom:.6rem" placeholder="${confirmWord}">`
+                : `<p style="font-size:.84rem;margin:0 0 .4rem;color:var(--c-374151)">We checked all sessions — <strong>0 sessions</strong> have data for this activity.</p>
+                   <p style="font-size:.84rem;margin:0 0 .35rem;color:var(--c-374151)">To confirm deletion, type: <strong>DELETE</strong></p>
                    <input id="del-type-input" type="text" autocomplete="off"
-                     style="width:100%;box-sizing:border-box;padding:.45rem .6rem;border:2px solid #d1d5db;border-radius:.4rem;font-size:1.1rem;text-align:center;outline:none;margin-bottom:.6rem" placeholder="DELETE">`
+                     style="width:100%;box-sizing:border-box;padding:.45rem .6rem;border:2px solid var(--c-d1d5db);border-radius:.4rem;font-size:1.1rem;text-align:center;outline:none;margin-bottom:.6rem" placeholder="DELETE">`
               }
               <div style="display:flex;gap:.5rem">
-                <button id="del-type-cancel" style="flex:1;padding:.45rem;border:1px solid #d1d5db;border-radius:.4rem;background:#f9fafb;cursor:pointer;font-size:.85rem">Cancel</button>
-                <button id="del-type-ok" disabled style="flex:1;padding:.45rem;border:none;border-radius:.4rem;background:#dc2626;color:#fff;cursor:pointer;font-size:.85rem;opacity:.4">Delete</button>
+                <button id="del-type-cancel" style="flex:1;padding:.45rem;border:1px solid var(--c-d1d5db);border-radius:.4rem;background:var(--c-f9fafb);cursor:pointer;font-size:.85rem">Cancel</button>
+                <button id="del-type-ok" disabled style="flex:1;padding:.45rem;border:none;border-radius:.4rem;background:var(--c-dc2626);color:var(--c-onaccent);cursor:pointer;font-size:.85rem;opacity:.4">Delete</button>
               </div>
             </div>`;
             const modalSheet = $("manage-modal").querySelector(".modal-sheet");
@@ -27476,23 +27928,31 @@ function renderTargetManageContent(student, target) {
       if (affectedSessions.length > 0) {
         const n = affectedSessions.length;
         const latest3 = [...affectedSessions].sort((a, b) => (b.date || "").localeCompare(a.date || "")).slice(0, 5);
-        const sessionList = `<ul style="font-size:.82rem;color:#374151;margin:.3rem 0 0;padding-left:1.2rem;line-height:1.8">${
+        const sessionList = `<ul style="font-size:.82rem;color:var(--c-374151);margin:.3rem 0 0;padding-left:1.2rem;line-height:1.8">${
           latest3.map(s => `<li>Session ${escHtml(String(s.sessionNumber || s.number || "?"))}: ${escHtml(formatDateWithDay(s.date))}</li>`).join("")
-        }${n > 5 ? `<li style="color:#9ca3af">…and ${n - 5} more</li>` : ''}</ul>`;
+        }${n > 5 ? `<li style="color:var(--c-9ca3af)">…and ${n - 5} more</li>` : ''}</ul>`;
         const modalSheet = $("manage-modal").querySelector(".modal-sheet");
         modalSheet.querySelectorAll("[data-addsub-err]").forEach(el => el.remove());
         const errOverlay = document.createElement("div");
         errOverlay.dataset.addsubErr = "1";
         errOverlay.style.cssText = "position:absolute;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:flex-start;justify-content:center;padding-top:2rem;z-index:200;border-radius:.75rem";
         modalSheet.style.position = "relative";
-        errOverlay.innerHTML = `<div style="background:#fff;padding:1.25rem;border-radius:.75rem;width:min(380px,92%);box-shadow:0 4px 24px rgba(0,0,0,.25)">
-          <div style="font-size:.88rem;font-weight:700;color:#dc2626;margin-bottom:.5rem">⚠️ Cannot add sub-activity</div>
-          <div style="font-size:.82rem;color:#374151;margin-bottom:.35rem"><strong>"${escHtml(act.title || act.name)}"</strong> already has data in ${n} session${n !== 1 ? 's' : ''}. Parent activities are just titles — they can't hold session data.</div>
+        errOverlay.innerHTML = `<div style="background:var(--c-ffffff);padding:1.25rem;border-radius:.75rem;width:min(380px,92%);box-shadow:0 4px 24px rgba(0,0,0,.25)">
+          <div style="font-size:.88rem;font-weight:700;color:var(--c-dc2626);margin-bottom:.5rem">⚠️ Cannot add sub-activity</div>
+          <div style="font-size:.82rem;color:var(--c-374151);margin-bottom:.35rem"><strong>"${escHtml(act.title || act.name)}"</strong> already has data in ${n} session${n !== 1 ? 's' : ''}. Parent activities are just titles — they can't hold session data.</div>
           ${sessionList}
-          <button id="mn-addsub-err-close" style="width:100%;padding:.4rem;border:1px solid #d1d5db;border-radius:.4rem;background:#f9fafb;cursor:pointer;font-size:.85rem;margin-top:.75rem">OK</button>
+          <button id="mn-addsub-err-close" style="width:100%;padding:.4rem;border:1px solid var(--c-d1d5db);border-radius:.4rem;background:var(--c-f9fafb);cursor:pointer;font-size:.85rem;margin-top:.75rem">OK</button>
         </div>`;
         modalSheet.appendChild(errOverlay);
         errOverlay.querySelector("#mn-addsub-err-close").addEventListener("click", () => errOverlay.remove());
+        return;
+      }
+      // Becoming a parent tightens the rule on this row: a plain activity only
+      // has to be unique inside its own section, a parent has to be unique in
+      // the whole target, because a sub-activity stores nothing but the name.
+      const _pClash = mnNameConflict(acts, act, act.title || act.name, true);
+      if (_pClash) {
+        await mnRefuseNameClash(acts, act, act.title || act.name, _pClash);
         return;
       }
       // No past data — make this activity a parent and create a blank sub-activity below it
@@ -27565,22 +28025,45 @@ function renderTargetManageContent(student, target) {
       const paLabel = escHtml(pa.title || pa.name || "this activity");
 
       const showPicker = (errorHtml = '') => {
-        const candHtml = candidates.length > 0
-          ? candidates.map(cand => {
-              const label = cand.title || cand.name;
-              const alreadyParent = acts.some(a2 => a2.parentActivity === (cand.title || cand.name));
-              const badge = alreadyParent
-                ? ` <span style="font-size:.7rem;background:#dbeafe;color:#1e40af;border-radius:.3rem;padding:.05rem .3rem;vertical-align:middle;margin-left:.3rem">has sub-activities</span>`
-                : '';
-              return `<button class="mn-move-pick-btn" data-cand-idx="${acts.indexOf(cand)}" style="width:100%;text-align:left;padding:.5rem .7rem;border:1px solid #e5e7eb;border-radius:.4rem;background:#f9fafb;cursor:pointer;font-size:.84rem;color:#111;margin-bottom:.3rem;display:block">${escHtml(label)}${badge}</button>`;
-            }).join('')
-          : `<div style="font-size:.82rem;color:#6b7280;font-style:italic;padding:.4rem 0">No other activities available in this target.</div>`;
-        overlay.innerHTML = `<div style="background:#fff;padding:1.25rem;border-radius:.75rem;width:min(360px,92%);box-shadow:0 4px 24px rgba(0,0,0,.25);margin-bottom:1rem">
-          <div style="font-size:.88rem;font-weight:700;color:#111;margin-bottom:.25rem">↳ Move "${paLabel}" under:</div>
-          <div style="font-size:.78rem;color:#6b7280;margin-bottom:.7rem">Select an activity to become its parent.</div>
+        // Laid out the way the target itself is laid out: each activity under
+        // the section heading it really sits in, and indented beneath it. A
+        // heading is drawn only when something under it can actually be
+        // picked, since a heading cannot be a parent and an empty one would
+        // be noise. Sub-activities are not listed at all -- an activity
+        // cannot go under one -- so a parent says how many it already has
+        // instead of listing them.
+        const candSet = new Set(candidates);
+        const rows = [];
+        let heading = null, headingDrawn = false;
+        for (const cand of acts) {
+          if (cand.isHeading) { heading = cand; headingDrawn = false; continue; }
+          if (!candSet.has(cand)) continue;
+          if (heading && !headingDrawn) {
+            headingDrawn = true;
+            rows.push(`<div style="font-size:.72rem;font-weight:700;letter-spacing:.03em;
+              text-transform:uppercase;color:var(--c-6b7280);margin:.55rem 0 .25rem">`
+              + `${escHtml(heading.title || heading.name || "Section")}</div>`);
+          }
+          const label = cand.title || cand.name;
+          const subs = acts.filter(a2 => a2.parentActivity === (cand.title || cand.name)).length;
+          const badge = subs
+            ? ` <span style="font-size:.72rem;color:var(--c-6b7280);margin-left:.3rem">(${subs} sub-activit${subs === 1 ? "y" : "ies"})</span>`
+            : '';
+          rows.push(`<button class="mn-move-pick-btn" data-cand-idx="${acts.indexOf(cand)}"`
+            + ` style="width:calc(100% - ${heading ? "0.9rem" : "0px"});text-align:left;padding:.5rem .7rem;`
+            + `border:1px solid var(--c-e5e7eb);border-radius:.4rem;background:var(--c-f9fafb);cursor:pointer;`
+            + `font-size:.84rem;color:var(--c-111111);margin-bottom:.3rem;display:block;`
+            + `margin-left:${heading ? ".9rem" : "0"}">${escHtml(label)}${badge}</button>`);
+        }
+        const candHtml = rows.length > 0
+          ? rows.join('')
+          : `<div style="font-size:.82rem;color:var(--c-6b7280);font-style:italic;padding:.4rem 0">No other activities available in this target.</div>`;
+        overlay.innerHTML = `<div style="background:var(--c-ffffff);padding:1.25rem;border-radius:.75rem;width:min(360px,92%);box-shadow:0 4px 24px rgba(0,0,0,.25);margin-bottom:1rem">
+          <div style="font-size:.88rem;font-weight:700;color:var(--c-111111);margin-bottom:.25rem">↳ Move "${paLabel}" under:</div>
+          <div style="font-size:.78rem;color:var(--c-6b7280);margin-bottom:.7rem">Select an activity to become its parent.</div>
           ${errorHtml}
           <div>${candHtml}</div>
-          <button id="mn-move-cancel2" style="width:100%;padding:.4rem;border:1px solid #d1d5db;border-radius:.4rem;background:#f9fafb;cursor:pointer;font-size:.85rem;margin-top:.6rem">Cancel</button>
+          <button id="mn-move-cancel2" style="width:100%;padding:.4rem;border:1px solid var(--c-d1d5db);border-radius:.4rem;background:var(--c-f9fafb);cursor:pointer;font-size:.85rem;margin-top:.6rem">Cancel</button>
         </div>`;
         overlay.querySelector("#mn-move-cancel2").addEventListener("click", closeOverlay);
         overlay.querySelectorAll(".mn-move-pick-btn").forEach(pickBtn => {
@@ -27598,21 +28081,32 @@ function renderTargetManageContent(student, target) {
               affectedSessions = allSessions.filter(s => sessionHasActivityData(s,
                 { name: chosen.name, title: chosen.title, paPA: null, id: chosen.id }, acts, target.name));
             } catch (err) {
-              showPicker(`<div style="background:#fef2f2;border:1px solid #fca5a5;border-radius:.4rem;padding:.5rem .7rem;font-size:.82rem;color:#dc2626;margin-bottom:.6rem">Error checking session data: ${escHtml(err.message)}</div>`);
+              showPicker(`<div style="background:var(--c-fef2f2);border:1px solid var(--c-fca5a5);border-radius:.4rem;padding:.5rem .7rem;font-size:.82rem;color:var(--c-dc2626);margin-bottom:.6rem">Error checking session data: ${escHtml(err.message)}</div>`);
               return;
             }
             if (affectedSessions.length > 0) {
               const n = affectedSessions.length;
               const latest3 = [...affectedSessions].sort((a, b) => (b.date || "").localeCompare(a.date || "")).slice(0, 5);
-              const sessionDateList = `<ul style="font-size:.82rem;color:#374151;margin:.3rem 0 0;padding-left:1.2rem;line-height:1.8">${
+              const sessionDateList = `<ul style="font-size:.82rem;color:var(--c-374151);margin:.3rem 0 0;padding-left:1.2rem;line-height:1.8">${
                 latest3.map(s => `<li>Session ${escHtml(String(s.sessionNumber || s.number || "?"))}: ${escHtml(formatDateWithDay(s.date))}</li>`).join("")
-              }${n > 5 ? `<li style="color:#9ca3af">…and ${n - 5} more</li>` : ''}</ul>`;
-              showPicker(`<div style="background:#fef2f2;border:1px solid #fca5a5;border-radius:.4rem;padding:.5rem .7rem;font-size:.82rem;color:#dc2626;margin-bottom:.6rem">
+              }${n > 5 ? `<li style="color:var(--c-9ca3af)">…and ${n - 5} more</li>` : ''}</ul>`;
+              showPicker(`<div style="background:var(--c-fef2f2);border:1px solid var(--c-fca5a5);border-radius:.4rem;padding:.5rem .7rem;font-size:.82rem;color:var(--c-dc2626);margin-bottom:.6rem">
                 <strong>"${escHtml(chosen.title || chosen.name)}"</strong> has data in ${n} session${n !== 1 ? 's' : ''} — it cannot become a parent activity.${sessionDateList}
               </div>`);
               return;
             }
             const chosenKey = chosen.title || chosen.name;
+            // Two things can clash here at once: the row arrives beside new
+            // siblings, and the activity it is moving under becomes a parent.
+            const _mvClash = acts.find(a2 => a2 !== pa && a2.parentActivity === chosenKey
+              && !mnIsFinishedRow(a2)
+              && mnNormName(a2.title || a2.name) === mnNormName(pa.title || pa.name))
+              || mnNameConflict(acts, chosen, chosenKey, true);
+            if (_mvClash) {
+              closeOverlay();
+              await mnRefuseNameClash(acts, pa, pa.title || pa.name, _mvClash);
+              return;
+            }
             const oldParentKey = pa.parentActivity || null;
             pa.parentActivity = chosenKey;
             chosen.noRemark = true;
@@ -27693,19 +28187,20 @@ function renderTargetManageContent(student, target) {
         finally { btn.disabled = false; btn.textContent = origText; }
         return result;
       };
-      const _buildInfo = (latestDate, minDate, latestSubName, restrictionText) => {
+      // verb is "mastered" or "discontinued"; doing is "master" or "discontinue".
+      const _buildInfo = (latestDate, minDate, latestSubName, verb, doing) => {
         if (!latestDate) {
           const created = pa.activeFrom || pa.createdOn;
           // Only claim it's the creation date when that's genuinely what the
           // default landed on — a maintained date can push the floor later.
           return created && minDate === created
-            ? `No previous session data was found for <strong>"${paDisplayName}"</strong>. Defaulting to <strong>${fmtPeriodDate(created)}</strong>, the date this activity was created.`
-            : `No previous session data was found for <strong>"${paDisplayName}"</strong>.`;
+            ? `No data was found for <strong>"${paDisplayName}"</strong>. Since this activity was created on <strong>${fmtPeriodDate(created)}</strong>, it will also be ${verb} on this date too.`
+            : `No data was found for <strong>"${paDisplayName}"</strong>. The earliest you can ${doing} this activity is <strong>${fmtPeriodDate(minDate)}</strong>.`;
         }
         const src = latestSubName
-          ? `The last recorded session for the sub-activity <strong>"${escHtml(_stripMk(latestSubName))}"</strong> was on <strong>${fmtPeriodDate(latestDate)}</strong>.`
-          : `The last recorded session for <strong>"${paDisplayName}"</strong> was on <strong>${fmtPeriodDate(latestDate)}</strong>.`;
-        return `${src} ${restrictionText} <strong>${fmtPeriodDate(minDate)}</strong>. This activity will stop showing from <strong>${fmtPeriodDate(addOneDay(minDate))}</strong> onwards.`;
+          ? `The latest data collected for the sub-activity <strong>"${escHtml(_stripMk(latestSubName))}"</strong> was on <strong>${fmtPeriodDate(latestDate)}</strong>`
+          : `The latest data collected for <strong>"${paDisplayName}"</strong> was on <strong>${fmtPeriodDate(latestDate)}</strong>`;
+        return `${src}, so the earliest you can ${doing} this activity is <strong>${fmtPeriodDate(minDate)}</strong>. This activity will stop showing from <strong>${fmtPeriodDate(addOneDay(minDate))}</strong> onwards.`;
       };
       const _isSubActive = sub => !sub.masteredOn && !sub.discontinuedOn && !sub.isArchived && !sub.isStopped && !sub.isCompleted;
       const _cascadeToActiveSubs = fn => {
@@ -27728,12 +28223,12 @@ function renderTargetManageContent(student, target) {
         const { date: latestDate, subName: latestSubName } = await _loadLatest();
         const rawMin = statusChangeFloorDate(pa, latestDate);
         const minDate = (pa.maintainedAt && pa.maintainedAt > rawMin) ? pa.maintainedAt : rawMin;
-        const restrictionText = action === 'master'
-          ? 'The earliest you can mark this as mastered is'
-          : 'The earliest you can discontinue this activity is';
+        const _verb = action === 'master' ? 'mastered' : 'discontinued';
+        const _doing = action === 'master' ? 'master' : 'discontinue';
         const _picked = await showDatePickerOverlay({
           heading: action === 'master' ? '⭐ Mark as Mastered' : '🚩 Discontinue Activity',
-          infoHtml: _buildInfo(latestDate, minDate, latestSubName, restrictionText),
+          infoHtml: _buildInfo(latestDate, minDate, latestSubName, _verb, _doing),
+          changeLabel: `If you want this activity to be ${_verb} on another date, please select a new date:`,
           minDate, defaultDate: minDate,
           confirmLabel: action === 'master' ? 'Confirm ⭐' : 'Confirm 🚩',
           withReason: action !== 'master',
@@ -27743,11 +28238,19 @@ function renderTargetManageContent(student, target) {
         const pickedDate = typeof _picked === "string" ? _picked : _picked.date;
         if (action !== 'master') setDiscontinuedReason(pa, _picked.reason);
         if (action === 'master') {
-          delete pa.maintained; delete pa.activityColor; delete pa.maintainedAt;
+          // Maintained AND mastered. The maintained tag and its date are what
+          // explain a year of "Maintain" remarks sitting under this name;
+          // mastering used to delete both and leave that history unaccounted
+          // for. Discontinuing has always kept them, so the two actions now
+          // agree instead of one quietly throwing the tag away.
+          //
+          // The grey goes either way. Grey means "being checked over time",
+          // and once it is finished it is not being checked any more.
+          delete pa.activityColor;
           delete pa.discontinuedOn; delete pa.isArchived; delete pa.isStopped; delete pa.inactiveReason;
           pa.masteredOn = pickedDate;
           _cascadeToActiveSubs(sub => {
-            delete sub.maintained; delete sub.activityColor; delete sub.maintainedAt;
+            delete sub.activityColor;
             delete sub.discontinuedOn; delete sub.isArchived; delete sub.isStopped; delete sub.inactiveReason;
             sub.masteredOn = pickedDate;
           });
@@ -27757,28 +28260,46 @@ function renderTargetManageContent(student, target) {
           // sections check mastered first, so it stayed under Mastered
           // Activities however many times the page was refreshed. The
           // sub-activity branch below already did this; the parent did not.
-          const paWasMaintained = !!pa.maintained;
+          // The maintained tag and its date stay, as they always have here.
+          // Only the grey goes, to match mastering: a finished activity is
+          // not being checked over time any more, whichever way it finished.
           delete pa.masteredOn; delete pa.isCompleted; delete pa.inactiveReason;
-          if (!paWasMaintained) { delete pa.maintained; delete pa.activityColor; delete pa.maintainedAt; }
+          delete pa.activityColor;
           pa.discontinuedOn = pickedDate;
           _cascadeToActiveSubs(sub => {
-            const subWasMaintained = !!sub.maintained;
             delete sub.masteredOn; delete sub.isCompleted; delete sub.inactiveReason;
-            if (!subWasMaintained) { delete sub.maintained; delete sub.activityColor; delete sub.maintainedAt; }
+            delete sub.activityColor;
             sub.discontinuedOn = pickedDate;
           });
         }
       } else if (action === 'maintain') {
         const { date: latestDate, subName: latestSubName } = await _loadLatest();
-        const rawMin = latestDate ? addOneDay(latestDate) : todayDateStr();
+        // How far back the calendar may go: the later of the day this activity
+        // was created and the day after the last session that has data for it.
+        // Back-dating is allowed within that, so a maintain can be recorded
+        // from the day it really started, but never back into months that
+        // already have data and have been reported on.
+        const _created = pa.activeFrom || pa.createdOn;
+        const _afterLast = latestDate ? addOneDay(latestDate) : null;
+        const minMaintain = [_created, _afterLast].filter(Boolean).sort().pop() || todayDateStr();
+        // Today unless the floor is later than today, which only happens when
+        // a session was recorded today.
+        const today = todayDateStr();
+        const defMaintain = today > minMaintain ? today : minMaintain;
         const src = latestSubName
-          ? `The last recorded session for the sub-activity <strong>"${escHtml(_stripMk(latestSubName))}"</strong> was on <strong>${fmtPeriodDate(latestDate)}</strong>.`
-          : `The last recorded session for <strong>"${paDisplayName}"</strong> was on <strong>${fmtPeriodDate(latestDate)}</strong>.`;
+          ? `The latest data collected for the sub-activity <strong>"${escHtml(_stripMk(latestSubName))}"</strong> was on <strong>${fmtPeriodDate(latestDate)}</strong>`
+          : `The latest data collected for <strong>"${paDisplayName}"</strong> was on <strong>${fmtPeriodDate(latestDate)}</strong>`;
+        const _when = defMaintain === today
+          ? `today (<strong>${fmtPeriodDate(today)}</strong>)`
+          : `<strong>${fmtPeriodDate(defMaintain)}</strong>`;
+        const _fromToday = `From ${_when} onwards, this activity will automatically have a note "Maintain" for every session.`;
         const infoHtml = latestDate
-          ? `${src} The earliest you can maintain this activity is <strong>${fmtPeriodDate(rawMin)}</strong>. From this date onwards, this activity will automatically have a note "Maintain" for every session.`
-          : `No previous session data was found for <strong>"${paDisplayName}"</strong>. From this date onwards, this activity will automatically have a note "Maintain" for every session.`;
+          ? `${src}, so the earliest you can maintain this activity is <strong>${fmtPeriodDate(minMaintain)}</strong>.<br><br>${_fromToday}`
+          : `No data was found for <strong>"${paDisplayName}"</strong>. ${_fromToday}`;
         const pickedDate = await showDatePickerOverlay({
-          heading: '🆗 Maintain Activity', infoHtml, minDate: rawMin, defaultDate: rawMin, confirmLabel: 'Confirm 🆗'
+          heading: '🆗 Maintain Activity', infoHtml, minDate: minMaintain, defaultDate: defMaintain,
+          changeLabel: 'If you want this activity to be maintained on another date, please select a new date:',
+          confirmLabel: 'Confirm 🆗'
         });
         if (!pickedDate) return;
         delete pa.masteredOn; delete pa.isCompleted; delete pa.discontinuedOn; delete pa.isArchived; delete pa.isStopped; delete pa.inactiveReason;
@@ -27787,13 +28308,14 @@ function renderTargetManageContent(student, target) {
         const { date: latestDate, subName: latestSubName } = await _loadLatest();
         const rawMin = latestDate ? addOneDay(latestDate) : todayDateStr();
         const src = latestSubName
-          ? `The last recorded session for the sub-activity <strong>"${escHtml(_stripMk(latestSubName))}"</strong> was on <strong>${fmtPeriodDate(latestDate)}</strong>.`
-          : `The last recorded session for <strong>"${paDisplayName}"</strong> was on <strong>${fmtPeriodDate(latestDate)}</strong>.`;
+          ? `The latest data collected for the sub-activity <strong>"${escHtml(_stripMk(latestSubName))}"</strong> was on <strong>${fmtPeriodDate(latestDate)}</strong>`
+          : `The latest data collected for <strong>"${paDisplayName}"</strong> was on <strong>${fmtPeriodDate(latestDate)}</strong>`;
         const infoHtml = latestDate
-          ? `${src} The earliest you can set the maintained date is <strong>${fmtPeriodDate(rawMin)}</strong>.`
-          : `No previous session data was found for <strong>"${paDisplayName}"</strong>.`;
+          ? `${src}, so the earliest you can set the maintained date is <strong>${fmtPeriodDate(rawMin)}</strong>.`
+          : `No data was found for <strong>"${paDisplayName}"</strong>.`;
         const pickedDate = await showDatePickerOverlay({
-          heading: '📅 Change Maintained Date', infoHtml, minDate: rawMin, defaultDate: pa.maintainedAt || rawMin, confirmLabel: 'Save Date'
+          heading: '📅 Change Maintained Date', infoHtml, minDate: rawMin, defaultDate: pa.maintainedAt || rawMin,
+          changeLabel: 'If you want another date, please select a new date:', confirmLabel: 'Save Date'
         });
         if (!pickedDate) return;
         pa.maintainedAt = pickedDate;
@@ -27881,13 +28403,14 @@ function renderTargetManageContent(student, target) {
       const minDate = (pa.maintainedAt && pa.maintainedAt > rawMin) ? pa.maintainedAt : rawMin;
       const _paName = escHtml(pa.title || pa.name || '');
       const infoHtml = latestDate
-        ? `The last recorded session for <strong>"${_paName}"</strong> was on <strong>${fmtPeriodDate(latestDate)}</strong>. The earliest you can set this date is <strong>${fmtPeriodDate(minDate)}</strong>. This activity will stop showing from <strong>${fmtPeriodDate(addOneDay(minDate))}</strong> onwards.`
-        : `No previous session data was found for <strong>"${_paName}"</strong>.`;
+        ? `The latest data collected for <strong>"${_paName}"</strong> was on <strong>${fmtPeriodDate(latestDate)}</strong>, so the earliest you can set this date is <strong>${fmtPeriodDate(minDate)}</strong>. This activity will stop showing from <strong>${fmtPeriodDate(addOneDay(minDate))}</strong> onwards.`
+        : `No data was found for <strong>"${_paName}"</strong>.`;
       const current = type === "mastered" ? pa.masteredOn : pa.discontinuedOn;
       // Where an activity stopped before there was a reason box gets one.
       const picked = await showDatePickerOverlay({
         heading: type === "mastered" ? "📅 Change Mastered Date" : "📅 Change Discontinued Date",
         infoHtml,
+        changeLabel: "If you want another date, please select a new date:",
         minDate,
         defaultDate: current || minDate,
         confirmLabel: "Save Date",
@@ -27934,6 +28457,10 @@ function renderTargetManageContent(student, target) {
       // any sub is restored from its own menu.
       if (type === "mastered") { delete pa.masteredOn; delete pa.isCompleted; }
       else { delete pa.discontinuedOn; delete pa.isArchived; delete pa.isStopped; }
+      // Mastering and discontinuing drop the grey but keep the maintained
+      // tag, so an activity coming back to active is being checked over
+      // time again and needs its grey back with it.
+      if (pa.maintained) pa.activityColor = "gray";
       await saveTarget();
       renderTargetManageContent(student, target);
     });
@@ -28026,22 +28553,22 @@ function renderTargetManageContent(student, target) {
         overlay.dataset.delOverlay = "1";
         overlay.style.cssText = "position:absolute;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:flex-start;justify-content:center;padding-top:1.25rem;z-index:200;border-radius:.75rem;overflow-y:auto";
         const sessionDateList2 = affectedSessions.length > 0
-          ? `<p style="font-size:.82rem;margin:.4rem 0 .3rem;color:#374151;font-weight:600">Sessions with data:</p>
-             <ul style="font-size:.82rem;color:#374151;margin:0 0 .7rem;padding-left:1.2rem;line-height:1.8">${
+          ? `<p style="font-size:.82rem;margin:.4rem 0 .3rem;color:var(--c-374151);font-weight:600">Sessions with data:</p>
+             <ul style="font-size:.82rem;color:var(--c-374151);margin:0 0 .7rem;padding-left:1.2rem;line-height:1.8">${
                affectedSessions
                  .sort((a, b) => (a.date || "").localeCompare(b.date || ""))
                  .map(s => `<li>Session ${escHtml(String(s.sessionNumber || s.number || "?"))}: ${escHtml(formatDateWithDay(s.date))}</li>`)
                  .join("")
              }</ul>` : "";
-        overlay.innerHTML = `<div style="background:#fff;padding:1.25rem;border-radius:.75rem;width:min(320px,92%);box-shadow:0 4px 24px rgba(0,0,0,.25);margin-bottom:1rem">
-          <p style="font-size:.88rem;margin:0 0 .6rem;color:#111;font-weight:700">⚠️ If you delete this activity, all data from the past <strong>${confirmWord} session${affected !== 1 ? "s" : ""}</strong> will be permanently lost.</p>
+        overlay.innerHTML = `<div style="background:var(--c-ffffff);padding:1.25rem;border-radius:.75rem;width:min(320px,92%);box-shadow:0 4px 24px rgba(0,0,0,.25);margin-bottom:1rem">
+          <p style="font-size:.88rem;margin:0 0 .6rem;color:var(--c-111111);font-weight:700">⚠️ If you delete this activity, all data from the past <strong>${confirmWord} session${affected !== 1 ? "s" : ""}</strong> will be permanently lost.</p>
           ${sessionDateList2}
-          <p style="font-size:.84rem;margin:0 0 .5rem;color:#374151">Still want to delete? Type <strong>${confirmWord}</strong> to confirm.</p>
+          <p style="font-size:.84rem;margin:0 0 .5rem;color:var(--c-374151)">Still want to delete? Type <strong>${confirmWord}</strong> to confirm.</p>
           <input id="del-type-input" type="text" autocomplete="off" inputmode="numeric"
-            style="width:100%;box-sizing:border-box;padding:.45rem .6rem;border:2px solid #d1d5db;border-radius:.4rem;font-size:1.1rem;text-align:center;outline:none;margin-bottom:.6rem" placeholder="${confirmWord}">
+            style="width:100%;box-sizing:border-box;padding:.45rem .6rem;border:2px solid var(--c-d1d5db);border-radius:.4rem;font-size:1.1rem;text-align:center;outline:none;margin-bottom:.6rem" placeholder="${confirmWord}">
           <div style="display:flex;gap:.5rem">
-            <button id="del-type-cancel" style="flex:1;padding:.45rem;border:1px solid #d1d5db;border-radius:.4rem;background:#f9fafb;cursor:pointer;font-size:.85rem">Cancel</button>
-            <button id="del-type-ok" disabled style="flex:1;padding:.45rem;border:none;border-radius:.4rem;background:#dc2626;color:#fff;cursor:pointer;font-size:.85rem;opacity:.4">Confirm Delete</button>
+            <button id="del-type-cancel" style="flex:1;padding:.45rem;border:1px solid var(--c-d1d5db);border-radius:.4rem;background:var(--c-f9fafb);cursor:pointer;font-size:.85rem">Cancel</button>
+            <button id="del-type-ok" disabled style="flex:1;padding:.45rem;border:none;border-radius:.4rem;background:var(--c-dc2626);color:var(--c-onaccent);cursor:pointer;font-size:.85rem;opacity:.4">Confirm Delete</button>
           </div>
         </div>`;
         const modalSheet = $("manage-modal").querySelector(".modal-sheet");
@@ -28424,20 +28951,20 @@ function renderTargetManageContent(student, target) {
       overlay.dataset.delOverlay = "1";
       overlay.style.cssText = "position:absolute;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:flex-start;justify-content:center;padding-top:1.25rem;z-index:200;border-radius:.75rem;overflow-y:auto";
       const _latest5 = [...affectedSessions].sort((a, b) => (b.date || "").localeCompare(a.date || "")).slice(0, 5);
-      const sessionDateList = `<p style="font-size:.82rem;margin:.4rem 0 .35rem;color:#374151;font-weight:600">Latest ${Math.min(affected, 5)} Session${Math.min(affected, 5) !== 1 ? "s" : ""} with Data:</p>
-        <ul style="font-size:.82rem;color:#374151;margin:0 0 .7rem;padding-left:0;list-style:none;line-height:1.9">${
+      const sessionDateList = `<p style="font-size:.82rem;margin:.4rem 0 .35rem;color:var(--c-374151);font-weight:600">Latest ${Math.min(affected, 5)} Session${Math.min(affected, 5) !== 1 ? "s" : ""} with Data:</p>
+        <ul style="font-size:.82rem;color:var(--c-374151);margin:0 0 .7rem;padding-left:0;list-style:none;line-height:1.9">${
           _latest5.map(s => `<li>• Session ${escHtml(String(s.sessionNumber || s.number || "?"))} — ${escHtml(formatDateWithDay(s.date))}</li>`).join("")
-        }${affected > 5 ? `<li style="color:#9ca3af">  …and ${affected - 5} more</li>` : ''}</ul>`;
-      overlay.innerHTML = `<div style="background:#fff;padding:1.25rem;border-radius:.75rem;width:min(320px,92%);box-shadow:0 4px 24px rgba(0,0,0,.25);margin-bottom:1rem">
-        <p style="font-size:.88rem;margin:0 0 .5rem;color:#111;font-weight:700">⚠️ Delete "${escHtml(subAct.title || subAct.name || 'this sub-activity')}"?</p>
-        <p style="font-size:.84rem;margin:0 0 .4rem;color:#374151">This sub-activity contains data from ${affected} session${affected !== 1 ? "s" : ""}. Deleting it will permanently remove all associated data.</p>
+        }${affected > 5 ? `<li style="color:var(--c-9ca3af)">  …and ${affected - 5} more</li>` : ''}</ul>`;
+      overlay.innerHTML = `<div style="background:var(--c-ffffff);padding:1.25rem;border-radius:.75rem;width:min(320px,92%);box-shadow:0 4px 24px rgba(0,0,0,.25);margin-bottom:1rem">
+        <p style="font-size:.88rem;margin:0 0 .5rem;color:var(--c-111111);font-weight:700">⚠️ Delete "${escHtml(subAct.title || subAct.name || 'this sub-activity')}"?</p>
+        <p style="font-size:.84rem;margin:0 0 .4rem;color:var(--c-374151)">This sub-activity contains data from ${affected} session${affected !== 1 ? "s" : ""}. Deleting it will permanently remove all associated data.</p>
         ${sessionDateList}
-        <p style="font-size:.84rem;margin:0 0 .35rem;color:#374151">To confirm deletion, type: <strong>${confirmWord}</strong></p>
+        <p style="font-size:.84rem;margin:0 0 .35rem;color:var(--c-374151)">To confirm deletion, type: <strong>${confirmWord}</strong></p>
         <input id="del-sub-input" type="text" autocomplete="off" inputmode="numeric"
-          style="width:100%;box-sizing:border-box;padding:.45rem .6rem;border:2px solid #d1d5db;border-radius:.4rem;font-size:1.1rem;text-align:center;outline:none;margin-bottom:.6rem" placeholder="${confirmWord}">
+          style="width:100%;box-sizing:border-box;padding:.45rem .6rem;border:2px solid var(--c-d1d5db);border-radius:.4rem;font-size:1.1rem;text-align:center;outline:none;margin-bottom:.6rem" placeholder="${confirmWord}">
         <div style="display:flex;gap:.5rem">
-          <button id="del-sub-cancel" style="flex:1;padding:.45rem;border:1px solid #d1d5db;border-radius:.4rem;background:#f9fafb;cursor:pointer;font-size:.85rem">Cancel</button>
-          <button id="del-sub-ok" disabled style="flex:1;padding:.45rem;border:none;border-radius:.4rem;background:#dc2626;color:#fff;cursor:pointer;font-size:.85rem;opacity:.4">Delete</button>
+          <button id="del-sub-cancel" style="flex:1;padding:.45rem;border:1px solid var(--c-d1d5db);border-radius:.4rem;background:var(--c-f9fafb);cursor:pointer;font-size:.85rem">Cancel</button>
+          <button id="del-sub-ok" disabled style="flex:1;padding:.45rem;border:none;border-radius:.4rem;background:var(--c-dc2626);color:var(--c-onaccent);cursor:pointer;font-size:.85rem;opacity:.4">Delete</button>
         </div>
       </div>`;
       const modalSheet = $("manage-modal").querySelector(".modal-sheet");
@@ -28806,16 +29333,16 @@ function renderTargetManageContent(student, target) {
       const shownSessions  = sortedSessions.slice(0, 5);
       const hiddenCount    = sortedSessions.length - shownSessions.length;
       const sessionDateHtml = shownSessions.map(s => `<li>Session ${escHtml(String(s.sessionNumber || s.number || "?"))}: ${escHtml(formatDateWithDay(s.date))}</li>`).join("")
-        + (hiddenCount > 0 ? `<li style="color:#9ca3af">… and ${hiddenCount} earlier session${hiddenCount !== 1 ? "s" : ""}</li>` : "");
-      overlay.innerHTML = `<div style="background:#fff;padding:1.25rem;border-radius:.75rem;width:min(320px,92%);box-shadow:0 4px 24px rgba(0,0,0,.25);margin-bottom:1rem">
-        <p style="font-size:.88rem;margin:0 0 .5rem;color:#111;font-weight:700">⚠️ This activity has data in <strong>${sessionsWithData.length} past session${sessionsWithData.length !== 1 ? "s" : ""}</strong>.</p>
-        <p style="font-size:.82rem;margin:0 0 .25rem;color:#374151;font-weight:600">Sessions with data:</p>
-        <ul style="font-size:.82rem;color:#374151;margin:0 0 .75rem;padding-left:1.2rem;line-height:1.8">${sessionDateHtml}</ul>
-        ${type === "no_trials" && hasScoringData ? `<p style="font-size:.83rem;margin:0 0 .75rem;color:#dc2626;font-weight:700;line-height:1.5">WARNING: All past trial scores, multiple choice and checkbox selections for this activity will be permanently deleted. Only remarks you have written will be kept.</p>` : ``}
-        <p style="font-size:.84rem;margin:0 0 .6rem;color:#374151;font-weight:600">Change the type anyway?</p>
+        + (hiddenCount > 0 ? `<li style="color:var(--c-9ca3af)">… and ${hiddenCount} earlier session${hiddenCount !== 1 ? "s" : ""}</li>` : "");
+      overlay.innerHTML = `<div style="background:var(--c-ffffff);padding:1.25rem;border-radius:.75rem;width:min(320px,92%);box-shadow:0 4px 24px rgba(0,0,0,.25);margin-bottom:1rem">
+        <p style="font-size:.88rem;margin:0 0 .5rem;color:var(--c-111111);font-weight:700">⚠️ This activity has data in <strong>${sessionsWithData.length} past session${sessionsWithData.length !== 1 ? "s" : ""}</strong>.</p>
+        <p style="font-size:.82rem;margin:0 0 .25rem;color:var(--c-374151);font-weight:600">Sessions with data:</p>
+        <ul style="font-size:.82rem;color:var(--c-374151);margin:0 0 .75rem;padding-left:1.2rem;line-height:1.8">${sessionDateHtml}</ul>
+        ${type === "no_trials" && hasScoringData ? `<p style="font-size:.83rem;margin:0 0 .75rem;color:var(--c-dc2626);font-weight:700;line-height:1.5">WARNING: All past trial scores, multiple choice and checkbox selections for this activity will be permanently deleted. Only remarks you have written will be kept.</p>` : ``}
+        <p style="font-size:.84rem;margin:0 0 .6rem;color:var(--c-374151);font-weight:600">Change the type anyway?</p>
         <div style="display:flex;gap:.5rem">
-          <button id="act-type-pw-cancel" style="flex:1;padding:.45rem;border:1px solid #d1d5db;border-radius:.4rem;background:#f9fafb;cursor:pointer;font-size:.85rem">Cancel</button>
-          <button id="act-type-pw-ok" style="flex:1;padding:.45rem;border:none;border-radius:.4rem;background:var(--primary);color:#fff;cursor:pointer;font-size:.85rem">Confirm</button>
+          <button id="act-type-pw-cancel" style="flex:1;padding:.45rem;border:1px solid var(--c-d1d5db);border-radius:.4rem;background:var(--c-f9fafb);cursor:pointer;font-size:.85rem">Cancel</button>
+          <button id="act-type-pw-ok" style="flex:1;padding:.45rem;border:none;border-radius:.4rem;background:var(--primary);color:var(--c-onaccent);cursor:pointer;font-size:.85rem">Confirm</button>
         </div>
       </div>`;
       // Mounted on whatever is actually in front.
@@ -28971,12 +29498,13 @@ function renderTargetManageContent(student, target) {
   document.addEventListener("click", window._closePeriodPanels);
 
   // Activity start date — opens global bottom sheet
-  $("manage-modal-body").querySelectorAll(".mn-act-start-btn").forEach(btn => {
+  $("manage-modal-body").querySelectorAll(".mn-act-start-btn, .mn-act-end-btn").forEach(btn => {
     btn.addEventListener("click", e => {
       e.stopPropagation();
       // Close kebab before opening picker
       $("manage-modal-body").querySelectorAll(".mn-kebab-menu").forEach(m => m.style.display = "none");
       _actStartPickerSaveFn  = savePeriodField;
+      _actStartPickerField   = btn.classList.contains("mn-act-end-btn") ? "activeTo" : "activeFrom";
       _actStartPickerIdx     = +btn.dataset.idx;
       _actStartPickerActs    = acts;
       _actStartPickerStudent = student;
@@ -29049,9 +29577,9 @@ function renderTargetManageContent(student, target) {
     }
     if (list) {
       list.innerHTML = archived.map(ao =>
-        `<div class="mn-removed-row" style="display:flex;align-items:center;gap:.5rem;padding:.3rem 0;border-bottom:1px solid #f3f4f6">` +
-        `<span style="flex:1;font-size:.9rem;color:#6b7280">${escHtml(ao.text)}</span>` +
-        `<button class="mn-opt-unremove" data-idx="${idx}" data-text="${escHtml(ao.text)}" data-score="${ao.score ?? ""}" style="font-size:.78rem;padding:.25rem .55rem;color:#059669;background:none;border:1px solid #6ee7b7;border-radius:.35rem;cursor:pointer">Put Back in Options</button>` +
+        `<div class="mn-removed-row" style="display:flex;align-items:center;gap:.5rem;padding:.3rem 0;border-bottom:1px solid var(--c-f3f4f6)">` +
+        `<span style="flex:1;font-size:.9rem;color:var(--c-6b7280)">${escHtml(ao.text)}</span>` +
+        `<button class="mn-opt-unremove" data-idx="${idx}" data-text="${escHtml(ao.text)}" data-score="${ao.score ?? ""}" style="font-size:.78rem;padding:.25rem .55rem;color:var(--c-059669);background:none;border:1px solid var(--c-6ee7b7);border-radius:.35rem;cursor:pointer">Put Back in Options</button>` +
         `</div>`
       ).join("");
       list.querySelectorAll(".mn-opt-unremove").forEach(btn => wireOptUnremove(btn, idx));
@@ -29126,10 +29654,10 @@ function renderTargetManageContent(student, target) {
   const showOptLockedMsg = inp => {
     if (inp.dataset.msgActive) return;
     inp.dataset.msgActive = "1";
-    inp.style.borderColor = "#f59e0b";
+    inp.style.borderColor = "var(--c-f59e0b)";
     const row = inp.closest(".mn-opt-row");
     const msg = document.createElement("span");
-    msg.style.cssText = "font-size:.88rem;color:#f59e0b;white-space:nowrap;flex-shrink:0;font-weight:700";
+    msg.style.cssText = "font-size:.88rem;color:var(--c-f59e0b);white-space:nowrap;flex-shrink:0;font-weight:700";
     msg.textContent = `Option can't be renamed — create a new one with "Remove Option" & "+ Add Option" instead.`;
     row.insertBefore(msg, inp);
     setTimeout(() => { inp.style.borderColor = ""; msg.remove(); delete inp.dataset.msgActive; }, 10000);
@@ -29147,13 +29675,13 @@ function renderTargetManageContent(student, target) {
       const existingActive   = parseOpts(acts[idx].inlineOptions || "");
       const existingArchived = (acts[idx].archivedOptions || []).map(ao => ao.text);
       if (existingActive.includes(newName) || existingArchived.includes(newName)) {
-        inp.style.borderColor = "#dc2626";
+        inp.style.borderColor = "var(--c-dc2626)";
         setTimeout(() => { inp.style.borderColor = ""; }, 2000);
         return;
       }
       inp.readOnly = true;
       inp.removeAttribute("data-empty-opt");
-      inp.style.background = "#f9fafb";
+      inp.style.background = "var(--c-f9fafb)";
       inp.style.cursor = "default";
       const remBtn = inp.closest(".mn-opt-row")?.querySelector(".mn-opt-remove");
       if (remBtn) remBtn.dataset.text = newName;
@@ -29193,10 +29721,10 @@ function renderTargetManageContent(student, target) {
       row.dataset.idx = String(oi);
       row.style.cssText = "display:flex;align-items:center;gap:.4rem;margin-bottom:.35rem";
       row.innerHTML =
-        `<span class="drag-handle" style="cursor:grab;color:#c4c9d4;font-size:1.1rem;flex-shrink:0;padding:0 .15rem;user-select:none">⠿</span>` +
+        `<span class="drag-handle" style="cursor:grab;color:var(--c-c4c9d4);font-size:1.1rem;flex-shrink:0;padding:0 .15rem;user-select:none">⠿</span>` +
         `<span class="mn-opt-num" style="display:none"></span>` +
-        `<span class="mn-opt-countdown" style="font-size:.88rem;color:#f59e0b;white-space:nowrap;flex-shrink:0;font-weight:700">Locks in 30s</span>` +
-        `<input class="admin-input mn-opt-item" data-idx="${idx}" data-oi="${oi}" placeholder="Enter option name…" style="flex:1;padding:.45rem .6rem;font-size:.95rem;min-width:0;border-color:#f59e0b;background:#fffbeb">` +
+        `<span class="mn-opt-countdown" style="font-size:.88rem;color:var(--c-f59e0b);white-space:nowrap;flex-shrink:0;font-weight:700">Locks in 30s</span>` +
+        `<input class="admin-input mn-opt-item" data-idx="${idx}" data-oi="${oi}" placeholder="Enter option name…" style="flex:1;padding:.45rem .6rem;font-size:.95rem;min-width:0;border-color:var(--c-f59e0b);background:var(--c-fffbeb)">` +
         `<input class="admin-input mn-opt-score" type="number" min="0" max="${target.maxPoints || 3}" step="0.5" data-idx="${idx}" data-oi="${oi}" placeholder="Pts" style="width:3.8rem;flex-shrink:0;padding:.45rem .3rem;font-size:.9rem;text-align:center">` +
         `<button class="mn-opt-remove" data-idx="${idx}" data-oi="${oi}" data-text="" title="Remove option">Remove Option</button>`;
       list.appendChild(row);
@@ -29219,11 +29747,11 @@ function renderTargetManageContent(student, target) {
         const existingActive   = parseOpts(acts[idx].inlineOptions || "");
         const existingArchived = (acts[idx].archivedOptions || []).map(ao => ao.text);
         if (existingActive.includes(newName) || existingArchived.includes(newName)) {
-          nameInput.style.borderColor = "#dc2626";
-          nameInput.style.background = "#fff5f5";
+          nameInput.style.borderColor = "var(--c-dc2626)";
+          nameInput.style.background = "var(--c-fff5f5)";
           if (countdown) countdown.remove();
           const errMsg = document.createElement("span");
-          errMsg.style.cssText = "font-size:.88rem;color:#dc2626;white-space:nowrap;flex-shrink:0;font-weight:700";
+          errMsg.style.cssText = "font-size:.88rem;color:var(--c-dc2626);white-space:nowrap;flex-shrink:0;font-weight:700";
           errMsg.textContent = existingArchived.includes(newName)
             ? `"${newName}" was removed — use "Put Back in Options"`
             : `"${newName}" already exists`;
@@ -29232,7 +29760,7 @@ function renderTargetManageContent(student, target) {
           return;
         }
         nameInput.readOnly = true;
-        nameInput.style.background = "#f9fafb";
+        nameInput.style.background = "var(--c-f9fafb)";
         nameInput.style.borderColor = "";
         nameInput.style.cursor = "default";
         if (countdown) countdown.remove();
@@ -29349,22 +29877,22 @@ function renderTemplateManageContent(template) {
     if (a.isHeading || a.isMaintainHeading) {
       const isGray = a.headingColor === "gray" || a.isMaintainHeading;
       const isGreen = a.headingColor === "green";
-      const hdgBg = isGray ? "#9ca3af" : isGreen ? "#a9d18e" : null;
-      const hdgTextColor = isGreen ? "#1a4731" : "#ffffff";
+      const hdgBg = isGray ? "var(--c-9ca3af)" : isGreen ? "var(--c-a9d18e)" : null;
+      const hdgTextColor = isGreen ? "var(--c-1a4731)" : "var(--c-ffffff)";
       html += `<div class="admin-list-item mn-heading-item" data-idx="${idx}"${hdgBg ? ` style="background:${hdgBg}"` : ''}>
         <span class="drag-handle"${hdgBg ? ` style="color:${hdgTextColor}"` : ''}>⠿</span>
         <textarea class="admin-input mn-heading-input" id="mn-act-name-${idx}" data-idx="${idx}"
           rows="1" placeholder="Enter Section Heading" style="flex:1${hdgBg ? `;background:${hdgBg};color:${hdgTextColor}` : ""}">${escHtml(a.name || "")}</textarea>
         <div style="position:relative">
           <button class="btn-adm-del mn-heading-color-btn" data-idx="${idx}" title="Heading options" style="font-size:1.15rem;font-weight:900;min-width:36px;min-height:36px">⋮</button>
-          <div class="mn-heading-color-menu" id="mn-hkm-${idx}" style="display:none;position:absolute;right:0;top:100%;z-index:100;background:white;border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:190px;overflow:hidden">
-            <button class="mn-hkm-color-toggle" data-idx="${idx}" style="width:100%;padding:.55rem .9rem;text-align:left;background:none;border:none;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:.84rem">🎨 Change Colour</button>
-            <div class="mn-hkm-color-panel" data-idx="${idx}" style="display:none;flex-direction:column;padding:.35rem .6rem;border-bottom:1px solid #f3f4f6;gap:.2rem">
-              <button class="mn-hkm-opt" data-idx="${idx}" data-action="blue" style="padding:.35rem .6rem;background:#dbeafe;border:2px solid ${!isGray ? '#2563eb' : '#93c5fd'};border-radius:.4rem;cursor:pointer;font-size:.75rem;text-align:left">💙 Blue (Normal)</button>
-              <button class="mn-hkm-opt" data-idx="${idx}" data-action="gray" style="padding:.35rem .6rem;background:#d9d9d9;border:2px solid ${isGray ? '#6b7280' : '#bfbfbf'};border-radius:.4rem;cursor:pointer;font-size:.75rem;text-align:left">🩶 Grey (Maintain)</button>
+          <div class="mn-heading-color-menu" id="mn-hkm-${idx}" style="display:none;position:absolute;right:0;top:100%;z-index:100;background:var(--c-ffffff);border:1px solid var(--c-e5e7eb);border-radius:.5rem;box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:190px;overflow:hidden">
+            <button class="mn-hkm-color-toggle" data-idx="${idx}" style="width:100%;padding:.55rem .9rem;text-align:left;background:none;border:none;border-bottom:1px solid var(--c-f3f4f6);cursor:pointer;font-size:.84rem">🎨 Change Colour</button>
+            <div class="mn-hkm-color-panel" data-idx="${idx}" style="display:none;flex-direction:column;padding:.35rem .6rem;border-bottom:1px solid var(--c-f3f4f6);gap:.2rem">
+              <button class="mn-hkm-opt" data-idx="${idx}" data-action="blue" style="padding:.35rem .6rem;background:var(--c-dbeafe);border:2px solid ${!isGray ? 'var(--c-2563eb)' : 'var(--c-93c5fd)'};border-radius:.4rem;cursor:pointer;font-size:.75rem;text-align:left">💙 Blue (Normal)</button>
+              <button class="mn-hkm-opt" data-idx="${idx}" data-action="gray" style="padding:.35rem .6rem;background:var(--c-d9d9d9);border:2px solid ${isGray ? 'var(--c-6b7280)' : 'var(--c-bfbfbf)'};border-radius:.4rem;cursor:pointer;font-size:.75rem;text-align:left">🩶 Grey (Maintain)</button>
             </div>
             ${periodSectionHtml(a.activeFrom, a.activeTo, idx, true)}
-            <button class="mn-hkm-opt" data-idx="${idx}" data-action="delete" style="width:100%;padding:.55rem .9rem;text-align:left;background:none;border:none;cursor:pointer;font-size:.84rem;color:#dc2626">🗑️ Delete</button>
+            <button class="mn-hkm-opt" data-idx="${idx}" data-action="delete" style="width:100%;padding:.55rem .9rem;text-align:left;background:none;border:none;cursor:pointer;font-size:.84rem;color:var(--c-dc2626)">🗑️ Delete</button>
           </div>
         </div>
       </div>`;
@@ -29373,29 +29901,39 @@ function renderTemplateManageContent(template) {
       const _editRef3    = state.sessionData?.date || todayDateStr();
       const noteInactive = !isActivityActive(a, _editRef3);
       const noteExpired  = noteInactive && !!a.activeTo && a.activeTo < _editRef3;
-      const noteBaseBg = 'background:#fffbeb;border:1px solid #f59e0b;color:#78350f';
+      const noteBaseBg = 'background:var(--c-fffbeb);border:1px solid var(--c-f59e0b);color:var(--c-78350f)';
       const noteItemStyle = noteExpired
         ? ` style="position:relative;${noteBaseBg}"`
-        : ` style="${noteBaseBg}${noteInactive ? ';opacity:0.3' : ''}"`;
-      const noteOverlay  = noteExpired ? `<div style="position:absolute;inset:0 2.5rem 0 0;background:rgba(255,255,255,.7);pointer-events:none;z-index:5;border-radius:inherit;display:flex;align-items:center;justify-content:center"><div style="pointer-events:none;background:rgba(255,255,255,.95);border:1px solid #e5e7eb;border-radius:.45rem;padding:.35rem .75rem;text-align:center;font-size:1.17rem;color:#374151;max-width:80%">⏸ This activity's period has ended — tap ⋮ on the right side to adjust the dates and bring it back.</div></div>` : '';
+        : ` style="${noteBaseBg}"`;
+      const noteOverlay  = noteExpired ? `<div style="position:absolute;inset:0 2.5rem 0 0;background:rgba(255,255,255,.7);pointer-events:none;z-index:5;border-radius:inherit;display:flex;align-items:center;justify-content:center"><div style="pointer-events:none;background:rgba(255,255,255,.95);border:1px solid var(--c-e5e7eb);border-radius:.45rem;padding:.35rem .75rem;text-align:center;font-size:1.17rem;color:var(--c-374151);max-width:80%">⏸ This note's period has ended — change its End Date above to bring it back.</div></div>` : '';
       html += `<div class="admin-list-item admin-note-item" data-idx="${idx}"${noteItemStyle}>
         <span class="drag-handle">⠿</span>
         <div style="flex:1;display:flex;flex-direction:column;gap:.25rem">
           <div style="display:flex;align-items:center;gap:.4rem;margin-bottom:.1rem">
-            <select class="mn-note-type-select" data-idx="${idx}" style="font-size:.9rem;padding:.2rem .4rem;border:1px solid #fcd34d;border-radius:.3rem;background:#fef3c7;color:#78350f;cursor:pointer">
+            <select class="mn-note-type-select" data-idx="${idx}" style="font-size:.9rem;padding:.2rem .4rem;border:1px solid var(--c-fcd34d);border-radius:.3rem;background:var(--c-fef3c7);color:var(--c-78350f);cursor:pointer">
               <option value="internal"${a.isNote ? ' selected' : ''}>🔒 This note is for ZORA's use only. Excluded from Word report</option>
               <option value="export"${a.isExportNote ? ' selected' : ''}>📄 Include in Word export</option>
             </select>
           </div>
           ${(() => { const _np = noteParts(a); return `
+          <div style="display:flex;gap:.6rem;align-items:flex-start;flex-wrap:wrap">
+            <div style="flex-shrink:0">
+              <div style="font-size:.85rem;font-weight:700;color:var(--c-78350f);margin-bottom:.2rem">Start Date</div>
+              <button class="mn-act-start-btn" data-idx="${idx}" style="padding:.35rem .65rem;border:1.5px solid var(--c-fcd34d);border-radius:.4rem;background:var(--c-fef3c7);cursor:pointer;font-size:.9rem;color:var(--c-78350f);white-space:nowrap;display:block">📅 ${a.activeFrom ? fmtPeriodDate(a.activeFrom) : 'Set date'}</button>
+            </div>
+            <div style="flex-shrink:0">
+              <div style="font-size:.85rem;font-weight:700;color:var(--c-78350f);margin-bottom:.2rem">End Date</div>
+              <button class="mn-act-end-btn" data-idx="${idx}" style="padding:.35rem .65rem;border:1.5px solid var(--c-fcd34d);border-radius:.4rem;background:var(--c-fef3c7);cursor:pointer;font-size:.9rem;color:var(--c-78350f);white-space:nowrap;display:block">📅 ${a.activeTo ? fmtPeriodDate(a.activeTo) : 'No end date'}</button>
+            </div>
+          </div>
           <div>
-            <div style="font-size:.85rem;font-weight:700;color:#78350f;margin-bottom:.2rem">Note Title</div>
+            <div style="font-size:.85rem;font-weight:700;color:var(--c-78350f);margin-bottom:.2rem">Note Title</div>
             <textarea class="admin-input mn-note-title-input" id="mn-note-title-${idx}" data-idx="${idx}"
               rows="1" placeholder="Enter Text Here"
               style="width:100%;box-sizing:border-box;display:block;overflow-y:hidden;resize:none">${escHtml(_np.title)}</textarea>
           </div>
           <div>
-            <div style="font-size:.85rem;font-weight:700;color:#78350f;margin-bottom:.2rem">Details</div>
+            <div style="font-size:.85rem;font-weight:700;color:var(--c-78350f);margin-bottom:.2rem">Details</div>
             <div style="display:flex;align-items:flex-start;gap:.3rem">
               ${formatButtonsHtml(`mn-note-details-${idx}`)}
               <textarea class="admin-input mn-note-details-input" id="mn-note-details-${idx}" data-idx="${idx}"
@@ -29406,17 +29944,16 @@ function renderTemplateManageContent(template) {
         </div>
         <div style="position:relative">
           <button class="btn-adm-del mn-kebab-btn" data-idx="${idx}" title="Note options" style="font-size:1.35rem;font-weight:900;min-width:36px;min-height:36px">⋮</button>
-          <div class="mn-kebab-menu" id="mn-km-${idx}" style="display:none;position:absolute;right:0;top:100%;z-index:100;background:white;border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:200px;overflow:hidden">
-            ${periodSectionHtml(a.activeFrom, a.activeTo, idx, true)}
+          <div class="mn-kebab-menu" id="mn-km-${idx}" style="display:none;position:absolute;right:0;top:100%;z-index:100;background:var(--c-ffffff);border:1px solid var(--c-e5e7eb);border-radius:.5rem;box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:200px;overflow:hidden">
             <div style="display:flex;align-items:stretch">
-              <button class="mn-km-opt" data-idx="${idx}" data-action="delete" style="flex:1;padding:.55rem .9rem;text-align:left;background:none;border:none;cursor:pointer;font-size:.84rem;color:#dc2626">🗑️ Delete Note</button>
+              <button class="mn-km-opt" data-idx="${idx}" data-action="delete" style="flex:1;padding:.55rem .9rem;text-align:left;background:none;border:none;cursor:pointer;font-size:.84rem;color:var(--c-dc2626)">🗑️ Delete Note</button>
             </div>
           </div>
         </div>
         ${noteOverlay}
       </div>`;
     } else if (a.isMaintain) {
-      html += `<div class="admin-list-item" data-idx="${idx}" style="background:#f3f4f6;border:1px solid #d1d5db">
+      html += `<div class="admin-list-item" data-idx="${idx}" style="background:var(--c-f3f4f6);border:1px solid var(--c-d1d5db)">
         <span class="drag-handle">⠿</span>
         <div style="flex:1;display:flex;flex-direction:column;gap:.3rem">
           <div style="display:flex;align-items:flex-start;gap:.3rem">
@@ -29425,7 +29962,7 @@ function renderTemplateManageContent(template) {
               rows="1" placeholder="Activity name" style="flex:1">${escHtml(a.name || "")}</textarea>
           </div>
           <div style="display:flex;align-items:center;gap:.5rem">
-            <span style="font-size:.75rem;color:#6b7280;white-space:nowrap;font-weight:600">Fixed Remark:</span>
+            <span style="font-size:.75rem;color:var(--c-6b7280);white-space:nowrap;font-weight:600">Fixed Remark:</span>
             <textarea class="admin-input mn-maintain-remark-input" id="mn-act-mremark-${idx}" data-idx="${idx}"
               rows="1" placeholder="Read-Only Remark"
               style="flex:1;overflow-y:hidden;resize:none">${escHtml(a.maintainRemark || "")}</textarea>
@@ -29437,7 +29974,7 @@ function renderTemplateManageContent(template) {
       const remarkTypeSelect = buildRemarkTypeControls(a, idx);
       const isGray = a.activityColor === "gray" || a.isMaintainLive;
       const isGreen = a.activityColor === "green";
-      const actBaseBg   = isGray ? 'background:#f3f4f6;border:1px solid #d1d5db' : isGreen ? 'background:#e2efda;border:1px solid #a9d18e' : null;
+      const actBaseBg   = isGray ? 'background:var(--c-f3f4f6);border:1px solid var(--c-d1d5db)' : isGreen ? 'background:var(--c-e2efda);border:1px solid var(--c-a9d18e)' : null;
       const actItemStyle = actBaseBg ? ` style="${actBaseBg}"` : '';
       html += `<div class="admin-list-item" data-idx="${idx}"${actItemStyle}>
         <span class="drag-handle">⠿</span>
@@ -29445,8 +29982,8 @@ function renderTemplateManageContent(template) {
           <div class="mn-act-compact-title">${inactiveReasonBadge(a)}<span class="mn-act-title-text">${paPlainTitle(a)}</span></div>
           <div class="mn-act-body" style="display:flex;flex-direction:column;gap:.3rem">
           <div style="display:flex;align-items:center;gap:.4rem">
-            <span style="font-size:.8rem;font-weight:700;color:#6b7280;white-space:nowrap">Start Date:</span>
-            <button class="mn-act-start-btn" data-idx="${idx}" style="padding:.2rem .5rem;border:1.5px solid #d1d5db;border-radius:.35rem;background:#f0f9ff;cursor:pointer;font-size:.95rem;color:#374151;white-space:nowrap">📅 ${a.activeFrom ? fmtPeriodDate(a.activeFrom) : 'Set date'}</button>
+            <span style="font-size:.8rem;font-weight:700;color:var(--c-6b7280);white-space:nowrap">Start Date:</span>
+            <button class="mn-act-start-btn" data-idx="${idx}" style="padding:.2rem .5rem;border:1.5px solid var(--c-d1d5db);border-radius:.35rem;background:var(--c-f0f9ff);cursor:pointer;font-size:.95rem;color:var(--c-374151);white-space:nowrap">📅 ${a.activeFrom ? fmtPeriodDate(a.activeFrom) : 'Set date'}</button>
           </div>
           <div style="display:flex;align-items:center;gap:.35rem">
             <input type="text" class="admin-input mn-act-title-input" id="mn-act-title-${idx}" data-idx="${idx}"
@@ -29460,16 +29997,16 @@ function renderTemplateManageContent(template) {
               rows="1" placeholder="Activity Details" style="flex:1">${escHtml(bulletifyForEditing(a.name || ''))}</textarea>
           </div>
           <div style="display:flex;align-items:flex-start;gap:.5rem">
-            <span style="font-size:.93rem;color:#374151;white-space:nowrap;font-weight:700;padding-top:.3rem">Activity Type:</span>
+            <span style="font-size:.93rem;color:var(--c-374151);white-space:nowrap;font-weight:700;padding-top:.3rem">Activity Type:</span>
             ${remarkTypeSelect}
           </div>
           </div>
         </div>
         <div style="position:relative;align-self:flex-start">
           <button class="btn-adm-del mn-kebab-btn" data-idx="${idx}" title="Activity options" style="font-size:1.35rem;font-weight:900;min-width:36px;min-height:36px">⋮</button>
-          <div class="mn-kebab-menu" id="mn-km-${idx}" style="display:none;position:absolute;right:0;top:100%;z-index:100;background:white;border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:310px;overflow:hidden">
+          <div class="mn-kebab-menu" id="mn-km-${idx}" style="display:none;position:absolute;right:0;top:100%;z-index:100;background:var(--c-ffffff);border:1px solid var(--c-e5e7eb);border-radius:.5rem;box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:310px;overflow:hidden">
             <div style="display:flex;align-items:stretch">
-              <button class="mn-km-opt" data-idx="${idx}" data-action="delete" style="flex:1;padding:.55rem .9rem;text-align:left;background:none;border:none;cursor:pointer;font-size:.84rem;color:#dc2626">🗑️ Delete Activity</button>
+              <button class="mn-km-opt" data-idx="${idx}" data-action="delete" style="flex:1;padding:.55rem .9rem;text-align:left;background:none;border:none;cursor:pointer;font-size:.84rem;color:var(--c-dc2626)">🗑️ Delete Activity</button>
             </div>
           </div>
         </div>
@@ -29494,7 +30031,7 @@ function renderTemplateManageContent(template) {
     const _mastTopLevelKeys  = new Set(_mastTopLevel.map(a => a.title || a.name));
     const _mastCount = _mastTopLevel.filter(a => !_mastSubParentKeys.has(a.title || a.name)).length + _mastSubs.length;
     html += `<div style="margin-top:1.25rem">
-      <button class="mn-collapsed-toggle" data-section="mastered" style="display:flex;align-items:center;gap:.5rem;background:none;border:none;cursor:pointer;width:100%;padding:.25rem 0;font-size:.85rem;font-weight:700;color:#374151">
+      <button class="mn-collapsed-toggle" data-section="mastered" style="display:flex;align-items:center;gap:.5rem;background:none;border:none;cursor:pointer;width:100%;padding:.25rem 0;font-size:.85rem;font-weight:700;color:var(--c-374151)">
         <span class="mn-toggle-arrow" style="font-size:.75rem">▶</span>
         Mastered (${_mastCount})
       </button>
@@ -29507,15 +30044,15 @@ function renderTemplateManageContent(template) {
       html += `<div class="mn-inact-card" data-global-idx="${globalIdx}" style="margin-bottom:${myMastSubs.length ? '.1rem' : '.35rem'}">
         <div style="flex:1;display:flex;flex-direction:column;gap:.4rem">
           <div>
-            <div style="font-size:.85rem;font-weight:700;color:#374151;margin-bottom:.2rem">${acts.some(a2 => a2.parentActivity === (a.title || a.name)) ? "Parent Activity Title" : "Activity Title"}</div>
-            <div style="border:1px solid #b8bcc4;border-radius:.45rem;overflow:hidden">
+            <div style="font-size:.85rem;font-weight:700;color:var(--c-374151);margin-bottom:.2rem">${acts.some(a2 => a2.parentActivity === (a.title || a.name)) ? "Parent Activity Title" : "Activity Title"}</div>
+            <div style="border:1px solid var(--c-b8bcc4);border-radius:.45rem;overflow:hidden">
               <input type="text" class="admin-input mn-act-title-input" id="mn-act-title-${globalIdx}" data-idx="${globalIdx}" placeholder="Enter Text Here" value="${escHtml(a.title || '')}" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block" />
             </div>
           </div>
           ${acts.some(a2 => a2.parentActivity === (a.title || a.name)) ? '' : `<div>
-            <div style="font-size:.85rem;font-weight:700;color:#374151;margin-bottom:.2rem">Details</div>
-            <div style="border:1px solid #b8bcc4;border-radius:.45rem;overflow:hidden">
-              <div style="display:flex;gap:.2rem;padding:.28rem .45rem;background:#f9fafb;border-bottom:1px solid #b8bcc4">
+            <div style="font-size:.85rem;font-weight:700;color:var(--c-374151);margin-bottom:.2rem">Details</div>
+            <div style="border:1px solid var(--c-b8bcc4);border-radius:.45rem;overflow:hidden">
+              <div style="display:flex;gap:.2rem;padding:.28rem .45rem;background:var(--c-f9fafb);border-bottom:1px solid var(--c-b8bcc4)">
                 <button class="btn-fmt btn-fmt-bold" type="button" data-input-id="mn-act-details-${globalIdx}" title="Bold (Ctrl+B)">B</button>
                 <button class="btn-fmt btn-fmt-underline" type="button" data-input-id="mn-act-details-${globalIdx}" title="Underline (Ctrl+U)">U</button>
                 <button class="btn-fmt btn-fmt-bullet" type="button" data-input-id="mn-act-details-${globalIdx}" title="Bullet (Ctrl+Shift+L)">•</button>
@@ -29526,15 +30063,15 @@ function renderTemplateManageContent(template) {
         </div>
         <div style="display:flex;flex-direction:column;align-items:flex-end;gap:.3rem;flex-shrink:0">
           <div style="display:flex;flex-direction:column;align-items:flex-end;gap:.2rem">
-            <span style="font-size:.72rem;color:#9ca3af;white-space:nowrap">${_mnCreatedLabel}</span>
+            <span style="font-size:.72rem;color:var(--c-9ca3af);white-space:nowrap">${_mnCreatedLabel}</span>
           </div>
           <div style="position:relative">
             <button class="btn-mn-inactive-kebab" data-completed-idx="${ci}" data-inactive-type="mastered" style="font-size:1.2rem;font-weight:900;min-width:28px;height:28px;border:none;background:none;cursor:pointer;padding:0 5px;border-radius:.3rem;line-height:1">⋮</button>
-            <div class="mn-inactive-km" style="display:none;position:absolute;right:0;top:100%;z-index:200;background:white;border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:210px;overflow:hidden">
-              <button class="btn-mn-change-date" data-completed-idx="${ci}" data-inactive-type="mastered" style="width:100%;padding:.5rem .85rem;text-align:left;background:none;border:none;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:.84rem;color:#374151">📅 Change Mastered Date</button>
-              <button class="btn-mn-restore" data-completed-idx="${ci}" data-inactive-type="mastered" style="width:100%;padding:.5rem .85rem;text-align:left;background:none;border:none;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:.84rem;color:#1d4ed8">↩ Restore to Active Activity</button>
-              <button class="btn-mn-switch-status" data-completed-idx="${ci}" data-from="mastered" style="width:100%;padding:.5rem .85rem;text-align:left;background:none;border:none;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:.84rem;color:#6b7280">🚩 Change to Discontinued</button>
-              <button class="btn-mn-del-mastered" data-completed-idx="${ci}" style="width:100%;padding:.5rem .85rem;text-align:left;background:none;border:none;cursor:pointer;font-size:.84rem;color:#dc2626">🗑️ Delete Activity</button>
+            <div class="mn-inactive-km" style="display:none;position:absolute;right:0;top:100%;z-index:200;background:var(--c-ffffff);border:1px solid var(--c-e5e7eb);border-radius:.5rem;box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:210px;overflow:hidden">
+              <button class="btn-mn-change-date" data-completed-idx="${ci}" data-inactive-type="mastered" style="width:100%;padding:.5rem .85rem;text-align:left;background:none;border:none;border-bottom:1px solid var(--c-f3f4f6);cursor:pointer;font-size:.84rem;color:var(--c-374151)">📅 Change Mastered Date</button>
+              <button class="btn-mn-restore" data-completed-idx="${ci}" data-inactive-type="mastered" style="width:100%;padding:.5rem .85rem;text-align:left;background:none;border:none;border-bottom:1px solid var(--c-f3f4f6);cursor:pointer;font-size:.84rem;color:var(--c-1d4ed8)">↩ Restore to Active Activity</button>
+              <button class="btn-mn-switch-status" data-completed-idx="${ci}" data-from="mastered" style="width:100%;padding:.5rem .85rem;text-align:left;background:none;border:none;border-bottom:1px solid var(--c-f3f4f6);cursor:pointer;font-size:.84rem;color:var(--c-6b7280)">🚩 Change to Discontinued</button>
+              <button class="btn-mn-del-mastered" data-completed-idx="${ci}" style="width:100%;padding:.5rem .85rem;text-align:left;background:none;border:none;cursor:pointer;font-size:.84rem;color:var(--c-dc2626)">🗑️ Delete Activity</button>
             </div>
           </div>
         </div>
@@ -29543,18 +30080,18 @@ function renderTemplateManageContent(template) {
         const subCi = masteredActs.indexOf(sub);
         const subGlobalIdx = acts.indexOf(sub);
         html += `<div class="mn-inact-card mn-inact-card--sub" data-global-idx="${subGlobalIdx}">
-          <span style="font-size:.8rem;color:#059669;font-weight:700;flex-shrink:0;padding:.5rem .3rem 0 .55rem">${String.fromCharCode(97 + si)})</span>
+          <span style="font-size:.8rem;color:var(--c-059669);font-weight:700;flex-shrink:0;padding:.5rem .3rem 0 .55rem">${String.fromCharCode(97 + si)})</span>
           <div style="flex:1;display:flex;flex-direction:column;gap:.3rem;min-width:0">
             <div>
-              <div style="font-size:.8rem;font-weight:700;color:#374151;margin-bottom:.15rem">Sub-activity Title</div>
-              <div style="border:1px solid #b8bcc4;border-radius:.4rem;overflow:hidden">
+              <div style="font-size:.8rem;font-weight:700;color:var(--c-374151);margin-bottom:.15rem">Sub-activity Title</div>
+              <div style="border:1px solid var(--c-b8bcc4);border-radius:.4rem;overflow:hidden">
                 <input type="text" class="admin-input mn-act-title-input" id="mn-act-title-${subGlobalIdx}" data-idx="${subGlobalIdx}" placeholder="Enter Text Here" value="${escHtml(sub.title || '')}" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block" />
               </div>
             </div>
             <div>
-              <div style="font-size:.8rem;font-weight:700;color:#374151;margin-bottom:.15rem">Details</div>
-              <div style="border:1px solid #b8bcc4;border-radius:.4rem;overflow:hidden">
-                <div style="display:flex;gap:.2rem;padding:.25rem .4rem;background:#f9fafb;border-bottom:1px solid #b8bcc4">
+              <div style="font-size:.8rem;font-weight:700;color:var(--c-374151);margin-bottom:.15rem">Details</div>
+              <div style="border:1px solid var(--c-b8bcc4);border-radius:.4rem;overflow:hidden">
+                <div style="display:flex;gap:.2rem;padding:.25rem .4rem;background:var(--c-f9fafb);border-bottom:1px solid var(--c-b8bcc4)">
                   <button class="btn-fmt btn-fmt-bold" type="button" data-input-id="mn-act-details-${subGlobalIdx}" title="Bold (Ctrl+B)">B</button>
                   <button class="btn-fmt btn-fmt-underline" type="button" data-input-id="mn-act-details-${subGlobalIdx}" title="Underline (Ctrl+U)">U</button>
                   <button class="btn-fmt btn-fmt-bullet" type="button" data-input-id="mn-act-details-${subGlobalIdx}" title="Bullet (Ctrl+Shift+L)">•</button>
@@ -29565,11 +30102,11 @@ function renderTemplateManageContent(template) {
           </div>
           <div style="display:flex;flex-direction:column;align-items:flex-end;gap:.25rem;flex-shrink:0;padding-top:.3rem">
             <div style="position:relative">
-              <button class="btn-mn-inactive-kebab" data-completed-idx="${subCi}" data-inactive-type="mastered" style="font-size:1rem;font-weight:900;min-width:22px;height:22px;border:none;background:none;cursor:pointer;padding:0 4px;border-radius:.25rem;line-height:1;color:#059669">⋮</button>
-              <div class="mn-inactive-km" style="display:none;position:absolute;right:0;top:100%;z-index:200;background:white;border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:210px;overflow:hidden">
-                <button class="btn-mn-change-date" data-completed-idx="${subCi}" data-inactive-type="mastered" style="width:100%;padding:.5rem .85rem;text-align:left;background:none;border:none;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:.84rem;color:#374151">📅 Change Mastered Date</button>
-                <button class="btn-mn-restore" data-completed-idx="${subCi}" data-inactive-type="mastered" style="width:100%;padding:.5rem .85rem;text-align:left;background:none;border:none;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:.84rem;color:#1d4ed8">↩ Restore to Active</button>
-                <button class="btn-mn-switch-status" data-completed-idx="${subCi}" data-from="mastered" style="width:100%;padding:.5rem .85rem;text-align:left;background:none;border:none;cursor:pointer;font-size:.84rem;color:#6b7280">🚩 Change to Discontinued</button>
+              <button class="btn-mn-inactive-kebab" data-completed-idx="${subCi}" data-inactive-type="mastered" style="font-size:1rem;font-weight:900;min-width:22px;height:22px;border:none;background:none;cursor:pointer;padding:0 4px;border-radius:.25rem;line-height:1;color:var(--c-059669)">⋮</button>
+              <div class="mn-inactive-km" style="display:none;position:absolute;right:0;top:100%;z-index:200;background:var(--c-ffffff);border:1px solid var(--c-e5e7eb);border-radius:.5rem;box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:210px;overflow:hidden">
+                <button class="btn-mn-change-date" data-completed-idx="${subCi}" data-inactive-type="mastered" style="width:100%;padding:.5rem .85rem;text-align:left;background:none;border:none;border-bottom:1px solid var(--c-f3f4f6);cursor:pointer;font-size:.84rem;color:var(--c-374151)">📅 Change Mastered Date</button>
+                <button class="btn-mn-restore" data-completed-idx="${subCi}" data-inactive-type="mastered" style="width:100%;padding:.5rem .85rem;text-align:left;background:none;border:none;border-bottom:1px solid var(--c-f3f4f6);cursor:pointer;font-size:.84rem;color:var(--c-1d4ed8)">↩ Restore to Active</button>
+                <button class="btn-mn-switch-status" data-completed-idx="${subCi}" data-from="mastered" style="width:100%;padding:.5rem .85rem;text-align:left;background:none;border:none;cursor:pointer;font-size:.84rem;color:var(--c-6b7280)">🚩 Change to Discontinued</button>
               </div>
             </div>
           </div>
@@ -29584,24 +30121,24 @@ function renderTemplateManageContent(template) {
       Object.entries(_omGroups).forEach(([pk, subs]) => {
         const _omParent = acts.find(a => (a.title || a.name) === pk && !a.parentActivity);
         const _omParentTitle = _omParent ? (paDisplayHtml(_omParent, true) || escHtml(pk)) : escHtml(pk);
-        const _omParentCreated = _omParent?.activeFrom ? `<span style="font-size:.71rem;color:#9ca3af;margin-left:.4rem">Created ${fmtPeriodDate(_omParent.activeFrom)}</span>` : '';
-        html += `<div class="mn-inact-hdr" data-global-idx="${_omParent ? acts.indexOf(_omParent) : -1}" style="display:flex;align-items:center;gap:.5rem;background:#f0f9ff;border-radius:.35rem;margin-bottom:.35rem;padding:.45rem .75rem"><span class="mn-row-chip mn-row-chip--parent">Parent Activity</span><span style="font-size:.85rem;font-weight:700;color:#1e40af;flex:1;min-width:0">${_omParentTitle}</span><span style="font-size:.71rem;background:#dbeafe;color:#1d4ed8;font-weight:600;padding:.05rem .4rem;border-radius:.3rem;border:1px solid #93c5fd;white-space:nowrap;flex-shrink:0">Still Active</span>${_omParentCreated}</div>`;
+        const _omParentCreated = _omParent?.activeFrom ? `<span style="font-size:.71rem;color:var(--c-9ca3af);margin-left:.4rem">Created ${fmtPeriodDate(_omParent.activeFrom)}</span>` : '';
+        html += `<div class="mn-inact-hdr" data-global-idx="${_omParent ? acts.indexOf(_omParent) : -1}" style="display:flex;align-items:center;gap:.5rem;background:var(--c-f0f9ff);border-radius:.35rem;margin-bottom:.35rem;padding:.45rem .75rem"><span class="mn-row-chip mn-row-chip--parent">Parent Activity</span><span style="font-size:.85rem;font-weight:700;color:var(--c-1e40af);flex:1;min-width:0">${_omParentTitle}</span><span style="font-size:.71rem;background:var(--c-dbeafe);color:var(--c-1d4ed8);font-weight:600;padding:.05rem .4rem;border-radius:.3rem;border:1px solid var(--c-93c5fd);white-space:nowrap;flex-shrink:0">Still Active</span>${_omParentCreated}</div>`;
         subs.forEach((sub, si) => {
           const subCi = masteredActs.indexOf(sub);
           const subGlobalIdx = acts.indexOf(sub);
           html += `<div class="mn-inact-card mn-inact-card--sub" data-global-idx="${subGlobalIdx}">
-            <span style="font-size:.8rem;color:#059669;font-weight:700;flex-shrink:0;padding:.5rem .3rem 0 .55rem">${String.fromCharCode(97 + si)})</span>
+            <span style="font-size:.8rem;color:var(--c-059669);font-weight:700;flex-shrink:0;padding:.5rem .3rem 0 .55rem">${String.fromCharCode(97 + si)})</span>
             <div style="flex:1;display:flex;flex-direction:column;gap:.3rem;min-width:0">
               <div>
-                <div style="font-size:.8rem;font-weight:700;color:#374151;margin-bottom:.15rem">Sub-activity Title</div>
-                <div style="border:1px solid #b8bcc4;border-radius:.4rem;overflow:hidden">
+                <div style="font-size:.8rem;font-weight:700;color:var(--c-374151);margin-bottom:.15rem">Sub-activity Title</div>
+                <div style="border:1px solid var(--c-b8bcc4);border-radius:.4rem;overflow:hidden">
                   <input type="text" class="admin-input mn-act-title-input" id="mn-act-title-${subGlobalIdx}" data-idx="${subGlobalIdx}" placeholder="Enter Text Here" value="${escHtml(sub.title || '')}" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block" />
                 </div>
               </div>
               <div>
-                <div style="font-size:.8rem;font-weight:700;color:#374151;margin-bottom:.15rem">Details</div>
-                <div style="border:1px solid #b8bcc4;border-radius:.4rem;overflow:hidden">
-                  <div style="display:flex;gap:.2rem;padding:.25rem .4rem;background:#f9fafb;border-bottom:1px solid #b8bcc4">
+                <div style="font-size:.8rem;font-weight:700;color:var(--c-374151);margin-bottom:.15rem">Details</div>
+                <div style="border:1px solid var(--c-b8bcc4);border-radius:.4rem;overflow:hidden">
+                  <div style="display:flex;gap:.2rem;padding:.25rem .4rem;background:var(--c-f9fafb);border-bottom:1px solid var(--c-b8bcc4)">
                     <button class="btn-fmt btn-fmt-bold" type="button" data-input-id="mn-act-details-${subGlobalIdx}" title="Bold (Ctrl+B)">B</button>
                     <button class="btn-fmt btn-fmt-underline" type="button" data-input-id="mn-act-details-${subGlobalIdx}" title="Underline (Ctrl+U)">U</button>
                     <button class="btn-fmt btn-fmt-bullet" type="button" data-input-id="mn-act-details-${subGlobalIdx}" title="Bullet (Ctrl+Shift+L)">•</button>
@@ -29612,11 +30149,11 @@ function renderTemplateManageContent(template) {
             </div>
             <div style="display:flex;flex-direction:column;align-items:flex-end;gap:.25rem;flex-shrink:0;padding-top:.3rem">
               <div style="position:relative">
-                <button class="btn-mn-inactive-kebab" data-completed-idx="${subCi}" data-inactive-type="mastered" style="font-size:1rem;font-weight:900;min-width:22px;height:22px;border:none;background:none;cursor:pointer;padding:0 4px;border-radius:.25rem;line-height:1;color:#059669">⋮</button>
-                <div class="mn-inactive-km" style="display:none;position:absolute;right:0;top:100%;z-index:200;background:white;border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:210px;overflow:hidden">
-                  <button class="btn-mn-change-date" data-completed-idx="${subCi}" data-inactive-type="mastered" style="width:100%;padding:.5rem .85rem;text-align:left;background:none;border:none;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:.84rem;color:#374151">📅 Change Mastered Date</button>
-                  <button class="btn-mn-restore" data-completed-idx="${subCi}" data-inactive-type="mastered" style="width:100%;padding:.5rem .85rem;text-align:left;background:none;border:none;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:.84rem;color:#1d4ed8">↩ Restore to Active</button>
-                  <button class="btn-mn-switch-status" data-completed-idx="${subCi}" data-from="mastered" style="width:100%;padding:.5rem .85rem;text-align:left;background:none;border:none;cursor:pointer;font-size:.84rem;color:#6b7280">🚩 Change to Discontinued</button>
+                <button class="btn-mn-inactive-kebab" data-completed-idx="${subCi}" data-inactive-type="mastered" style="font-size:1rem;font-weight:900;min-width:22px;height:22px;border:none;background:none;cursor:pointer;padding:0 4px;border-radius:.25rem;line-height:1;color:var(--c-059669)">⋮</button>
+                <div class="mn-inactive-km" style="display:none;position:absolute;right:0;top:100%;z-index:200;background:var(--c-ffffff);border:1px solid var(--c-e5e7eb);border-radius:.5rem;box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:210px;overflow:hidden">
+                  <button class="btn-mn-change-date" data-completed-idx="${subCi}" data-inactive-type="mastered" style="width:100%;padding:.5rem .85rem;text-align:left;background:none;border:none;border-bottom:1px solid var(--c-f3f4f6);cursor:pointer;font-size:.84rem;color:var(--c-374151)">📅 Change Mastered Date</button>
+                  <button class="btn-mn-restore" data-completed-idx="${subCi}" data-inactive-type="mastered" style="width:100%;padding:.5rem .85rem;text-align:left;background:none;border:none;border-bottom:1px solid var(--c-f3f4f6);cursor:pointer;font-size:.84rem;color:var(--c-1d4ed8)">↩ Restore to Active</button>
+                  <button class="btn-mn-switch-status" data-completed-idx="${subCi}" data-from="mastered" style="width:100%;padding:.5rem .85rem;text-align:left;background:none;border:none;cursor:pointer;font-size:.84rem;color:var(--c-6b7280)">🚩 Change to Discontinued</button>
                 </div>
               </div>
             </div>
@@ -29635,7 +30172,7 @@ function renderTemplateManageContent(template) {
     const _discTopLevelKeys  = new Set(_discTopLevel.map(a => a.title || a.name));
     const _discCount = _discTopLevel.filter(a => !_discSubParentKeys.has(a.title || a.name)).length + _discSubs.length;
     html += `<div style="margin-top:.5rem">
-      <button class="mn-collapsed-toggle" data-section="discontinued" style="display:flex;align-items:center;gap:.5rem;background:none;border:none;cursor:pointer;width:100%;padding:.25rem 0;font-size:.85rem;font-weight:700;color:#374151">
+      <button class="mn-collapsed-toggle" data-section="discontinued" style="display:flex;align-items:center;gap:.5rem;background:none;border:none;cursor:pointer;width:100%;padding:.25rem 0;font-size:.85rem;font-weight:700;color:var(--c-374151)">
         <span class="mn-toggle-arrow" style="font-size:.75rem">▶</span>
         Discontinued (${_discCount})
       </button>
@@ -29648,15 +30185,15 @@ function renderTemplateManageContent(template) {
       html += `<div class="mn-inact-card" data-global-idx="${globalIdx}" style="margin-bottom:${myDiscSubs.length ? '.1rem' : '.35rem'}">
         <div style="flex:1;display:flex;flex-direction:column;gap:.4rem">
           <div>
-            <div style="font-size:.85rem;font-weight:700;color:#374151;margin-bottom:.2rem">${acts.some(a2 => a2.parentActivity === (a.title || a.name)) ? "Parent Activity Title" : "Activity Title"}</div>
-            <div style="border:1px solid #b8bcc4;border-radius:.45rem;overflow:hidden">
+            <div style="font-size:.85rem;font-weight:700;color:var(--c-374151);margin-bottom:.2rem">${acts.some(a2 => a2.parentActivity === (a.title || a.name)) ? "Parent Activity Title" : "Activity Title"}</div>
+            <div style="border:1px solid var(--c-b8bcc4);border-radius:.45rem;overflow:hidden">
               <input type="text" class="admin-input mn-act-title-input" id="mn-act-title-${globalIdx}" data-idx="${globalIdx}" placeholder="Enter Text Here" value="${escHtml(a.title || '')}" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block" />
             </div>
           </div>
           ${acts.some(a2 => a2.parentActivity === (a.title || a.name)) ? '' : `<div>
-            <div style="font-size:.85rem;font-weight:700;color:#374151;margin-bottom:.2rem">Details</div>
-            <div style="border:1px solid #b8bcc4;border-radius:.45rem;overflow:hidden">
-              <div style="display:flex;gap:.2rem;padding:.28rem .45rem;background:#f9fafb;border-bottom:1px solid #b8bcc4">
+            <div style="font-size:.85rem;font-weight:700;color:var(--c-374151);margin-bottom:.2rem">Details</div>
+            <div style="border:1px solid var(--c-b8bcc4);border-radius:.45rem;overflow:hidden">
+              <div style="display:flex;gap:.2rem;padding:.28rem .45rem;background:var(--c-f9fafb);border-bottom:1px solid var(--c-b8bcc4)">
                 <button class="btn-fmt btn-fmt-bold" type="button" data-input-id="mn-act-details-${globalIdx}" title="Bold (Ctrl+B)">B</button>
                 <button class="btn-fmt btn-fmt-underline" type="button" data-input-id="mn-act-details-${globalIdx}" title="Underline (Ctrl+U)">U</button>
                 <button class="btn-fmt btn-fmt-bullet" type="button" data-input-id="mn-act-details-${globalIdx}" title="Bullet (Ctrl+Shift+L)">•</button>
@@ -29667,15 +30204,15 @@ function renderTemplateManageContent(template) {
         </div>
         <div style="display:flex;flex-direction:column;align-items:flex-end;gap:.3rem;flex-shrink:0">
           <div style="display:flex;flex-direction:column;align-items:flex-end;gap:.2rem">
-            <span style="font-size:.72rem;color:#9ca3af;white-space:nowrap">${_mnCreatedLabel2}</span>
+            <span style="font-size:.72rem;color:var(--c-9ca3af);white-space:nowrap">${_mnCreatedLabel2}</span>
           </div>
           <div style="position:relative">
             <button class="btn-mn-inactive-kebab" data-completed-idx="${ci}" data-inactive-type="discontinued" style="font-size:1.2rem;font-weight:900;min-width:28px;height:28px;border:none;background:none;cursor:pointer;padding:0 5px;border-radius:.3rem;line-height:1">⋮</button>
-            <div class="mn-inactive-km" style="display:none;position:absolute;right:0;top:100%;z-index:200;background:white;border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:210px;overflow:hidden">
-              <button class="btn-mn-change-date" data-completed-idx="${ci}" data-inactive-type="discontinued" style="width:100%;padding:.5rem .85rem;text-align:left;background:none;border:none;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:.84rem;color:#374151">📅 Change Discontinued Date</button>
-              <button class="btn-mn-restore" data-completed-idx="${ci}" data-inactive-type="discontinued" style="width:100%;padding:.5rem .85rem;text-align:left;background:none;border:none;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:.84rem;color:#1d4ed8">↩ Restore to Active Activity</button>
-              <button class="btn-mn-switch-status" data-completed-idx="${ci}" data-from="discontinued" style="width:100%;padding:.5rem .85rem;text-align:left;background:none;border:none;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:.84rem;color:#059669">⭐ Change to Mastered</button>
-              <button class="btn-mn-del-discontinued" data-completed-idx="${ci}" style="width:100%;padding:.5rem .85rem;text-align:left;background:none;border:none;cursor:pointer;font-size:.84rem;color:#dc2626">🗑️ Delete Activity</button>
+            <div class="mn-inactive-km" style="display:none;position:absolute;right:0;top:100%;z-index:200;background:var(--c-ffffff);border:1px solid var(--c-e5e7eb);border-radius:.5rem;box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:210px;overflow:hidden">
+              <button class="btn-mn-change-date" data-completed-idx="${ci}" data-inactive-type="discontinued" style="width:100%;padding:.5rem .85rem;text-align:left;background:none;border:none;border-bottom:1px solid var(--c-f3f4f6);cursor:pointer;font-size:.84rem;color:var(--c-374151)">📅 Change Discontinued Date</button>
+              <button class="btn-mn-restore" data-completed-idx="${ci}" data-inactive-type="discontinued" style="width:100%;padding:.5rem .85rem;text-align:left;background:none;border:none;border-bottom:1px solid var(--c-f3f4f6);cursor:pointer;font-size:.84rem;color:var(--c-1d4ed8)">↩ Restore to Active Activity</button>
+              <button class="btn-mn-switch-status" data-completed-idx="${ci}" data-from="discontinued" style="width:100%;padding:.5rem .85rem;text-align:left;background:none;border:none;border-bottom:1px solid var(--c-f3f4f6);cursor:pointer;font-size:.84rem;color:var(--c-059669)">⭐ Change to Mastered</button>
+              <button class="btn-mn-del-discontinued" data-completed-idx="${ci}" style="width:100%;padding:.5rem .85rem;text-align:left;background:none;border:none;cursor:pointer;font-size:.84rem;color:var(--c-dc2626)">🗑️ Delete Activity</button>
             </div>
           </div>
         </div>
@@ -29683,19 +30220,19 @@ function renderTemplateManageContent(template) {
       myDiscSubs.forEach((sub, si) => {
         const subCi = discontinuedActs.indexOf(sub);
         const subGlobalIdx = acts.indexOf(sub);
-        html += `<div style="display:flex;align-items:flex-start;gap:.4rem;background:#fff5f5;border:1px solid #fca5a5;border-left:3px solid #dc2626;border-radius:.35rem;margin-bottom:.1rem;margin-left:3rem;padding:.35rem .5rem .35rem 0">
-          <span style="font-size:.8rem;color:#dc2626;font-weight:700;flex-shrink:0;padding:.5rem .3rem 0 .55rem">${String.fromCharCode(97 + si)})</span>
+        html += `<div style="display:flex;align-items:flex-start;gap:.4rem;background:var(--c-fff5f5);border:1px solid var(--c-fca5a5);border-left:3px solid var(--c-dc2626);border-radius:.35rem;margin-bottom:.1rem;margin-left:3rem;padding:.35rem .5rem .35rem 0">
+          <span style="font-size:.8rem;color:var(--c-dc2626);font-weight:700;flex-shrink:0;padding:.5rem .3rem 0 .55rem">${String.fromCharCode(97 + si)})</span>
           <div style="flex:1;display:flex;flex-direction:column;gap:.3rem;min-width:0">
             <div>
-              <div style="font-size:.8rem;font-weight:700;color:#374151;margin-bottom:.15rem">Sub-activity Title</div>
-              <div style="border:1px solid #b8bcc4;border-radius:.4rem;overflow:hidden">
+              <div style="font-size:.8rem;font-weight:700;color:var(--c-374151);margin-bottom:.15rem">Sub-activity Title</div>
+              <div style="border:1px solid var(--c-b8bcc4);border-radius:.4rem;overflow:hidden">
                 <input type="text" class="admin-input mn-act-title-input" id="mn-act-title-${subGlobalIdx}" data-idx="${subGlobalIdx}" placeholder="Enter Text Here" value="${escHtml(sub.title || '')}" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block" />
               </div>
             </div>
             <div>
-              <div style="font-size:.8rem;font-weight:700;color:#374151;margin-bottom:.15rem">Details</div>
-              <div style="border:1px solid #b8bcc4;border-radius:.4rem;overflow:hidden">
-                <div style="display:flex;gap:.2rem;padding:.25rem .4rem;background:#f9fafb;border-bottom:1px solid #b8bcc4">
+              <div style="font-size:.8rem;font-weight:700;color:var(--c-374151);margin-bottom:.15rem">Details</div>
+              <div style="border:1px solid var(--c-b8bcc4);border-radius:.4rem;overflow:hidden">
+                <div style="display:flex;gap:.2rem;padding:.25rem .4rem;background:var(--c-f9fafb);border-bottom:1px solid var(--c-b8bcc4)">
                   <button class="btn-fmt btn-fmt-bold" type="button" data-input-id="mn-act-details-${subGlobalIdx}" title="Bold (Ctrl+B)">B</button>
                   <button class="btn-fmt btn-fmt-underline" type="button" data-input-id="mn-act-details-${subGlobalIdx}" title="Underline (Ctrl+U)">U</button>
                   <button class="btn-fmt btn-fmt-bullet" type="button" data-input-id="mn-act-details-${subGlobalIdx}" title="Bullet (Ctrl+Shift+L)">•</button>
@@ -29706,11 +30243,11 @@ function renderTemplateManageContent(template) {
           </div>
           <div style="display:flex;flex-direction:column;align-items:flex-end;gap:.25rem;flex-shrink:0;padding-top:.3rem">
             <div style="position:relative">
-              <button class="btn-mn-inactive-kebab" data-completed-idx="${subCi}" data-inactive-type="discontinued" style="font-size:1rem;font-weight:900;min-width:22px;height:22px;border:none;background:none;cursor:pointer;padding:0 4px;border-radius:.25rem;line-height:1;color:#dc2626">⋮</button>
-              <div class="mn-inactive-km" style="display:none;position:absolute;right:0;top:100%;z-index:200;background:white;border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:210px;overflow:hidden">
-                <button class="btn-mn-change-date" data-completed-idx="${subCi}" data-inactive-type="discontinued" style="width:100%;padding:.5rem .85rem;text-align:left;background:none;border:none;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:.84rem;color:#374151">📅 Change Discontinued Date</button>
-                <button class="btn-mn-restore" data-completed-idx="${subCi}" data-inactive-type="discontinued" style="width:100%;padding:.5rem .85rem;text-align:left;background:none;border:none;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:.84rem;color:#1d4ed8">↩ Restore to Active</button>
-                <button class="btn-mn-switch-status" data-completed-idx="${subCi}" data-from="discontinued" style="width:100%;padding:.5rem .85rem;text-align:left;background:none;border:none;cursor:pointer;font-size:.84rem;color:#059669">⭐ Change to Mastered</button>
+              <button class="btn-mn-inactive-kebab" data-completed-idx="${subCi}" data-inactive-type="discontinued" style="font-size:1rem;font-weight:900;min-width:22px;height:22px;border:none;background:none;cursor:pointer;padding:0 4px;border-radius:.25rem;line-height:1;color:var(--c-dc2626)">⋮</button>
+              <div class="mn-inactive-km" style="display:none;position:absolute;right:0;top:100%;z-index:200;background:var(--c-ffffff);border:1px solid var(--c-e5e7eb);border-radius:.5rem;box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:210px;overflow:hidden">
+                <button class="btn-mn-change-date" data-completed-idx="${subCi}" data-inactive-type="discontinued" style="width:100%;padding:.5rem .85rem;text-align:left;background:none;border:none;border-bottom:1px solid var(--c-f3f4f6);cursor:pointer;font-size:.84rem;color:var(--c-374151)">📅 Change Discontinued Date</button>
+                <button class="btn-mn-restore" data-completed-idx="${subCi}" data-inactive-type="discontinued" style="width:100%;padding:.5rem .85rem;text-align:left;background:none;border:none;border-bottom:1px solid var(--c-f3f4f6);cursor:pointer;font-size:.84rem;color:var(--c-1d4ed8)">↩ Restore to Active</button>
+                <button class="btn-mn-switch-status" data-completed-idx="${subCi}" data-from="discontinued" style="width:100%;padding:.5rem .85rem;text-align:left;background:none;border:none;cursor:pointer;font-size:.84rem;color:var(--c-059669)">⭐ Change to Mastered</button>
               </div>
             </div>
           </div>
@@ -29725,24 +30262,24 @@ function renderTemplateManageContent(template) {
       Object.entries(_odGroups).forEach(([pk, subs]) => {
         const _odParent = acts.find(a => (a.title || a.name) === pk && !a.parentActivity);
         const _odParentTitle = _odParent ? (paDisplayHtml(_odParent, true) || escHtml(pk)) : escHtml(pk);
-        const _odParentCreated = _odParent?.activeFrom ? `<span style="font-size:.71rem;color:#9ca3af;margin-left:.4rem">Created ${fmtPeriodDate(_odParent.activeFrom)}</span>` : '';
-        html += `<div class="mn-inact-hdr" data-global-idx="${_odParent ? acts.indexOf(_odParent) : -1}" style="display:flex;align-items:center;gap:.5rem;background:#f0f9ff;border-radius:.35rem;margin-bottom:.35rem;padding:.45rem .75rem"><span class="mn-row-chip mn-row-chip--parent">Parent Activity</span><span style="font-size:.85rem;font-weight:700;color:#1e40af;flex:1;min-width:0">${_odParentTitle}</span><span style="font-size:.71rem;background:#dbeafe;color:#1d4ed8;font-weight:600;padding:.05rem .4rem;border-radius:.3rem;border:1px solid #93c5fd;white-space:nowrap;flex-shrink:0">Still Active</span>${_odParentCreated}</div>`;
+        const _odParentCreated = _odParent?.activeFrom ? `<span style="font-size:.71rem;color:var(--c-9ca3af);margin-left:.4rem">Created ${fmtPeriodDate(_odParent.activeFrom)}</span>` : '';
+        html += `<div class="mn-inact-hdr" data-global-idx="${_odParent ? acts.indexOf(_odParent) : -1}" style="display:flex;align-items:center;gap:.5rem;background:var(--c-f0f9ff);border-radius:.35rem;margin-bottom:.35rem;padding:.45rem .75rem"><span class="mn-row-chip mn-row-chip--parent">Parent Activity</span><span style="font-size:.85rem;font-weight:700;color:var(--c-1e40af);flex:1;min-width:0">${_odParentTitle}</span><span style="font-size:.71rem;background:var(--c-dbeafe);color:var(--c-1d4ed8);font-weight:600;padding:.05rem .4rem;border-radius:.3rem;border:1px solid var(--c-93c5fd);white-space:nowrap;flex-shrink:0">Still Active</span>${_odParentCreated}</div>`;
         subs.forEach((sub, si) => {
           const subCi = discontinuedActs.indexOf(sub);
           const subGlobalIdx = acts.indexOf(sub);
           html += `<div class="mn-inact-card mn-inact-card--sub" data-global-idx="${subGlobalIdx}">
-            <span style="font-size:.8rem;color:#dc2626;font-weight:700;flex-shrink:0;padding:.5rem .3rem 0 .55rem">${String.fromCharCode(97 + si)})</span>
+            <span style="font-size:.8rem;color:var(--c-dc2626);font-weight:700;flex-shrink:0;padding:.5rem .3rem 0 .55rem">${String.fromCharCode(97 + si)})</span>
             <div style="flex:1;display:flex;flex-direction:column;gap:.3rem;min-width:0">
               <div>
-                <div style="font-size:.8rem;font-weight:700;color:#374151;margin-bottom:.15rem">Sub-activity Title</div>
-                <div style="border:1px solid #b8bcc4;border-radius:.4rem;overflow:hidden">
+                <div style="font-size:.8rem;font-weight:700;color:var(--c-374151);margin-bottom:.15rem">Sub-activity Title</div>
+                <div style="border:1px solid var(--c-b8bcc4);border-radius:.4rem;overflow:hidden">
                   <input type="text" class="admin-input mn-act-title-input" id="mn-act-title-${subGlobalIdx}" data-idx="${subGlobalIdx}" placeholder="Enter Text Here" value="${escHtml(sub.title || '')}" style="border:none;border-radius:0;width:100%;box-sizing:border-box;display:block" />
                 </div>
               </div>
               <div>
-                <div style="font-size:.8rem;font-weight:700;color:#374151;margin-bottom:.15rem">Details</div>
-                <div style="border:1px solid #b8bcc4;border-radius:.4rem;overflow:hidden">
-                  <div style="display:flex;gap:.2rem;padding:.25rem .4rem;background:#f9fafb;border-bottom:1px solid #b8bcc4">
+                <div style="font-size:.8rem;font-weight:700;color:var(--c-374151);margin-bottom:.15rem">Details</div>
+                <div style="border:1px solid var(--c-b8bcc4);border-radius:.4rem;overflow:hidden">
+                  <div style="display:flex;gap:.2rem;padding:.25rem .4rem;background:var(--c-f9fafb);border-bottom:1px solid var(--c-b8bcc4)">
                     <button class="btn-fmt btn-fmt-bold" type="button" data-input-id="mn-act-details-${subGlobalIdx}" title="Bold (Ctrl+B)">B</button>
                     <button class="btn-fmt btn-fmt-underline" type="button" data-input-id="mn-act-details-${subGlobalIdx}" title="Underline (Ctrl+U)">U</button>
                     <button class="btn-fmt btn-fmt-bullet" type="button" data-input-id="mn-act-details-${subGlobalIdx}" title="Bullet (Ctrl+Shift+L)">•</button>
@@ -29753,11 +30290,11 @@ function renderTemplateManageContent(template) {
             </div>
             <div style="display:flex;flex-direction:column;align-items:flex-end;gap:.25rem;flex-shrink:0;padding-top:.3rem">
               <div style="position:relative">
-                <button class="btn-mn-inactive-kebab" data-completed-idx="${subCi}" data-inactive-type="discontinued" style="font-size:1rem;font-weight:900;min-width:22px;height:22px;border:none;background:none;cursor:pointer;padding:0 4px;border-radius:.25rem;line-height:1;color:#dc2626">⋮</button>
-                <div class="mn-inactive-km" style="display:none;position:absolute;right:0;top:100%;z-index:200;background:white;border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:210px;overflow:hidden">
-                  <button class="btn-mn-change-date" data-completed-idx="${subCi}" data-inactive-type="discontinued" style="width:100%;padding:.5rem .85rem;text-align:left;background:none;border:none;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:.84rem;color:#374151">📅 Change Discontinued Date</button>
-                  <button class="btn-mn-restore" data-completed-idx="${subCi}" data-inactive-type="discontinued" style="width:100%;padding:.5rem .85rem;text-align:left;background:none;border:none;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:.84rem;color:#1d4ed8">↩ Restore to Active</button>
-                  <button class="btn-mn-switch-status" data-completed-idx="${subCi}" data-from="discontinued" style="width:100%;padding:.5rem .85rem;text-align:left;background:none;border:none;cursor:pointer;font-size:.84rem;color:#059669">⭐ Change to Mastered</button>
+                <button class="btn-mn-inactive-kebab" data-completed-idx="${subCi}" data-inactive-type="discontinued" style="font-size:1rem;font-weight:900;min-width:22px;height:22px;border:none;background:none;cursor:pointer;padding:0 4px;border-radius:.25rem;line-height:1;color:var(--c-dc2626)">⋮</button>
+                <div class="mn-inactive-km" style="display:none;position:absolute;right:0;top:100%;z-index:200;background:var(--c-ffffff);border:1px solid var(--c-e5e7eb);border-radius:.5rem;box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:210px;overflow:hidden">
+                  <button class="btn-mn-change-date" data-completed-idx="${subCi}" data-inactive-type="discontinued" style="width:100%;padding:.5rem .85rem;text-align:left;background:none;border:none;border-bottom:1px solid var(--c-f3f4f6);cursor:pointer;font-size:.84rem;color:var(--c-374151)">📅 Change Discontinued Date</button>
+                  <button class="btn-mn-restore" data-completed-idx="${subCi}" data-inactive-type="discontinued" style="width:100%;padding:.5rem .85rem;text-align:left;background:none;border:none;border-bottom:1px solid var(--c-f3f4f6);cursor:pointer;font-size:.84rem;color:var(--c-1d4ed8)">↩ Restore to Active</button>
+                  <button class="btn-mn-switch-status" data-completed-idx="${subCi}" data-from="discontinued" style="width:100%;padding:.5rem .85rem;text-align:left;background:none;border:none;cursor:pointer;font-size:.84rem;color:var(--c-059669)">⭐ Change to Mastered</button>
                 </div>
               </div>
             </div>
@@ -30179,7 +30716,7 @@ function renderTemplateManageContent(template) {
     });
   });
 
-  $("manage-modal-body").querySelectorAll(".mn-act-start-btn").forEach(btn => {
+  $("manage-modal-body").querySelectorAll(".mn-act-start-btn, .mn-act-end-btn").forEach(btn => {
     btn.addEventListener("click", e => {
       e.stopPropagation();
       _actStartPickerSaveFn = async (idx, field, value) => {
@@ -30189,6 +30726,7 @@ function renderTemplateManageContent(template) {
         await saveTemplateFn();
         renderTemplateManageContent(template);
       };
+      _actStartPickerField   = btn.classList.contains("mn-act-end-btn") ? "activeTo" : "activeFrom";
       _actStartPickerIdx     = +btn.dataset.idx;
       _actStartPickerActs    = acts;
       _actStartPickerStudent = null;
@@ -30348,6 +30886,10 @@ function renderTemplateManageContent(template) {
       if (!pa) return;
       if (type === "mastered") { delete pa.masteredOn; delete pa.isCompleted; }
       else { delete pa.discontinuedOn; delete pa.isArchived; delete pa.isStopped; }
+      // Mastering and discontinuing drop the grey but keep the maintained
+      // tag, so an activity coming back to active is being checked over
+      // time again and needs its grey back with it.
+      if (pa.maintained) pa.activityColor = "gray";
       await saveTemplateFn();
       renderTemplateManageContent(template);
     });
@@ -30502,7 +31044,7 @@ function renderTemplateManageContent(template) {
       const idx = Number(inp.dataset.idx);
       inp.readOnly = true;
       inp.removeAttribute("data-empty-opt");
-      inp.style.background = "#f9fafb";
+      inp.style.background = "var(--c-f9fafb)";
       inp.style.cursor = "default";
       const remBtn = inp.closest(".mn-opt-row")?.querySelector(".mn-opt-remove");
       if (remBtn) remBtn.dataset.text = newName;
@@ -30540,10 +31082,10 @@ function renderTemplateManageContent(template) {
       row.dataset.idx = String(oi);
       row.style.cssText = "display:flex;align-items:center;gap:.4rem;margin-bottom:.35rem";
       row.innerHTML =
-        `<span class="drag-handle" style="cursor:grab;color:#c4c9d4;font-size:1.1rem;flex-shrink:0;padding:0 .15rem;user-select:none">⠿</span>` +
+        `<span class="drag-handle" style="cursor:grab;color:var(--c-c4c9d4);font-size:1.1rem;flex-shrink:0;padding:0 .15rem;user-select:none">⠿</span>` +
         `<span class="mn-opt-num" style="display:none"></span>` +
-        `<span class="mn-opt-countdown" style="font-size:.88rem;color:#f59e0b;white-space:nowrap;flex-shrink:0;font-weight:700">Locks in 30s</span>` +
-        `<input class="admin-input mn-opt-item" data-idx="${idx}" data-oi="${oi}" placeholder="Enter option name…" style="flex:1;padding:.45rem .6rem;font-size:.95rem;min-width:0;border-color:#f59e0b;background:#fffbeb">` +
+        `<span class="mn-opt-countdown" style="font-size:.88rem;color:var(--c-f59e0b);white-space:nowrap;flex-shrink:0;font-weight:700">Locks in 30s</span>` +
+        `<input class="admin-input mn-opt-item" data-idx="${idx}" data-oi="${oi}" placeholder="Enter option name…" style="flex:1;padding:.45rem .6rem;font-size:.95rem;min-width:0;border-color:var(--c-f59e0b);background:var(--c-fffbeb)">` +
         `<button class="mn-opt-remove" data-idx="${idx}" data-oi="${oi}" title="Remove option">Remove Option</button>`;
       list.appendChild(row);
 
@@ -30562,18 +31104,18 @@ function renderTemplateManageContent(template) {
         const newName = nameInput.value.trim();
         const existingActive = parseOpts(acts[idx].inlineOptions || "");
         if (existingActive.includes(newName)) {
-          nameInput.style.borderColor = "#dc2626";
-          nameInput.style.background = "#fff5f5";
+          nameInput.style.borderColor = "var(--c-dc2626)";
+          nameInput.style.background = "var(--c-fff5f5)";
           if (countdown) countdown.remove();
           const errMsg = document.createElement("span");
-          errMsg.style.cssText = "font-size:.88rem;color:#dc2626;white-space:nowrap;flex-shrink:0;font-weight:700";
+          errMsg.style.cssText = "font-size:.88rem;color:var(--c-dc2626);white-space:nowrap;flex-shrink:0;font-weight:700";
           errMsg.textContent = `"${newName}" already exists`;
           row.insertBefore(errMsg, nameInput);
           setTimeout(() => { list.removeChild(row); renumberTmplOpts(list); }, 10000);
           return;
         }
         nameInput.readOnly = true;
-        nameInput.style.background = "#f9fafb";
+        nameInput.style.background = "var(--c-f9fafb)";
         nameInput.style.borderColor = "";
         nameInput.style.cursor = "default";
         if (countdown) countdown.remove();
@@ -30988,13 +31530,13 @@ function populateGroupTargetDropdown(targets) {
       $("session-picker-title").textContent = "Edit Instructors";
       $("session-picker-list").innerHTML = `
         <div style="padding:1.5rem 1.25rem;display:flex;flex-direction:column;align-items:center">
-          <p style="margin:0 0 1.25rem;font-weight:600;color:#374151;text-align:center">Who is facilitating this session?</p>
+          <p style="margin:0 0 1.25rem;font-weight:600;color:var(--c-374151);text-align:center">Who is facilitating this session?</p>
           <div style="width:100%;max-width:320px">
             ${INSTRUCTORS.map(inst => `
-              <label style="display:flex;align-items:center;justify-content:center;gap:.85rem;padding:.75rem 0;cursor:pointer;font-size:1rem;border-bottom:1px solid #f3f4f6">
+              <label style="display:flex;align-items:center;justify-content:center;gap:.85rem;padding:.75rem 0;cursor:pointer;font-size:1rem;border-bottom:1px solid var(--c-f3f4f6)">
                 <input type="checkbox" class="inst-edit-check" value="${inst.id}"${curParticipants.includes(inst.id) ? " checked" : ""}
-                  style="width:1.2rem;height:1.2rem;accent-color:#3b82f6;cursor:pointer;flex-shrink:0">
-                <span style="color:#1f2937;width:7rem">${escHtml(inst.name)}</span>
+                  style="width:1.2rem;height:1.2rem;accent-color:var(--c-3b82f6);cursor:pointer;flex-shrink:0">
+                <span style="color:var(--c-1f2937);width:7rem">${escHtml(inst.name)}</span>
               </label>`).join("")}
           </div>
           <button class="btn-inst-save export-btn" style="margin-top:1.5rem;width:100%;padding:.85rem;font-size:1rem;text-align:center">Save</button>
@@ -31083,7 +31625,10 @@ async function autoFillGroupMaintainedRemarks(group, sessionId, attendees) {
   let count = 0;
   for (const target of (group.targets || [])) {
     for (const pa of (target.predefinedActivities || [])) {
-      if (!pa.maintained || pa.isHeading || pa.isNote || pa.isExportNote || pa.isMaintainHeading || (!pa.name && !pa.title) || pa.parentActivity) continue;
+      // Finished activities are skipped. The maintained flag now survives
+      // mastering and discontinuing, and without this it would keep
+      // auto-filling "Maintain" into sessions after that date.
+      if (!pa.maintained || pa.masteredOn || pa.discontinuedOn || pa.isHeading || pa.isNote || pa.isExportNote || pa.isMaintainHeading || (!pa.name && !pa.title) || pa.parentActivity) continue;
       // Non-Notes-Only activities handled by autoFillGroupStructuredRemarks
       if (getActivityInlineOptions(pa) || pa.optionsMulti || pa.manualScore) continue;
       // Only auto-fill "Maintain" for sessions on or after the maintained date
@@ -31370,12 +31915,12 @@ function buildGroupItemsByActivity(target, data, attendees, _grpFilterPaSet = nu
       const _grpNoteNp = noteParts(pa);
       if (_grpNoteNp.title || _grpNoteNp.details) {
         const noteTag = pa.isExportNote
-          ? `<div style="font-size:.82rem;color:#c2410c;margin-bottom:.25rem">📄 Included in Word export</div>`
-          : `<div style="font-size:.82rem;color:#9a3412;margin-bottom:.25rem">🔒 This note is for ZORA's use only. Excluded from Word report</div>`;
-        items.push(`<div class="entry-block" contenteditable="false" style="background:#fffbeb;border-left:4px solid #f59e0b;">
+          ? `<div style="font-size:.82rem;color:var(--c-c2410c);margin-bottom:.25rem">📄 Included in Word export</div>`
+          : `<div style="font-size:.82rem;color:var(--c-9a3412);margin-bottom:.25rem">🔒 This note is for ZORA's use only. Excluded from Word report</div>`;
+        items.push(`<div class="entry-block" contenteditable="false" style="background:var(--c-fffbeb);border-left:4px solid var(--c-f59e0b);">
           <div class="entry-field">
-            <span class="field-label" style="color:#b45309">Note</span>
-            <div style="flex:1;color:#92400e;font-size:.93rem;font-weight:600">${noteTag}<div style="white-space:pre-wrap">${noteBodyHtml(pa)}</div></div>
+            <span class="field-label" style="color:var(--c-b45309)">Note</span>
+            <div style="flex:1;color:var(--c-92400e);font-size:.93rem;font-weight:600">${noteTag}<div style="white-space:pre-wrap">${noteBodyHtml(pa)}</div></div>
           </div>
         </div>`);
       }
@@ -31398,15 +31943,15 @@ function buildGroupItemsByActivity(target, data, attendees, _grpFilterPaSet = nu
       grpActNum = grpNumOf.get(pa) || 0;
       const grpIsGrayP = pa.activityColor === "gray" || pa.isMaintainLive || pa.maintained;
       const grpIsGreenP = pa.activityColor === "green";
-      const grpPBorder = grpIsGreenP ? 'border:1px solid #a9d18e;border-left:4px solid #70ad47;background:#e2efda;'
-                       : grpIsGrayP  ? 'border:1px solid #e5e7eb;border-left:4px solid #d1d5db;background:#f3f4f6;'
-                       : 'border:1px solid var(--border);border-left:5px solid var(--primary);background:var(--white);';
+      const grpPBorder = grpIsGreenP ? 'border:1px solid var(--c-a9d18e);border-left:4px solid var(--c-70ad47);background:var(--c-e2efda);'
+                       : grpIsGrayP  ? 'border:1px solid var(--c-e5e7eb);border-left:4px solid var(--c-d1d5db);background:var(--c-f3f4f6);'
+                       : 'border:1px solid var(--border);border-left:5px solid var(--primary-accent);background:var(--white);';
       let groupHtml = `<div style="display:flex;flex-direction:column;gap:0">`;
       groupHtml += `<div class="entry-block" style="${grpPBorder}border-radius:var(--radius) var(--radius) 0 0;border-bottom:none;box-shadow:var(--shadow)">
         <div class="entry-field" contenteditable="false">
           <span class="field-label">Activity</span>
-          <span class="field-value-fixed">${inactiveReasonBadge(pa)}<span style="color:#6b7280;font-weight:600;margin-right:.2rem">${grpActNum})</span>${paDisplayHtml(pa, true)}</span>
-          ${(pa.activeFrom || pa.createdOn) ? `<span style="font-size:.75rem;color:#9ca3af;white-space:nowrap;flex-shrink:0;align-self:flex-start">Created: ${fmtPeriodDate(pa.activeFrom || pa.createdOn)}</span>` : ""}
+          <span class="field-value-fixed">${inactiveReasonBadge(pa)}<span style="color:var(--c-6b7280);font-weight:600;margin-right:.2rem">${grpActNum})</span>${paDisplayHtml(pa, true)}</span>
+          ${(pa.activeFrom || pa.createdOn) ? `<span style="font-size:.75rem;color:var(--c-9ca3af);white-space:nowrap;flex-shrink:0;align-self:flex-start">Created: ${fmtPeriodDate(pa.activeFrom || pa.createdOn)}</span>` : ""}
         </div>
       </div>`;
       children.forEach((sub, si) => {
@@ -31481,17 +32026,17 @@ function buildGroupItemsByActivity(target, data, attendees, _grpFilterPaSet = nu
         });
         const _subDot = _grpFilterPaSet
           ? (_subHasContent
-            ? `<span style="display:inline-flex;align-items:center;justify-content:center;width:17px;height:17px;border-radius:50%;background:#22c55e;color:#fff;font-size:.6rem;font-weight:900;margin-right:.3rem;flex-shrink:0">✓</span>`
-            : `<span style="display:inline-flex;align-items:center;justify-content:center;width:17px;height:17px;border-radius:50%;border:2px solid #d1d5db;margin-right:.3rem;flex-shrink:0"></span>`)
+            ? `<span style="display:inline-flex;align-items:center;justify-content:center;width:17px;height:17px;border-radius:50%;background:var(--c-22c55e);color:var(--c-onaccent);font-size:.6rem;font-weight:900;margin-right:.3rem;flex-shrink:0">✓</span>`
+            : `<span style="display:inline-flex;align-items:center;justify-content:center;width:17px;height:17px;border-radius:50%;border:2px solid var(--c-d1d5db);margin-right:.3rem;flex-shrink:0"></span>`)
           : "";
         const subCard  = renderGroupActivityCard(sub.title || sub.name, subActId, target, data, attendees, null, sub, true, sub.parentActivity, sub.id, _grpFilterPaSet, 0, true);
         const subRadius = isLast ? '0 0 var(--radius) var(--radius)' : '0';
         const _subCreatedDate = sub.activeFrom || sub.createdOn;
-        groupHtml += `<div style="border:1px solid var(--border);border-left:5px solid var(--primary);background:var(--white);border-top:1px solid var(--border);border-radius:${subRadius};overflow:hidden">
+        groupHtml += `<div style="border:1px solid var(--border);border-left:5px solid var(--primary-accent);background:var(--white);border-top:1px solid var(--border);border-radius:${subRadius};overflow:hidden">
           <div style="padding:.4rem .6rem;display:flex;align-items:center;gap:.45rem">
-            ${_subDot}<span style="flex-shrink:0;background:#dbeafe;color:#1e40af;border-radius:.4rem;padding:.12rem .5rem;font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em;white-space:nowrap">Subactivity</span>
-            <span style="font-size:.85rem;font-weight:700;color:#374151"><span style="color:#1e40af">${letters[si]})</span> ${inactiveReasonBadge(sub)}${paDisplayHtml(sub)}</span>
-            ${_subCreatedDate ? `<span style="font-size:.75rem;color:#9ca3af;white-space:nowrap;margin-left:auto">Created: ${fmtPeriodDate(_subCreatedDate)}</span>` : ""}
+            ${_subDot}<span style="flex-shrink:0;background:var(--c-dbeafe);color:var(--c-1e40af);border-radius:.4rem;padding:.12rem .5rem;font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em;white-space:nowrap">Subactivity</span>
+            <span style="font-size:.85rem;font-weight:700;color:var(--c-374151)"><span style="color:var(--c-1e40af)">${letters[si]})</span> ${inactiveReasonBadge(sub)}${paDisplayHtml(sub)}</span>
+            ${_subCreatedDate ? `<span style="font-size:.75rem;color:var(--c-9ca3af);white-space:nowrap;margin-left:auto">Created: ${fmtPeriodDate(_subCreatedDate)}</span>` : ""}
             ${sub.id ? `<button class="btn-icon btn-grp-edit-pencil" contenteditable="false" data-pa-id="${escHtml(sub.id)}" title="Edit in Edit Target" style="font-size:.85rem;opacity:.55;line-height:1">✏️</button>` : ""}
           </div>
           ${subCard}
@@ -31572,9 +32117,9 @@ function buildGroupItemsByActivity(target, data, attendees, _grpFilterPaSet = nu
         allPas: allGrpPas, dateHeader, totalCount: grpTotalCount });
     };
     items.push(`<div style="margin-top:.75rem;padding-bottom:1.5rem">
-      ${renderGrpSection('Mastered Activities', '#059669', grpMastered, 'mastered', 'Mastered On')}
-      ${renderGrpSection('Discontinued Activities', '#dc2626', grpDiscontinued, 'discontinued', 'Discontinued On')}
-      ${renderGrpSection('Inactive Activities', '#6b7280', grpOther, 'other', 'Date')}
+      ${renderGrpSection('Mastered Activities', 'var(--c-059669)', grpMastered, 'mastered', 'Mastered On')}
+      ${renderGrpSection('Discontinued Activities', 'var(--c-dc2626)', grpDiscontinued, 'discontinued', 'Discontinued On')}
+      ${renderGrpSection('Inactive Activities', 'var(--c-6b7280)', grpOther, 'other', 'Date')}
     </div>`);
   }
   return items;
@@ -31672,7 +32217,7 @@ function buildGroupItemsWithSidebar(target, data, attendees, allPas, grpSubsByPa
       ? buildGroupItemsByStudent(target, data, attendees, sectionPaSet)
       : buildGroupItemsByActivity(target, data, attendees, sectionPaSet);
     allSectionsHtml += `<div class="grp-sec-scroll-section" data-sec-anchor="${i}" style="display:flex;flex-direction:column;gap:.85rem">
-      <div contenteditable="false" style="font-size:1.43rem;font-weight:700;color:#374151;padding-bottom:.5rem;border-bottom:2px solid #e5e7eb">${escHtml(section.name)}</div>
+      <div contenteditable="false" style="font-size:1.43rem;font-weight:700;color:var(--c-374151);padding-bottom:.5rem;border-bottom:2px solid var(--c-e5e7eb)">${escHtml(section.name)}</div>
       ${sectionItems.join("")}
     </div>`;
   });
@@ -31682,10 +32227,10 @@ function buildGroupItemsWithSidebar(target, data, attendees, allPas, grpSubsByPa
 
   if (_grpSidebarCollapsed) {
     return [`<div class="sec-layout" contenteditable="false" style="display:flex;flex-direction:column;gap:0">
-      <div contenteditable="false" style="display:flex;align-items:center;gap:.6rem;padding:.3rem 0 .5rem;margin-bottom:.4rem;border-bottom:1px solid #e5e7eb">
-        <button class="grp-sec-toggle-btn" contenteditable="false" title="Show sections" onmousedown="event.preventDefault()" style="background:none;border:1.5px solid var(--primary);border-radius:.4rem;cursor:pointer;font-size:1.21rem;color:var(--primary);padding:.2rem .4rem;line-height:1;flex-shrink:0">☰</button>
-        <span style="font-size:.9rem;font-weight:700;color:#374151;white-space:nowrap">${totalWritten} of ${totalActs} written</span>
-        <div style="flex:1;background:#e5e7eb;border-radius:9999px;height:4px;max-width:100px">
+      <div contenteditable="false" style="display:flex;align-items:center;gap:.6rem;padding:.3rem 0 .5rem;margin-bottom:.4rem;border-bottom:1px solid var(--c-e5e7eb)">
+        <button class="grp-sec-toggle-btn" contenteditable="false" title="Show sections" onmousedown="event.preventDefault()" style="background:none;border:1.5px solid var(--primary-accent);border-radius:.4rem;cursor:pointer;font-size:1.21rem;color:var(--primary-accent);padding:.2rem .4rem;line-height:1;flex-shrink:0">☰</button>
+        <span style="font-size:.9rem;font-weight:700;color:var(--c-374151);white-space:nowrap">${totalWritten} of ${totalActs} written</span>
+        <div style="flex:1;background:var(--c-e5e7eb);border-radius:9999px;height:4px;max-width:100px">
           <div style="background:var(--primary);height:100%;width:${pct}%;border-radius:9999px"></div>
         </div>
       </div>
@@ -31696,13 +32241,13 @@ function buildGroupItemsWithSidebar(target, data, attendees, allPas, grpSubsByPa
   }
 
   // Sidebar: pinned fixed header + scrollable nav buttons (same approach as individual)
-  let sidebarFixedHtml = `<div style="padding:.5rem .9rem .45rem;border-bottom:1px solid #e5e7eb;display:flex;align-items:center;justify-content:space-between;flex-shrink:0">
-    <span style="font-size:.7rem;text-transform:uppercase;letter-spacing:.05em;color:#9ca3af;font-weight:600">Menu</span>
-    <button class="grp-sec-toggle-btn" contenteditable="false" title="Hide sections" style="background:none;border:none;cursor:pointer;font-size:1.3rem;color:#9ca3af;line-height:1;padding:.05rem .2rem;flex-shrink:0">×</button>
+  let sidebarFixedHtml = `<div style="padding:.5rem .9rem .45rem;border-bottom:1px solid var(--c-e5e7eb);display:flex;align-items:center;justify-content:space-between;flex-shrink:0">
+    <span style="font-size:.7rem;text-transform:uppercase;letter-spacing:.05em;color:var(--c-9ca3af);font-weight:600">Menu</span>
+    <button class="grp-sec-toggle-btn" contenteditable="false" title="Hide sections" style="background:none;border:none;cursor:pointer;font-size:1.3rem;color:var(--c-9ca3af);line-height:1;padding:.05rem .2rem;flex-shrink:0">×</button>
   </div>
-  <div style="padding:.6rem .9rem .5rem;border-bottom:1px solid #e5e7eb;flex-shrink:0">
-    <div style="font-size:.88rem;font-weight:700;color:#111827;margin-bottom:.35rem">${totalWritten} of ${totalActs} written</div>
-    <div style="background:#e5e7eb;border-radius:9999px;height:5px"><div style="background:var(--primary);height:100%;width:${pct}%;border-radius:9999px"></div></div>
+  <div style="padding:.6rem .9rem .5rem;border-bottom:1px solid var(--c-e5e7eb);flex-shrink:0">
+    <div style="font-size:.88rem;font-weight:700;color:var(--c-111827);margin-bottom:.35rem">${totalWritten} of ${totalActs} written</div>
+    <div style="background:var(--c-e5e7eb);border-radius:9999px;height:5px"><div style="background:var(--primary);height:100%;width:${pct}%;border-radius:9999px"></div></div>
   </div>`;
 
   let sidebarNavHtml = '';
@@ -31710,14 +32255,14 @@ function buildGroupItemsWithSidebar(target, data, attendees, allPas, grpSubsByPa
     // First section active initially; scroll listener updates dynamically
     const isAct = i === 0;
     sidebarNavHtml += `<button class="grp-sec-nav-btn" data-sec-idx="${i}" contenteditable="false" onmousedown="event.preventDefault()"
-      style="width:100%;text-align:left;padding:.6rem .9rem;border:none;border-bottom:1px solid #f3f4f6;cursor:pointer;background:${isAct ? 'var(--primary-light)' : 'transparent'};border-left:3px solid ${isAct ? 'var(--primary)' : 'transparent'};border-radius:0">
-      <div style="font-size:.82rem;font-weight:${isAct ? '700' : '500'};color:${isAct ? 'var(--primary-dark)' : '#374151'};word-break:break-word;line-height:1.3">${escHtml(grp.name)}</div>
-      <div style="font-size:.72rem;color:#9ca3af;margin-top:.15rem">${written}/${total}</div>
+      style="width:100%;text-align:left;padding:.6rem .9rem;border:none;border-bottom:1px solid var(--c-f3f4f6);cursor:pointer;background:${isAct ? 'var(--primary-light)' : 'transparent'};border-left:3px solid ${isAct ? 'var(--primary)' : 'transparent'};border-radius:0">
+      <div style="font-size:.82rem;font-weight:${isAct ? '700' : '500'};color:${isAct ? 'var(--primary-dark)' : 'var(--c-374151)'};word-break:break-word;line-height:1.3">${escHtml(grp.name)}</div>
+      <div style="font-size:.72rem;color:var(--c-9ca3af);margin-top:.15rem">${written}/${total}</div>
     </button>`;
   });
 
   return [`<div class="sec-layout" style="display:flex;gap:0;align-items:stretch;flex:1;min-height:0">
-    <div class="grp-sec-sidebar" contenteditable="false" style="width:190px;flex-shrink:0;border-right:1px solid #e5e7eb;background:#fafafa;display:flex;flex-direction:column;min-height:0;overflow:hidden">
+    <div class="grp-sec-sidebar" contenteditable="false" style="width:190px;flex-shrink:0;border-right:1px solid var(--c-e5e7eb);background:var(--c-fafafa);display:flex;flex-direction:column;min-height:0;overflow:hidden">
       ${sidebarFixedHtml}
       <div style="flex:1;overflow-y:auto">${sidebarNavHtml}</div>
     </div>
@@ -31763,7 +32308,7 @@ function buildGroupItemsByStudent(target, data, attendees, _grpFilterPaSet = nul
       console.error("renderGroupStudentBlock failed for", studentName, e);
       items.push(`<div class="group-by-student-block" data-student="${escHtml(studentName)}">
         <div class="activity-group-heading" contenteditable="false">${escHtml(studentName)}</div>
-        <p style="padding:1rem;color:#dc2626;font-size:.85rem">Error loading: ${escHtml(e?.message || String(e))}</p>
+        <p style="padding:1rem;color:var(--c-dc2626);font-size:.85rem">Error loading: ${escHtml(e?.message || String(e))}</p>
       </div>`);
     }
   }
@@ -31840,14 +32385,14 @@ function renderGroupStudentActivityCard(studentName, actName, actId, target, dat
     )
   );
   const byStudentDot = byStudentIsWritten
-    ? `<span style="display:inline-flex;align-items:center;justify-content:center;width:17px;height:17px;border-radius:50%;background:#22c55e;color:#fff;font-size:.6rem;font-weight:900;margin-right:.3rem;flex-shrink:0;align-self:flex-start;margin-top:.35rem">✓</span>`
-    : `<span style="display:inline-flex;align-items:center;justify-content:center;width:17px;height:17px;border-radius:50%;border:2px solid #d1d5db;margin-right:.3rem;flex-shrink:0;align-self:flex-start;margin-top:.35rem"></span>`;
+    ? `<span style="display:inline-flex;align-items:center;justify-content:center;width:17px;height:17px;border-radius:50%;background:var(--c-22c55e);color:var(--c-onaccent);font-size:.6rem;font-weight:900;margin-right:.3rem;flex-shrink:0;align-self:flex-start;margin-top:.35rem">✓</span>`
+    : `<span style="display:inline-flex;align-items:center;justify-content:center;width:17px;height:17px;border-radius:50%;border:2px solid var(--c-d1d5db);margin-right:.3rem;flex-shrink:0;align-self:flex-start;margin-top:.35rem"></span>`;
 
   let html = `<div class="entry-block entry-block-predefined" data-act-name="${escHtml(actName)}" data-act-id="${escHtml(actId || "")}">
     <div class="entry-field" contenteditable="false">
       ${byStudentDot}<span class="field-label">Activity</span>
-      <span class="field-value-fixed">${actNum ? `<span style="color:#6b7280;font-weight:600;margin-right:.2rem">${actNum})</span>` : ""}${pa ? paDisplayHtml(pa, true) : formatActivityMarkup(actName)}</span>
-      ${(pa?.activeFrom || pa?.createdOn) ? `<span style="font-size:.75rem;color:#9ca3af;white-space:nowrap;flex-shrink:0;align-self:flex-start">Created: ${fmtPeriodDate(pa.activeFrom || pa.createdOn)}</span>` : ""}
+      <span class="field-value-fixed">${actNum ? `<span style="color:var(--c-6b7280);font-weight:600;margin-right:.2rem">${actNum})</span>` : ""}${pa ? paDisplayHtml(pa, true) : formatActivityMarkup(actName)}</span>
+      ${(pa?.activeFrom || pa?.createdOn) ? `<span style="font-size:.75rem;color:var(--c-9ca3af);white-space:nowrap;flex-shrink:0;align-self:flex-start">Created: ${fmtPeriodDate(pa.activeFrom || pa.createdOn)}</span>` : ""}
       ${pa?.id ? `<button class="btn-icon btn-grp-edit-pencil" contenteditable="false" data-pa-id="${escHtml(pa.id)}" title="Edit in Edit Target" style="font-size:.85rem;opacity:.55;line-height:1">✏️</button>` : ""}
     </div>
     ${noteRow}`;
@@ -31917,7 +32462,7 @@ function renderGroupStudentRowCompact(remId, rem, target, noTrials = false) {
         <div class="trials-row">
           <div class="trials-badges"></div>
           <button class="btn-primary-sm btn-trial-not-required" disabled
-            style="background:#e5e7eb;color:#9ca3af;border-color:#e5e7eb;cursor:default;box-shadow:none">+ Trial (Not Required)</button>
+            style="background:var(--c-e5e7eb);color:var(--c-9ca3af);border-color:var(--c-e5e7eb);cursor:default;box-shadow:none">+ Trial (Not Required)</button>
         </div>
       </div>`
     : `<div class="entry-field" contenteditable="false">
@@ -31965,7 +32510,7 @@ function renderGroupActivityCard(actName, actId, target, data, attendees, actNot
   // When used as a sub-card (suppressHeader=true), the outer subactivity wrapper already
   // provides the border/shadow/radius — use plain padding-only div to avoid double border.
   const _grpCardIsGray = !suppressHeader && (paEntry?.activityColor === "gray" || paEntry?.isMaintainLive || paEntry?.maintained);
-  const _grpCardGrayStyle = _grpCardIsGray ? ' style="background:#f3f4f6;border:1px solid #e5e7eb;border-left:4px solid #d1d5db"' : '';
+  const _grpCardGrayStyle = _grpCardIsGray ? ' style="background:var(--c-f3f4f6);border:1px solid var(--c-e5e7eb);border-left:4px solid var(--c-d1d5db)"' : '';
   const _outerOpen = suppressHeader
     ? `<div style="padding:.5rem .85rem" data-act-name="${escHtml(actName)}" data-act-id="${escHtml(actId || "")}">`
     : `<div class="entry-block entry-block-predefined"${_grpCardGrayStyle} data-act-name="${escHtml(actName)}" data-act-id="${escHtml(actId || "")}">`;
@@ -31988,8 +32533,8 @@ function renderGroupActivityCard(actName, actId, target, data, attendees, actNot
   const isGrpParentAct = (target.predefinedActivities || []).some(p => p.parentActivity && p.parentActivity === actName);
   const grpWrittenDot = (filterPaSet && !isGrpParentAct)
     ? (grpHasRealContent
-      ? `<span style="display:inline-flex;align-items:center;justify-content:center;width:17px;height:17px;border-radius:50%;background:#22c55e;color:#fff;font-size:.6rem;font-weight:900;margin-right:.3rem;flex-shrink:0;align-self:flex-start;margin-top:.35rem">✓</span>`
-      : `<span style="display:inline-flex;align-items:center;justify-content:center;width:17px;height:17px;border-radius:50%;border:2px solid #d1d5db;margin-right:.3rem;flex-shrink:0;align-self:flex-start;margin-top:.35rem"></span>`)
+      ? `<span style="display:inline-flex;align-items:center;justify-content:center;width:17px;height:17px;border-radius:50%;background:var(--c-22c55e);color:var(--c-onaccent);font-size:.6rem;font-weight:900;margin-right:.3rem;flex-shrink:0;align-self:flex-start;margin-top:.35rem">✓</span>`
+      : `<span style="display:inline-flex;align-items:center;justify-content:center;width:17px;height:17px;border-radius:50%;border:2px solid var(--c-d1d5db);margin-right:.3rem;flex-shrink:0;align-self:flex-start;margin-top:.35rem"></span>`)
     : '';
 
   // Collapsed: no data yet → single "+ Add Remark & Trials" button (like individual session)
@@ -31997,15 +32542,15 @@ function renderGroupActivityCard(actName, actId, target, data, attendees, actNot
     return `${_outerOpen}
       ${suppressHeader ? "" : `<div class="entry-field" contenteditable="false">
         ${grpWrittenDot}<span class="field-label">Activity</span>
-        <span class="field-value-fixed">${inactiveReasonBadge(paEntry)}${actNum ? `<span style="color:#6b7280;font-weight:600;margin-right:.2rem">${actNum})</span>` : ""}${paEntry ? paDisplayHtml(paEntry, true) : formatActivityMarkup(actName)}</span>
-        ${(paEntry?.activeFrom || paEntry?.createdOn) ? `<span style="font-size:.75rem;color:#9ca3af;white-space:nowrap;flex-shrink:0;align-self:flex-start">Created: ${fmtPeriodDate(paEntry.activeFrom || paEntry.createdOn)}</span>` : ""}
+        <span class="field-value-fixed">${inactiveReasonBadge(paEntry)}${actNum ? `<span style="color:var(--c-6b7280);font-weight:600;margin-right:.2rem">${actNum})</span>` : ""}${paEntry ? paDisplayHtml(paEntry, true) : formatActivityMarkup(actName)}</span>
+        ${(paEntry?.activeFrom || paEntry?.createdOn) ? `<span style="font-size:.75rem;color:var(--c-9ca3af);white-space:nowrap;flex-shrink:0;align-self:flex-start">Created: ${fmtPeriodDate(paEntry.activeFrom || paEntry.createdOn)}</span>` : ""}
         ${paEntry?.id ? `<button class="btn-icon btn-grp-edit-pencil" contenteditable="false" data-pa-id="${escHtml(paEntry.id)}" title="Edit in Edit Target" style="font-size:.85rem;opacity:.55;line-height:1">✏️</button>` : ""}
       </div>`}
       ${noteRow}
       ${noOpts
         ? `<div class="entry-field" contenteditable="false">
             <span class="field-label">${multiSelect ? "CHECKBOXES" : "MULTIPLE CHOICE"}</span>
-            <span style="color:#9ca3af;font-style:italic;font-size:.88rem">&lt;Please Add Options in Edit Target&gt;</span>
+            <span style="color:var(--c-9ca3af);font-style:italic;font-size:.88rem">&lt;Please Add Options in Edit Target&gt;</span>
           </div>`
         : `<button class="btn-add-remark btn-group-add-remark-all" contenteditable="false"
             data-act-id="${escHtml(actId || "")}"
@@ -32058,8 +32603,8 @@ function renderGroupActivityCard(actName, actId, target, data, attendees, actNot
   return `${_outerOpen}
     ${suppressHeader ? "" : `<div class="entry-field" contenteditable="false">
       ${grpWrittenDot}<span class="field-label">Activity</span>
-      <span class="field-value-fixed">${inactiveReasonBadge(paEntry)}${actNum ? `<span style="color:#6b7280;font-weight:600;margin-right:.2rem">${actNum})</span>` : ""}${paEntry ? paDisplayHtml(paEntry, true) : formatActivityMarkup(actName)}</span>
-      ${(paEntry?.activeFrom || paEntry?.createdOn) ? `<span style="font-size:.75rem;color:#9ca3af;white-space:nowrap;flex-shrink:0;align-self:flex-start">Created: ${fmtPeriodDate(paEntry.activeFrom || paEntry.createdOn)}</span>` : ""}
+      <span class="field-value-fixed">${inactiveReasonBadge(paEntry)}${actNum ? `<span style="color:var(--c-6b7280);font-weight:600;margin-right:.2rem">${actNum})</span>` : ""}${paEntry ? paDisplayHtml(paEntry, true) : formatActivityMarkup(actName)}</span>
+      ${(paEntry?.activeFrom || paEntry?.createdOn) ? `<span style="font-size:.75rem;color:var(--c-9ca3af);white-space:nowrap;flex-shrink:0;align-self:flex-start">Created: ${fmtPeriodDate(paEntry.activeFrom || paEntry.createdOn)}</span>` : ""}
       ${paEntry?.id ? `<button class="btn-icon btn-grp-edit-pencil" contenteditable="false" data-pa-id="${escHtml(paEntry.id)}" title="Edit in Edit Target" style="font-size:.85rem;opacity:.55;line-height:1">✏️</button>` : ""}
     </div>`}
     ${noteRow}
@@ -32098,7 +32643,7 @@ function renderGroupStudentRow(studentName, remId, rem, target, inlineOptions = 
         <div class="trials-row">
           <div class="trials-badges"></div>
           <button class="btn-primary-sm btn-trial-not-required" disabled
-            style="background:#e5e7eb;color:#9ca3af;border-color:#e5e7eb;cursor:default;box-shadow:none">+ Trial (Not Required)</button>
+            style="background:var(--c-e5e7eb);color:var(--c-9ca3af);border-color:var(--c-e5e7eb);cursor:default;box-shadow:none">+ Trial (Not Required)</button>
         </div>
       </div>`
     : `<div class="entry-field" contenteditable="false">
@@ -32118,9 +32663,9 @@ function renderGroupStudentRow(studentName, remId, rem, target, inlineOptions = 
       if (multiSelect) {
         const sel = remText.split(", ").map(s => s.trim()).filter(Boolean);
         const gone = sel.filter(s => !opts.includes(s));
-        return gone.length ? `<div style="font-size:.78rem;color:#9ca3af;margin-top:.3rem;font-style:italic">Old data: ${escHtml(gone.join(", "))}</div>` : "";
+        return gone.length ? `<div style="font-size:.78rem;color:var(--c-9ca3af);margin-top:.3rem;font-style:italic">Old data: ${escHtml(gone.join(", "))}</div>` : "";
       }
-      return !opts.includes(remText) ? `<div style="font-size:.78rem;color:#9ca3af;margin-top:.3rem;font-style:italic">Old data: ${escHtml(remText)}</div>` : "";
+      return !opts.includes(remText) ? `<div style="font-size:.78rem;color:var(--c-9ca3af);margin-top:.3rem;font-style:italic">Old data: ${escHtml(remText)}</div>` : "";
     })();
     if (multiSelect) {
       const sel = (remText || "").split(", ").map(s => s.trim()).filter(Boolean);
@@ -32176,7 +32721,7 @@ function renderGroupStudentRow(studentName, remId, rem, target, inlineOptions = 
     noteField = _grpExistingNote
       ? `<div class="entry-field" contenteditable="false">
           <span class="field-label">Remark</span>
-          <div style="font-size:.78rem;color:#9ca3af;font-style:italic">Old data: ${escHtml(_grpExistingNote)}</div>
+          <div style="font-size:.78rem;color:var(--c-9ca3af);font-style:italic">Old data: ${escHtml(_grpExistingNote)}</div>
         </div>`
       : "";
   }
@@ -32357,7 +32902,7 @@ function attachGroupTargetListeners(target) {
         const nameDiv = navBtn.querySelector("div:first-child");
         if (nameDiv) {
           nameDiv.style.fontWeight = isActive ? '700' : '500';
-          nameDiv.style.color = isActive ? 'var(--primary-dark)' : '#374151';
+          nameDiv.style.color = isActive ? 'var(--primary-dark)' : 'var(--c-374151)';
         }
       });
     };
@@ -32835,6 +33380,11 @@ function renderGroupSessionsForMonth(group, month, monthSessions, byMonth, sessi
 
 // ── Group manage modal ───────────────────────────────────────
 function openGroupManageModal(group, target = null, scrollToPaId = null, _lockHeld = false) {
+  // Opening the window is a fresh start: the Mastered and Discontinued
+  // lists are collapsed again. The set survives a re-render on purpose,
+  // so that editing a row inside one does not shut it, but it used to
+  // survive closing the window too and they came back open.
+  _mnOpenInactGroups.clear();
   if (target && !_lockHeld) {
     mnOpenWhenFree(group, target, true, () =>
       openGroupManageModal(group, target, scrollToPaId, true));

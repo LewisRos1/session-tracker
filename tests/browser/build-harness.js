@@ -405,6 +405,13 @@ const exposed = [
   // A student's note is the only thing telling two records with the same
   // name apart once a report is sitting in a downloads folder.
   "studentLabel", "studentFileLabel",
+  // The duplicate-name rule. Reaching it by typing exercises one branch per
+  // test; calling it directly covers the rest, including the shapes that only
+  // exist on live (a Behaviour Chart's two ABC sets, a mastered twin).
+  "mnNameConflict", "mnNormName", "mnIsParentRow",
+  // The View/Edit past session table, so a test can read the rows it builds
+  // rather than driving the whole screen to get at them.
+  "buildTargetViewTable",
 ];
 let shim = `
 
