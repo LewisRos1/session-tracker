@@ -301,6 +301,21 @@
   --pick-fg:       #1b1f24;
   --badge-bg:      #ffffff;
   --badge-fg:      #1b1f24;
+  /* Lighter than the row so it reads as chosen, nowhere near white. */
+  --chip-on-bg:    #555b66;
+  --chip-on-fg:    #f2f5f9;
+  /* Unchanged on purpose: see the light block. */
+  --pill-dark:     #1f2430;
+  --pill-done:     #16a34a;   /* a step brighter over a dark page */
+  --pill-fail:     #dc2626;   /* a step brighter over a dark page */
+  /* A toast interrupts. It is the one thing on screen that has to be
+     read now, so rather than holding still it goes the opposite way to
+     the page: a dark pill over a light page, a white one over a dark
+     page. Lewis asked for white-on-black having seen it in dark mode,
+     and a white pill over the light page would be the same fault he
+     reported, the other way up. */
+  --toast-bg:      #ffffff;
+  --toast-fg:      #111827;
 }
 
 /* ─── RESET & TOKENS ────────────────────────────────────── */
@@ -326,6 +341,27 @@
   --pick-bg:       var(--c-6366f1);
   --pick-bg-hover: var(--c-4f46e5);
   --pick-fg:       #ffffff;
+  /* A ticked option is its own thing again. White is right for a picked
+     day in the date grid -- one cell out of thirty-five, and it has to be
+     findable at a glance -- but a row of ticked answer bubbles in white
+     was shouting. Grey in dark mode, still clearly the chosen one. */
+  --chip-on-bg:    var(--c-6366f1);
+  --chip-on-fg:    #ffffff;
+  /* A toast and a progress pill are dark objects floating over the page,
+     in both themes, with white text on them. They were written with the
+     TEXT end of the grey ramp -- --c-111827 and --c-1f2937 -- which is a
+     near-black in light mode and so looked right, then mirrored to a
+     near-white in dark mode and left white text sitting on it. Lewis could
+     not read "Locked. Only Nigel can tick this." at all.
+
+     Same for the done and fail pills: a 700-weight green and red flip to
+     pale, and white text does not survive either. These five hold still. */
+  --pill-dark:     #1f2430;
+  --pill-done:     #15803d;
+  --pill-fail:     #b91c1c;
+  /* Inverted, so it still shouts. */
+  --toast-bg:      #1f2430;
+  --toast-fg:      #ffffff;
   /* The to-do count. Blue rather than indigo in light mode, so it keeps its
      own value rather than being folded into --pick-bg. */
   --badge-bg:      var(--c-3b82f6);
@@ -1548,9 +1584,9 @@ input.field-input::placeholder {
 .btn-remark-opt--multi { border-radius: 4px; }
 
 .btn-remark-opt.active {
-  background: var(--pick-bg);
-  border-color: var(--pick-bg);
-  color: var(--pick-fg);
+  background: var(--chip-on-bg);
+  border-color: var(--chip-on-bg);
+  color: var(--chip-on-fg);
   font-weight: 600;
 }
 
@@ -1571,9 +1607,9 @@ input.field-input::placeholder {
 }
 .view-remark-multi-btn:hover { border-color: var(--primary-accent); color: var(--primary-accent); }
 .view-remark-multi-btn.active {
-  background: var(--pick-bg);
-  border-color: var(--pick-bg);
-  color: var(--pick-fg);
+  background: var(--chip-on-bg);
+  border-color: var(--chip-on-bg);
+  color: var(--chip-on-fg);
   font-weight: 600;
 }
 .view-remark-multi-btn--rect,
@@ -1599,9 +1635,9 @@ input.field-input::placeholder {
 .view-multi-create-btn:hover,
 .view-group-multi-create-btn:hover { border-color: var(--primary-accent); color: var(--primary-accent); }
 .view-remark-single-btn.active {
-  background: var(--pick-bg);
-  border-color: var(--pick-bg);
-  color: var(--pick-fg);
+  background: var(--chip-on-bg);
+  border-color: var(--chip-on-bg);
+  color: var(--chip-on-fg);
   font-weight: 600;
 }
 
@@ -2089,8 +2125,8 @@ input.field-input::placeholder {
   bottom: 80px;
   left: 50%;
   transform: translateX(-50%);
-  background: var(--c-1f2937);
-  color: var(--c-onaccent);
+  background: var(--toast-bg);
+  color: var(--toast-fg);
   padding: .65rem 1.25rem;
   border-radius: 20px;
   font-size: .9rem;
@@ -2955,9 +2991,9 @@ div.admin-note-editable:empty::before {
 }
 .btn-mastery:hover { border-color: var(--primary-accent); background: var(--primary-light); }
 .btn-mastery.active {
-  background: var(--pick-bg);
-  border-color: var(--pick-bg);
-  color: var(--pick-fg);
+  background: var(--chip-on-bg);
+  border-color: var(--chip-on-bg);
+  color: var(--chip-on-fg);
   font-weight: 600;
 }
 /* slightly smaller in the view table */
@@ -3687,6 +3723,9 @@ button.wf-pill:hover { filter: brightness(.93); }
 .wf-note-btn.wf-note-btn--red:hover { background: var(--c-fecaca); border-color: var(--c-dc2626); }
 .wf-note-btn.wf-note-btn--green { background: var(--c-d1fae5); border-color: var(--c-10b981); color: var(--c-064e3b); }
 .wf-note-btn.wf-note-btn--green:hover { background: var(--c-a7f3d0); border-color: var(--c-059669); }
+/* Nobody has looked at this list yet, so it is neither. */
+.wf-note-btn.wf-note-btn--grey { background: var(--c-f3f4f6); border-color: var(--c-d1d5db); color: var(--c-6b7280); }
+.wf-note-btn.wf-note-btn--grey:hover { background: var(--c-e5e7eb); border-color: var(--c-9ca3af); }
 
 /* chk-export-btn keeps its pill style but sits in the grid */
 .wf-export-wrap .chk-export-btn { margin: 0; }
@@ -3712,6 +3751,44 @@ button.wf-pill:hover { filter: brightness(.93); }
   user-select: none;
 }
 .sticky-note.hidden { display: none; }
+
+/* The sticky note in dark mode.
+
+   It is a note, so in light mode it is yellow and meant to be. On a dark
+   page that yellow was the brightest thing on screen and read as an alarm.
+
+   This also puts the close button back. It was never missing: its colour
+   and its header's colour both come from the amber family, so in dark mode
+   it was pale amber on yellow -- measured at 19 points of brightness
+   apart, where about 60 is the floor for something you have to find. The
+   note now has a header that is darker than its own body, and the cross
+   sits on it in near-white. */
+:root[data-theme="dark"] .sticky-note {
+  background: #20242a;
+  border-color: #3a4049;
+  box-shadow: 3px 6px 22px rgba(0,0,0,.5);
+}
+:root[data-theme="dark"] .sticky-note-header {
+  background: #2b3038;
+  color: #e6eaf0;
+}
+:root[data-theme="dark"] .sticky-note-close { color: #e6eaf0; }
+:root[data-theme="dark"] .sticky-note-close:hover { color: #ffffff; }
+:root[data-theme="dark"] .snote-table {
+  color: #d7dce3;
+  border-color: #3a4049;
+}
+:root[data-theme="dark"] .snote-table thead th {
+  background: #2b3038;
+  color: #e6eaf0;
+  border-bottom-color: #3a4049;
+  border-right-color: #3a4049;
+}
+:root[data-theme="dark"] .snote-row td {
+  border-bottom-color: #30353d;
+  border-right-color: #30353d;
+}
+:root[data-theme="dark"] .snote-no { color: #a3abb8; }
 
 .sticky-note-header {
   background: var(--c-fde047);
@@ -3863,8 +3940,8 @@ button.wf-pill:hover { filter: brightness(.93); }
   bottom: 2.2rem;
   transform: translateX(-50%) translateY(.5rem);
   z-index: 2000;
-  background: var(--c-111827);
-  color: var(--c-onaccent);
+  background: var(--toast-bg);
+  color: var(--toast-fg);
   font-size: .85rem;
   font-weight: 600;
   padding: .6rem 1.1rem;
@@ -3880,8 +3957,13 @@ button.wf-pill:hover { filter: brightness(.93); }
   opacity: 1;
   transform: translateX(-50%) translateY(0);
 }
-.snote-row--done .snote-text { text-decoration: line-through; opacity: .6; }
-.snote-row--waiting .snote-text { color: var(--c-9a3412); }
+/* A correction reads the same whatever its status. It used to fade to 60%
+   once approved and turn orange while it waited, so the same sentence was
+   three different colours over its life and the one still needing work was
+   the hardest of the three to read. The status is the dropdown's job; this
+   column is just the words. Approved keeps the line through it, which says
+   the same thing without touching the colour. */
+.snote-row--done .snote-text { text-decoration: line-through; }
 .snote-empty { color: var(--c-92400e); opacity: .7; font-style: italic; font-size: .82rem; padding: .5rem .35rem; }
 
 .snote-textarea {
@@ -3891,7 +3973,11 @@ button.wf-pill:hover { filter: brightness(.93); }
   background: transparent;
   font-family: inherit;
   font-size: .84rem;
-  color: var(--c-422006);
+  /* Near-black on the light note, near-white on the dark one: --c-111827
+     is the headings token and mirrors, which is exactly the pair Lewis
+     asked for. It was the darkest amber before, which went pale in dark
+     mode and sat badly on the note's new background. */
+  color: var(--c-111827);
   overflow: hidden;
   min-height: 1.4em;
   padding: 0;
@@ -4613,14 +4699,14 @@ button.wf-pill:hover { filter: brightness(.93); }
 .progress-pill {
   display: none; align-items: center; gap: .65rem;
   padding: .6rem .95rem; border-radius: 999px;
-  background: var(--c-111827); color: var(--c-onaccent);
+  background: var(--toast-bg); color: var(--toast-fg);
   font-size: .85rem; font-weight: 600; line-height: 1.3;
   box-shadow: 0 8px 28px rgba(0,0,0,.28);
   max-width: min(92vw, 460px);
-  --pill-bg: var(--c-111827);
+  --pill-bg: var(--toast-bg);
 }
-.progress-pill.is-done { background: var(--c-15803d); --pill-bg: var(--c-15803d); }
-.progress-pill.is-fail { background: var(--c-b91c1c); --pill-bg: var(--c-b91c1c); }
+.progress-pill.is-done { background: var(--pill-done); color: var(--c-onaccent); --pill-bg: var(--pill-done); }
+.progress-pill.is-fail { background: var(--pill-fail); color: var(--c-onaccent); --pill-bg: var(--pill-fail); }
 /* A failure message is a sentence rather than a word, so it drops the fully
    rounded ends and lets the text wrap from the top. */
 .progress-pill.is-fail { border-radius: 14px; align-items: flex-start; }

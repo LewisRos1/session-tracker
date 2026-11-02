@@ -412,6 +412,18 @@ const exposed = [
   // The View/Edit past session table, so a test can read the rows it builds
   // rather than driving the whole screen to get at them.
   "buildTargetViewTable",
+  // The phase strip, so a test can read the List of Corrections button's
+  // wording without driving a whole session screen to reach it.
+  "renderCheckedByStripHtml",
+  // The corrections table inside the sticky note, so a test can see which
+  // controls each person is given on a row.
+  "renderStickyNoteContent",
+  // So a test can sign in as each person the way currentUser() reads it:
+  // state.authEmail matched against this list.
+  "USERS",
+  "getWorkflowState",
+  // Who may tick which phase pill.
+  "canTickPill",
 ];
 let shim = `
 

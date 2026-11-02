@@ -227,7 +227,7 @@ function versionLineText() {
   return `Made by Lewis · Version ${APP_VERSION}`;
 }
 
-const APP_VERSION = "2319";
+const APP_VERSION = "2335";
 
 // Debug helpers — call from F12 console
 // -1) Recover multiple-choice options wiped by the v2072-and-earlier panel bug:
@@ -15592,8 +15592,21 @@ function pillOwnerId(role) {
   return null;
 }
 
-/** You may tick your own pills and nobody else's. */
+/**
+ * You may tick your own pills and nobody else's -- unless you are the one
+ * supervising the work.
+ *
+ * Ms. Daisy was held to the same rule as Nigel and Rayhanah and could not
+ * tick their Phase 1 or Phase 3, which left her unable to move a session
+ * on for somebody who was out, or who had already told her in person. She
+ * is the one who checks all of it in Phases 2 and 4; refusing her the two
+ * phases in between was a rule nobody had asked for.
+ *
+ * The same pair as every other override in the app -- Ms. Daisy, and
+ * Lewis, who has to put things right when it goes wrong.
+ */
 function canTickPill(role) {
+  if (canSignOffCorrections()) return true;
   const me = workflowActorId();
   if (me === null) return true;
   const owner = pillOwnerId(role);
@@ -16321,6 +16334,64 @@ const canSignOffCorrections = () => ["daisy", "lewis"].includes(currentUser()?.i
 /** Whose turn a row is on: "them", "daisy", or null when it is finished. */
 const correctionTurn = c => correctionState(getCmtStatus(c)).turn;
 
+/**
+ * What the corrections pill says about one instructor, and its colour.
+ *
+ * Only the two that nobody has read yet say nothing. The pill is read in
+ * a row of them under the chart, so what it says has to be short enough
+ * to take in at a glance -- which is why these are three words at most,
+ * and why the two with nothing to report stay quiet:
+ *
+ *   grey, no words        nothing to read yet -- either the instructor
+ *                         has not entered the data, or Ms. Daisy has not
+ *                         checked it
+ *   green, (All Correct, No Corrections Needed)
+ *                         she checked and found nothing wrong, so
+ *                         Phase 3 and Phase 4 are skipped
+ *   red, (N mistakes)     N rows are back with the instructor
+ *   red, no words         every row fixed, Phase 3 not ticked -- the work
+ *                         is done but has not been handed over
+ *   red, (N to approve)   ticked, and N are waiting on Ms. Daisy
+ *   green, (All Approved) every row signed off
+ *
+ * What it says is about that person, not about whoever is reading it. It
+ * used to count whatever was on the reader's own plate -- "1 to check" for
+ * Ms. Daisy and "1 to fix" for Nigel, off one list -- so two people could
+ * not talk about what the pill said, and the half that was not yours went
+ * unmentioned. The mistakes are always the rows sitting on Needs Revision
+ * and "to approve" is always the rows sitting on Done, whoever is signed
+ * in.
+ *
+ * Where a list holds both, it names the mistakes, because Phase 3 cannot
+ * be ticked until those are gone. It hands over on the Phase 3 tick and
+ * not on the last row being fixed: the tick is the instructor saying they
+ * are finished, and until it lands the list is not Ms. Daisy's to count.
+ * Between the two clicks there is nobody to name, so it says nothing.
+ */
+
+function correctionSummaryFor(ws, id) {
+  if (ws.noCorr(id))     return { tone: "green", text: "All Correct, No Corrections Needed" };
+  if (!ws.p1Done(id))    return { tone: "grey",  text: "" };
+  if (!ws.p2EffDone(id)) return { tone: "grey",  text: "" };
+  const rows = ws.commentsFor(id);
+  if (!rows.length) return { tone: "green", text: "All Correct, No Corrections Needed" };
+  const mistakes = rows.filter(([, c]) => correctionTurn(c) === "them").length;
+  if (mistakes) {
+    return { tone: "red", text: `${mistakes} mistake${mistakes === 1 ? "" : "s"}` };
+  }
+  // Rows sitting on Done. None of them, and nothing is on Needs Revision
+  // either, so every one has been signed off.
+  const toApprove = rows.filter(([, c]) => correctionTurn(c) === "daisy").length;
+  if (!toApprove) return { tone: "green", text: "All Approved" };
+  // Fixed, but the instructor has not said so yet. Ticking Phase 3 is how
+  // they hand the list over, and until it lands the work is not Ms.
+  // Daisy's to count -- so the pill names nobody rather than counting
+  // rows onto a plate they are not on yet.
+  if (!ws.p3Done(id)) return { tone: "red", text: "" };
+  return { tone: "red", text: `${toApprove} to approve` };
+}
+
+
 // Returns null | "" | "done" | "fixed" for a correction entry. Older rows can
 // still say "rejected"; normaliseCorrection reads that as Needs Revision.
 function getCmtStatus(c) {
@@ -16486,6 +16557,22 @@ function getWorkflowState(data) {
 }
 
 // Derives the correct workflowStatus string from a ws snapshot.
+/**
+ * Exporting belongs to Phase 5, which stays locked until the four before
+ * it are done. The Export to Word button sits outside the chart and was
+ * not covered by that lock: you could open a session nobody had looked at,
+ * sitting in Phase 1, and send the note out -- which is the whole thing
+ * the five phases exist to stop, two clicks from the screen showing them
+ * all unfinished.
+ *
+ * The refusal names the last phase and nothing else. It first named the
+ * earliest outstanding phase and who it was waiting on, which is more
+ * than anybody wants from a button they pressed too early; the chart is
+ * right there and already says who is holding what.
+ */
+const EXPORT_NOT_READY_MSG = "You can export to Word once Phase 4 is complete.";
+
+
 function computeWorkflowStatus(ws) {
   if (ws.daisyOnly || ws.p3Ids.length === 0) return null;
   // Phase 4 check pending (highest priority — work almost done)
@@ -16690,29 +16777,12 @@ function renderCheckedByStripHtml(data, confirmRole, isGroup = false) {
   const noteIds = ws.daisyOnly ? [] : ws.p3Ids;
   const noteTrigger = `<div class="wf-note-wrap">
     ${noteIds.length === 0
-      ? `<button class="wf-note-btn" data-action="open-note" data-inst-id="">📝 List of Corrections</button>`
+      ? `<button class="wf-note-btn" data-action="open-note" data-inst-id="">📝 Corrections</button>`
       : noteIds.map(id => {
-          const idComments = ws.commentsFor(id);
-          const name = instName(id);
-          // What is still to do, not how many rows exist. The old count never
-          // moved as rows were worked through, so a list of five said "(5)"
-          // whether four were done or none were.
-          //
-          // Undone and Still Wrong both count as outstanding; only Corrected
-          // clears a row. An empty list and a fully corrected one both read
-          // "0 left"; the green says which kind of nothing it is.
-          const left = idComments.filter(([, c]) => getCmtStatus(c) !== "fixed").length;
-          // The number is what is waiting on the person reading it, so Ms.
-          // Daisy does not have to open the note to find out she is holding
-          // something. The colour still answers the other question -- whether
-          // the list is finished AT ALL -- so "0 to check" can sit on red
-          // while the fixing is still going on.
-          const mine = canSignOffCorrections() ? "daisy" : "them";
-          const yours = idComments.filter(([, c]) => correctionTurn(c) === mine).length;
-          const word  = mine === "daisy" ? "to check" : "to fix";
-          const colorCls = left === 0 ? " wf-note-btn--green" : " wf-note-btn--red";
-          return `<button class="wf-note-btn${colorCls}" data-action="open-note" data-inst-id="${escHtml(id)}">
-            📝 List of Corrections – ${escHtml(name)} (${left === 0 ? "all approved" : `${yours} ${word}`})
+          const s = correctionSummaryFor(ws, id);
+          const tail = s.text ? ` (${s.text})` : "";
+          return `<button class="wf-note-btn wf-note-btn--${s.tone}" data-action="open-note" data-inst-id="${escHtml(id)}">
+            📝 Corrections – ${escHtml(instName(id) + tail)}
           </button>`;
         }).join("")}
   </div>`;
@@ -16763,6 +16833,13 @@ async function handleCheckedByClick(e, isGroup) {
   // ── Export to Word button ────────────────────────────────────
   const exportBtn = e.target.closest(".chk-export-btn");
   if (exportBtn) {
+    // Phase 5 is where exporting belongs, and it stays locked until the
+    // four before it are done. The button sits outside the chart, so it
+    // was not covered by that lock and let anyone export from Phase 1.
+    if (!getWorkflowState(getData()).ready) {
+      alert(EXPORT_NOT_READY_MSG);
+      return true;
+    }
     requirePassword(() => {
       if (isGroup) {
         const attendees = state.viewGroupSessionData?.attendees || state.viewGroup?.students || [];
@@ -18718,9 +18795,66 @@ const DOCX_TEXT_PARTS = /^word\/(document|header\d*|footer\d*|footnotes|endnotes
 
 // ── Sticky Note — "List of Corrections" ──────────────────────
 
+/**
+ * A status dropdown somebody has open, and the render waiting on them.
+ *
+ * renderStickyNoteContent rebuilds the rows with innerHTML, which throws
+ * the <select> node away and shuts the list with it. Any render does it:
+ * a Firestore snapshot from the other window, or the focusout handler
+ * cashing in one that was deferred -- and opening a dropdown moves focus,
+ * which fires exactly that focusout. So the list opened and shut itself
+ * about half a second later, every single time.
+ *
+ * The app has had this fight before, over the target picker, which is what
+ * trackSelectOpen and state._targetSelDown are for. That one keeps its own
+ * node and only needed the render held off; these rows are rebuilt, so the
+ * render is held AND replayed once the dropdown is done with.
+ */
+let _snoteSelOpen = false;
+let _snoteSelTimer = null;
+let _snoteRenderPending = null;
+
+function snoteSelClosed() {
+  if (!_snoteSelOpen) return;
+  _snoteSelOpen = false;
+  clearTimeout(_snoteSelTimer);
+  // One tick late, so that picking an option runs its own handler against
+  // the row it was picked on rather than one the replay has just replaced.
+  setTimeout(() => {
+    const pending = _snoteRenderPending;
+    _snoteRenderPending = null;
+    if (pending) renderStickyNoteContent(pending[0], pending[1]);
+  }, 0);
+}
+
+function watchStickyNoteSelects() {
+  ["pointerdown", "touchstart"].forEach(ev =>
+    document.addEventListener(ev, e => {
+      if (e.target?.closest?.(".snote-status-sel")) {
+        _snoteSelOpen = true;
+        clearTimeout(_snoteSelTimer);
+        // A dropdown whose closing we never hear about must not freeze the
+        // note for the rest of the session.
+        _snoteSelTimer = setTimeout(snoteSelClosed, 30000);
+      } else {
+        snoteSelClosed();
+      }
+    }, { passive: true, capture: true }));
+  document.addEventListener("change", e => {
+    if (e.target?.closest?.(".snote-status-sel")) snoteSelClosed();
+  }, true);
+  document.addEventListener("keydown", e => {
+    if (e.key === "Escape" || e.key === "Enter" || e.key === "Tab") snoteSelClosed();
+  }, true);
+}
+
+
 function renderStickyNoteContent(data, isGroup) {
   const tbody = document.getElementById("sticky-note-rows");
   if (!tbody) return;
+  // Somebody has a status dropdown open. Rebuilding now would take it out
+  // from under them; this runs again the moment they are done with it.
+  if (_snoteSelOpen) { _snoteRenderPending = [data, isGroup]; return; }
 
   const ws  = getWorkflowState(data);
   // Filter comments to the open instructor
@@ -18802,12 +18936,16 @@ function renderStickyNoteContent(data, isGroup) {
       // the row back. It is a labelled way out of one mistake, not a free
       // choice in her list -- which is why it is a button and not an option.
       //
-      // Shown to everybody, not only to the person being corrected. It was
-      // hidden from anyone who can approve, on the grounds that they have
-      // Needs Revision in the list anyway -- but that put Lewis in front of
-      // a row saying Done with no button on it and nothing to explain why.
-      // One rule, visible to all, and it does the same thing either way.
-      const canUndo = st === "done";
+      // Not for Ms. Daisy. Needs Revision is the first entry in her own
+      // dropdown, so for her the button is a second door onto the same
+      // room, sitting under every row an instructor has ticked.
+      //
+      // Lewis keeps it. This was once hidden from everyone who can approve,
+      // which is the same test, and it was put back because it left him
+      // looking at a row saying Done with no button on it and nothing to
+      // say why. Naming her rather than reusing canSignOffCorrections is
+      // the difference between the two, and it is deliberate.
+      const canUndo = st === "done" && currentUser()?.id !== "daisy";
       const undoBtn = canUndo
         ? `<button class="snote-undo-btn" data-cmt-id="${id}"`
           + ` title="Not done yet - put this back to Needs Revision">`
@@ -18885,6 +19023,8 @@ function setupStickyNote() {
   const handle  = document.getElementById("sticky-note-drag-handle");
   const closeEl = document.getElementById("btn-sticky-note-close");
   if (!note || !handle || !closeEl) return;
+
+  watchStickyNoteSelects();
 
   // ── Drag ─────────────────────────────────────────────────────
   let dragging = false, ox = 0, oy = 0, nl = 0, nt = 0;
@@ -18997,6 +19137,14 @@ function setupStickyNote() {
   note.addEventListener("click", async e => {
     // + Add Correction
     if (e.target.id === "sticky-note-add-row-btn") {
+      // Writing a correction is Ms. Daisy's, the same as choosing Approved,
+      // and refused the same way: a box you have to dismiss, and the list
+      // left exactly as it was. The instructor's side of this panel is the
+      // Done tick and the text of a row she has already opened.
+      if (!canSignOffCorrections()) {
+        alert(`Only Ms. Daisy can add a correction.`);
+        return;
+      }
       const { sid, data } = getCtx();
       if (!sid) return;
       _focusNewRow = true;
@@ -19039,6 +19187,14 @@ function setupStickyNote() {
     // Delete row
     const delBtn = e.target.closest(".snote-del-btn");
     if (delBtn) {
+      // Hers, like adding one. A correction is Ms. Daisy saying something
+      // needs doing, so the person it was written for cannot make it go
+      // away -- and this one deletes without a trace, which is the reason
+      // it matters more than the other two.
+      if (!canSignOffCorrections()) {
+        alert(`Only Ms. Daisy can delete a correction.`);
+        return;
+      }
       const { sid } = getCtx();
       if (!sid) return;
       if (!confirm("Delete this row? This cannot be undone.")) return;
