@@ -427,6 +427,10 @@ const exposed = [
   // Repainting a date button in place, instead of redrawing the screen
   // and tearing down the panel the person is working in.
   "mnPaintDateBtn",
+  // Date of birth and age, which fill two rows of the report's Student
+  // Details. The maths is worth testing on its own.
+  "dobOn", "ageOn", "longDateText", "ordinalDay", "toDateOrNull",
+  "regIsDirty", "regFormValues", "saveOpenStudent",
 ];
 let shim = `
 
