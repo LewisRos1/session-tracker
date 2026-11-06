@@ -12,14 +12,16 @@ export const FIREBASE_CONFIG = {
   projectId:         "session-tracker-b663a",
   storageBucket:     "session-tracker-b663a.firebasestorage.app",
   messagingSenderId: "1011584567383",
-  appId:             "1:1011584567383:web:505e802505e14b0346a9f7"
+  appId:             "1:1011584567383:web:505e802505e14b0346a9f7",
+  // reCAPTCHA Enterprise key ID for App Check. Public by design: it is sent to
+  // every browser. Staging and live have separate keys, so this line differs
+  // between the two config.js files and must never be copied across.
+  appCheckSiteKey:   "6LdY-hIuAAAAAIg41x2iVwwNqyZlLbJv4ZMo0XXC"
 };
 // ────────────────────────────────────────────────────────────
 
 export const CONFIG = {
 
-  PIN: "0108",
-  PIN_LENGTH: 8,
 
   SCORE_LABELS: {
     3: {
